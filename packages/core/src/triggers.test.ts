@@ -144,3 +144,24 @@ it("retains trigger identity and counters when updating and rejects stale or for
   await expect(service.update(created.id, input, true, revision, "root-a")).rejects.toThrow("refresh");
   expect(service.list()[0]!.name).toBe("Updated");
 });
+
+it("pages bounded fire history, preserves it on edit and restores hourly counts after restart", async () => {
+  let attempt = 0;
+  const { service, dir } = await harness(vi.fn(async () => { attempt++; if (attempt === 2) return { skipped: "Target is busy" }; if (attempt === 3) throw new Error("Synthetic delivery failure"); return {}; }));
+  const definition: TriggerInput = { name: "History", source: { type: "file", path: path.join(dir, "watched"), events: ["changed"] }, action };
+  const trigger = await service.create("root-a", definition);
+  await service.fire(trigger.id); await service.fire(trigger.id); await service.fire(trigger.id);
+  const page = await service.history(trigger.id, 2);
+  expect(page.entries.map(entry => entry.status)).toEqual(["failed", "skipped-busy"]);
+  expect(page.nextBefore).toEqual(expect.any(String));
+  expect((await service.history(trigger.id, 2, page.nextBefore)).entries.map(entry => entry.status)).toEqual(["started"]);
+  expect(JSON.stringify(page)).not.toContain("React");
+  await service.update(trigger.id, { ...definition, name: "Edited" }, false);
+  expect((await service.history(trigger.id)).entries).toHaveLength(3);
+  await service.close();
+  const reloaded = new TriggerService("/workspace", vi.fn(async () => ({})), vi.fn(), path.join(dir, "state")); services.push(reloaded); await reloaded.start();
+  expect(reloaded.list(true)[0]).toMatchObject({ recentFires: 1, fireCount: 1 });
+  expect((await reloaded.history(trigger.id)).entries).toHaveLength(3);
+  await expect(reloaded.history(trigger.id, 101)).rejects.toThrow("page");
+  await expect(reloaded.history(trigger.id, 2, "unknown")).rejects.toThrow("refresh");
+});

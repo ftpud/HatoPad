@@ -79,6 +79,15 @@ it("advertises capabilities and bounds file, diff and conversation reads", async
     expect(await request("tasks.commitMessage.get", { taskId: cloudTask.id }, secondRoot)).toMatchObject({ ok: false, error: { code: "FILE_NOT_FOUND" } });
     await request("workspace.selectRoot", { rootId, includeTree: false }, secondRoot);
 
+    const selectedBeforeWork = (await request("tasks.list", {}, rootId)).result.selectedTaskId;
+    const workOverview = await request("overview.work", { limit: 1 });
+    expect(workOverview).toMatchObject({ ok: true, result: { rows: [expect.objectContaining({ rootId: expect.any(String), sessions: expect.any(Array), terminals: expect.any(Number) })], totalTargets: expect.any(Number) } });
+    expect(JSON.stringify(workOverview.result)).not.toContain("b\\nb\\n");
+    expect((await request("tasks.list", {}, rootId)).result.selectedTaskId).toBe(selectedBeforeWork);
+    expect(await request("overview.work", { limit: 26 })).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("ai.configureNext", { configuration: { unexpected: true } }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("ai.configureNext", { configuration: {} }, rootId)).toMatchObject({ ok: true, result: { session: { nextConfiguration: {} } } });
+
     expect(await request("filesystem.readFile", { path: "big.txt", maxBytes: 10 }, rootId)).toMatchObject({ ok: false, error: { code: "FILE_TOO_LARGE" } });
     expect(await request("filesystem.readFile", { path: "big.txt", maxBytes: 1000 }, rootId)).toMatchObject({ ok: true });
     expect(await request("filesystem.readFile", { path: "big.txt" }, rootId)).toMatchObject({ ok: true });

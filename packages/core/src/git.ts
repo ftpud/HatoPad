@@ -55,7 +55,7 @@ export class GitService {
       return { ...entry, group: conflicted ? "conflicted" : entry.indexStatus === "?" ? "untracked" : entry.indexStatus !== " " ? "staged" : "working-tree", additions: unknown ? null : values.reduce((sum, value) => sum + (value.additions ?? 0), 0), deletions: unknown ? null : values.reduce((sum, value) => sum + (value.deletions ?? 0), 0) };
     });
     const revision = createHash("sha256").update(JSON.stringify({ ...status, entries })).digest("hex");
-    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: entries.slice(offset, offset + limit), ...(offset + limit < entries.length ? { nextOffset: offset + limit } : {}) };
+    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, conflicts: entries.filter(entry => entry.group === "conflicted").length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: entries.slice(offset, offset + limit), ...(offset + limit < entries.length ? { nextOffset: offset + limit } : {}) };
   }
 
   private async upstreamStatus(): Promise<GitUpstreamStatus | undefined> {

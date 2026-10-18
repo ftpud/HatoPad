@@ -20,6 +20,8 @@ import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { workPage, workText, type WorkTarget } from "./overview-work.js";
+import { TerminalWatchers } from "./terminal-watchers.js";
 import { watchSnapshot, watchSummary } from "./terminal-watch.js";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
@@ -219,6 +221,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   const rootWatchOwnersForServer = new Map<SwitchedWatch, () => void>();
   const removingRoots = new Set<string>();
   const terminalSubscriptions = new Map<WebSocket, { rootId: string; workspace: string; terminalIds: Set<string> }>();
+  const terminalWatchers = new TerminalWatchers<WebSocket>((socket, event) => sendWebSocketData(socket, JSON.stringify(event)));
   const terminalOwners = new Map<string, { socket: WebSocket; rootId: string; workspace: string }>();
   const processesChanged = () => { const encoded = JSON.stringify({ type: "processes.changed", payload: {} } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
   managedProcesses.on("changed", processesChanged); managedProcesses.start();
@@ -235,6 +238,8 @@ export async function createServer(host: string, port: number, workspacePath: st
       }).catch((error) => console.error("[core] Could not announce terminal", error));
       return;
     }
+    if (event.type === "output") terminalWatchers.output(event.workspace, event.terminalId, event.data);
+    else terminalWatchers.exit(event.workspace, event.terminalId, event.exitCode);
     runConfigs?.onTerminalEvent(event);
     const owner = terminalOwners.get(event.terminalId);
     if (owner && owner.workspace === event.workspace) {
@@ -325,6 +330,50 @@ export async function createServer(host: string, port: number, workspacePath: st
       }
     }
     return pageOverview(buildOverview(sources, truncated, workflows, counts), payload);
+  };
+  const overviewWork = async (payload: ProtocolOperations["overview.work"]["payload"]): Promise<ProtocolOperations["overview.work"]["result"]> => {
+    const allRoots = roots.list(); const targets: WorkTarget[] = []; let truncated = allRoots.length > overviewLimits.maxRoots;
+    const workflowLists = new Map<string, Awaited<ReturnType<HarnessStore["summaries"]>>>();
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const context = contextFor(root.id), registry = await context.tasks.list();
+      const tasks = [...registry.tasks].sort((a, b) => a.id.localeCompare(b.id));
+      if (tasks.length > overviewLimits.maxTasksPerRoot) truncated = true;
+      targets.push({ rootId: root.id, rootAlias: workText(root.alias), name: workText(root.alias), status: "root", archived: false, workspace: root.path });
+      for (const task of tasks.slice(0, overviewLimits.maxTasksPerRoot)) targets.push({ rootId: root.id, rootAlias: workText(root.alias), taskId: task.id, name: workText(task.name), branch: workText(task.branch, 200), status: task.status, archived: task.archived, workspace: context.tasks.taskPath(task.id) });
+    }
+    targets.sort((a, b) => a.rootId.localeCompare(b.rootId) || (a.taskId ?? "").localeCompare(b.taskId ?? ""));
+    const page = workPage(targets, payload, truncated);
+    const timers = await aiTimers.list(), allSchedules = schedules.list(), allTriggers = triggers.list(true);
+    const providers = acp.list().slice(0, 32); if (acp.list().length > providers.length) page.result.truncated = true;
+    for (const target of page.targets) {
+      const { workspace, ...identity } = target;
+      const row: import("@hatopad/protocol").OverviewWorkRow = { ...identity, sessions: [], terminals: terminalHost.list(workspace).filter(terminal => terminal.status === "running").length, workflowsActive: 0, workflowRunIds: [], schedules: 0, triggers: 0, timers: [], timerCount: 0, issues: [] };
+      for (const item of providers) {
+        try {
+          const session = await acp.get(item.id).get(workspace);
+          const last = session.messages.at(-1), preview = session.messages.slice(-100).reverse().find(message => message.role === "assistant" || message.role === "activity") ?? last;
+          row.sessions.push({ provider: item.id, ...(session.id ? { sessionId: session.id } : {}), status: session.status, preview: workText(preview?.text), ...(last?.timestamp ?? session.updatedAt ? { updatedAt: last?.timestamp ?? session.updatedAt } : {}), pendingQuestion: Boolean(session.pendingQuestion), pendingPermission: Boolean(session.pendingPermission), ...(session.failure ? { failure: { ...session.failure, message: workText(session.failure.message) } } : {}) });
+          if (session.failure || session.status === "error") row.issues.push({ id: `ai:${item.id}:${session.id ?? ""}`, kind: session.failure?.kind === "quota_exhausted" ? "quota" : session.failure?.kind === "permission_required" ? "provider-setup" : "task-error", title: workText(session.failure?.message || "Agent task failed"), provider: item.id, ...(session.updatedAt ? { at: session.updatedAt } : {}) });
+        } catch { row.issues.push({ id: `provider:${item.id}`, kind: "provider-setup", title: "Provider state unavailable", provider: item.id }); }
+      }
+      try { const git = await new GitService(workspace).summary(1); row.git = { additions: git.additions, deletions: git.deletions, unknownCounts: git.unknownCounts, totalFiles: git.totalFiles, conflicts: git.conflicts, branch: workText(git.branch, 200), ...(git.upstream ? { upstream: git.upstream } : {}) }; if (git.conflicts) row.issues.push({ id: "git:conflicts", kind: "merge-conflict", title: `${git.conflicts} files have merge conflicts` }); } catch { row.gitUnavailable = true; }
+      let runs = workflowLists.get(target.rootId);
+      if (!runs) { runs = await contextFor(target.rootId).harnesses.summaries(); workflowLists.set(target.rootId, runs); }
+      const ownedRuns = runs.filter(run => (run.binding?.taskId ?? undefined) === target.taskId);
+      const ownedRunIds = new Set(ownedRuns.map(run => run.id));
+      const activeRuns = ownedRuns.filter(run => !["succeeded", "failed", "blocked", "cancelled"].includes(run.status)); row.workflowsActive = activeRuns.length; row.workflowRunIds = activeRuns.slice(0, 10).map(run => run.id);
+      for (const run of ownedRuns.filter(run => run.status === "failed" || run.status === "blocked").slice(0, 10)) row.issues.push({ id: `workflow:${run.id}`, kind: "workflow-failed", title: workText(run.error || "Workflow failed or was interrupted"), runId: run.id, at: run.completedAt ?? run.createdAt });
+      const ownedTimers = timers.filter(timer => path.resolve(timer.workspace) === path.resolve(workspace) || (timer.workflowRunId !== undefined && ownedRunIds.has(timer.workflowRunId)));
+      row.timerCount = ownedTimers.length; row.timers = ownedTimers.slice(0, 10).map(timer => ({ id: timer.id, provider: timer.provider, dueAt: timer.dueAt, ...(timer.workflowRunId ? { workflowRunId: timer.workflowRunId } : {}), ...(timer.workflowBlockId ? { workflowBlockId: timer.workflowBlockId } : {}) }));
+      for (const timer of ownedTimers.filter(timer => Date.parse(timer.dueAt) < Date.now()).slice(0, 10)) row.issues.push({ id: `timer:${timer.id}`, kind: "timer-overdue", title: "Continuation timer is overdue", timerId: timer.id, at: timer.dueAt });
+      const ownSchedules = allSchedules.filter(schedule => schedule.rootId === target.rootId && schedule.taskId === target.taskId); row.schedules = ownSchedules.filter(schedule => schedule.enabled).length;
+      for (const schedule of ownSchedules.filter(schedule => schedule.lastError).slice(0, 10)) row.issues.push({ id: `schedule:${schedule.id}`, kind: "schedule-failed", title: workText(schedule.lastError), scheduleId: schedule.id, ...(schedule.lastRunAt ? { at: schedule.lastRunAt } : {}) });
+      const ownTriggers = allTriggers.filter(trigger => trigger.rootId === target.rootId && trigger.taskId === target.taskId); row.triggers = ownTriggers.filter(trigger => trigger.enabled).length;
+      for (const trigger of ownTriggers.filter(trigger => trigger.lastError || trigger.lastSkipped).slice(0, 10)) row.issues.push({ id: `trigger:${trigger.id}`, kind: trigger.lastSkipped ? "trigger-busy" : "trigger-capped", title: workText(trigger.lastSkipped ?? trigger.lastError), triggerId: trigger.id, ...(trigger.lastFiredAt ? { at: trigger.lastFiredAt } : {}) });
+      page.result.rows.push(row);
+    }
+    if (Buffer.byteLength(JSON.stringify(page.result)) > 900_000) throw new CoreError("INVALID_REQUEST", "Work overview exceeds the response budget; use a smaller page");
+    return page.result;
   };
   const harnessRunners = new Map<string, HarnessRunner>();
   const storage = new ServerStorage({
@@ -458,7 +507,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   };
   const schedules = new ScheduleService(rootWorkspace, (schedule, active) => deliverAction(schedule, active, "schedule paused"), () => {
     const encoded = JSON.stringify({ type: "timers.changed", payload: {} } satisfies ServerEvent);
-    for (const socket of activeSessions) sendWebSocketData(socket, encoded);
+    for (const socket of activeSessions) { sendWebSocketData(socket, encoded); sendWebSocketData(socket, JSON.stringify({ type: "automation.changed", payload: { kind: "schedule" } } satisfies ServerEvent)); }
   });
   const triggers = new TriggerService(rootWorkspace, async (trigger, event, active) => {
     const note = `\n\n[Started by trigger "${trigger.name}": ${event.description}]${event.data ? `\n\`\`\`\n${event.data}\n\`\`\`` : ""}`;
@@ -466,7 +515,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     catch (error) { if (error instanceof DeliveryBusy) return { skipped: error.message }; throw error; }
   }, () => {
     const encoded = JSON.stringify({ type: "timers.changed", payload: {} } satisfies ServerEvent);
-    for (const socket of activeSessions) sendWebSocketData(socket, encoded);
+    for (const socket of activeSessions) { sendWebSocketData(socket, encoded); sendWebSocketData(socket, JSON.stringify({ type: "automation.changed", payload: { kind: "trigger" } } satisfies ServerEvent)); }
   });
   await aiTimers.start();
   const onTasksChanged = async () => {
@@ -746,6 +795,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { roots: roots.list(), selectedRootId: selectedRoot.id } }));
           return;
         }
+        if (parsed.type === "overview.work") { sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewWork(parsed.payload) } satisfies Response<"overview.work">)); return; }
         if (parsed.type === "overview.summary") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewSummary(parsed.payload) } satisfies Response<"overview.summary">));
           return;
@@ -830,6 +880,7 @@ export async function createServer(host: string, port: number, workspacePath: st
               admission.assertOpen();
               selectedRoot = nextRoot; liveRootSelections.select(socket, nextRoot.id);
               servicesPromise = Promise.resolve(nextServices);
+              terminalWatchers.disconnect(socket);
               terminalSubscriptions.set(socket, { rootId: nextRoot.id, workspace: nextServices.workspacePath, terminalIds: new Set() });
               trackCleanup(previousServices.languages.dispose());
             }, async ({ nextServices, nextWatch }) => {
@@ -843,17 +894,29 @@ export async function createServer(host: string, port: number, workspacePath: st
             trackCleanup(services.languages.dispose());
             servicesPromise = makeServices(selected.workspace);
             services = await servicesPromise!;
+            terminalWatchers.disconnect(socket);
             terminalSubscriptions.set(socket, { rootId: selectedRoot.id, workspace: selected.workspace, terminalIds: new Set() });
             await commitSwitchedWatch(selectedRoot.id, await prepareSwitchedWatch(selected.workspace));
           }
         } finally { release?.(); }
         admission.assertOpen();
+        if (parsed.type === "terminal.watch.ack" || parsed.type === "terminal.watch.detach") {
+          const scope = { rootId: requestRoot.id, workspace: services.workspacePath };
+          if (typeof parsed.payload.watchId !== "string") throw new CoreError("INVALID_REQUEST", "watchId must be a string");
+          if (parsed.type === "terminal.watch.ack") terminalWatchers.acknowledge(socket, scope, parsed.payload.watchId, parsed.payload.sequence);
+          else terminalWatchers.detach(socket, scope, parsed.payload.watchId);
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: {} })); return;
+        }
         let result = parsed.type === "workspace.selectRoot"
           ? rootSelectionResult!
           : parsed.type === "storage.scan" ? storage.scan()
           : parsed.type === "storage.status" ? storage.status()
           : parsed.type === "storage.cleanup" ? storage.cleanup(parsed.payload)
           : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
+        if (parsed.type === "terminal.watch.attach" && parsed.payload.follow === true && (result as { state: string }).state === "available") {
+          const watchId = terminalWatchers.attach(socket, { rootId: requestRoot.id, workspace: services.workspacePath }, parsed.payload.terminalId);
+          result = { ...(result as object), watchId };
+        }
         if (parsed.type === "tasks.list" || parsed.type === "tasks.switch" || parsed.type === "tasks.delete") result = withConnectionSelection(requestRoot.id, result);
         if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
         const terminalSubscription = terminalSubscriptions.get(socket);
@@ -877,6 +940,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     socket.on("close", () => {
       activeSessions.delete(socket);
       liveRootSelections.disconnect(socket);
+      terminalWatchers.disconnect(socket);
       terminalSubscriptions.delete(socket);
       for (const [id, owner] of terminalOwners) if (owner.socket === socket) terminalOwners.delete(id);
       const cleanup = (async () => {
@@ -917,7 +981,7 @@ function optionalByteLimit(value: unknown): number | undefined {
 }
 
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
-  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary") return;
+  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }
@@ -1050,6 +1114,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "schedules.enabled": { assertAutomationOwner("schedule", request.payload.scheduleId); return { schedule: await schedules.setEnabled(request.payload.scheduleId, request.payload.enabled) }; }
     case "schedules.delete": { assertAutomationOwner("schedule", request.payload.scheduleId); return { deleted: await schedules.delete(request.payload.scheduleId) }; }
+    case "triggers.history": { assertAutomationOwner("trigger", request.payload.triggerId); return triggers.history(request.payload.triggerId, request.payload.limit, request.payload.before); }
     case "triggers.list": return { triggers: triggers.list(true).filter(item => item.rootId === request.rootId) };
     case "triggers.create": {
       automationInput(request.payload, "trigger");
@@ -1146,10 +1211,32 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "ai.auth.start": return { authentication: await acp.get(request.payload.provider).authenticate(workspacePath, request.payload.methodId) };
     case "ai.auth.input": return { authentication: await acp.get(request.payload.provider).authenticationInput(workspacePath, request.payload) };
     case "ai.models": return { models: await acp.get(request.payload.provider).models() };
+    case "ai.configureNext": {
+      const configuration = request.payload.configuration;
+      if (!configuration || typeof configuration !== "object" || Array.isArray(configuration) || Object.keys(configuration).some(key => !["model", "reasoning"].includes(key)) || Object.values(configuration).some(value => typeof value !== "string" || value.length > 200)) throw new CoreError("INVALID_REQUEST", "Choose valid next-turn model and reasoning values");
+      const provider = acp.get(request.payload.provider);
+      if (!Object.keys(configuration).length) return { session: await provider.configureNext(workspacePath, configuration) };
+      const session = await provider.get(workspacePath);
+      const models = await provider.models();
+      const selected = models.find(model => model.id === (configuration.model ?? session.model));
+      if (configuration.model !== undefined && (!configuration.model || !selected || selected.available === false)) throw new CoreError("INVALID_REQUEST", "Choose an available model");
+      if (configuration.reasoning !== undefined && configuration.reasoning !== "" && selected && !selected.reasoningLevels.includes(configuration.reasoning)) throw new CoreError("INVALID_REQUEST", "Choose a supported reasoning level");
+      return { session: await provider.configureNext(workspacePath, configuration) };
+    }
     case "ai.configure": return { session: await acp.get(request.payload.provider).configure(workspacePath, { ...request.payload.configuration, ...(request.payload.model ? { model: request.payload.model } : {}), ...(request.payload.reasoning ? { reasoning: request.payload.reasoning } : {}) }) };
     case "ai.send": {
       const appTools = withAppTools(rootWorkspace, workspacePath, request.payload.mcpServers, request.payload.agent, request.payload.provider, bridgeWorkspace);
       return { session: await acp.get(request.payload.provider).send(workspacePath, { prompt: request.payload.prompt, content: request.payload.content, configuration: { ...request.payload.configuration, ...(request.payload.model ? { model: request.payload.model } : {}), ...(request.payload.reasoning ? { reasoning: request.payload.reasoning } : {}) }, mcpServers: appTools.servers, agent: appTools.agent, agentPreset: request.payload.agentPreset }) };
+    }
+    case "attention.read": {
+      const { provider, taskId, sessionId, requestId } = request.payload;
+      if (typeof provider !== "string" || !provider || typeof requestId !== "string" || !requestId || requestId.length > 512 || (sessionId !== undefined && (typeof sessionId !== "string" || !sessionId || sessionId.length > 512))) throw new CoreError("INVALID_REQUEST", "Choose a valid attention target");
+      const target = await permissionTargetWorkspace(tasks, rootWorkspace, taskId);
+      const session = await acp.get(provider).get(target);
+      if (sessionId !== undefined && session.id !== sessionId) return { state: "resolved" };
+      if (session.pendingPermission?.id === requestId) return { state: "pending", ...(session.id ? { sessionId: session.id } : {}), permission: boundPermission(session.pendingPermission) };
+      if (session.pendingQuestion?.id === requestId) return { state: "pending", ...(session.id ? { sessionId: session.id } : {}), question: boundQuestion(session.pendingQuestion) };
+      return { state: "resolved" };
     }
     case "ai.permission.resolve": {
       // Permission cards can remain mounted while the user changes tasks. A target supplied by the
@@ -1376,9 +1463,11 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "terminal.create": {
       return terminalHost.create(workspacePath, request.payload.cols, request.payload.rows, workspacePath, request.payload.displayName);
     }
+    case "terminal.watch.ack": case "terminal.watch.detach": throw new CoreError("INVALID_REQUEST", "Terminal watcher requires a connection");
     case "terminal.watch.list": return { terminals: terminalHost.list(workspacePath).map(watchSummary) };
     case "terminal.watch.attach": {
-      const { terminalId, maxBytes } = request.payload;
+      const { terminalId, maxBytes, follow } = request.payload;
+      if (follow !== undefined && typeof follow !== "boolean") throw new CoreError("INVALID_REQUEST", "follow must be a boolean");
       if (typeof terminalId !== "string") throw new CoreError("INVALID_REQUEST", "terminalId must be a string");
       if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < terminalWatchLimits.minBytes || maxBytes > terminalWatchLimits.maxBytes)) throw new CoreError("INVALID_REQUEST", `maxBytes must be an integer from ${terminalWatchLimits.minBytes} to ${terminalWatchLimits.maxBytes}`);
       const session = terminalHost.attach(workspacePath, terminalId);
@@ -1489,9 +1578,19 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "git.rebasePreview": return git.rebasePreview();
     case "git.rebaseStart": return git.rebaseStart(request.payload.expectedHead, request.payload.expectedUpstreamHead, request.payload.base, request.payload.items);
     case "git.rebaseAbort": return git.rebaseAbort();
+    case "taskGit.files": return checkpoints.files(request.payload.checkpointId, request.payload.direction, request.payload.limit, request.payload.offset);
+    case "taskGit.revert": {
+      const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
+      if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before reverting a checkpoint");
+      return checkpoints.revert(request.payload.checkpointId, request.payload.paths);
+    }
     case "taskGit.history": return { checkpoints: await checkpoints.history() };
     case "taskGit.diff": return checkpoints.diff(request.payload.checkpointId, request.payload.path);
-    case "taskGit.review": return checkpoints.review(request.payload.checkpointId, request.payload.paths);
+    case "taskGit.review": {
+      const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
+      if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before applying a checkpoint");
+      return checkpoints.review(request.payload.checkpointId, request.payload.paths);
+    }
     case "taskGit.restore": {
       const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
       if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before restoring a checkpoint");

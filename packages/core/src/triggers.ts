@@ -7,7 +7,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { TriggerFileEvent, TriggerInput, WorkspaceTrigger } from "@hatopad/protocol";
+import type { TriggerFireRecord, TriggerFileEvent, TriggerInput, WorkspaceTrigger } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { serializedStateMutation } from "./root-mutation.js";
 import { validateScheduledAction } from "./schedules.js";
@@ -37,7 +37,8 @@ export function validateTrigger(input: TriggerInput): void {
 
 function revision(value: object): string { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 
-type TriggerFile = { triggers: WorkspaceTrigger[] };
+type StoredTrigger = WorkspaceTrigger & { history?: TriggerFireRecord[]; recentFireTimes?: number[] };
+type TriggerFile = { triggers: StoredTrigger[] };
 
 /**
  * Reactive counterpart of the schedule service: instead of a due time, a trigger fires when a watched
@@ -46,7 +47,7 @@ type TriggerFile = { triggers: WorkspaceTrigger[] };
  */
 export class TriggerService {
   private readonly file: string;
-  private triggers: WorkspaceTrigger[] = [];
+  private triggers: StoredTrigger[] = [];
   private readonly disarmers = new Map<string, () => void>();
   private readonly pending = new Map<string, { timer: NodeJS.Timeout; event: TriggerEvent }>();
   private readonly running = new Set<string>();
@@ -63,10 +64,25 @@ export class TriggerService {
   async start(): Promise<void> {
     this.assertOpen();
     this.triggers = await this.read();
-    for (const trigger of this.triggers) void this.arm(trigger);
+    for (const trigger of this.triggers) { this.fireTimes.set(trigger.id, (trigger.recentFireTimes ?? []).filter(time => Date.now() - time < 3_600_000)); void this.arm(trigger); }
   }
 
-  list(includeRevision = false): WorkspaceTrigger[] { return this.triggers.map((trigger) => structuredClone({ ...trigger, ...(includeRevision ? { revision: revision(trigger) } : {}) })).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+  list(includeRevision = false): WorkspaceTrigger[] { return this.triggers.map(trigger => {
+    const { history: _history, recentFireTimes: _times, ...record } = trigger;
+    const recent = (this.fireTimes.get(trigger.id) ?? []).filter(time => Date.now() - time < 3_600_000);
+    return structuredClone({ ...record, ...(includeRevision ? { revision: revision(trigger), recentFires: recent.length, firing: this.running.has(trigger.id), ...(recent[0] !== undefined ? { capResetsAt: new Date(recent[0] + 3_600_000).toISOString() } : {}) } : {}) });
+  }).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+
+  async history(id: string, limit = 25, before?: string): Promise<{ entries: TriggerFireRecord[]; nextBefore?: string }> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 || (before !== undefined && (typeof before !== "string" || before.length > 128))) throw new CoreError("INVALID_REQUEST", "Choose a valid trigger history page");
+    const trigger = (await this.read()).find(item => item.id === id);
+    if (!trigger) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists");
+    const records = trigger.history ?? [];
+    const end = before === undefined ? records.length : records.findIndex(item => item.id === before);
+    if (end < 0) throw new CoreError("INVALID_REQUEST", "Trigger history changed; refresh the latest page");
+    const start = Math.max(0, end - limit);
+    return { entries: records.slice(start, end).reverse(), ...(start > 0 ? { nextBefore: records[start]!.id } : {}) };
+  }
 
   /** `input.source.path` must already be absolute. */
   async create(rootId: string, input: TriggerInput): Promise<WorkspaceTrigger> {
@@ -93,7 +109,7 @@ export class TriggerService {
       const previous = items.find(item => item.id === id && (rootId === undefined || item.rootId === rootId));
       if (!previous) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists in this root");
       if ((expectedRevision !== undefined && revision(previous) !== expectedRevision) || this.running.has(id)) throw new CoreError("INVALID_REQUEST", "Trigger changed or is firing; refresh before editing");
-      return items.map((item) => item.id === id ? { ...structuredClone(input), name: input.name.trim(), id, rootId: item.rootId, createdAt: item.createdAt, fireCount: item.fireCount, enabled, ...(item.lastFiredAt ? { lastFiredAt: item.lastFiredAt } : {}), ...(item.lastEvent ? { lastEvent: item.lastEvent } : {}), ...(item.lastWorkflowRunId ? { lastWorkflowRunId: item.lastWorkflowRunId } : {}) } : item);
+      return items.map((item) => item.id === id ? { ...structuredClone(input), name: input.name.trim(), id, rootId: item.rootId, createdAt: item.createdAt, fireCount: item.fireCount, ...(item.history ? { history: item.history } : {}), ...(item.recentFireTimes ? { recentFireTimes: item.recentFireTimes } : {}), enabled, ...(item.lastFiredAt ? { lastFiredAt: item.lastFiredAt } : {}), ...(item.lastEvent ? { lastEvent: item.lastEvent } : {}), ...(item.lastWorkflowRunId ? { lastWorkflowRunId: item.lastWorkflowRunId } : {}) } : item);
     });
     const trigger = this.triggers.find((item) => item.id === id);
     if (!trigger) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists");
@@ -215,14 +231,14 @@ export class TriggerService {
   private async fireNow(id: string, event: TriggerEvent, manual: boolean): Promise<boolean> {
     const trigger = this.triggers.find((item) => item.id === id);
     if (this.closed || !trigger || (!manual && !trigger.enabled)) return false;
-    if (this.running.has(id)) { if (!manual) await this.record(id, { lastSkipped: "Previous run is still being started" }); return false; }
+    if (this.running.has(id)) { if (!manual) await this.record(id, { lastSkipped: "Previous run is still being started" }, false, { event: event.description, status: "skipped-busy", reason: "Previous run is still being started" }); return false; }
     if (!manual) {
       const now = Date.now(); const limit = trigger.maxFiresPerHour ?? DEFAULT_MAX_FIRES_PER_HOUR;
       const recent = (this.fireTimes.get(id) ?? []).filter((time) => now - time < 3_600_000);
       this.fireTimes.set(id, recent);
       if (recent.length >= limit) {
         this.cancel(id);
-        await this.record(id, { enabled: false, lastError: `Disabled: fired ${recent.length} times within an hour (limit ${limit}). Check for a feedback loop, then resume.` });
+        await this.record(id, { enabled: false, lastError: `Disabled: fired ${recent.length} times within an hour (limit ${limit}). Check for a feedback loop, then resume.` }, false, { event: event.description, status: "capped", reason: "Hourly cap reached" });
         return false;
       }
     }
@@ -233,23 +249,23 @@ export class TriggerService {
     try { result = await this.deliver(structuredClone(trigger), event, active); }
     catch (error) {
       this.running.delete(id);
-      await this.record(id, { lastError: error instanceof Error ? error.message : String(error), lastSkipped: undefined });
+      await this.record(id, { lastError: error instanceof Error ? error.message : String(error), lastSkipped: undefined }, false, { event: event.description, status: "failed", reason: "Delivery failed; inspect the current trigger state" });
       return false;
     }
     // Release before bookkeeping so an event arriving while state is saved is not mistaken for an overlap.
     this.running.delete(id);
-    if (result.skipped) { await this.record(id, { lastSkipped: result.skipped }); return false; }
+    if (result.skipped) { await this.record(id, { lastSkipped: result.skipped }, false, { event: event.description, status: "skipped-busy", reason: result.skipped }); return false; }
     if (!active()) return false;
     this.fireTimes.set(id, [...(this.fireTimes.get(id) ?? []), Date.now()]);
-    await this.record(id, { lastFiredAt: new Date().toISOString(), lastEvent: event.description, lastSkipped: undefined, lastError: undefined, ...(result.workflowRunId ? { lastWorkflowRunId: result.workflowRunId } : {}) }, true);
+    await this.record(id, { lastFiredAt: new Date().toISOString(), lastEvent: event.description, lastSkipped: undefined, lastError: undefined, ...(result.workflowRunId ? { lastWorkflowRunId: result.workflowRunId } : {}) }, true, { event: event.description, status: "started" });
     return true;
   }
 
-  private async record(id: string, patch: Partial<WorkspaceTrigger>, fired = false): Promise<void> {
-    await this.mutate((items) => items.map((item) => item.id === id ? { ...item, ...patch, ...(fired ? { fireCount: item.fireCount + 1 } : {}) } : item)).catch((error) => console.error("[core] could not save trigger state", error));
+  private async record(id: string, patch: Partial<WorkspaceTrigger>, fired = false, history?: Pick<TriggerFireRecord, "event" | "status" | "reason">): Promise<void> {
+    await this.mutate((items) => items.map((item) => item.id === id ? { ...item, ...patch, ...(fired ? { fireCount: item.fireCount + 1, recentFireTimes: [...(item.recentFireTimes ?? []).filter(time => Date.now() - time < 3_600_000), Date.now()].slice(-1000) } : {}), ...(history ? { history: [...(item.history ?? []), { id: crypto.randomUUID(), at: new Date().toISOString(), event: history.event.slice(0, 400), status: history.status, ...(history.reason ? { reason: history.reason.slice(0, 160) } : {}) }].slice(-100) } : {}) } : item)).catch((error) => console.error("[core] could not save trigger state", error));
   }
 
-  private async read(): Promise<WorkspaceTrigger[]> {
+  private async read(): Promise<StoredTrigger[]> {
     let text: string;
     try { text = await readFile(this.file, "utf8"); }
     catch (error) {
@@ -264,17 +280,19 @@ export class TriggerService {
     } catch (error) { throw new CoreError("READ_FAILED", `Invalid trigger state in ${this.file}: ${error instanceof Error ? error.message : String(error)}`); }
   }
 
-  private validateStored(triggers: WorkspaceTrigger[]): void {
+  private validateStored(triggers: StoredTrigger[]): void {
     const ids = new Set<string>();
     for (const trigger of triggers) {
       if (!trigger || typeof trigger !== "object") throw new Error("trigger record must be an object");
       validateTrigger(trigger);
       if (typeof trigger.id !== "string" || !trigger.id.trim() || ids.has(trigger.id) || typeof trigger.rootId !== "string" || typeof trigger.enabled !== "boolean" || !Number.isInteger(trigger.fireCount)) throw new Error("saved trigger identity, root, enabled or fireCount is invalid");
+      if (trigger.history !== undefined && (!Array.isArray(trigger.history) || trigger.history.length > 100 || trigger.history.some(record => !record || typeof record.id !== "string" || typeof record.at !== "string" || !Number.isFinite(Date.parse(record.at)) || typeof record.event !== "string" || record.event.length > 400 || !["started", "skipped-busy", "capped", "failed"].includes(record.status) || (record.reason !== undefined && (typeof record.reason !== "string" || record.reason.length > 160))))) throw new Error("saved trigger history is invalid");
+      if (trigger.recentFireTimes !== undefined && (!Array.isArray(trigger.recentFireTimes) || trigger.recentFireTimes.length > 1000 || trigger.recentFireTimes.some(time => !Number.isSafeInteger(time) || time < 0))) throw new Error("saved trigger fire times are invalid");
       ids.add(trigger.id);
     }
   }
 
-  private async mutate(update: (items: WorkspaceTrigger[]) => WorkspaceTrigger[]): Promise<void> {
+  private async mutate(update: (items: StoredTrigger[]) => StoredTrigger[]): Promise<void> {
     const write = this.writes.catch(() => undefined).then(() => serializedStateMutation(this.file, async () => {
       const items = update(await this.read());
       this.validateStored(items);

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -76,4 +76,41 @@ it("returns paged checkpoint counts without prompt or file bodies", async () => 
   expect(all.find(item => item.id === first)).toMatchObject({ fileCount: 1, additions: 1, deletions: 1, unknownCounts: 0 });
   expect(all.find(item => item.id === second)).toMatchObject({ fileCount: 1, additions: 2, deletions: 0 });
   await expect(store.summary(101)).rejects.toThrow("page");
+});
+
+it("pages file metadata and reverses selected checkpoint changes without overwriting later edits", async () => {
+  const { workspace, store } = await fixture();
+  const id = await store.begin("codex", "PRIVATE PROMPT");
+  await writeFile(path.join(workspace, "tracked.txt"), "after\n");
+  await writeFile(path.join(workspace, "new.txt"), "new\n");
+  await store.complete(id, "completed");
+  const page = await store.files(id, "revert", 1);
+  expect(page.files).toHaveLength(1); expect(page.totalFiles).toBe(2); expect(page.nextOffset).toBe(1);
+  expect(JSON.stringify(page)).not.toContain("PRIVATE PROMPT");
+  expect(JSON.stringify(page)).not.toContain("after\\n");
+  await expect(store.revert(id, ["absent.txt"])).rejects.toThrow("not part");
+  expect(await store.revert(id, ["tracked.txt"])).toMatchObject({ applied: ["tracked.txt"], conflicts: [] });
+  expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("before\n");
+  expect(await readFile(path.join(workspace, "new.txt"), "utf8")).toBe("new\n");
+  await writeFile(path.join(workspace, "new.txt"), "later edit\n");
+  expect(await store.revert(id, ["new.txt"])).toMatchObject({ applied: [], conflicts: [{ path: "new.txt" }] });
+  expect(await readFile(path.join(workspace, "new.txt"), "utf8")).toBe("later edit\n");
+  await expect(store.files(id, "revert", 101)).rejects.toThrow("page");
+});
+
+it("never follows replaced parent symlinks or removes a directory when applying checkpoint files", async () => {
+  const { workspace, store } = await fixture();
+  await mkdir(path.join(workspace, "parent"));
+  const id = await store.begin("codex", "Synthetic boundary check");
+  await writeFile(path.join(workspace, "parent", "file.txt"), "captured\n");
+  await store.complete(id, "completed");
+  await rm(path.join(workspace, "parent"), { recursive: true });
+  const outside = await mkdtemp(path.join(os.tmpdir(), "checkpoint-outside-")); roots.push(outside);
+  await symlink(outside, path.join(workspace, "parent"));
+  expect(await store.restore(id)).toMatchObject({ applied: [], conflicts: [{ path: "parent/file.txt" }] });
+  await expect(readFile(path.join(outside, "file.txt"))).rejects.toThrow();
+  await rm(path.join(workspace, "parent")); await mkdir(path.join(workspace, "parent", "file.txt"), { recursive: true });
+  await writeFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "keep");
+  expect(await store.restore(id)).toMatchObject({ applied: [], conflicts: [{ path: "parent/file.txt" }] });
+  expect(await readFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "utf8")).toBe("keep");
 });

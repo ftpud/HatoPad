@@ -4,8 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, lstat, mkdir, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance, TaskCheckpointSummary } from "@hatopad/protocol";
+import { chmod, lstat, mkdir, realpath, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance, TaskCheckpointSummary, TaskCheckpointApplyResult } from "@hatopad/protocol";
 import { diffLines } from "diff";
 import { CoreError } from "./errors.js";
 
@@ -87,6 +87,27 @@ export class TaskCheckpointStore {
     return { originalContent: originalContent.slice(0, limit), modifiedContent: modifiedContent.slice(0, limit), binary, truncated };
   }
 
+  async files(id: string, direction: "apply" | "revert" = "apply", limit = 100, offset = 0): Promise<{ files: TaskCheckpointFile[]; totalFiles: number; nextOffset?: number }> {
+    if (!["apply", "revert"].includes(direction) || !Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new CoreError("INVALID_REQUEST", "Choose a valid checkpoint file page");
+    const item = await this.read(id);
+    const after = item.after ?? item.before;
+    const files = direction === "revert" ? changes(after, item.before) : changes(item.before, after);
+    return { files: files.slice(offset, offset + limit), totalFiles: files.length, ...(offset + limit < files.length ? { nextOffset: offset + limit } : {}) };
+  }
+
+  /** Reverse only the captured changes; unrelated live edits are reported as conflicts. */
+  revert(id: string, requestedPaths?: string[]): Promise<TaskCheckpointApplyResult> {
+    return this.serial(async () => {
+      const item = await this.read(id);
+      if (!item.after) throw new CoreError("INVALID_REQUEST", "A running checkpoint cannot be reverted");
+      const files = changes(item.after, item.before);
+      if (requestedPaths !== undefined && (!Array.isArray(requestedPaths) || !requestedPaths.length || requestedPaths.length > 100 || requestedPaths.some(file => typeof file !== "string"))) throw new CoreError("INVALID_REQUEST", "Select between one and 100 checkpoint files");
+      const selected = requestedPaths === undefined ? files : files.filter(file => requestedPaths.includes(file.path));
+      if (requestedPaths && selected.length !== new Set(requestedPaths).size) throw new CoreError("INVALID_REQUEST", "A selected path is not part of that checkpoint");
+      return this.applyAll(selected, item.after, item.before);
+    });
+  }
+
   /** Apply checkpoint changes safely. The Git index is intentionally never read or written. */
   review(id: string, requestedPaths: string[]): Promise<{ applied: string[]; alreadyApplied: string[]; conflicts: { path: string; message: string }[] }> {
     return this.serial(async () => {
@@ -104,7 +125,13 @@ export class TaskCheckpointStore {
 
   private async applyAll(selected: TaskCheckpointFile[], before: Record<string, SnapshotEntry>, after: Record<string, SnapshotEntry>) {
     const result = { applied: [] as string[], alreadyApplied: [] as string[], conflicts: [] as { path: string; message: string }[] };
-    for (const change of selected) await this.apply(change, before, after, result);
+    for (const change of selected) {
+      try { await this.apply(change, before, after, result); }
+      catch (error) {
+        if (error instanceof CoreError && ["PATH_OUTSIDE_WORKSPACE", "CONFLICT"].includes(error.code)) result.conflicts.push({ path: change.path, message: "This path changed type or leaves the workspace; no changes were applied to it." });
+        else throw error;
+      }
+    }
     return result;
   }
   private async apply(change: TaskCheckpointFile, before: Record<string, SnapshotEntry>, after: Record<string, SnapshotEntry>, result: { applied: string[]; alreadyApplied: string[]; conflicts: { path: string; message: string }[] }): Promise<void> {
@@ -113,20 +140,20 @@ export class TaskCheckpointStore {
     const equal = (a?: SnapshotEntry, b?: SnapshotEntry) => a?.hash === b?.hash && a?.mode === b?.mode && a?.symlink === b?.symlink;
     if (change.status === "R") {
       if (!equal(oldCurrent, base) || current) { result.conflicts.push({ path: change.path, message: "The file was edited after this checkpoint; rename was not applied." }); return; }
-      await this.writeEntry(change.path, target!); await rm(this.target(oldPath), { force: true }); result.applied.push(change.path); return;
+      await this.writeEntry(change.path, target!); await rm(await this.checkedTarget(oldPath), { force: true }); result.applied.push(change.path); return;
     }
     if (equal(current, target)) { result.alreadyApplied.push(change.path); return; }
     if (!equal(current, base)) { result.conflicts.push({ path: change.path, message: "The file was edited after this checkpoint; review the three-way diff before resolving it." }); return; }
-    if (target) await this.writeEntry(change.path, target); else await rm(this.target(change.path), { force: true }); result.applied.push(change.path);
+    if (target) await this.writeEntry(change.path, target); else await rm(await this.checkedTarget(change.path), { force: true }); result.applied.push(change.path);
   }
-  private async live(file: string): Promise<SnapshotEntry | undefined> { try { const full = this.target(file); const stat = await lstat(full); if (!stat.isFile() && !stat.isSymbolicLink()) return undefined; const content = stat.isSymbolicLink() ? Buffer.from(await readlink(full)) : await readFile(full); return { hash: crypto.createHash("sha256").update(content).digest("hex"), size: content.length, mode: stat.mode, ...(stat.isSymbolicLink() ? { symlink: true } : {}), binary: content.includes(0) }; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; } }
-  private async writeEntry(file: string, entry: SnapshotEntry): Promise<void> { const destination = this.target(file); await mkdir(path.dirname(destination), { recursive: true }); await rm(destination, { force: true, recursive: true }); const content = await this.blob(entry.hash); if (entry.symlink) await symlink(content.toString("utf8"), destination); else { await writeFile(destination, content); await chmod(destination, entry.mode & 0o777); } }
+  private async live(file: string): Promise<SnapshotEntry | undefined> { try { const full = await this.checkedTarget(file); const stat = await lstat(full); if (!stat.isFile() && !stat.isSymbolicLink()) throw new CoreError("CONFLICT", "Checkpoint path changed type"); const content = stat.isSymbolicLink() ? Buffer.from(await readlink(full)) : await readFile(full); return { hash: crypto.createHash("sha256").update(content).digest("hex"), size: content.length, mode: stat.mode, ...(stat.isSymbolicLink() ? { symlink: true } : {}), binary: content.includes(0) }; } catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; } }
+  private async writeEntry(file: string, entry: SnapshotEntry): Promise<void> { const destination = await this.checkedTarget(file); await mkdir(path.dirname(destination), { recursive: true }); await this.checkedTarget(file); await rm(destination, { force: true }); const content = await this.blob(entry.hash); if (entry.symlink) await symlink(content.toString("utf8"), destination); else { await writeFile(destination, content); await chmod(destination, entry.mode & 0o777); } }
 
   private async capture(): Promise<Record<string, SnapshotEntry>> {
     const result: Record<string, SnapshotEntry> = {};
     for (const file of await this.managedPaths()) {
       try {
-        const full = this.target(file); const stat = await lstat(full); if (!stat.isFile() && !stat.isSymbolicLink()) continue;
+        const full = await this.checkedTarget(file); const stat = await lstat(full); if (!stat.isFile() && !stat.isSymbolicLink()) continue;
         const content = stat.isSymbolicLink() ? Buffer.from(await readlink(full)) : await readFile(full); const hash = crypto.createHash("sha256").update(content).digest("hex");
         await mkdir(path.join(this.root, "blobs"), { recursive: true }); await writeFile(path.join(this.root, "blobs", hash), content, { flag: "wx" }).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
         result[file] = { hash, size: content.length, mode: stat.mode, ...(stat.isSymbolicLink() ? { symlink: true } : {}), binary: content.includes(0) };
@@ -140,6 +167,20 @@ export class TaskCheckpointStore {
     catch (error) { throw new CoreError("GIT_FAILED", `Could not enumerate task files: ${error instanceof Error ? error.message : String(error)}`); }
   }
   private async head(): Promise<string | undefined> { try { return (await execFileAsync("git", ["-C", this.workspace, "rev-parse", "--verify", "HEAD"], { encoding: "utf8" })).stdout.trim(); } catch { return undefined; } }
+  private async checkedTarget(file: string): Promise<string> {
+    const target = this.target(file), root = await realpath(this.workspace);
+    let parent = path.dirname(target);
+    for (;;) {
+      try {
+        const actual = await realpath(parent);
+        if (actual !== root && !actual.startsWith(root + path.sep)) throw new CoreError("PATH_OUTSIDE_WORKSPACE", "Checkpoint path leaves the workspace");
+        return target;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        const next = path.dirname(parent); if (next === parent) throw error; parent = next;
+      }
+    }
+  }
   private target(file: string): string { validatePath(file); const target = path.resolve(this.workspace, file); if (!target.startsWith(`${path.resolve(this.workspace)}${path.sep}`)) throw new CoreError("INVALID_REQUEST", "Invalid checkpoint path"); return target; }
   private blob(hash: string): Promise<Buffer> { return readFile(path.join(this.root, "blobs", hash)); }
   private file(id: string): string { if (!/^[0-9a-f-]{36}$/i.test(id)) throw new CoreError("INVALID_REQUEST", "Invalid checkpoint id"); return path.join(this.root, "checkpoints", `${id}.json`); }
