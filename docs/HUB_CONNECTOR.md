@@ -3,19 +3,19 @@
 Core can keep an outbound WSS connection to a hub so a browser or phone can
 reach it without port forwarding. It is off by default; direct Desktop-to-Core
 use is unchanged and never requires a hub. The relay envelope is versioned
-independently of the Core protocol (`@remote-ide/relay`, wire range 1–1).
+independently of the Core protocol (`@hatopad/relay`, wire range 1–1).
 
 ```sh
 # One-time, on the Core machine. Prints a single-use code; after a signed-in user claims it in the hub UI,
 # names that user and asks you locally to accept before the hub issues anything.
 npm run core -- --hub-pair https://hub.example
-# Then start Core with the connector (or set REMOTE_IDE_HUB_CONNECT=1).
+# Then start Core with the connector (or set HATOPAD_HUB_CONNECT=1).
 npm run core -- --workspace /path/to/project --hub-connect
 ```
 
 - The hub origin must be `https://` (plain `http://` is accepted only for loopback tests).
-- Pairing stores a per-Core device credential in `~/.remote-ide/hub/pairing.json`
-  (directory `0700`, file `0600`; override with `REMOTE_IDE_HUB_PAIRING_FILE`).
+- Pairing stores a per-Core device credential in `~/.hatopad/hub/pairing.json`
+  (directory `0700`, file `0600`; override with `HATOPAD_HUB_PAIRING_FILE`).
   It is separate from the local Core session token and never leaves this machine
   except to authenticate to the hub. Delete the file to unpair locally; the owner
   must also revoke the device in the hub.
@@ -66,7 +66,7 @@ attention".
 ## Bounded reads for phones and capability detection
 
 A compatible handshake now returns `capabilities` (see `coreCapabilities` in
-`@remote-ide/protocol`); older Cores omit it and answer newer requests with
+`@hatopad/protocol`); older Cores omit it and answer newer requests with
 `INVALID_REQUEST`. Wire version 19 is unchanged because every change is additive
 and Desktop behavior is unchanged.
 
@@ -126,9 +126,9 @@ that connection reports the root workspace; reselect with `tasks.switch`.
 - `overview.summary` also returns `activity`: up to 20 newest conversations
   (`target` without `requestId`, `updatedAt`, `status`, clipped `preview`), included in
   `revision` but not in paging cursors. At most 50 roots are scanned (`truncated`).
-- `@remote-ide/test-fixtures` ships a scripted ACP agent (`PERMISSION`, `QUESTION`, `EDIT`,
+- `@hatopad/test-fixtures` ships a scripted ACP agent (`PERMISSION`, `QUESTION`, `EDIT`,
   `SLOW` prompt keywords) and `fixtureProviderDefinition()` for
-  `REMOTE_IDE_PROVIDER_DEFINITIONS_DIR`, for end-to-end tests without a real model.
+  `HATOPAD_PROVIDER_DEFINITIONS_DIR`, for end-to-end tests without a real model.
 - `workspace.open` accepts `includeTree: false` (capability `workspace.open.includeTree`): it still
   subscribes the connection to `ai.changed`/`tasks.changed`/`harness.changed` events but returns `tree: []`.
   A browser client should call it once after connecting to receive events without a tree transfer.

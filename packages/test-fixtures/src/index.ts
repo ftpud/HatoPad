@@ -17,7 +17,7 @@ export interface FixtureProviderDefinition {
 }
 
 /**
- * Provider definition for Core's `REMOTE_IDE_PROVIDER_DEFINITIONS_DIR`: write it as `<id>.json`
+ * Provider definition for Core's `HATOPAD_PROVIDER_DEFINITIONS_DIR`: write it as `<id>.json`
  * in that directory and start Core with the variable set. The definition declares the
  * `askQuestions` option; enable it in the session configuration before sending a `QUESTION` prompt.
  */
@@ -25,7 +25,7 @@ export function fixtureProviderDefinition(id = "fixture-agent"): FixtureProvider
   return {
     id,
     name: "Fixture agent",
-    description: "Scripted test agent shipped with @remote-ide/test-fixtures",
+    description: "Scripted test agent shipped with @hatopad/test-fixtures",
     command: process.execPath,
     args: [fakeAgentPath],
     models: [{ id: "model-a", name: "MODEL-A", reasoningLevels: ["low"] }],

@@ -1,0 +1,28 @@
+# Upgrading from Vibe Editor (HatoPad rename)
+
+The product was renamed from Vibe Editor to **HatoPad** (Gateway: **HatoPad Gateway**). Your data is
+kept: existing Core and Electron profiles are read in place, with no automatic move of live data.
+When both old and new profiles exist, the **legacy profile wins** until you explicitly choose or migrate a profile.
+
+| What | Before | Now | Handling |
+| --- | --- | --- | --- |
+| Core/Hub state directory (tokens, workspace state, provider runtimes, tools, plugins, Hub pairing) | `~/.remote-ide` | `~/.hatopad` | An existing `~/.remote-ide` is used in place even when both directories exist; it is only moved when you opt in (`HATOPAD_MIGRATE_LEGACY_STATE=1` with no `HATOPAD_STATE_DIR`, with older apps stopped) |
+| Environment variables | `REMOTE_IDE_*`, `VIBE_EDITOR_*`, `VIBE_TREE_MAX_*`, `VIBE_WATCH_POLLING`, `VIBE_MAKENSIS`, `VIBE_NODE_EXECUTABLE`, `VIBE_DESKTOP_EXECUTABLE` | `HATOPAD_*` | Old names still work (copied when the new name is unset) and log a deprecation warning once |
+| Workflow script input | `$VIBE_WORKFLOW_INPUT` | `$HATOPAD_WORKFLOW_INPUT` | Both are exported to scripts and Run Apps, so saved workflows keep working |
+| Desktop/Gateway settings, saved connections, logs, downloaded Cores | `<appData>/Vibe Editor`, `<appData>/Vibe Gateway` | `<appData>/HatoPad`, `<appData>/HatoPad Gateway` | An existing old directory keeps being used in place (it may be open in a running old app and can hold absolute paths); new installs use the new name |
+| Remote server files in the SSH user's home | `~/.vibe-server-*` markers, `~/.vibe-deploy`, `~/.remote-ide`, `~/.vibe/workspaces` | `~/.hatopad-server-*`, `~/.hatopad-deploy`, `~/.hatopad` (state), `~/.hatopad/gateway-workspaces` | On connect Gateway renames the server markers (so a running server is still found and stopped) and copies the workspace list. The old deployment tree and `~/.remote-ide` are left in place for any running server; the first connect provisions a fresh release under `~/.hatopad-deploy` |
+| Built-in Configurator agent and skill | `vibe-configurator`, `global/vibe-self-configuration` | `hatopad-configurator`, `global/hatopad-self-configuration` | Untouched old copies are removed once the renamed ones exist; edited copies are kept; stored skill policies are translated |
+| Workspace trash from older versions | `.vibe-trash` | unchanged | Still recognised and restorable; current versions keep trash in the state directory |
+| Legacy Java settings | `.vibe/java.json` | unchanged | Still copied to `.settings/java.json` when no `.settings` file exists |
+| npm scope | `@remote-ide/*` | `@hatopad/*` | Packages were never published; update imports/lockfiles |
+
+## Things to know
+
+- **Saved SSH passwords (Gateway).** The operating system ties the encryption key of saved passwords and passphrases to the
+  application name. If a saved secret no longer decrypts after the rename, Gateway reports it and asks you to edit the
+  connection and enter it again. Private-key connections that use a key file are unaffected.
+- **Windows installer.** The new Gateway installer removes the old "Vibe Gateway" start-menu entry, uninstall entry and
+  program folder before installing. Your settings live elsewhere and are retained in place as described above.
+- **Old releases on servers.** Releases built before the rename stay under `~/.vibe-deploy` until you delete that directory
+  (nothing new uses it). The first connect after the upgrade rebuilds the release under `~/.hatopad-deploy`.
+- **Repository URL.** The GitHub repository is now `ftpud/HatoPad`; GitHub redirects the old `ftpud/VibeEditor` URL. Update existing Git remotes with `git remote set-url origin git@github.com:ftpud/HatoPad.git`.

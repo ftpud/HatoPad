@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { GitStatusEntry } from "@remote-ide/protocol";
+import type { GitStatusEntry } from "@hatopad/protocol";
 import { GitChangesView } from "./GitChangesView";
 
 afterEach(cleanup);

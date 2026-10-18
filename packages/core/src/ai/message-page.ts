@@ -1,4 +1,4 @@
-import type { AiMessage, AiSession } from "@remote-ide/protocol";
+import type { AiMessage, AiSession } from "@hatopad/protocol";
 import { CoreError } from "../errors.js";
 
 export const messagePageLimits = { defaultMessages: 30, maxMessages: 100, defaultText: 4000, maxText: 20_000 } as const;

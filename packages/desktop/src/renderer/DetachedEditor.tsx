@@ -2,7 +2,7 @@ import Editor from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { CoreClient } from "./client";
 import { configureMonacoThemes, monacoTheme } from "./theme";
-import type { FileRevision } from "@remote-ide/protocol";
+import type { FileRevision } from "@hatopad/protocol";
 
 const languages: Record<string, string> = { ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", json: "json", html: "html", css: "css", md: "markdown", java: "java", py: "python", yaml: "yaml", yml: "yaml", cds: "sap-cds", http: "http", txt: "plaintext" };
 

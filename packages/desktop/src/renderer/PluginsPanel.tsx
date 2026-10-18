@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { CircleAlert, LoaderCircle, Puzzle, X } from "lucide-react";
-import type { PluginStatus } from "@remote-ide/protocol";
+import type { PluginStatus } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 
 /** Read-only list of plugins found on the Core host. Plugins are enabled and disabled on the host, not from Desktop. */
@@ -16,7 +16,7 @@ export function PluginsPanel({ client, onClose }: { client: CoreClient; onClose:
   return createPortal(<div className="dialog-overlay install-panel-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="install-panel" role="dialog" aria-modal="true" aria-labelledby="plugins-title">
       <header className="install-panel-header">
-        <div className="install-panel-heading"><Puzzle size={22} /><div><h2 id="plugins-title">Plugins</h2><p>Plugins run code on the Core host. Set REMOTE_IDE_PLUGINS_DIR on the host to enable them; restart Core after changing the directory.</p></div></div>
+        <div className="install-panel-heading"><Puzzle size={22} /><div><h2 id="plugins-title">Plugins</h2><p>Plugins run code on the Core host. Set HATOPAD_PLUGINS_DIR on the host to enable them; restart Core after changing the directory.</p></div></div>
         <div className="install-panel-header-actions"><button aria-label="Close plugins" onClick={onClose}><X size={18} /></button></div>
       </header>
       <div className="install-panel-scroll">

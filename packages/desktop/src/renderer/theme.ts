@@ -18,8 +18,8 @@ export function currentHighlightTheme(): HighlightTheme {
   return value === "ftpud" || value === "ftpud-dark" ? "ftpud" : "default";
 }
 
-export function monacoTheme(appTheme = currentTheme(), highlightTheme = currentHighlightTheme()): "vibe-light" | "vibe-dark" | "ftpud" | "ftpud-dark" {
-  return highlightTheme === "ftpud" ? (appTheme === "dark" ? "ftpud-dark" : "ftpud") : appTheme === "light" ? "vibe-light" : "vibe-dark";
+export function monacoTheme(appTheme = currentTheme(), highlightTheme = currentHighlightTheme()): "hatopad-light" | "hatopad-dark" | "ftpud" | "ftpud-dark" {
+  return highlightTheme === "ftpud" ? (appTheme === "dark" ? "ftpud-dark" : "ftpud") : appTheme === "light" ? "hatopad-light" : "hatopad-dark";
 }
 
 export function configureMonacoThemes(monaco: Monaco): void {
@@ -78,7 +78,7 @@ export function configureMonacoThemes(monaco: Monaco): void {
       "menu.border": p.border, "menu.selectionBackground": p.selection,
     };
   };
-  for (const mode of ["light", "dark"] as const) monaco.editor.defineTheme(`vibe-${mode}`, {
+  for (const mode of ["light", "dark"] as const) monaco.editor.defineTheme(`hatopad-${mode}`, {
     base: mode === "light" ? "vs" : "vs-dark", inherit: true, rules: [], colors: surfaceColors(mode),
   });
   monaco.editor.defineTheme("ftpud", {

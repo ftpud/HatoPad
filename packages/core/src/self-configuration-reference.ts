@@ -56,12 +56,12 @@ Agent example (filename reviewer.md):
 ---
 name: Reviewer
 description: Review the requested change and report actionable findings.
-mcpServers: [vibe-editor]
+mcpServers: [hatopad]
 ---
 Read the change and relevant tests. Explain findings with file locations.
 ~~~
 
-mcpServers enables app tools for an agent; use the vibe-editor entry when needed.
+mcpServers enables app tools for an agent; use the hatopad entry when needed.
 Agent references are objects such as {"scope":"local","name":"reviewer.md"}.
 They are independent of provider/model selection.
 
@@ -173,7 +173,7 @@ block's retained output. References do not execute blocks or establish dependenc
 Missing output renders empty; keep prompts and transferred reports concise.
 Legacy stack execution also supplies {{iteration}}; prefer {{input}} for new flows.
 Shell command fields are shell source, not prompt templates. Scripts receive input
-on stdin and in VIBE_WORKFLOW_INPUT; Run App receives VIBE_WORKFLOW_INPUT.
+on stdin and in HATOPAD_WORKFLOW_INPUT; Run App receives HATOPAD_WORKFLOW_INPUT.
 
 ## Incremental reads (fetch)
 
@@ -307,7 +307,7 @@ no terminal_control close action; do not invent one.
 
 Required command is a shell script; prompt may be empty. Runs in the execution
 workspace, waits for completion, returns stdout, fails on nonzero exit (with stderr),
-and times out after 30 minutes. Input is supplied through stdin and VIBE_WORKFLOW_INPUT,
+and times out after 30 minutes. Input is supplied through stdin and HATOPAD_WORKFLOW_INPUT,
 not interpolated into command source. Use for checks, builds, transformations and
 small non-interactive tasks. Example command: npm run typecheck. When composing
 multiple steps, make shell failure behavior explicit when needed.

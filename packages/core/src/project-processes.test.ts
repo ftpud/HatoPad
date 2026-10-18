@@ -3,8 +3,8 @@ import { mkdtemp, mkdir, rm, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AiConfiguration, AiModel, AiProviderDescriptor } from "@remote-ide/acp";
-import type { HarnessBlock, WorkspaceTask } from "@remote-ide/protocol";
+import type { AiConfiguration, AiModel, AiProviderDescriptor } from "@hatopad/acp";
+import type { HarnessBlock, WorkspaceTask } from "@hatopad/protocol";
 import { StdioAcpProvider } from "./ai/stdio-provider.js";
 import { WorkflowAppService } from "./workflow-app.js";
 import { managedProcesses } from "./managed-processes.js";
@@ -21,7 +21,7 @@ async function eventually(check: () => Promise<boolean>) { for (let i = 0; i < 1
 
 describe.skipIf(process.platform !== "linux")("project process operations through real launch hooks", () => {
   it("lists root, task and workflow ACP sessions plus Run App; rejects another root's kill and cleans app descendants", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-proc-integration-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-proc-integration-"));
     const root = path.join(directory, "project"); const task = path.join(directory, "task");
     const workflow = path.join(directory, "workflow-chat"); const otherRoot = path.join(directory, "other-project");
     await Promise.all([root, task, otherRoot].map((target) => mkdir(target))); await symlink(task, workflow, "dir");

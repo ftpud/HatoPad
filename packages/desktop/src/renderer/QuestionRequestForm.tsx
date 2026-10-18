@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiQuestionAction, AiQuestionAnswer, AiQuestionField, AiQuestionRequest } from "@remote-ide/protocol";
+import type { AiQuestionAction, AiQuestionAnswer, AiQuestionField, AiQuestionRequest } from "@hatopad/protocol";
 import type { PermissionRequestOwner } from "./PermissionRequestActions";
 
 type Value = string | number | boolean | string[];

@@ -1,7 +1,7 @@
 import Editor from "@monaco-editor/react";
 import { ArrowUpRight, Bookmark, CaseSensitive, ChevronDown, ChevronRight, FileCode2, Search, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { SearchReplacePreview, SearchResult, WorkspaceSearchQueries, WorkspaceSearchQuery } from "@remote-ide/protocol";
+import type { SearchReplacePreview, SearchResult, WorkspaceSearchQueries, WorkspaceSearchQuery } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
 import type { CoreClient } from "./client";
 import { configureMonacoThemes, monacoTheme } from "./theme";

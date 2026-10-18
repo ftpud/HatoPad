@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import { Readable, Writable } from "node:stream";
 import { spawn as spawnPty, type IPty } from "node-pty";
 import { ClientSideConnection, ndJsonStream, PROTOCOL_VERSION, type AuthMethod, type Client, type CreateElicitationResponse } from "@agentclientprotocol/sdk";
-import type { AiAuthentication, AiAuthInput } from "@remote-ide/acp";
+import type { AiAuthentication, AiAuthInput } from "@hatopad/acp";
 import { managedProcesses } from "../managed-processes.js";
 
 /** `unsetEnv` names variables removed from the inherited environment (for example API keys the user chose not to use). */
@@ -134,7 +134,7 @@ export class AcpAuthentication {
     flow.connection = connection;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const initialized = await Promise.race([connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: capabilities, clientInfo: { name: "Vibe Editor", version: "0.1.0" } }), failed, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Authentication agent initialization timed out")), 30000); })]);
+      const initialized = await Promise.race([connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: capabilities, clientInfo: { name: "HatoPad", version: "0.1.0" } }), failed, new Promise<never>((_resolve, reject) => { timer = setTimeout(() => reject(new Error("Authentication agent initialization timed out")), 30000); })]);
       flow.methods = initialized.authMethods ?? [];
       flow.state.methods = displayMethods(flow.methods);
       return connection;

@@ -1,4 +1,4 @@
-import type { HttpResponse } from "@remote-ide/protocol";
+import type { HttpResponse } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 const MAX_RESPONSE_BYTES = 2 * 1024 * 1024;

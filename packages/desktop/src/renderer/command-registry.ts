@@ -1,4 +1,4 @@
-import type { LanguageDescriptor } from "@remote-ide/protocol";
+import type { LanguageDescriptor } from "@hatopad/protocol";
 /** A provider-neutral Desktop command contract. Commands carry their own availability
  * rather than relying on UI event names or button text. */
 export type CommandCategory = "Project" | "Git" | "Terminal" | "Task" | "AI" | "Editor" | "Language";

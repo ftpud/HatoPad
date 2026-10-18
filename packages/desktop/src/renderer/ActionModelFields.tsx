@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { AiModel } from "@remote-ide/protocol";
+import type { AiModel } from "@hatopad/protocol";
 
 import { ModelPicker } from "./ModelPicker";
 

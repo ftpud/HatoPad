@@ -1,9 +1,10 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { AiProvider } from "@remote-ide/acp";
-import type { AiContinuationTimer as TimerSummary } from "@remote-ide/protocol";
+import type { AiProvider } from "@hatopad/acp";
+import type { AiContinuationTimer as TimerSummary } from "@hatopad/protocol";
 import type { AcpRegistry } from "./ai/index.js";
 import { appToolServer } from "./app-tools.js";
 import { CoreError } from "./errors.js";
@@ -27,7 +28,7 @@ export class AiTimerStore {
     return next;
   }
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.file = path.join(stateDirectory, `${key}-ai-timers.json`);
     this.backup = `${this.file}.bak`;

@@ -8,7 +8,7 @@ export function highlightEditorSelection(codeEditor: editor.ICodeEditor): void {
   const decorations = codeEditor.createDecorationsCollection();
   const update = () => decorations.set((codeEditor.getSelections() ?? []).filter((selection) => !selection.isEmpty()).map((selection) => ({
     range: selection,
-    options: { inlineClassName: "vibe-code-selection", stickiness: 1 }
+    options: { inlineClassName: "hatopad-code-selection", stickiness: 1 }
   })));
   const listener = codeEditor.onDidChangeCursorSelection(update);
   const disposal = codeEditor.onDidDispose(() => { listener.dispose(); decorations.clear(); disposal.dispose(); });

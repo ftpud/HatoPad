@@ -1,4 +1,4 @@
-import type { JavaBreakpoint, JavaDebugState, JavaProjectNode } from "@remote-ide/protocol";
+import type { JavaBreakpoint, JavaDebugState, JavaProjectNode } from "@hatopad/protocol";
 import { CoreError } from "../../../errors.js";
 import { JavaProjectService, type JavaProcessEvent } from "./java.js";
 import { JdtLanguageService } from "./jdtls.js";

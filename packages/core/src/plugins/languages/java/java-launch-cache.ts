@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import path from "node:path";
 import { readFile, readdir, realpath, stat } from "node:fs/promises";
 import { XMLParser } from "fast-xml-parser";
-import type { JavaProjectOptions } from "@remote-ide/protocol";
+import type { JavaProjectOptions } from "@hatopad/protocol";
 
 /** Launch profiles do not affect compilation or the dependency classpath. */
 export function javaBuildKey(workspace: string, options: JavaProjectOptions): string {

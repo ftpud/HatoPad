@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { createWriteStream } from "node:fs";
@@ -6,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import type { ToolInstallation } from "@remote-ide/protocol";
+import type { ToolInstallation } from "@hatopad/protocol";
 import { serializedStateMutation } from "./root-mutation.js";
 
 export type ToolId = string;
@@ -58,14 +59,14 @@ export function registerTools(specs: readonly ToolSpec[]): void { for (const spe
 type Current = { directory: string; version: string };
 
 /**
- * Optional tools downloaded on demand into `~/.remote-ide/tools/<tool>/` on the
+ * Optional tools downloaded on demand into `~/.hatopad/tools/<tool>/` on the
  * Core host. A download is verified and unpacked into a fresh directory and
  * published only when complete, so a failed attempt never replaces a working one.
  */
 export class ToolInstallations {
   private readonly operations = new Map<ToolId, { status: "installing" | "removing"; done: Promise<void>; progress?: number }>();
   private readonly errors = new Map<ToolId, string>();
-  constructor(private readonly root: () => string = () => process.env.REMOTE_IDE_TOOLS_DIR ?? path.join(os.homedir(), ".remote-ide", "tools"), private readonly download: Download = defaultDownload, private readonly fixedTools?: readonly ToolSpec[]) {}
+  constructor(private readonly root: () => string = () => process.env.HATOPAD_TOOLS_DIR ?? path.join(stateHome(), "tools"), private readonly download: Download = defaultDownload, private readonly fixedTools?: readonly ToolSpec[]) {}
   private get tools(): readonly ToolSpec[] { return this.fixedTools ?? registered; }
 
   private spec(id: string): ToolSpec {

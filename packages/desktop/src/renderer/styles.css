@@ -852,8 +852,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .monaco-editor .http-run-marker { cursor: pointer; }
 .monaco-editor .http-run-marker::after { content: "▶"; position: absolute; left: 4px; top: 3px; color: var(--success); font-size: 0.9231rem; line-height: 16px; }
 /* Paint selected text above syntax backgrounds; Monaco's selection layer sits below them. */
-.monaco-editor .view-line .vibe-code-selection { background-color: var(--vscode-editor-inactiveSelectionBackground) !important; color: var(--vscode-editor-foreground) !important; }
-.monaco-editor:focus-within .view-line .vibe-code-selection { background-color: var(--vscode-editor-selectionBackground) !important; }
+.monaco-editor .view-line .hatopad-code-selection { background-color: var(--vscode-editor-inactiveSelectionBackground) !important; color: var(--vscode-editor-foreground) !important; }
+.monaco-editor:focus-within .view-line .hatopad-code-selection { background-color: var(--vscode-editor-selectionBackground) !important; }
 .monaco-editor .view-lines { font-synthesis: none; }
 /* Inline blocks paint token backgrounds across Monaco's full line height. */
 .monaco-editor :is(.ftpud-java-class, .ftpud-java-interface, .ftpud-java-annotation, .ftpud-java-constant, .ftpud-dark-java-class, .ftpud-dark-java-interface, .ftpud-dark-java-annotation, .ftpud-dark-java-constant, .ftpud-java-string, .ftpud-java-escape, .ftpud-java-invalid) { display: inline-block; line-height: inherit; vertical-align: top; }

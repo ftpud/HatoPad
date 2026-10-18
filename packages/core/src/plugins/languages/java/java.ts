@@ -5,12 +5,12 @@ import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promise
 import os from "node:os";
 import path from "node:path";
 import { XMLParser } from "fast-xml-parser";
-import type { FileRevision, JavaToolCheck, JavaRunConfiguration, JavaApplyChangesResult, JavaBreakpoint, JavaDebugVariable, JavaDebugState, JavaDiagnostic, JavaMainClass, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion } from "@remote-ide/protocol";
+import type { FileRevision, JavaToolCheck, JavaRunConfiguration, JavaApplyChangesResult, JavaBreakpoint, JavaDebugVariable, JavaDebugState, JavaDiagnostic, JavaMainClass, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion } from "@hatopad/protocol";
 import { javaBuildKey, javaBuildFingerprint, javaOutputFingerprint } from "./java-launch-cache.js";
 import { javaFileType } from "./java-file-type.js";
 import { CoreError } from "../../../errors.js";
 import { WorkspaceFileSystem } from "../../../filesystem.js";
-import { javaConfigurationPath } from "@remote-ide/protocol";
+import { javaConfigurationPath } from "@hatopad/protocol";
 import { javaLaunchEnvironment, expandJavaToolPath, javaConfigurationTemplate, javaSpawnError, javaToolEnvironment, javaToolExecutable, parseJavaConfiguration, readJavaConfiguration, writeJavaConfiguration } from "./java-configuration.js";
 import { validateJavaBreakpoints } from "./java-settings.js";
 import type { WorkspaceStateStore } from "../../../workspace-state.js";
@@ -654,7 +654,7 @@ export class JavaProjectService {
       ensurePaused();
       const loaded = new Set(classesOutput.split(/\r?\n/).map((line) => line.trim()));
       if (!classesOutput.includes("** classes list **")) throw new CoreError("JAVA_PROCESS_FAILED", "Could not list loaded Java classes");
-      const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "vibe-hotswap-"));
+      const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "hatopad-hotswap-"));
       try {
         for (const [className, entry] of changed) {
           ensurePaused();
@@ -788,7 +788,7 @@ export class JavaProjectService {
   }
 
   private async buildDebugClasspath(options: JavaProjectOptions, managed = true): Promise<string> {
-    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "vibe-jdb-"));
+    const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "hatopad-jdb-"));
     const classpathFile = path.join(temporaryDirectory, "classpath.txt");
     try {
       const args = ["-q", "-f", options.pomPath, "dependency:build-classpath", `-Dmdep.outputFile=${classpathFile}`];

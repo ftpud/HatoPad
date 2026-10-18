@@ -1,4 +1,4 @@
-# Vibe Editor documentation
+# HatoPad documentation
 
 Start with the [project README](../README.md) for installation and launch steps.
 These guides explain individual features and the boundaries behind them.
@@ -13,6 +13,7 @@ These guides explain individual features and the boundaries behind them.
 | [Prompt history](TASK_GIT_HISTORY.md) | Review or restore the file changes made during an AI prompt. |
 | [Multiple workspace roots](MULTI_ROOT.md) | Work across remote projects and understand root ownership. |
 | [Plugins](PLUGINS.md) | Add Core-host AI providers or language services and understand their trust boundary. |
+| [Upgrading from Vibe Editor](RENAME_MIGRATION.md) | See what moved in the HatoPad rename and how existing data is migrated. |
 | [Connections](CONNECTIONS.md) | Understand request ordering, recovery, admission, buffering, and workspace-tree limits. |
 | [Workflow context](WORKFLOW-CONTEXT.md) | Understand block context budgets, Meeting synchronization, and incremental reads. |
 | [Workflow apps](PROCESSES.md) | Inspect and stop Run App process trees in Proc. |

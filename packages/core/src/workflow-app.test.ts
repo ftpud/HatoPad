@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HarnessAppOptions, HarnessBlock } from "@remote-ide/protocol";
+import type { HarnessAppOptions, HarnessBlock } from "@hatopad/protocol";
 import { WorkflowAppService } from "./workflow-app.js";
 import { TerminalSessionHost } from "./process-manager.js";
 
@@ -46,7 +46,7 @@ describe("workflow apps", () => {
 
   it("starts without waiting, keeps the app alive, tails both streams, reuses starts, and kills it", async () => {
     const { execute, workspace } = await setup();
-    const script = 'printf "old\\ninput:%s\\n" "$VIBE_WORKFLOW_INPUT"; pwd; printf "error\\n" >&2; sleep 300 & wait';
+    const script = 'printf "old\\ninput:%s\\n" "$HATOPAD_WORKFLOW_INPUT"; pwd; printf "error\\n" >&2; sleep 300 & wait';
     const started = await execute("start", { command: script }, "hello");
     expect(started).toMatchObject({ status: "running" });
     await vi.waitFor(async () => expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(workspace));

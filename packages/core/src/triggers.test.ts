@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdtemp, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TriggerInput } from "@remote-ide/protocol";
+import type { TriggerInput } from "@hatopad/protocol";
 import { TriggerService, validateTrigger, type TriggerDelivery, type TriggerEvent } from "./triggers.js";
 
 const directories: string[] = [];
@@ -10,7 +10,7 @@ const services: TriggerService[] = [];
 afterEach(async () => { for (const service of services.splice(0)) await service.close(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const action: TriggerInput["action"] = { type: "prompt", provider: "codex", prompt: "React" };
 async function harness(deliver = vi.fn(async (): Promise<TriggerDelivery> => ({}))) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "vibe-triggers-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hatopad-triggers-"));
   directories.push(dir);
   const service = new TriggerService("/workspace", deliver, vi.fn(), path.join(dir, "state"));
   services.push(service); await service.start();

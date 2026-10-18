@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Check, CircleAlert, ExternalLink, LoaderCircle, LogIn, RefreshCw, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import type { AiAuthentication as Authentication, AiAuthInput } from "@remote-ide/protocol";
+import type { AiAuthentication as Authentication, AiAuthInput } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import "@xterm/xterm/css/xterm.css";
 

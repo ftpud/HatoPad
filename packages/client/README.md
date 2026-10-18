@@ -1,4 +1,4 @@
-# @remote-ide/client
+# @hatopad/client
 
 Platform-independent typed Core WebSocket client. Consumers supply the WebSocket
 URL and an optional async credential provider; the package never reads Electron,
@@ -6,7 +6,7 @@ window.desktop, storage or environment credentials. A standard WebSocket global
 must be provided by the host (modern browsers and Node 22+).
 
 ```ts
-import { CoreClient } from '@remote-ide/client';
+import { CoreClient } from '@hatopad/client';
 const client = new CoreClient();
 await client.connect({ url: 'wss://core.example/socket' });
 const tasks = await client.request('tasks.list', {});

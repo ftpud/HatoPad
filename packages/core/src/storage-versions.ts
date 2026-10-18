@@ -19,7 +19,7 @@ async function safe(file: string): Promise<void> {
 
 export class StorageVersions {
   private readonly deployment: string;
-  constructor(private readonly options: VersionOptions) { this.deployment = path.join(options.home, ".vibe-deploy"); }
+  constructor(private readonly options: VersionOptions) { this.deployment = path.join(options.home, ".hatopad-deploy"); }
   private currentDeployment(): string { return path.resolve(this.options.currentDeployment?.() ?? fileURLToPath(new URL("../../../", import.meta.url))); }
   private currentRuntime(): string | undefined { return this.options.currentRuntime?.(); /* The legacy Codex runtime cache is no longer selected; provider agents are managed installations. */ }
   get supported(): boolean { return process.platform === "linux" || !!this.options.closeOtherSessions; }
@@ -40,7 +40,7 @@ export class StorageVersions {
     return entries;
   }
   async keepCurrent(preview: string[], roots: () => Promise<string[]>, progress: (message: string) => void): Promise<void> {
-    if (!this.supported) throw new Error("Closing other Vibe sessions requires a Linux server");
+    if (!this.supported) throw new Error("Closing other HatoPad sessions requires a Linux server");
     await serializedStateMutation(path.join(this.deployment, "maintenance"), () => serializedStateMutation(path.join(this.options.runtimeDirectory, "maintenance"), async () => {
       await safe(this.deployment); await safe(this.options.runtimeDirectory);
       const provisionLock = path.join(this.deployment, "provision.lock");
@@ -66,7 +66,7 @@ export class StorageVersions {
           await writeFile(temporary, JSON.stringify({ directory: current, adapter, codex })); await rename(temporary, selection);
         } else if (!current) await rm(selection, { force: true });
         // Obsolete rollback references must not point at deleted releases.
-        for (const name of await names(this.options.home)) if (/^\.vibe-server-[\w-]+\.release(?:\.previous)?$/.test(name)) {
+        for (const name of await names(this.options.home)) if (/^\.hatopad-server-[\w-]+\.release(?:\.previous)?$/.test(name)) {
           const file = path.join(this.options.home, name); await safe(file);
           const release = (await readFile(file, "utf8")).trim();
           if (obsolete.some((entry) => entry.path === path.join(this.deployment, "releases", release))) await rm(file);

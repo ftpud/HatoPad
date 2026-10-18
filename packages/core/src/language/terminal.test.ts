@@ -9,7 +9,7 @@ import { TerminalSessionHost, type TerminalPtyFactory } from "../process-manager
 import { runLanguageInTerminal, hasLanguageTerminalRun, stopLanguageTerminalRun } from "./terminal.js";
 
 it("runs npm interactively in a real PTY with arguments, environment and exit reporting", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-terminal-run-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-terminal-run-"));
   const terminals = new TerminalSessionHost(() => {});
   const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(workspace);
   const exit = vi.fn();
@@ -35,7 +35,7 @@ it("runs npm interactively in a real PTY with arguments, environment and exit re
 }, 15_000);
 
 it("stops the run and releases its lifecycle when its terminal tab is closed", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-terminal-stop-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-terminal-stop-"));
   const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(workspace);
   const exit = vi.fn();
   const service = BUILT_IN_LANGUAGES.find((item) => item.descriptor.id === "node")!.create({ workspace, filesystem, state: new WorkspaceStateStore(workspace, path.join(workspace, "state")), rootId: "test", events: { output: vi.fn(), exit, debugState: vi.fn(), semanticChanged: vi.fn() }, emit: vi.fn() });

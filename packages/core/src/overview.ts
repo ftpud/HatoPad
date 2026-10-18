@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { overviewLimits, type ActivityItem, type HarnessRun, type AiProvider, type AiSession, type AttentionItem, type OverviewRoot } from "@remote-ide/protocol";
+import { overviewLimits, type ActivityItem, type HarnessRun, type AiProvider, type AiSession, type AttentionItem, type OverviewRoot } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 export interface OverviewSource {

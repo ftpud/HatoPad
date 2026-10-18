@@ -3,7 +3,7 @@ import type { RunConfigService } from "./run-configs.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import type { AcpRegistry } from "./ai/acp.js";
-import type { AgentFileScope, HarnessDefinition, ScheduledAction, SkillPolicy, SkillScope, TriggerInput, TriggerSource } from "@remote-ide/protocol";
+import type { AgentFileScope, HarnessDefinition, ScheduledAction, SkillPolicy, SkillScope, TriggerInput, TriggerSource } from "@hatopad/protocol";
 import { AgentsStore } from "./agents.js";
 import { SkillsStore } from "./skills.js";
 import { UsefulFilesStore } from "./useful-files.js";

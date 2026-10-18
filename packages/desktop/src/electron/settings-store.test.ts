@@ -5,7 +5,7 @@ import { expect, it } from "vitest";
 import { SettingsStore } from "./settings-store.js";
 
 it("restores client layout choices from disk after shutdown and restart", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-layout-settings-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-layout-settings-"));
   try {
     const file = path.join(directory, "settings.json");
     const client = new SettingsStore(file);

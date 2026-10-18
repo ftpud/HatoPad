@@ -8,7 +8,7 @@ import {
   type RelayErrorCode,
   type RelayFrame,
   type RelayLimits
-} from "@remote-ide/relay";
+} from "@hatopad/relay";
 import { parseHubUrl, parseLocalCoreUrl } from "./endpoint.js";
 
 export type ConnectorStatus =

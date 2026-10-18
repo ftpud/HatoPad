@@ -1,10 +1,11 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, lstat, mkdir, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance } from "@remote-ide/protocol";
+import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
@@ -16,7 +17,7 @@ export class TaskCheckpointStore {
   private readonly root: string;
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(private readonly workspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(private readonly workspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     this.root = path.join(stateDirectory, `${crypto.createHash("sha256").update(path.resolve(workspace)).digest("hex")}-task-history`);
   }
 

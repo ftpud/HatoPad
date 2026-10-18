@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
-import type { AiConfiguration, AiModel, AiProviderDescriptor, AiUsage } from "@remote-ide/acp";
+import type { AiConfiguration, AiModel, AiProviderDescriptor, AiUsage } from "@hatopad/acp";
 import { ASK_QUESTIONS_OPTION, LIVE_STEERING_OPTION, StdioAcpProvider } from "../../../ai/stdio-provider.js";
 import { readCodexAccountQuota } from "./codex-usage.js";
 import { providerInstallations, type InstallationSpec } from "../../../ai/provider-installations.js";
@@ -16,7 +16,7 @@ type CodexCatalogueEntry = { slug?: unknown; display_name?: unknown; description
 export class CodexSessionManager extends StdioAcpProvider {
   readonly descriptor: AiProviderDescriptor = {
     id: "codex", name: "Codex ACP", description: "Codex through the standard Agent Client Protocol.",
-    settings: { title: "Codex settings", description: "These settings are applied through ACP session modes and configuration options.", sections: [{ id: "tools", name: "Tools & access", description: "Capabilities available while Codex works." }, { id: "features", name: "Session features", description: "How Vibe Editor works with the running session." }] },
+    settings: { title: "Codex settings", description: "These settings are applied through ACP session modes and configuration options.", sections: [{ id: "tools", name: "Tools & access", description: "Capabilities available while Codex works." }, { id: "features", name: "Session features", description: "How HatoPad works with the running session." }] },
     capabilities: { models: true, usage: true, mcp: true, agents: true, contextWindow: true, skills: true },
     options: [
       { id: "mode", name: "Agent mode", description: "Choose read-only analysis, normal workspace editing, or full access when advertised by the ACP server.", section: "tools", type: "select", defaultValue: "agent", choices: [{ value: "read-only", name: "Read only" }, { value: "agent", name: "Workspace agent" }, { value: "agent-full-access", name: "Full access" }] },

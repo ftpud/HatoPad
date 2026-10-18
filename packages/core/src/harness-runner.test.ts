@@ -2,8 +2,8 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import type { AiSession, HarnessBlock, HarnessOperationKind } from "@remote-ide/protocol";
-import { AiProviderError } from "@remote-ide/acp";
+import type { AiSession, HarnessBlock, HarnessOperationKind } from "@hatopad/protocol";
+import { AiProviderError } from "@hatopad/acp";
 import { classifyWorkflowFailure, connectedInput, HarnessRunner, nextWatchdogReset, isRecoverableWorkflowError } from "./harness-runner.js";
 import { HarnessStore } from "./harnesses.js";
 
@@ -356,7 +356,7 @@ describe("HarnessRunner", () => {
     } finally { release(); }
   });
   it("runs blocks in dependency order and passes connected output as input", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-runner-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Flow");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-runner-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Flow");
     await store.update({ ...definition, blocks: [{ id: "one", type: "prompt", label: "One", prompt: "Plan {{input}}", position: { x: 0, y: 0 } }, { id: "two", type: "prompt", label: "Two", prompt: "Build {{input}}", position: { x: 1, y: 1 } }], edges: [{ id: "edge", from: "one", to: "two" }] });
     const dispatch = vi.fn(async (_block, prompt: string) => ({ id: prompt, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: prompt, role: "assistant" as const, text: prompt.startsWith("Plan feature") ? "the plan" : "complete", timestamp: "now" }] }));
     const runner = new HarnessRunner(store, () => undefined); const started = await runner.start(definition.id, "feature", dispatch, "test");
@@ -438,7 +438,7 @@ describe("HarnessRunner", () => {
   });
 
   it("cancels a persisted running run after the server restarts", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-restart-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-restart-")); const store = new HarnessStore("/workspace", state);
     await store.saveRun({ id: "orphan", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "one", status: "succeeded", output: "done" }, { blockId: "two", status: "running", startedAt: "now" }, { blockId: "three", status: "queued" }] });
     const changed = vi.fn(); const interrupt = vi.fn();
 
@@ -452,7 +452,7 @@ describe("HarnessRunner", () => {
   });
 
   it("interrupts each running block before persisting its cancelled state", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-cancel-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-")); const store = new HarnessStore("/workspace", state);
     await store.saveRun({ id: "active", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "left", status: "running", provider: "codex" }, { blockId: "right", status: "running", provider: "claude" }] });
     const interrupt = vi.fn().mockResolvedValue(undefined);
 
@@ -462,7 +462,7 @@ describe("HarnessRunner", () => {
   });
 
   it("persists partial cancellation failures for the user", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-cancel-error-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-error-")); const store = new HarnessStore("/workspace", state);
     await store.saveRun({ id: "active", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", blocks: [{ blockId: "left", status: "running", provider: "codex" }, { blockId: "right", status: "running", provider: "claude" }] });
     const cancelled = await new HarnessRunner(store, () => undefined).cancel("active", async (provider) => { if (provider === "claude") throw new Error("provider offline"); });
     expect(cancelled.cleanupErrors).toEqual(["Could not stop block right: provider offline"]);
@@ -470,7 +470,7 @@ describe("HarnessRunner", () => {
   });
 
   it("keeps cancellation terminal when a provider completes during cleanup", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-cancel-race-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-race-")); const store = new HarnessStore("/workspace", state);
     const definition = await store.create("Cancellation race");
     await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
     let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
@@ -537,7 +537,7 @@ describe("HarnessRunner", () => {
   });
 
   it("fans out ready blocks concurrently and waits for all before joining", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-fanout-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Fan out");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-fanout-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Fan out");
     const blocks = ["root", "left", "right", "join"].map((id) => ({ id, type: "prompt" as const, label: id, prompt: "{{input}}", position: { x: 0, y: 0 } }));
     await store.update({ ...definition, blocks, edges: [{ id: "rl", from: "root", to: "left" }, { id: "rr", from: "root", to: "right" }, { id: "lj", from: "left", to: "join" }, { id: "rj", from: "right", to: "join" }] });
     let active = 0; let maxActive = 0; let siblingsStarted = 0; const completed: string[] = [];
@@ -616,7 +616,7 @@ describe("HarnessRunner", () => {
   });
 
   it("lets AI select one named path and skips the other paths", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-routing-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Route");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-routing-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Route");
     const blocks = [{ id: "router", type: "prompt" as const, label: "Router", prompt: "Choose", routing: "ai" as const, position: { x: 0, y: 0 } }, { id: "left", type: "prompt" as const, label: "Left", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "right", type: "prompt" as const, label: "Right", prompt: "{{input}}", position: { x: 0, y: 0 } }];
     await store.update({ ...definition, blocks, edges: [{ id: "left-edge", from: "router", to: "left", label: "left" }, { id: "right-edge", from: "router", to: "right", label: "right" }] });
     const runner = new HarnessRunner(store, () => undefined); const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => { if (block.id === "router") await runner.runStack(runtime.runId, runtime.blockId, ["selected work"], "right"); return { id: block.id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text: "finished", timestamp: "now" }] }; });
@@ -629,7 +629,7 @@ describe("HarnessRunner", () => {
   });
 
   it("starts an any-join after the first active input without waiting for slower paths", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-any-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Any join");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-any-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Any join");
     const blocks: HarnessBlock[] = [{ id: "root", type: "prompt", label: "Root", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "slow", type: "prompt", label: "Slow", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "fast", type: "prompt", label: "Fast", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "join", type: "prompt", label: "Join", prompt: "Join {{input}}", join: "any", position: { x: 0, y: 0 } }];
     await store.update({ ...definition, blocks, edges: [{ id: "rs", from: "root", to: "slow" }, { id: "rf", from: "root", to: "fast" }, { id: "sj", from: "slow", to: "join" }, { id: "fj", from: "fast", to: "join" }] });
     const events: string[] = []; const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => { events.push(`${block.id}-start`); if (block.id === "slow") await new Promise((resolve) => setTimeout(resolve, 150)); if (block.id === "fast") await new Promise((resolve) => setTimeout(resolve, 5)); events.push(`${block.id}-done`); return { id: block.id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text: block.id, timestamp: "now" }] }; });
@@ -640,7 +640,7 @@ describe("HarnessRunner", () => {
   });
 
   it("lets an upstream AI create distinct downstream stack items and waits for all of them", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-dynamic-stack-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Dynamic stack");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-dynamic-stack-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Dynamic stack");
     const blocks: HarnessBlock[] = [{ id: "planner", type: "prompt", label: "Planner", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "worker", type: "prompt", label: "Worker", prompt: "Work {{iteration}}: {{input}}", position: { x: 0, y: 0 } }, { id: "finish", type: "prompt", label: "Finish", prompt: "Finish {{input}}", position: { x: 0, y: 0 } }];
     await store.update({ ...definition, blocks, edges: [{ id: "pw", from: "planner", to: "worker" }, { id: "wf", from: "worker", to: "finish" }] });
     const runner = new HarnessRunner(store, () => undefined); const calls: Array<{ id: string; prompt: string }> = []; let toolResult: unknown; const dispatch = vi.fn(async (block: HarnessBlock, prompt: string, runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> }) => { calls.push({ id: block.id, prompt }); if (block.id === "planner") toolResult = await runner.runStack(runtime.runId, runtime.blockId, ["research user prompt", "implement user prompt", "review user prompt"]); if (block.id === "worker") await runtime.started("/sessions/worker"); const text = block.id === "planner" ? `I reviewed the stack results: ${JSON.stringify(toolResult)}` : block.id === "worker" ? `result ${calls.filter((call) => call.id === "worker").length}` : "done"; return { id: `${block.id}-${calls.length}`, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text, timestamp: "now" }] }; });
@@ -654,7 +654,7 @@ describe("HarnessRunner", () => {
   });
 
   it("appends a later upstream prompt to an already-running downstream session", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-harness-persistent-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Persistent sessions");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-persistent-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Persistent sessions");
     const blocks: HarnessBlock[] = [{ id: "first", type: "prompt", label: "First", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "later", type: "prompt", label: "Later", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "worker", type: "task", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }];
     await store.update({ ...definition, blocks, edges: [{ id: "fw", from: "first", to: "worker" }, { id: "lw", from: "later", to: "worker" }] });
     const runner = new HarnessRunner(store, () => undefined); const append = vi.fn(async (_block: HarnessBlock, prompt: string, runtime: { workspace: string }) => session(`appended:${runtime.workspace}:${prompt}`));

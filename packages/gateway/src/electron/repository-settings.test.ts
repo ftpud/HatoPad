@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { defaultRepositorySettings, normalizeRepositorySettings, provisionCommand, repositorySettingsOrDefault } from "./repository-settings.js";
 
-test("repository settings use the Vibe Editor source and main by default", () => {
+test("repository settings use the HatoPad source and main by default", () => {
   assert.deepEqual(normalizeRepositorySettings(undefined), defaultRepositorySettings);
   assert.equal(defaultRepositorySettings.branch, "main");
 });
@@ -44,7 +44,7 @@ test("provisioning is valid shell and stages a commit-keyed immutable release", 
   assert.match(command, /while ! mkdir "\$LOCK"/);
   assert.match(command, /owner_is_alive/);
   assert.match(command, /Timed out waiting for provisioning lock with unknown owner/);
-  assert.match(command, /VIBE_RESULT:%s:%s:%s/);
+  assert.match(command, /HATOPAD_RESULT:%s:%s:%s/);
   assert.doesNotMatch(command, /rm -rf ~\/\.vibe(?: |\/)/);
 });
 
@@ -67,7 +67,7 @@ test("repair stages a unique release and keeps existing releases untouched", () 
 });
 
 test("failed repair leaves prior releases intact and successful repairs get unique keys", async () => {
-  const temporary = await mkdtemp(path.join(os.tmpdir(), "vibe-provision-test-"));
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "hatopad-provision-test-"));
   const repository = path.join(temporary, "source");
   const home = path.join(temporary, "remote-home");
   const fakeBin = path.join(temporary, "bin");
@@ -122,36 +122,36 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
 
   const first = runProvision(false);
   assert.equal(first.status, 0, first.stderr);
-  const initialResult = first.stdout.match(new RegExp(`VIBE_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+)`));
+  const initialResult = first.stdout.match(new RegExp(`HATOPAD_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+)`));
   assert.ok(initialResult, first.stdout);
-  const initialRelease = path.join(home, ".vibe-deploy", "releases", initialResult[1]!);
+  const initialRelease = path.join(home, ".hatopad-deploy", "releases", initialResult[1]!);
   await writeFile(path.join(initialRelease, "preserve-me"), "known-good\n");
   const npmLogBeforeReuse = await readFile(npmLog, "utf8");
   const reuse = runProvision(false);
   assert.equal(reuse.status, 0, reuse.stderr);
-  assert.match(reuse.stdout, new RegExp(`VIBE_RESULT:${commit}:0:${initialResult[1]}`));
+  assert.match(reuse.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:${initialResult[1]}`));
   assert.equal(await readFile(npmLog, "utf8"), npmLogBeforeReuse);
 
   const repairOne = runProvision(false, true);
   assert.equal(repairOne.status, 0, repairOne.stderr);
-  const repairOneKey = repairOne.stdout.match(new RegExp(`VIBE_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+-repair-[a-zA-Z0-9]+)`))?.[1];
+  const repairOneKey = repairOne.stdout.match(new RegExp(`HATOPAD_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+-repair-[a-zA-Z0-9]+)`))?.[1];
   assert.ok(repairOneKey, repairOne.stdout);
   const repairTwo = runProvision(false, true);
   assert.equal(repairTwo.status, 0, repairTwo.stderr);
-  const repairTwoKey = repairTwo.stdout.match(new RegExp(`VIBE_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+-repair-[a-zA-Z0-9]+)`))?.[1];
+  const repairTwoKey = repairTwo.stdout.match(new RegExp(`HATOPAD_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+-repair-[a-zA-Z0-9]+)`))?.[1];
   assert.ok(repairTwoKey, repairTwo.stdout);
   assert.notEqual(repairOneKey, repairTwoKey);
 
-  const sourceCache = path.join(home, ".vibe-deploy", "sources", (await readdir(path.join(home, ".vibe-deploy", "sources")))[0]!);
+  const sourceCache = path.join(home, ".hatopad-deploy", "sources", (await readdir(path.join(home, ".hatopad-deploy", "sources")))[0]!);
   const selectedPath = path.join(sourceCache, "selected");
   const selectedBeforeUpdate = await readFile(selectedPath, "utf8");
-  const preferred = repairTwo.stdout.match(/VIBE_RESULT:[a-f0-9]+:1:([^\n]+)/)?.[1];
+  const preferred = repairTwo.stdout.match(/HATOPAD_RESULT:[a-f0-9]+:1:([^\n]+)/)?.[1];
   assert.ok(preferred);
   const reuseRepair = runProvision(false, false, false, preferred);
   assert.equal(reuseRepair.status, 0, reuseRepair.stderr);
-  assert.match(reuseRepair.stdout, new RegExp(`VIBE_RESULT:${commit}:0:${preferred}`));
+  assert.match(reuseRepair.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:${preferred}`));
 
-  const beforeFailure = await readdir(path.join(home, ".vibe-deploy", "releases"));
+  const beforeFailure = await readdir(path.join(home, ".hatopad-deploy", "releases"));
   await writeFile(path.join(repository, "source.txt"), "updated fixture\n");
   execFileSync("git", ["-C", repository, "add", "source.txt"]);
   execFileSync("git", ["-C", repository, "commit", "-m", "updated fixture"]);
@@ -161,22 +161,22 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   assert.notEqual(failedUpdate.status, 0);
   assert.match(failedUpdate.stderr, /simulated npm ci failure/);
   assert.equal(await readFile(selectedPath, "utf8"), selectedBeforeUpdate);
-  assert.deepEqual(await readdir(path.join(home, ".vibe-deploy", "releases")), beforeFailure);
+  assert.deepEqual(await readdir(path.join(home, ".hatopad-deploy", "releases")), beforeFailure);
   const offlineReuse = runProvision(false);
   assert.equal(offlineReuse.status, 0, offlineReuse.stderr);
-  assert.match(offlineReuse.stdout, new RegExp(`VIBE_RESULT:${commit}:0:${initialResult[1]}`));
+  assert.match(offlineReuse.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:${initialResult[1]}`));
   assert.equal(await readFile(selectedPath, "utf8"), selectedBeforeUpdate);
 
   const failedRepair = runProvision(false, true, true);
   assert.notEqual(failedRepair.status, 0);
   assert.match(failedRepair.stderr, /simulated npm ci failure/);
-  assert.deepEqual(await readdir(path.join(home, ".vibe-deploy", "releases")), beforeFailure);
+  assert.deepEqual(await readdir(path.join(home, ".hatopad-deploy", "releases")), beforeFailure);
   assert.equal(await readFile(path.join(initialRelease, "preserve-me"), "utf8"), "known-good\n");
-  assert.equal((await readdir(path.join(home, ".vibe-deploy", "releases"))).some((name) => name.startsWith(".staging-")), false);
-  assert.match(await readFile(npmLog, "utf8"), /run build -w @remote-ide\/acp/);
-  assert.match(await readFile(npmLog, "utf8"), /run build -w @remote-ide\/protocol/);
-  assert.match(await readFile(npmLog, "utf8"), /run build -w @remote-ide\/core/);
-  assert.match(await readFile(npmLog, "utf8"), /run build -w @remote-ide\/desktop/);
+  assert.equal((await readdir(path.join(home, ".hatopad-deploy", "releases"))).some((name) => name.startsWith(".staging-")), false);
+  assert.match(await readFile(npmLog, "utf8"), /run build -w @hatopad\/acp/);
+  assert.match(await readFile(npmLog, "utf8"), /run build -w @hatopad\/protocol/);
+  assert.match(await readFile(npmLog, "utf8"), /run build -w @hatopad\/core/);
+  assert.match(await readFile(npmLog, "utf8"), /run build -w @hatopad\/desktop/);
   await rm(temporary, { recursive: true, force: true });
 });
 

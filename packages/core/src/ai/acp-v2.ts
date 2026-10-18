@@ -19,7 +19,7 @@ export type AcpV2AgentTurns = { started(sessionId: string): void; ended(sessionI
 
 /**
  * Experimental draft ACP v2 client with the subset of `ClientSideConnection`'s
- * v1 API that Vibe uses, so the provider runtime is shared by both protocols.
+ * v1 API that HatoPad uses, so the provider runtime is shared by both protocols.
  *
  * v2 differs mainly in its turn lifecycle: `session/prompt` only acknowledges
  * the prompt, and a turn ends with an `idle` `state_update`. An agent may also

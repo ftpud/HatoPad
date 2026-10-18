@@ -1,6 +1,6 @@
 import { CoreError } from "./errors.js";
 import { boundPermission } from "./ai/session-bounds.js";
-import type { HarnessProgress, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessProgress, HarnessRun } from "@hatopad/protocol";
 
 export const progressLimits = { defaultLog: 20, maxLog: 100, maxMessage: 500, maxError: 500, maxBlocks: 200, maxBytes: 900_000 } as const;
 

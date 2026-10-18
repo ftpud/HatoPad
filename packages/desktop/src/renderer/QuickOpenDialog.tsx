@@ -1,6 +1,6 @@
 import { File, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
-import type { FileTreeNode } from "@remote-ide/protocol";
+import type { FileTreeNode } from "@hatopad/protocol";
 
 export type QuickOpenFile = Pick<FileTreeNode, "name" | "path" | "type">;
 

@@ -3,7 +3,7 @@ const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bund
 function shell(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 
 export function parseProvisionedRelease(output: string): ProvisionedRelease {
-  const match = output.match(/(?:^|\n)VIBE_RESULT:([0-9a-f]{40,64}):([01]):([^\r\n]+)(?:\r?\n|$)/);
+  const match = output.match(/(?:^|\n)HATOPAD_RESULT:([0-9a-f]{40,64}):([01]):([^\r\n]+)(?:\r?\n|$)/);
   if (!match || !releasePattern.test(match[3]!) || !match[3]!.startsWith(`${match[1]}-node`)) throw new Error("Remote release could not be verified");
   return { commit: match[1]!, rebuilt: match[2] === "1", release: match[3]! };
 }
@@ -21,7 +21,7 @@ export function coreHealthProbe(port: number, timeoutMs = 180_000): string {
   const done=ok=>{if(finished)return;finished=true;clearTimeout(timer);socket.terminate();resolve(ok)};
   const timer=setTimeout(()=>done(false),1000);
   socket.on('error',()=>done(false));socket.on('close',()=>done(false));
-  socket.on('open',()=>socket.send(JSON.stringify({id:'gateway-health',type:'protocol.handshake',payload:{compatibility:protocolCompatibility,token:process.env.REMOTE_IDE_SESSION_TOKEN}})));
+  socket.on('open',()=>socket.send(JSON.stringify({id:'gateway-health',type:'protocol.handshake',payload:{compatibility:protocolCompatibility,token:process.env.HATOPAD_SESSION_TOKEN}})));
   socket.on('message',data=>{try{const value=JSON.parse(String(data));if(value.id==='gateway-health')done(value.ok===true&&value.result?.compatible===true)}catch{done(false)}});
  });
  while(Date.now()<deadline){if(await probe())return;await new Promise(resolve=>setTimeout(resolve,200))}
@@ -35,11 +35,11 @@ export function serverActivationCommand(workspaceId: string, workspace: string, 
   return `set -eu
 ${environment}
 umask 077
-base="$HOME/.vibe-deploy"
+base="$HOME/.hatopad-deploy"
 mkdir -p "$base"
 assert_no_storage_maintenance() {
 if [ -e "$base/maintenance.lock" ] || [ -L "$base/maintenance.lock" ]; then
-node -e ${shell("const fs=require('node:fs'),os=require('node:os'),p=process.env.HOME+'/.vibe-deploy/maintenance.lock';try{const raw=fs.readFileSync(p,'utf8'),owner=JSON.parse(raw);if(owner.hostname!==os.hostname()||!Number.isSafeInteger(owner.pid)||owner.pid<1)throw Error('Unknown storage maintenance owner');try{process.kill(owner.pid,0);throw Error('Storage maintenance is running; retry when it finishes')}catch(e){if(e.code!=='ESRCH')throw e}if(fs.readFileSync(p,'utf8')===raw)fs.unlinkSync(p)}catch(e){if(e.code!=='ENOENT'){console.error(e.message);process.exit(1)}}")}
+node -e ${shell("const fs=require('node:fs'),os=require('node:os'),p=process.env.HOME+'/.hatopad-deploy/maintenance.lock';try{const raw=fs.readFileSync(p,'utf8'),owner=JSON.parse(raw);if(owner.hostname!==os.hostname()||!Number.isSafeInteger(owner.pid)||owner.pid<1)throw Error('Unknown storage maintenance owner');try{process.kill(owner.pid,0);throw Error('Storage maintenance is running; retry when it finishes')}catch(e){if(e.code!=='ESRCH')throw e}if(fs.readFileSync(p,'utf8')===raw)fs.unlinkSync(p)}catch(e){if(e.code!=='ENOENT'){console.error(e.message);process.exit(1)}}")}
 fi
 }
 assert_no_storage_maintenance
@@ -57,10 +57,10 @@ fi
 printf '%s' "$$" > "$lock/pid"
 trap 'rm -rf "$lock"' EXIT
 assert_no_storage_maintenance
-pidfile="$HOME/.vibe-server-${workspaceId}.pid"
-logfile="$HOME/.vibe-server-${workspaceId}.log"
-selection="$HOME/.vibe-server-${workspaceId}.release"
-tokenfile="$HOME/.vibe-server-${workspaceId}.token"
+pidfile="$HOME/.hatopad-server-${workspaceId}.pid"
+logfile="$HOME/.hatopad-server-${workspaceId}.log"
+selection="$HOME/.hatopad-server-${workspaceId}.release"
+tokenfile="$HOME/.hatopad-server-${workspaceId}.token"
 if [ ! -f "$tokenfile" ]; then
   token_tmp="$tokenfile.$$.$RANDOM.tmp"
   node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))' > "$token_tmp"
@@ -74,9 +74,9 @@ previous=$(cat "$selection" 2>/dev/null || true)
 if [ -n "$previous" ] && ! [[ "$previous" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]]; then echo 'Stored release reference is invalid; inspect the release sidecar before retrying' >&2; exit 1; fi
 ${serverStopFunctions(workspaceId, workspace)}
 start_server() {
-  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; REMOTE_IDE_SESSION_TOKEN="$SESSION_TOKEN" nohup node packages/core/dist/index.js --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
+  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" nohup node packages/core/dist/index.js --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
 }
-health() { (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; REMOTE_IDE_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${probe}); }
+health() { (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${probe}); }
 candidate="$base/releases/${release}"
 test -f "$candidate/packages/core/dist/index.js"
 restore_previous() {
@@ -111,7 +111,7 @@ if health "$candidate" && is_running "$(cat "$pidfile")"; then
   printf '%s' ${shell(release)} > "$selection.tmp"
   mv "$selection.tmp" "$selection"
   promoted=1
-  echo VIBE_ACTIVATED:${release}
+  echo HATOPAD_ACTIVATED:${release}
 else
   echo 'Candidate Core failed its health check. Candidate log:' >&2
   tail -n 40 "$logfile" >&2 || true
@@ -129,7 +129,7 @@ export async function activateRelease(
   let reported = false;
   try {
     await activate((line) => {
-      if (line.trim() === `VIBE_ACTIVATED:${release}`) reported = true;
+      if (line.trim() === `HATOPAD_ACTIVATED:${release}`) reported = true;
       onOutput?.(line);
     });
     if (!reported) throw new Error("Remote activation did not confirm the requested release");
@@ -150,18 +150,18 @@ export function activatedReleaseVerificationCommand(workspaceId: string, port: n
 ${environment}
 ${workspaceReleaseDirectory(workspaceId)}
 [ "$release" = ${shell(release)} ] || { echo 'Selected Core release does not match the requested activation' >&2; exit 1; }
-tokenfile="$HOME/.vibe-server-${workspaceId}.token"
+tokenfile="$HOME/.hatopad-server-${workspaceId}.token"
 test ! -L "$tokenfile" || { echo 'Core token file must not be a symlink' >&2; exit 1; }
 SESSION_TOKEN=$(cat "$tokenfile")
 [[ "$SESSION_TOKEN" =~ ^[A-Za-z0-9_-]+$ ]] && [ "\${#SESSION_TOKEN}" -ge 32 ] && [ "\${#SESSION_TOKEN}" -le 256 ] || { echo 'Invalid Core session token file' >&2; exit 1; }
 cd "$release_directory"
-REMOTE_IDE_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${shell(coreHealthProbe(port, 10_000))}`;
+HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${shell(coreHealthProbe(port, 10_000))}`;
 }
 
 /** Resolve the release belonging to this workspace, with a legacy installation fallback. */
 export function workspaceReleaseDirectory(workspaceId: string): string {
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(workspaceId)) throw new Error("Invalid workspace identity");
-  return `release=$(cat "$HOME/.vibe-server-${workspaceId}.release" 2>/dev/null || true); if [ -n "$release" ]; then [[ "$release" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]] || { echo 'Invalid deployed release reference' >&2; exit 1; }; release_directory="$HOME/.vibe-deploy/releases/$release"; else release_directory="$HOME/.vibe"; fi`;
+  return `release=$(cat "$HOME/.hatopad-server-${workspaceId}.release" 2>/dev/null || true); if [ -n "$release" ]; then [[ "$release" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]] || { echo 'Invalid deployed release reference' >&2; exit 1; }; release_directory="$HOME/.hatopad-deploy/releases/$release"; else release_directory="$HOME/.vibe"; fi`;
 }
 
 function serverStopFunctions(workspaceId: string, workspace: string): string {
@@ -196,13 +196,13 @@ export function serverStopCommand(workspaceId: string, workspace: string, enviro
   if (!/^[A-Za-z0-9_-]{1,200}$/.test(workspaceId)) throw new Error("Invalid workspace identity");
   return `set -eu
 ${environment}
-base="$HOME/.vibe-deploy"
+base="$HOME/.hatopad-deploy"
 mkdir -p "$base"
 lock="$base/activate-${workspaceId}.lock"
 mkdir "$lock" 2>/dev/null || { echo "Workspace activation is busy: $lock" >&2; exit 1; }
 printf '%s' "$$" > "$lock/pid"
 trap 'rm -rf "$lock"' EXIT
-pidfile="$HOME/.vibe-server-${workspaceId}.pid"
+pidfile="$HOME/.hatopad-server-${workspaceId}.pid"
 ${serverStopFunctions(workspaceId, workspace)}
 stop_server`;
 }

@@ -1,7 +1,7 @@
 import { parse as parseEnv } from "dotenv";
 import os from "node:os";
 import path from "node:path";
-import { javaConfigurationPath, type FileRevision, type JavaProjectOptions, type JavaRunConfiguration } from "@remote-ide/protocol";
+import { javaConfigurationPath, type FileRevision, type JavaProjectOptions, type JavaRunConfiguration } from "@hatopad/protocol";
 import { CoreError } from "../../../errors.js";
 import type { WorkspaceFileSystem } from "../../../filesystem.js";
 import { validateJavaProjectOptions } from "./java-settings.js";

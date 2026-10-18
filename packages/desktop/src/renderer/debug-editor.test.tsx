@@ -2,7 +2,7 @@ import { act } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { Monaco } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
-import type { LanguageDebugState } from "@remote-ide/protocol";
+import type { LanguageDebugState } from "@hatopad/protocol";
 import { attachDebugEditor, debugHoverExpression, resolveDebugHover } from "./debug-editor";
 
 const paused: LanguageDebugState = { status: "paused", path: "App.java", line: 7, variables: [{ name: "node", value: "Node", reference: "node" }] };

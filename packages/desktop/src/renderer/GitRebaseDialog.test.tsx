@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import type { GitCommit, GitRebasePreview } from "@remote-ide/protocol";
+import type { GitCommit, GitRebasePreview } from "@hatopad/protocol";
 import { GitRebaseDialog } from "./GitRebaseDialog";
 
 const commit = (hash: string, subject: string): GitCommit => ({ hash: hash.repeat(40), shortHash: hash.repeat(7), author: "Test", date: "2026-08-31T00:00:00Z", subject });

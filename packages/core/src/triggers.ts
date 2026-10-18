@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants as fsConstants, openSync, statSync, type Stats } from "node:fs";
@@ -6,7 +7,7 @@ import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { TriggerFileEvent, TriggerInput, WorkspaceTrigger } from "@remote-ide/protocol";
+import type { TriggerFileEvent, TriggerInput, WorkspaceTrigger } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { serializedStateMutation } from "./root-mutation.js";
 import { validateScheduledAction } from "./schedules.js";
@@ -53,7 +54,7 @@ export class TriggerService {
   private writes: Promise<unknown> = Promise.resolve();
   private closed = false;
 
-  constructor(rootWorkspace: string, private readonly deliver: (trigger: WorkspaceTrigger, event: TriggerEvent, active: () => boolean) => Promise<TriggerDelivery>, private readonly changed: () => void, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide")) {
+  constructor(rootWorkspace: string, private readonly deliver: (trigger: WorkspaceTrigger, event: TriggerEvent, active: () => boolean) => Promise<TriggerDelivery>, private readonly changed: () => void, stateDirectory = process.env.HATOPAD_STATE_DIR ?? stateHome()) {
     this.file = path.join(stateDirectory, `${crypto.createHash("sha256").update(rootWorkspace).digest("hex")}-triggers.json`);
   }
 

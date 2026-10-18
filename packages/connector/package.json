@@ -1,5 +1,5 @@
 {
-  "name": "@remote-ide/connector",
+  "name": "@hatopad/connector",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -16,7 +16,7 @@
     }
   },
   "dependencies": {
-    "@remote-ide/relay": "0.1.0",
+    "@hatopad/relay": "0.1.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {

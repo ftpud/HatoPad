@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState } from "react";
 import { Copy, Plus, Trash2, X } from "lucide-react";
-import type { FileRevision, LanguageExtra, LanguageRunTarget, LanguageToolCheck } from "@remote-ide/protocol";
+import type { FileRevision, LanguageExtra, LanguageRunTarget, LanguageToolCheck } from "@hatopad/protocol";
 import type { CoreClient } from "../../../client";
 import { languageClient } from "../../../language-client";
 import "./npm-configuration.css";

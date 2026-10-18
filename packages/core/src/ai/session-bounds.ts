@@ -1,4 +1,4 @@
-import type { AiPermissionRequest, AiQuestionField, AiQuestionRequest, AiSession } from "@remote-ide/protocol";
+import type { AiPermissionRequest, AiQuestionField, AiQuestionRequest, AiSession } from "@hatopad/protocol";
 import { CoreError } from "../errors.js";
 
 export const sessionListLimits = { defaultSessions: 30, maxSessions: 100, maxResponseMessages: 100 } as const;

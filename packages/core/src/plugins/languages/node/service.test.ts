@@ -6,10 +6,10 @@ import { WorkspaceFileSystem } from "../../../filesystem.js";
 import { LanguageRegistry, LanguageSessions } from "../../../language/registry.js";
 import { handleLanguageRequest, type LanguageRequestType } from "../../../language/routes.js";
 import { NODE_DESCRIPTOR, NodeLanguageService } from "./service.js";
-import type { Request } from "@remote-ide/protocol";
+import type { Request } from "@hatopad/protocol";
 
 async function setup() {
-  const root = await mkdtemp(path.join(tmpdir(), "remote-ide-lang-node-"));
+  const root = await mkdtemp(path.join(tmpdir(), "hatopad-lang-node-"));
   const filesystem = new WorkspaceFileSystem();
   await filesystem.initialize(root);
   const events = { output: vi.fn(), exit: vi.fn(), debugState: vi.fn(), semanticChanged: vi.fn() };

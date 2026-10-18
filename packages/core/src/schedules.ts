@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { ScheduledAction, ScheduleInput, WorkspaceSchedule } from "@remote-ide/protocol";
+import type { ScheduledAction, ScheduleInput, WorkspaceSchedule } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { serializedStateMutation } from "./root-mutation.js";
 
@@ -53,7 +54,7 @@ export class ScheduleService {
   private closePromise?: Promise<void>;
   private warnedBackupRecovery = false;
 
-  constructor(rootWorkspace: string, private readonly deliver: (schedule: WorkspaceSchedule, active: () => boolean) => Promise<{ workflowRunId?: string }>, private readonly changed: () => void, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, private readonly deliver: (schedule: WorkspaceSchedule, active: () => boolean) => Promise<{ workflowRunId?: string }>, private readonly changed: () => void, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     this.file = path.join(stateDirectory, `${crypto.createHash("sha256").update(rootWorkspace).digest("hex")}-schedules.json`);
   }
 

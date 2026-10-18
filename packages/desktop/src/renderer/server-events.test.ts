@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isServerEvent, serverEventTypes, type ServerEvent } from "@remote-ide/protocol";
+import { isServerEvent, serverEventTypes, type ServerEvent } from "@hatopad/protocol";
 
 type Examples = { [K in ServerEvent["type"]]: Extract<ServerEvent, { type: K }> };
 const examples = {

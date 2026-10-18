@@ -1,4 +1,4 @@
-import type { FilesystemSnapshotEntry, FileTreeNode } from "@remote-ide/protocol";
+import type { FilesystemSnapshotEntry, FileTreeNode } from "@hatopad/protocol";
 
 /** Applies Core's current-state snapshot; watcher ordering is intentionally ignored. */
 export function reconcileProjectTree(tree: FileTreeNode[], entries: FilesystemSnapshotEntry[]): FileTreeNode[] {

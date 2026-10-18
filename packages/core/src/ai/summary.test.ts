@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { summarizeAiSessions } from "./summary.js";
 
 const session = (status: AiSession["status"], text: string, timestamp: string): AiSession => ({ model: "test", reasoning: "medium", status, messages: [{ id: text, role: "assistant", text, timestamp }] });

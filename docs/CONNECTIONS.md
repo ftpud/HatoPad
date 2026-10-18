@@ -78,9 +78,9 @@ memory. File-transfer sockets use their own transport path.
 
 Core accepts optional positive safe integer environment variables:
 
-- `VIBE_TREE_MAX_NODES`: visible nodes, including implicit parent directories.
-- `VIBE_TREE_MAX_PATH_BYTES`: summed UTF-8 relative paths of visible nodes.
-- `VIBE_TREE_MAX_DEPTH`: path-component depth.
+- `HATOPAD_TREE_MAX_NODES`: visible nodes, including implicit parent directories.
+- `HATOPAD_TREE_MAX_PATH_BYTES`: summed UTF-8 relative paths of visible nodes.
+- `HATOPAD_TREE_MAX_DEPTH`: path-component depth.
 
 Unset limits are unlimited. Embedders can pass `maxNodes`, `maxPathBytes`, and
 `maxDepth` to `WorkspaceFileSystem`. Limits apply per tree request; they do not

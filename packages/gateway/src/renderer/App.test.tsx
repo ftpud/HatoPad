@@ -51,7 +51,7 @@ describe("Gateway dialogs", () => {
   it("offers a local Mac connection without SSH fields", () => {
     render(<ConnectionDialog value={{ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" }} onClose={vi.fn()} onSave={vi.fn()} />);
     fireEvent.change(screen.getByRole("combobox", { name: "Connection type" }), { target: { value: "local" } });
-    expect(screen.getByText(/run Core and Vibe Editor directly on this Mac/)).toBeTruthy();
+    expect(screen.getByText(/run Core and HatoPad directly on this Mac/)).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Host" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
   });

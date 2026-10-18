@@ -1,7 +1,11 @@
+import "./legacy-env-bootstrap.js";
 import { loadCoreSessionToken } from "./access-policy.js";
 import { installSignalShutdown } from "./signal-shutdown.js";
 import { createServer, shutdownCore } from "./server.js";
+import { migrateLegacyHome } from "./legacy-migration.js";
 import { parseHubOptions, runHubPairing, startHubConnector } from "./hub-connection.js";
+
+if (process.env.HATOPAD_MIGRATE_LEGACY_STATE === "1" && !process.env.HATOPAD_STATE_DIR) await migrateLegacyHome().catch((error) => console.error(`[core] Could not migrate the legacy state directory: ${error instanceof Error ? error.message : String(error)}`));
 
 function option(name: string, fallback: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -25,7 +29,7 @@ if (!workspace) {
 try {
   const access = await loadCoreSessionToken(port);
   if (access.file) console.log(`[core] session token file: ${access.file}`);
-  const allowedOrigins = process.env.REMOTE_IDE_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
+  const allowedOrigins = process.env.HATOPAD_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
   const server = await createServer(host, port, workspace, { access: { token: access.token, allowedOrigins } });
   const stopHub = hub.connect ? await startHubConnector(hub, port, access.token) : undefined;
   installSignalShutdown(async () => { await stopHub?.(); await shutdownCore(server); });

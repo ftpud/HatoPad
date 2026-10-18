@@ -28,7 +28,7 @@ it("paints nonempty selections, clears collapsed selections, and releases listen
     onDidDispose: (callback: () => void) => { dispose = callback; return disposal; }
   } as unknown as editor.ICodeEditor;
   highlightEditorSelection(codeEditor);
-  expect(set).toHaveBeenLastCalledWith([{ range: selection, options: expect.objectContaining({ inlineClassName: "vibe-code-selection" }) }]);
+  expect(set).toHaveBeenLastCalledWith([{ range: selection, options: expect.objectContaining({ inlineClassName: "hatopad-code-selection" }) }]);
   selections = [selection, { ...selection, startLineNumber: 4, endLineNumber: 4 }];
   change();
   expect(set.mock.calls.at(-1)![0]).toHaveLength(2);

@@ -19,10 +19,10 @@ rollback choice when the current client is incompatible.
 
 ## Core session credentials and origins
 
-Core starts with a session token. Set `REMOTE_IDE_SESSION_TOKEN` to provide one
-directly, or set `REMOTE_IDE_SESSION_TOKEN_FILE` to choose the token file. If
+Core starts with a session token. Set `HATOPAD_SESSION_TOKEN` to provide one
+directly, or set `HATOPAD_SESSION_TOKEN_FILE` to choose the token file. If
 neither is set, Core stores a token at
-`~/.remote-ide/core-tokens/<port>.token`. It creates the containing directory
+`~/.hatopad/core-tokens/<port>.token`. It creates the containing directory
 with mode `0700`, publishes a complete token file exclusively, and checks that
 the file is regular, private, and owned by the current user. Tokens must contain
 32–256 URL-safe characters. Keep token files private; never paste tokens into
@@ -30,7 +30,7 @@ logs, tickets, or source control.
 
 Gateway uses a per-workspace token file in its local application data directory
 for a locally launched Core. For a remote workspace, the remote token is kept
-in `~/.vibe-server-<workspace-id>.token` on the SSH host. The activation script
+in `~/.hatopad-server-<workspace-id>.token` on the SSH host. The activation script
 creates it under a restrictive umask, rejects a symlink, and validates its
 format. Gateway reads that file over the authenticated SSH connection and
 passes the token to the local Desktop process for its authenticated Core
@@ -44,10 +44,10 @@ starts the listener. Native clients that omit the HTTP `Origin` header are
 allowed through the origin check but still need the token at the protocol
 handshake. Opaque Electron origins (`null` or `file://`) are accepted only when
 a token is configured. Browser origins must be explicitly listed in
-`REMOTE_IDE_ALLOWED_ORIGINS` as comma-separated, exact origins, for example:
+`HATOPAD_ALLOWED_ORIGINS` as comma-separated, exact origins, for example:
 
 ```sh
-REMOTE_IDE_ALLOWED_ORIGINS='https://editor.example.test,http://localhost:5173'
+HATOPAD_ALLOWED_ORIGINS='https://editor.example.test,http://localhost:5173'
 ```
 
 Do not add broad or untrusted origins. Restart Core after changing the
@@ -56,7 +56,7 @@ environment.
 ## Remote release provisioning and activation
 
 Gateway keeps remote source caches and installed builds below
-`~/.vibe-deploy/`. Installed builds live in `~/.vibe-deploy/releases/` and are
+`~/.hatopad-deploy/`. Installed builds live in `~/.hatopad-deploy/releases/` and are
 keyed by Git commit and Node module ABI, with the target platform and
 architecture recorded in the build marker. Provisioning stages a fresh
 directory, runs `npm ci`, builds the required workspaces, performs import and
@@ -72,7 +72,7 @@ fetch. Gateway reports the verified commit and release key after provisioning.
 Starting a remote server stops the old per-workspace server, starts Core from
 the candidate release on loopback, then performs an authenticated protocol
 handshake health check. Gateway updates
-`~/.vibe-server-<workspace-id>.release` only after the candidate passes. The
+`~/.hatopad-server-<workspace-id>.release` only after the candidate passes. The
 previous selection is saved as a `.previous` sidecar. If candidate health
 verification fails, the activation script stops it and restores the previous
 release selection, then attempts to start and health-check the previous
@@ -94,13 +94,13 @@ retrying. For `node-pty` build errors, the SSH host needs a C/C++ compiler,
 
 Useful remote diagnostics are:
 
-- `~/.vibe-server-<workspace-id>.log` — current server startup/runtime output.
-- `~/.vibe-server-<workspace-id>.log.previous` — log copied before activation.
-- `~/.vibe-server-<workspace-id>.pid` — selected server process ID.
-- `~/.vibe-server-<workspace-id>.release` and `.previous` — current and prior
+- `~/.hatopad-server-<workspace-id>.log` — current server startup/runtime output.
+- `~/.hatopad-server-<workspace-id>.log.previous` — log copied before activation.
+- `~/.hatopad-server-<workspace-id>.pid` — selected server process ID.
+- `~/.hatopad-server-<workspace-id>.release` and `.previous` — current and prior
   release selections.
-- `~/.vibe-deploy/releases/` — immutable normal and repair builds.
-- `~/.vibe-deploy/sources/` — repository and branch keyed source caches.
+- `~/.hatopad-deploy/releases/` — immutable normal and repair builds.
+- `~/.hatopad-deploy/sources/` — repository and branch keyed source caches.
 
 Treat logs and state as operational data. Review them before removing anything;
 do not delete a release directory that is currently selected by a workspace.
@@ -108,7 +108,7 @@ do not delete a release directory that is currently selected by a workspace.
 ## Lock diagnosis and recovery
 
 Provisioning serializes remote builds with
-`~/.vibe-deploy/provision.lock`. Its owner record contains a PID, host name, and
+`~/.hatopad-deploy/provision.lock`. Its owner record contains a PID, host name, and
 random identity. A waiting provisioner can reclaim the lock only when the owner
 is on the same host and the process is confirmed dead, with a second ownership
 check to avoid removing a lock that changed during recovery. Otherwise it waits
@@ -116,7 +116,7 @@ up to five minutes and reports the PID/host. If the owner is missing or
 unrecognized, the timeout says the owner is unknown and asks for inspection.
 
 Activation uses a separate
-`~/.vibe-deploy/activate-<workspace-id>.lock`. A live PID is reported
+`~/.hatopad-deploy/activate-<workspace-id>.lock`. A live PID is reported
 immediately; a dead local PID can be reclaimed after checking the recorded PID
 again. An empty or malformed owner is reported as unknown and is not removed
 automatically.
@@ -167,8 +167,8 @@ Build the application first, then run the restart check against a private fixtur
 
 ```sh
 npm run build
-npm run test:release-soak -- --cycles 20 --output /tmp/vibe-soak.json
-npm run test:release-soak -- --minutes 30 --pause-ms 1000 --output /tmp/vibe-soak-30min.json
+npm run test:release-soak -- --cycles 20 --output /tmp/hatopad-soak.json
+npm run test:release-soak -- --minutes 30 --pause-ms 1000 --output /tmp/hatopad-soak-30min.json
 ```
 
 The check snapshots built Core, ACP, and Protocol code and uses a separate Git

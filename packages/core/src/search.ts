@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { FileRevision, SearchMatchContext, SearchReplaceApplyResult, SearchReplacePreview, SearchResult } from "@remote-ide/protocol";
+import type { FileRevision, SearchMatchContext, SearchReplaceApplyResult, SearchReplacePreview, SearchResult } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 

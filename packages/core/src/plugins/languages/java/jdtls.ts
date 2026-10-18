@@ -4,7 +4,7 @@ import path from "node:path";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { toolInstallations } from "../../../tools.js";
 import { createMessageConnection, StreamMessageReader, StreamMessageWriter, type MessageConnection } from "vscode-jsonrpc/node.js";
-import type { JavaLspCompletion, JavaLspLocation, JavaSemanticToken, WorkspaceSymbol } from "@remote-ide/protocol";
+import type { JavaLspCompletion, JavaLspLocation, JavaSemanticToken, WorkspaceSymbol } from "@hatopad/protocol";
 import { JavaSemanticCache, javaLanguageStateDirectory } from "./java-semantic-cache.js";
 import { CoreError } from "../../../errors.js";
 import { WorkspaceFileSystem } from "../../../filesystem.js";

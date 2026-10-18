@@ -1,4 +1,4 @@
-# Vibe Editor repository guide
+# HatoPad repository guide
 
 Node 22.12+ npm-workspaces monorepo. Core runs remotely and owns workspace files,
 processes, and durable state; Electron clients own interaction. Read and change
@@ -37,11 +37,11 @@ From the repository root after `npm install`:
 ```bash
 npm run build
 npm run typecheck                 # ACP/Protocol build; Core/Desktop check
-npm run typecheck -w @remote-ide/gateway
+npm run typecheck -w @hatopad/gateway
 npm test
 ```
 
-Use `npm run {build|typecheck|test} -w @remote-ide/<package>` for targeted work.
+Use `npm run {build|typecheck|test} -w @hatopad/<package>` for targeted work.
 Do not hand-edit `node_modules/`, `coverage/`, `packages/*/dist/`,
 `packages/*/dist-electron/`, `packages/*/dist-renderer/`, `.tools/`, or
 `.electron-runtime/`; regenerate them. Never commit `.env*` secrets or provider/MCP

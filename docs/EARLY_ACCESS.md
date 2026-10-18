@@ -3,8 +3,8 @@
 Run **Actions → Bundle Create → Run workflow** on the commit or branch you want
 packaged. Packaging script, bundle workflow, and renderer navigation policy
 changes pushed to `main` also start Bundle Create automatically. The workflow
-uploads two artifact sets, `vibe-early-access-macos-15`
-and `vibe-early-access-windows-2025`. Download and extract the artifact wrapper;
+uploads two artifact sets, `hatopad-early-access-macos-15`
+and `hatopad-early-access-windows-2025`. Download and extract the artifact wrapper;
 each contains a Gateway installer, a standalone Desktop ZIP, and JSON manifests
 with their version, source commit and SHA-256 checksum. No GitHub release is
 published automatically. Change the root `package.json` version before building
@@ -41,13 +41,13 @@ upload fails after draft creation, inspect and remove the incomplete draft and
 its tag before retrying with the same tag, or use a new tag.
 
 Gateway downloads use native installation formats: open the Apple Silicon macOS
-`.dmg` and drag **Vibe Gateway** to **Applications**, or run the Windows x64
+`.dmg` and drag **HatoPad Gateway** to **Applications**, or run the Windows x64
 `-setup.exe`. Windows installs for the current user without administrator access,
 adds a Start menu shortcut, and supports uninstalling from Windows Settings.
 Close Gateway and its embedded Editor before reinstalling or upgrading.
 Standalone Desktop downloads remain portable ZIPs; extract the entire ZIP before
 launching and keep the Windows application's files together.
-Start with **Vibe Gateway** to configure connections and workspaces. Gateway
+Start with **HatoPad Gateway** to configure connections and workspaces. Gateway
 contains its own complete Desktop application; users can also download Desktop
 separately to connect to an existing Core.
 
@@ -77,7 +77,7 @@ and the Java runtime and language server from Settings → Tools, on the Core ho
 The archive is built and smoke-tested on its own target architecture. The smoke
 check starts a native PTY and starts, authenticates to, stops and restarts Core
 with its staged Node runtime. CI also launches both packaged applications and
-Gateway’s embedded Editor (`--vibe-editor`) with `--bundle-smoke-test` to check renderer/preload
+Gateway’s embedded Editor (`--hatopad`) with `--bundle-smoke-test` to check renderer/preload
 loading and bundled mode before archiving. Applications only accept Core artifacts from the
 same source commit and validate their SHA-256 digests before packaging.
 
@@ -90,14 +90,14 @@ provisioning.
 On a Mac, local connections unpack the matching bundled Core into Gateway's
 application-data cache and launch it with its own Node runtime. Gateway ships the
 Editor's application files, not a second Electron runtime, and starts the Editor
-by running its own executable with `--vibe-editor`, including for SSH connections.
-The Editor keeps the standalone Vibe Editor's settings directory. It never
+by running its own executable with `--hatopad`, including for SSH connections.
+The Editor keeps the standalone HatoPad's settings directory. It never
 fetches Desktop code from the Core host in this mode.
 
 For SSH hosts, Gateway detects the target OS/architecture, uploads the matching
 archive over SFTP into a private temporary directory, verifies the checksum
 again on the host, smoke-checks the extracted runtime, and atomically installs
-it under `~/.vibe-deploy/releases/`. Release names include the source commit,
+it under `~/.hatopad-deploy/releases/`. Release names include the source commit,
 Node ABI, workflow build/attempt and target. Repeated builds and source builds
 do not overwrite each other. Existing activation, authenticated health checks,
 rollback and stop behavior are reused. Repair installs another immutable copy
@@ -134,7 +134,7 @@ After `npm ci` and building the relevant workspaces:
 - `npm run build && npm run bundle:apps` creates both application downloads
   under `artifacts/downloads/` using the lockfile's Electron version. On Windows,
   install NSIS 3.11 first (`choco install nsis --version=3.11 --yes`); set
-  `VIBE_MAKENSIS` to use a compiler outside its default Program Files location.
+  `HATOPAD_MAKENSIS` to use a compiler outside its default Program Files location.
   macOS uses its built-in `hdiutil`. The Windows build silently installs Gateway
   into a temporary directory and smoke-tests Gateway and its embedded Editor
   before uninstalling; macOS verifies the resulting disk image. Chromium

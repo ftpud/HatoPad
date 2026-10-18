@@ -5,9 +5,9 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
 import { WebSocketServer, WebSocket } from "ws";
-import { protocolCompatibility } from "@remote-ide/protocol";
-import { CoreConnector, type ConnectorStatus } from "@remote-ide/connector";
-import { TestRelay } from "@remote-ide/relay/testing";
+import { protocolCompatibility } from "@hatopad/protocol";
+import { CoreConnector, type ConnectorStatus } from "@hatopad/connector";
+import { TestRelay } from "@hatopad/relay/testing";
 import { createServer, shutdownCore } from "./server.js";
 
 const cleanups: Array<() => Promise<unknown> | unknown> = [];
@@ -20,7 +20,7 @@ const until = async (check: () => boolean, label: string) => {
 
 it("relays two independent browser channels to a real Core with the local token injected only toward Core", async () => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hub-connector-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   cleanups.push(() => rm(directory, { recursive: true, force: true }));
   await promisify(execFile)("git", ["init", directory]);
   const token = "local-core-token-that-must-not-leak";

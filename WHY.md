@@ -1,10 +1,10 @@
-# Why VibeEditor Exists
+# Why HatoPad Exists
 
-VibeEditor started as a tool I wanted for my own day-to-day work.
+HatoPad started as a tool I wanted for my own day-to-day work.
 
 The problem is simple: development increasingly happens on remote machines, while the local device should remain a lightweight and replaceable interface to that environment. The repository, compute, terminals, tools, and task state should live where the development environment actually runs — not be tied to a particular laptop.
 
-So VibeEditor follows a different model:
+So HatoPad follows a different model:
 
 > **The development machine is the server. The local app is just the control surface.**
 
@@ -36,7 +36,7 @@ In a large monolith, switching between those tasks usually means reconstructing 
 - restoring the AI conversation
 - figuring out the current Git state
 
-VibeEditor treats each task as a persistent workspace instead.
+HatoPad treats each task as a persistent workspace instead.
 
 A workspace can keep its own:
 
@@ -57,7 +57,7 @@ Switching tasks should therefore mean switching workspaces, not rebuilding menta
 
 AI agents are becoming the default way I perform many small and medium coding tasks.
 
-VibeEditor is designed around that reality.
+HatoPad is designed around that reality.
 
 The normal flow is often:
 
@@ -72,7 +72,7 @@ The normal flow is often:
 
 The editor, terminals, Git tools, `.http` files, executable Markdown, debugger integration, and other development tools exist so that a human can immediately take over whenever necessary.
 
-VibeEditor is not built around the assumption that an autonomous agent will always finish the task correctly.
+HatoPad is not built around the assumption that an autonomous agent will always finish the task correctly.
 
 Instead:
 
@@ -88,7 +88,7 @@ The workspace should survive all of them.
 
 ## Remote-first by design
 
-VibeEditor is not trying to stream a traditional heavyweight IDE from another machine.
+HatoPad is not trying to stream a traditional heavyweight IDE from another machine.
 
 The remote server owns the development state and performs the expensive work. The desktop application talks to that environment and provides the interaction layer.
 
@@ -106,24 +106,24 @@ The important state belongs with the project and the compute, not with one lapto
 
 > **The server owns the state. The client owns the interaction.**
 
-## VibeEditor is not trying to replace every IDE
+## HatoPad is not trying to replace every IDE
 
 There are tasks for which a heavyweight IDE is exactly the right tool.
 
 Deep debugging, profiling, advanced refactoring, framework-specific tooling, and complex language analysis are areas where mature IDEs such as IntelliJ IDEA are extremely valuable.
 
-VibeEditor does not need to recreate all of that.
+HatoPad does not need to recreate all of that.
 
 Its primary use case is different: handling many task-sized development contexts efficiently.
 
 For a difficult debugging or profiling session, opening a JetBrains IDE can be the right choice.
 
-For a queue of smaller tickets, reviews, fixes, experiments, and AI-assisted changes, VibeEditor is intended to be the faster place to live.
+For a queue of smaller tickets, reviews, fixes, experiments, and AI-assisted changes, HatoPad is intended to be the faster place to live.
 
 A useful way to think about the distinction is:
 
 > **Traditional IDEs optimize for depth inside one development context.  
-> VibeEditor optimizes for throughput across many development contexts.**
+> HatoPad optimizes for throughput across many development contexts.**
 
 ## Jira and task automation
 
@@ -148,7 +148,7 @@ Conceptually:
 Jira ticket
     |
     v
-Vibe workspace
+HatoPad workspace
     |
     +-- Git worktree / branch
     +-- terminals
@@ -166,7 +166,7 @@ The goal is to reduce the cost of starting, pausing, resuming, and switching rea
 
 ## The core idea
 
-VibeEditor exists because modern development work is increasingly a collection of parallel, long-lived task contexts running on machines more powerful than the laptop in front of us.
+HatoPad exists because modern development work is increasingly a collection of parallel, long-lived task contexts running on machines more powerful than the laptop in front of us.
 
 The project is built around a few simple ideas:
 

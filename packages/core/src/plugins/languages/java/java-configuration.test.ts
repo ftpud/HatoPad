@@ -2,7 +2,7 @@ import { chmod, mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } fro
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { javaConfigurationPath } from "@remote-ide/protocol";
+import { javaConfigurationPath } from "@hatopad/protocol";
 import { WorkspaceFileSystem } from "../../../filesystem.js";
 import { JavaProjectService } from "./java.js";
 import { WorkspaceStateStore } from "../../../workspace-state.js";
@@ -11,8 +11,8 @@ import { javaLaunchEnvironment, javaToolEnvironment, javaToolExecutable, parseJa
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 async function workspace(wrapper = false, linked = false) {
-  let root = await mkdtemp(path.join(os.tmpdir(), "vibe-java-settings-"));
-  const stateDirectory = await mkdtemp(path.join(os.tmpdir(), "vibe-java-settings-state-"));
+  let root = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-settings-"));
+  const stateDirectory = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-settings-state-"));
   directories.push(root, stateDirectory);
   if (linked) {
     const alias = `${root}-link`;

@@ -1,4 +1,4 @@
-import { AcpProvider, type AiProviderDescriptor, type AiProviderInstallation, type AiProviderOrigin } from "@remote-ide/acp";
+import { AcpProvider, type AiProviderDescriptor, type AiProviderInstallation, type AiProviderOrigin } from "@hatopad/acp";
 import { CoreError } from "../errors.js";
 
 /** Runtime registry: new providers are added by registering one AcpProvider plugin. */
@@ -45,5 +45,5 @@ export class AcpRegistry {
   }
 }
 
-export { AcpProvider, applyConfiguration, mergeConfiguration } from "@remote-ide/acp";
-export type { AcpSendRequest } from "@remote-ide/acp";
+export { AcpProvider, applyConfiguration, mergeConfiguration } from "@hatopad/acp";
+export type { AcpSendRequest } from "@hatopad/acp";

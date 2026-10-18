@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import { recoveryFailureFeedback } from "./connection-recovery";
 import { CoalescedAsyncAction, CoreClient } from "./client";
 

@@ -12,7 +12,8 @@ export function validateWorkspaceDirectoryInput(directory: string): string {
 
 export function quoteWorkspaceShellArgument(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
 
-const remoteWorkspaceRegistry = "$HOME/.vibe/workspaces";
+// A file; the Core state directory ~/.hatopad/workspaces is a different path, hence the distinct name.
+const remoteWorkspaceRegistry = "$HOME/.hatopad/gateway-workspaces";
 
 /** Lists registered workspaces first, then direct home folders and conventional project folders. */
 export function workspaceDiscoveryCommand(): string {
@@ -22,7 +23,7 @@ export function workspaceDiscoveryCommand(): string {
 /** Adds a validated path to the SSH user's durable Gateway workspace registry. */
 export function workspaceRegistrationCommand(directory: string): string {
   const value = validateWorkspaceDirectoryInput(directory);
-  return `bash -lc ${quoteWorkspaceShellArgument(`set -eu; directory=${quoteWorkspaceShellArgument(value)}; registry=${remoteWorkspaceRegistry}; mkdir -p -- "$HOME/.vibe"; touch -- "$registry"; grep -Fqx -- "$directory" "$registry" || printf '%s\\n' "$directory" >> "$registry"`)}`;
+  return `bash -lc ${quoteWorkspaceShellArgument(`set -eu; directory=${quoteWorkspaceShellArgument(value)}; registry=${remoteWorkspaceRegistry}; mkdir -p -- "$HOME/.hatopad"; touch -- "$registry"; grep -Fqx -- "$directory" "$registry" || printf '%s\\n' "$directory" >> "$registry"`)}`;
 }
 
 /** Removes a validated path from the SSH user's durable Gateway workspace registry. */
@@ -52,4 +53,21 @@ export function parseValidatedWorkspaceDirectory(output: string): string {
   const lines = output.trim().split("\n").filter(Boolean);
   if (lines.length !== 1) throw new Error("Could not validate the remote directory");
   return validateWorkspaceDirectoryInput(lines[0]!);
+}
+
+/**
+ * Idempotent, best-effort move of pre-rename files in the SSH user's home: server pid/log/token/release markers
+ * (so a running server is still found and can be stopped) and the workspace registry (copied, because the old
+ * install directory may still run). The state directory (`~/.remote-ide`) and the old deployment tree are left in
+ * place: a running server may be using them, Core keeps reading the old state directory until `~/.hatopad` exists,
+ * and the first connect provisions a fresh release under `~/.hatopad-deploy`. Nothing is deleted.
+ */
+export function legacyRemoteMigrationCommand(): string {
+  const script = [
+    'H="$HOME"',
+    'for f in "$H"/.vibe-server-*; do [ -e "$f" ] || continue; n="${f##*/.vibe-server-}"; [ -e "$H/.hatopad-server-$n" ] || mv -- "$f" "$H/.hatopad-server-$n"; done',
+    'if [ -f "$H/.vibe/workspaces" ] && [ ! -e "$H/.hatopad/gateway-workspaces" ]; then mkdir -p -- "$H/.hatopad" && cp -p -- "$H/.vibe/workspaces" "$H/.hatopad/gateway-workspaces"; fi',
+    'true'
+  ].join("; ");
+  return `bash -lc ${quoteWorkspaceShellArgument(script)}`;
 }

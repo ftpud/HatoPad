@@ -1,4 +1,4 @@
-import type { JavaFileType } from "@remote-ide/protocol";
+import type { JavaFileType } from "@hatopad/protocol";
 
 // This is declaration metadata for explorer icons, not Java type resolution.
 export function javaFileType(content: string, name: string): JavaFileType | undefined {

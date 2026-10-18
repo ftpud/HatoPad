@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HarnessBlock, HarnessBlockRun } from "@remote-ide/protocol";
+import type { HarnessBlock, HarnessBlockRun } from "@hatopad/protocol";
 import { MeetingUpdates, useMeeting } from "./workflow-meeting.js";
 
 const agent = (id: string): HarnessBlock => ({ id, label: id, type: "ai", provider: "claude", model: "sonnet", prompt: "", position: { x: 0, y: 0 } });

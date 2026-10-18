@@ -1,13 +1,14 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import type { UsefulFile, UsefulFileScope } from "@remote-ide/protocol";
+import type { UsefulFile, UsefulFileScope } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 export class UsefulFilesStore {
   private readonly root: string;
-  constructor(workspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(workspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(workspace).digest("hex");
     this.root = path.join(stateDirectory, "useful-files");
     this.localDirectory = path.join(this.root, "local", key);

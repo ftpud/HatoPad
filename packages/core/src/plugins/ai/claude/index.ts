@@ -1,5 +1,5 @@
 import type { ProviderContext } from "../../../ai/stdio-provider.js";
-import type { AiAccountQuota, AiConfiguration, AiModel, AiProviderDescriptor, AiQuotaWindow, AiUsage } from "@remote-ide/acp";
+import type { AiAccountQuota, AiConfiguration, AiModel, AiProviderDescriptor, AiQuotaWindow, AiUsage } from "@hatopad/acp";
 import type { InstallationSpec } from "../../../ai/provider-installations.js";
 import { ASK_QUESTIONS_OPTION, LIVE_STEERING_OPTION, StdioAcpProvider, SYSTEM_INSTRUCTIONS_OPTION } from "../../../ai/stdio-provider.js";
 
@@ -28,7 +28,7 @@ type RateLimit = { status?: string; window: AiQuotaWindow };
 export class ClaudeSessionManager extends StdioAcpProvider {
   readonly descriptor: AiProviderDescriptor = {
     id: "claude", name: "Claude ACP", description: "Claude Code through the Agent Client Protocol adapter built on the Claude Agent SDK.",
-    settings: { title: "Claude settings", description: "Permission handling and session features for this workspace's Claude session.", sections: [{ id: "tools", name: "Tools & access", description: "How Claude asks before acting." }, { id: "features", name: "Session features", description: "How Vibe Editor works with the running session." }] },
+    settings: { title: "Claude settings", description: "Permission handling and session features for this workspace's Claude session.", sections: [{ id: "tools", name: "Tools & access", description: "How Claude asks before acting." }, { id: "features", name: "Session features", description: "How HatoPad works with the running session." }] },
     capabilities: { models: true, usage: true, mcp: true, agents: true, contextWindow: true, skills: true },
     options: [
       { id: "mode", name: "Permission mode", description: "Choose how Claude asks before editing files and running tools. Modes the agent does not advertise are ignored.", section: "tools", type: "select", defaultValue: "default", choices: [{ value: "default", name: "Manual" }, { value: "acceptEdits", name: "Accept edits" }, { value: "plan", name: "Plan" }, { value: "auto", name: "Auto" }, { value: "bypassPermissions", name: "Bypass permissions" }] },

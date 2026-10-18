@@ -5,11 +5,11 @@ describe("hub options", () => {
   it("is off by default and parses opt-in flags", () => {
     expect(parseHubOptions([], {})).toMatchObject({ connect: false, pairOrigin: undefined });
     expect(parseHubOptions(["--hub-connect"], {}).connect).toBe(true);
-    expect(parseHubOptions([], { REMOTE_IDE_HUB_CONNECT: "1" }).connect).toBe(true);
+    expect(parseHubOptions([], { HATOPAD_HUB_CONNECT: "1" }).connect).toBe(true);
     expect(parseHubOptions(["--hub-pair", "https://hub.example"], {}).pairOrigin).toBe("https://hub.example");
     expect(() => parseHubOptions(["--hub-pair"], {})).toThrow();
     expect(() => parseHubOptions(["--hub-pair", "--hub-connect"], {})).toThrow();
-    expect(parseHubOptions([], { REMOTE_IDE_HUB_PAIRING_FILE: "/tmp/p.json" }).storeFile).toBe("/tmp/p.json");
+    expect(parseHubOptions([], { HATOPAD_HUB_PAIRING_FILE: "/tmp/p.json" }).storeFile).toBe("/tmp/p.json");
   });
 
   it("derives the relay URL from the paired origin", () => {

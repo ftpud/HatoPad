@@ -9,7 +9,7 @@ const instances: AcpAuthentication[] = [];
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(instances.splice(0).map(instance => instance.shutdown())); await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true }))); });
 async function fixture(extra: NodeJS.ProcessEnv = {}) {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-auth-")); directories.push(workspace);
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-auth-")); directories.push(workspace);
   const launch = vi.fn(async () => ({ command: process.execPath, args: [fileURLToPath(new URL("./fake-auth-agent.mjs", import.meta.url))], env: { AUTH_FILE: path.join(workspace, "credential"), AUTH_LOG: path.join(workspace, "requests"), ...extra } }));
   const auth = new AcpAuthentication("fixture", launch); instances.push(auth);
   return { workspace, auth, launch };

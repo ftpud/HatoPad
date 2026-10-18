@@ -8,7 +8,7 @@ const cleanup: string[] = [];
 afterEach(async () => { await Promise.all(cleanup.splice(0).map((item) => rm(item, { recursive: true, force: true }))); });
 
 async function fixture() {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-roots-"))); cleanup.push(directory);
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-roots-"))); cleanup.push(directory);
   const primary = path.join(directory, "primary"), related = path.join(directory, "related"), state = path.join(directory, "state");
   await Promise.all([mkdir(primary), mkdir(related), mkdir(state)]);
   return { directory, primary, related, state };

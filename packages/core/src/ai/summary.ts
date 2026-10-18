@@ -1,4 +1,4 @@
-import type { AiSession, AiStatus } from "@remote-ide/protocol";
+import type { AiSession, AiStatus } from "@hatopad/protocol";
 
 export function summarizeAiSessions(sessions: AiSession[]): { status: AiStatus; preview: string; pendingPermission: boolean } {
   const active = sessions.find((session) => session.status === "in_progress" || session.status === "user_prompt");

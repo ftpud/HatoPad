@@ -1,4 +1,4 @@
-import type { GitMergePreview } from "@remote-ide/protocol";
+import type { GitMergePreview } from "@hatopad/protocol";
 import { GitMerge } from "lucide-react";
 
 export function GitMergeDialog({ preview, busy, onClose, onMerge }: { preview: GitMergePreview; busy: boolean; onClose(): void; onMerge(): void }) {

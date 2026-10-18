@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import type { LanguageExtra } from "@remote-ide/protocol";
+import type { LanguageExtra } from "@hatopad/protocol";
 import type { CoreClient } from "../../client";
 import { JavaConfigurationDialog } from "./java";
 import { NpmConfigurationDialog } from "./node/NpmConfigurationDialog";

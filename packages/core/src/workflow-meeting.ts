@@ -1,4 +1,4 @@
-import type { HarnessBlock, HarnessBlockRun, HarnessMeetingMessage } from "@remote-ide/protocol";
+import type { HarnessBlock, HarnessBlockRun, HarnessMeetingMessage } from "@hatopad/protocol";
 
 /** Event-driven subscriptions; registering is synchronous to avoid lost updates. */
 export class MeetingUpdates {

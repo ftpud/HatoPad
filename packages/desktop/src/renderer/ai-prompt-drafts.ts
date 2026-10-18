@@ -1,4 +1,4 @@
-import type { AiProvider } from "@remote-ide/protocol";
+import type { AiProvider } from "@hatopad/protocol";
 import { readSetting, workspaceSettingKey, writeSetting } from "./settings";
 
 /** A renderer-owned draft is deliberately scoped to its task and conversation. */

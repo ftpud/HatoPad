@@ -4,11 +4,11 @@ import path from "node:path";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { createHash } from "node:crypto";
-import type { FileRevision, GitBranch, GitBranchDeletePreview, GitCommit, GitCommitFile, GitConflictOperationKind, GitConflictWorkspace, GitDiffHunk, GitHistoryRewritePreview, GitMergePreview, GitMergeRef, GitMergeResult, GitPullPreview, GitPullResult, GitPullStrategy, GitRebasePreview, GitRebaseResult, GitRebaseTodoItem, GitRollbackFailure, GitStash, GitStashInclusion, GitStashPreview, GitStatusEntry, GitTag, GitUpstreamStatus } from "@remote-ide/protocol";
+import type { FileRevision, GitBranch, GitBranchDeletePreview, GitCommit, GitCommitFile, GitConflictOperationKind, GitConflictWorkspace, GitDiffHunk, GitHistoryRewritePreview, GitMergePreview, GitMergeRef, GitMergeResult, GitPullPreview, GitPullResult, GitPullStrategy, GitRebasePreview, GitRebaseResult, GitRebaseTodoItem, GitRollbackFailure, GitStash, GitStashInclusion, GitStashPreview, GitStatusEntry, GitTag, GitUpstreamStatus } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { serializedRootMutation } from "./root-mutation.js";
-import type { GitCommitPatch } from "@remote-ide/protocol";
+import type { GitCommitPatch } from "@hatopad/protocol";
 
 const execFileAsync = promisify(execFile);
 
@@ -449,7 +449,7 @@ export class GitService {
 
   /** Zero-context hunks turning `before` into `after`, compared outside the repository. */
   private async lineDiffHunks(before: string, after: string): Promise<LineHunk[]> {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-line-map-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-line-map-"));
     try {
       await Promise.all([writeFile(path.join(directory, "before"), before), writeFile(path.join(directory, "after"), after)]);
       const output = await new Promise<string>((resolve, reject) => execFile("git", ["diff", "--no-index", "--no-color", "-U0", "--", path.join(directory, "before"), path.join(directory, "after")], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
@@ -572,7 +572,7 @@ export class GitService {
     if (include.staged && !include.unstaged && (include.untracked || include.ignored)) throw new CoreError("INVALID_REQUEST", "A staged-only stash cannot include untracked or ignored files; include unstaged changes too");
     if (paths && (!Array.isArray(paths) || paths.length > 500)) throw new CoreError("INVALID_REQUEST", "Invalid stash path selection");
     for (const filePath of paths ?? []) validatePath(filePath);
-    const args = ["stash", "push", "--message", (message?.trim() || "Vibe Editor stash")];
+    const args = ["stash", "push", "--message", (message?.trim() || "HatoPad stash")];
     if (include.staged && !include.unstaged) args.push("--staged");
     else if (!include.staged && include.unstaged) args.push("--keep-index");
     else if (!include.staged && !include.unstaged && (include.untracked || include.ignored)) args.push("--keep-index");
@@ -766,7 +766,7 @@ export class GitService {
   }
 
   private async rebasePlanDirectory(): Promise<string> {
-    const gitPath = (await this.git(["rev-parse", "--git-path", "vibe-rebase-plan"])).trim();
+    const gitPath = (await this.git(["rev-parse", "--git-path", "hatopad-rebase-plan"])).trim();
     return path.isAbsolute(gitPath) ? gitPath : path.resolve(this.workspace, gitPath);
   }
 

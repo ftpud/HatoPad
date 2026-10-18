@@ -1,5 +1,7 @@
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
+import { legacyUserDataPath } from "./legacy-user-data.js";
+import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 import { remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, type IpcMainInvokeEvent } from "electron";
@@ -12,7 +14,7 @@ import { Client } from "ssh2";
 import { connectionHealthForLatency, type ConnectionRuntime } from "./connection-health.js";
 import { connectionConfig, normalizeStoredAuthentication, sshConnectionError, testSshConnection, validatePrivateKey, validatePrivateKeyPath, type AuthenticationMethod, type ConnectionAuth, type ConnectionDetails } from "./connection-auth.js";
 import { defaultRepositorySettings, normalizeRepositorySettings, provisionCommand, repositorySettingsOrDefault, type RepositorySettings } from "./repository-settings.js";
-import { parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
+import { legacyRemoteMigrationCommand, parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
 import { compatibleClient, readCompatibility, type Compatibility } from "./client-compatibility.js";
 import { boundedProvisioningLog, classifyProvisioningFailure } from "./provisioning.js";
 import { buildConnectionDiagnostics } from "./diagnostics.js";
@@ -32,13 +34,15 @@ type TunnelRuntime = { status: "idle" | "working" | "running" | "error"; message
 type ConnectionRuntimeSnapshot = ConnectionRuntime & { updatedAt: string; stage: string };
 
 const bundle = app.isPackaged ? await loadBundle(process.resourcesPath) : undefined;
-/** The bundled Editor's app directory; it runs on this executable with `--vibe-editor` (see entry.ts). */
+/** The bundled Editor's app directory; it runs on this executable with `--hatopad` (see entry.ts). */
 const bundledDesktop = bundle ? path.join(process.resourcesPath, "bundle", bundle.desktopApp) : undefined;
 function desktopCommand(desktopMain: string): { command: string; args: string[] } {
-  return bundle ? { command: process.execPath, args: [EDITOR_FLAG] } : { command: process.env.VIBE_DESKTOP_EXECUTABLE || process.execPath, args: [desktopMain] };
+  return bundle ? { command: process.execPath, args: [EDITOR_FLAG] } : { command: process.env.HATOPAD_DESKTOP_EXECUTABLE || process.execPath, args: [desktopMain] };
 }
 const bundleSmokeTest = (app.isPackaged && process.argv.includes("--bundle-smoke-test")) || (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
-if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `vibe-gateway-bundle-smoke-${process.pid}`));
+applyLegacyEnvironmentWithWarning(process.env);
+if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Gateway", "HatoPad Gateway"));
+if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `hatopad-gateway-bundle-smoke-${process.pid}`));
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const rendererFilePath = path.join(directory, "../dist-renderer/index.html");
 const appIcon = path.join(directory, "../assets/app-icon.png");
@@ -53,10 +57,10 @@ let quitRequested = false;
 const workspaceOperations = new WorkspaceOperations();
 const localServers = new Map<string, ReturnType<typeof spawn>>();
 
-app.name = "Vibe Gateway";
-app.setName("Vibe Gateway");
-app.setAppUserModelId("com.vibe-editor.gateway");
-process.title = "Vibe Gateway";
+app.name = "HatoPad Gateway";
+app.setName("HatoPad Gateway");
+app.setAppUserModelId("com.hatopad.gateway");
+process.title = "HatoPad Gateway";
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.quit();
 app.on("second-instance", () => {
@@ -64,7 +68,7 @@ app.on("second-instance", () => {
   if (window?.isMinimized()) window.restore();
   window?.show(); window?.focus();
 });
-app.commandLine.appendSwitch("class", "VibeGateway");
+app.commandLine.appendSwitch("class", "HatoPadGateway");
 
 function handleIpc(channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => any): void {
   ipcMain.handle(channel, (event, ...args) => {
@@ -98,7 +102,12 @@ function encrypt(password: string): string {
   if (!safeStorage.isEncryptionAvailable()) throw new Error("Secure credential storage is unavailable on this system");
   return safeStorage.encryptString(password).toString("base64");
 }
-function decrypt(password: string): string { return safeStorage.decryptString(Buffer.from(password, "base64")); }
+function decrypt(password: string): string {
+  try { return safeStorage.decryptString(Buffer.from(password, "base64")); }
+  // The operating system ties the encryption key to the application name. After the HatoPad rename a secret saved by the
+  // previous build may not decrypt; ask for it again instead of failing with an opaque error.
+  catch { throw new Error("A saved SSH password or passphrase can no longer be decrypted, which can happen after the app was renamed. Edit the connection and enter it again."); }
+}
 function publicState(state: State): PublicState {
   return { connections: state.connections.map((connection) => { const item = normalizeStoredAuthentication(connection); return { id: item.id, kind: connection.kind === "local" ? "local" : "ssh", name: item.name, host: item.host, port: item.port, username: item.username, authenticationMethod: item.authenticationMethod, ...(item.privateKeyPath ? { privateKeyPath: item.privateKeyPath } : {}), ...(item.hostKeyFingerprint ? { hostKeyFingerprint: item.hostKeyFingerprint } : {}) }; }), workspaces: state.workspaces, portTunnels: state.portTunnels };
 }
@@ -135,7 +144,8 @@ function connectWithConfig(config: Parameters<Client["connect"]>[0]): Promise<Cl
       // guard prevents a later transport error from reaching Electron as an
       // uncaught exception and native system error dialog.
       client.on("error", () => undefined);
-      resolve(client);
+      // Best effort: move pre-rename server files so a running server and its releases keep being found.
+      execute(client, legacyRemoteMigrationCommand()).catch(() => undefined).finally(() => resolve(client));
     };
     const onError = (error: Error) => { client.off("ready", onReady); reject(sshConnectionError(error, config.privateKey ? "privateKey" : config.agent ? "agent" : "password")); };
     client.once("ready", onReady).once("error", onError).connect(config);
@@ -163,7 +173,7 @@ async function localArtifactPaths(): Promise<{ coreMain: string; desktopRoot: st
     return { coreMain: path.join(root, "packages/core/dist/index.js"), desktopRoot: bundledDesktop!, node: path.join(root, "bin/node"), env: { ...process.env, PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH ?? ""}` } };
   }
   const repositoryRoot = path.resolve(directory, "../../..");
-  return { coreMain: path.join(repositoryRoot, "packages/core/dist/index.js"), desktopRoot: path.join(repositoryRoot, "packages/desktop"), node: process.env.VIBE_NODE_EXECUTABLE || "node", env: process.env };
+  return { coreMain: path.join(repositoryRoot, "packages/core/dist/index.js"), desktopRoot: path.join(repositoryRoot, "packages/desktop"), node: process.env.HATOPAD_NODE_EXECUTABLE || "node", env: process.env };
 }
 async function stopLocalServer(workspaceId: string): Promise<void> {
   const previous = localServers.get(workspaceId);
@@ -179,7 +189,7 @@ async function stopLocalServer(workspaceId: string): Promise<void> {
 async function startLocalServer(workspaceId: string): Promise<{ remotePort: number }> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
   const { coreMain, node, env } = await localArtifactPaths();
-  await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall Vibe Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
+  await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall HatoPad Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
   await prepareLocalWorkspaceDirectory(workspace.directory);
   await stopLocalServer(workspaceId);
   runtime(workspaceId, "working", "Starting local Core...");
@@ -189,7 +199,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   const log = await open(logPath, "a");
   const child = spawn(node, [coreMain, "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
     cwd: workspace.directory,
-    env: { ...env, ...(bundleSmokeTest ? { REMOTE_IDE_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), REMOTE_IDE_SESSION_TOKEN: "", REMOTE_IDE_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
+    env: { ...env, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
     // macOS child processes such as Git and node-pty need valid inherited descriptors.
     // Keep stdin attached to /dev/null and retain Core output in a durable diagnostic log.
     stdio: ["ignore", log.fd, log.fd]
@@ -208,7 +218,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
       if (!token) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (!token) throw new Error("Local Core did not create its authentication token");
-    await runLocal(node, ["--input-type=commonjs", "-e", coreHealthProbe(workspace.remotePort)], path.resolve(path.dirname(coreMain), "../../.."), { ...env, REMOTE_IDE_SESSION_TOKEN: token });
+    await runLocal(node, ["--input-type=commonjs", "-e", coreHealthProbe(workspace.remotePort)], path.resolve(path.dirname(coreMain), "../../.."), { ...env, HATOPAD_SESSION_TOKEN: token });
   } catch (error) {
     child.kill(); localServers.delete(workspaceId);
     runtime(workspaceId, "error", `Local Core failed health verification. Inspect ${logPath}`);
@@ -220,9 +230,9 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
 }
 async function startLocalClient(workspaceId: string): Promise<void> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId); const { desktopRoot } = await localArtifactPaths();
-  const desktopMain = path.join(desktopRoot, "dist-electron/main.js"); await access(desktopMain).catch(() => { throw new Error(bundle ? "Bundled Desktop is missing or damaged. Reinstall Vibe Gateway." : "Local Desktop is not built. Run npm run build before starting a local workspace."); });
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js"); await access(desktopMain).catch(() => { throw new Error(bundle ? "Bundled Desktop is missing or damaged. Reinstall HatoPad Gateway." : "Local Desktop is not built. Run npm run build before starting a local workspace."); });
   const desktop = desktopCommand(desktopMain);
-  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)], { cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", REMOTE_IDE_SESSION_TOKEN: "", REMOTE_IDE_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) }, detached: true, stdio: "ignore" });
+  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)], { cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) }, detached: true, stdio: "ignore" });
   await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
   child.unref(); runtime(workspaceId, "client", `Client connected locally on port ${workspace.remotePort}`);
 }
@@ -249,7 +259,7 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
       const latencyMs = Math.round(performance.now() - startedAt);
       connectionRuntime(currentConnectionId, connectionHealthForLatency(latencyMs));
       for (const workspace of items) {
-        const pidFile = `~/.vibe-server-${workspace.id}.pid`;
+        const pidFile = `~/.hatopad-server-${workspace.id}.pid`;
         const result = (await execute(client, `bash -lc ${shell(`if [ -f ${pidFile} ] && kill -0 $(cat ${pidFile}) 2>/dev/null; then echo running; else rm -f ${pidFile}; echo stopped; fi`)}`)).trim();
         runtime(workspace.id, result === "running" ? "server" : "idle", result === "running" ? `Server listening remotely on ${workspace.remotePort}` : "Stopped");
       }
@@ -269,7 +279,7 @@ async function provision(workspaceId: string, client: Client, settings: Reposito
     if (!shippedCore) throw new Error(`This local bundle does not include Core for ${target}. Use a bundle containing that server platform.`);
     const core = repair ? { ...shippedCore, release: `${shippedCore.release}-repair-${id().replaceAll("-", "")}` } : shippedCore;
     const archive = await verifiedCoreArchive(process.resourcesPath, core);
-    const upload = `.vibe-upload-${id()}`;
+    const upload = `.hatopad-upload-${id()}`;
     await execute(client, `umask 077; mkdir "$HOME/${upload}"`);
     try {
       const home = (await execute(client, "printf '%s' \"$HOME\"" )).trim();
@@ -284,8 +294,8 @@ async function provision(workspaceId: string, client: Client, settings: Reposito
   const logs: string[] = [];
   const output = await execute(client, `bash -lc ${shell(command)}`, (line) => {
     logs.push(line);
-    const stage = line.match(/^VIBE_STAGE:(.+)$/)?.[1];
-    runtime(workspaceId, "working", stage ? `${stage.replaceAll("-", " ")}…` : "Provisioning remote Vibe application…", { stage: stage ?? "provisioning", logs: boundedProvisioningLog(logs) });
+    const stage = line.match(/^HATOPAD_STAGE:(.+)$/)?.[1];
+    runtime(workspaceId, "working", stage ? `${stage.replaceAll("-", " ")}…` : "Provisioning remote HatoPad application…", { stage: stage ?? "provisioning", logs: boundedProvisioningLog(logs) });
   });
   if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
   return parseProvisionedRelease(output);
@@ -401,12 +411,12 @@ async function startClient(workspaceId: string): Promise<void> {
   try {
   const releaseDirectory = (await execute(client, `bash -lc ${shell(`set -e; ${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release_directory"`)}`)).trim();
   if (!path.posix.isAbsolute(releaseDirectory) || /[\r\n\0]/.test(releaseDirectory)) { client.end(); throw new Error("Invalid deployed release directory"); }
-  const sessionToken = (await execute(client, `if [ -f ~/.vibe-server-${workspaceId}.token ]; then cat ~/.vibe-server-${workspaceId}.token; fi`)).trim();
+  const sessionToken = (await execute(client, `if [ -f ~/.hatopad-server-${workspaceId}.token ]; then cat ~/.hatopad-server-${workspaceId}.token; fi`)).trim();
   if (sessionToken && !/^[A-Za-z0-9_-]{32,256}$/.test(sessionToken)) throw new Error("Remote Core session token is invalid");
   if (bundle) {
     const remoteHome = (await execute(client, `printf '%s' "$HOME"`)).trim();
     const matchesBundle = Object.values(bundle.cores).some(core => {
-      const expected = path.posix.join(remoteHome, ".vibe-deploy/releases", core.release);
+      const expected = path.posix.join(remoteHome, ".hatopad-deploy/releases", core.release);
       return releaseDirectory === expected || (releaseDirectory.startsWith(expected) && /^-repair-[a-f0-9]{32}$/.test(releaseDirectory.slice(expected.length)));
     });
     if (!matchesBundle) throw new Error("Start the bundled Core before opening Desktop");
@@ -414,12 +424,12 @@ async function startClient(workspaceId: string): Promise<void> {
     return;
   }
   const commit = (await execute(client, `git -C ${shell(releaseDirectory)} rev-parse HEAD`)).trim();
-  if (!/^[0-9a-f]{40,64}$/.test(commit)) { client.end(); throw new Error("Remote Vibe checkout was not found. Start the server first."); }
+  if (!/^[0-9a-f]{40,64}$/.test(commit)) { client.end(); throw new Error("Remote HatoPad checkout was not found. Start the server first."); }
   const remoteCompatibilityOutput = await execute(client, `bash -lc ${shell(`${remoteNodeEnvironment}; cd ${shell(releaseDirectory)}; node --input-type=module -e ${shell("import { protocolCompatibility } from './packages/protocol/dist/index.js'; console.log(JSON.stringify(protocolCompatibility))")}`)}`);
   const remoteCompatibility = JSON.parse(remoteCompatibilityOutput) as Compatibility;
   if (!compatibleClient(remoteCompatibility, remoteCompatibility)) { client.end(); throw new Error("Remote Core reported an invalid protocol compatibility range"); }
   const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
-  const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `vibe-${workspace.id}-${commit}.tar.gz`);
+  const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `hatopad-${workspace.id}-${commit}.tar.gz`);
   const buildMarker = path.join(clientRoot, ".gateway-client-built");
   const expectedMarker = `artifact-v2:${commit}`;
   let clientBuilt = false;
@@ -451,7 +461,7 @@ async function startClient(workspaceId: string): Promise<void> {
   }
   if (!clientBuilt) {
   try {
-    const remoteArchive = `/tmp/vibe-${workspace.id}-${id()}.tar.gz`;
+    const remoteArchive = `/tmp/hatopad-${workspace.id}-${id()}.tar.gz`;
     const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; files="package.json compatibility.json dist-electron dist-renderer"; if [ -d assets ]; then files="$files assets"; fi; tar -czf ${remoteArchive} $files -C ../.. node_modules/ws; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
     await mkdir(path.dirname(archive), { recursive: true }); await download(client, remoteArchive, archive);
     const actual = createHash("sha256").update(await readFile(archive)).digest("hex");
@@ -469,7 +479,7 @@ async function startClient(workspaceId: string): Promise<void> {
   } finally { client.end(); }
 }
 async function launchClient(workspaceId: string, workspace: Workspace, connection: Connection, clientRoot: string, clientBuilt: boolean, sessionToken?: string): Promise<void> {
-  const localIcon = bundle ? undefined : process.env.VIBE_DESKTOP_ICON;
+  const localIcon = bundle ? undefined : process.env.HATOPAD_DESKTOP_ICON;
   if (localIcon) {
     await mkdir(path.join(clientRoot, "assets"), { recursive: true });
     try { await access(path.join(clientRoot, "assets", "app-icon.png")); }
@@ -479,11 +489,11 @@ async function launchClient(workspaceId: string, workspace: Workspace, connectio
   const desktopMain = path.join(clientRoot, "dist-electron", "main.js");
   const desktop = desktopCommand(desktopMain);
   const desktopExecutable = desktop.command;
-  const child = spawn(desktopExecutable, [...desktop.args, "--host", "127.0.0.1", "--port", String(localPort)], { cwd: clientRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", REMOTE_IDE_SESSION_TOKEN: sessionToken ?? "", REMOTE_IDE_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore" });
+  const child = spawn(desktopExecutable, [...desktop.args, "--host", "127.0.0.1", "--port", String(localPort)], { cwd: clientRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: sessionToken ?? "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore" });
   try {
     await new Promise<void>((resolve, reject) => {
       child.once("spawn", resolve);
-      child.once("error", (error) => reject(new Error(`Could not launch Vibe Editor using ${desktopExecutable}: ${error.message}`)));
+      child.once("error", (error) => reject(new Error(`Could not launch HatoPad using ${desktopExecutable}: ${error.message}`)));
     });
   } catch (error) {
     tunnels.get(workspaceId)?.stop(); tunnels.delete(workspaceId);
@@ -646,7 +656,7 @@ function createWindow(): void {
       const distribution = bundle ? "bundled" : "source";
       const healthy = await window.webContents.executeJavaScript(`window.gateway && window.gateway.get().then(result => result.distribution === '${distribution}')`);
       if (!healthy) throw new Error("Gateway renderer, preload or distribution mode failed");
-      await access(bundledDesktop ? path.join(bundledDesktop, "dist-electron", "main.js") : process.env.VIBE_DESKTOP_EXECUTABLE!);
+      await access(bundledDesktop ? path.join(bundledDesktop, "dist-electron", "main.js") : process.env.HATOPAD_DESKTOP_EXECUTABLE!);
       if (process.argv.includes("--bundle-core-smoke-test") || process.argv.includes("--startup-core-smoke-test")) {
         const { createServer } = await import("node:net");
         const probe = createServer();
@@ -671,7 +681,7 @@ function createWindow(): void {
   } else void load.catch(error => console.error("Gateway page load failed", error));
 }
 if (ownsInstance) app.whenReady().then(() => {
-  app.setName("Vibe Gateway"); process.title = "Vibe Gateway";
+  app.setName("HatoPad Gateway"); process.title = "HatoPad Gateway";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   powerMonitor.on("resume", () => {
     for (const tunnel of tunnels.values()) tunnel.reconnect();

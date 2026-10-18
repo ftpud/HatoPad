@@ -20,7 +20,7 @@ test("selects portable Core for Linux, WSL and Apple Silicon and rejects unsuppo
   assert.throws(() => coreTarget("Windows_NT", "AMD64"));
 });
 test("validates the complete packaged manifest and archive contents", async () => {
-  const resources = await mkdtemp(path.join(os.tmpdir(), "vibe-bundle-manifest-"));
+  const resources = await mkdtemp(path.join(os.tmpdir(), "hatopad-bundle-manifest-"));
   try {
     await mkdir(path.join(resources, "bundle/cores"), { recursive: true });
     const content = "fixture archive";
@@ -40,7 +40,7 @@ test("validates the complete packaged manifest and archive contents", async () =
   } finally { await rm(resources, { recursive: true, force: true }); }
 });
 test("installs a verified archive without host Node, npm, or Git, reuses it and rejects checksum changes", { skip: process.platform === "win32" }, async () => {
-  const home = await mkdtemp(path.join(os.tmpdir(), "vibe-bundle-deploy-"));
+  const home = await mkdtemp(path.join(os.tmpdir(), "hatopad-bundle-deploy-"));
   try {
     const fixture = path.join(home, "fixture");
     await mkdir(path.join(fixture, "bin"), { recursive: true });
@@ -49,7 +49,7 @@ test("installs a verified archive without host Node, npm, or Git, reuses it and 
     await cp(process.execPath, path.join(fixture, "bin/node"));
     await writeFile(path.join(fixture, "node_modules/node-pty/index.js"), "module.exports={};");
     await writeFile(path.join(fixture, "packages/core/dist/server.js"), "exports.loaded=true;");
-    const upload = ".vibe-upload-fixture";
+    const upload = ".hatopad-upload-fixture";
     const archive = path.join(home, "fixture.tar.gz");
     await execute("tar", ["-czf", archive, "-C", fixture, "."]);
     const core: CoreBundle = { target: "linux-x64", commit, release, archive: "core-linux-x64.tar.gz", sha256: createHash("sha256").update(await readFile(archive)).digest("hex") };
@@ -60,12 +60,12 @@ test("installs a verified archive without host Node, npm, or Git, reuses it and 
     };
     const first = await install();
     assert.equal(parseProvisionedRelease(first.stdout).release, release);
-    const destination = path.join(home, ".vibe-deploy/releases", release);
+    const destination = path.join(home, ".hatopad-deploy/releases", release);
     await writeFile(path.join(destination, "sentinel"), "preserved");
     await install();
     assert.equal(await readFile(path.join(destination, "sentinel"), "utf8"), "preserved");
     await assert.rejects(install({ ...core, sha256: "0".repeat(64) }), /checksum failed/);
-    await writeFile(path.join(home, ".vibe-server-test.release"), release);
+    await writeFile(path.join(home, ".hatopad-server-test.release"), release);
     const resolved = await execute("bash", ["-c", `${workspaceReleaseDirectory("test")}; printf '%s' "$release_directory"`], { env: { ...process.env, HOME: home } });
     assert.equal(resolved.stdout, destination);
     assert.equal(await readFile(path.join(destination, "sentinel"), "utf8"), "preserved");

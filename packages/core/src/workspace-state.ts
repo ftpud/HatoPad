@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { WorkspaceOptions, WorkspaceWorkflowDocument, WorkspaceSearchQuery, WorkspaceSearchQueries } from "@remote-ide/protocol";
+import type { WorkspaceOptions, WorkspaceWorkflowDocument, WorkspaceSearchQuery, WorkspaceSearchQueries } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { isSafeRelativePath } from "./path-safety.js";
 import { serializedStateMutation } from "./root-mutation.js";
@@ -24,7 +25,7 @@ const EMPTY_OPTIONS: WorkspaceOptions = { openFiles: [] };
 export class WorkspaceStateStore {
   private readonly stateFile: string;
 
-  constructor(workspace: string, stateDirectory = path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(workspace: string, stateDirectory = path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(workspace).digest("hex");
     this.stateFile = path.join(stateDirectory, `${key}.json`);
   }

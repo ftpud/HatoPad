@@ -2,11 +2,11 @@ import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { expect, it } from "vitest";
-import type { JavaProjectOptions } from "@remote-ide/protocol";
+import type { JavaProjectOptions } from "@hatopad/protocol";
 import { javaBuildFingerprint, javaOutputFingerprint } from "./java-launch-cache.js";
 
 it("tracks custom resources, Maven wrapper configuration, source deletion, and output removal", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-java-cache-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-cache-"));
   const options: JavaProjectOptions = { type: "maven", pomPath: "pom.xml", mavenExecutable: "mvn", sourceRoots: ["src/main/java"], outputPath: "target/classes", testOutputPath: "target/test-classes", runConfigurations: [] };
   try {
     for (const directory of ["src/main/java", "assets", ".mvn", "target/classes"]) await mkdir(path.join(workspace, directory), { recursive: true });

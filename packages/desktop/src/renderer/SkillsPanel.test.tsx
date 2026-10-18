@@ -2,8 +2,8 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillsPanel } from "./SkillsPanel";
 import { SkillChatChips, SkillChatControls as SkillChatPicker } from "./SkillChatControls";
-import { skillAllowedForAgent } from "@remote-ide/protocol";
-import type { SkillCatalog } from "@remote-ide/protocol";
+import { skillAllowedForAgent } from "@hatopad/protocol";
+import type { SkillCatalog } from "@hatopad/protocol";
 
 afterEach(cleanup);
 const catalog: SkillCatalog = {

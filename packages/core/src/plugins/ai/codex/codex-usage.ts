@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
-import type { AiAccountQuota, AiQuotaWindow } from "@remote-ide/acp";
+import type { AiAccountQuota, AiQuotaWindow } from "@hatopad/acp";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -31,7 +31,7 @@ export async function readCodexAccountQuota(command: string, args: string[], tim
         finish(parseCodexAccountQuota(message.result));
       }
     });
-    child.stdin.write(`${JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "vibe-editor", title: "Vibe Editor", version: "0.1.0" }, capabilities: {} } })}\n`);
+    child.stdin.write(`${JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "hatopad", title: "HatoPad", version: "0.1.0" }, capabilities: {} } })}\n`);
   });
 }
 

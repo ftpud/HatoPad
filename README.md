@@ -1,14 +1,17 @@
-# Vibe Editor
+# HatoPad
 
-> **VibeEditor is an experimental testbed for remote-first, AI-first IDE ideas—not a production-ready product.**
+Formerly Vibe Editor. Existing installations keep their profiles and legacy configuration;
+see the [rename and upgrade guide](docs/RENAME_MIGRATION.md).
 
-VibeEditor is a place to explore what a remote-first, AI-first development environment can become when features can be vibecoded and implemented quickly. It is deliberately hackable rather than finished: the repository provides a working foundation, but anyone can fork it, replace parts of it, or build whatever workflow and IDE experience they want on top.
+> **HatoPad is an experimental testbed for remote-first, AI-first IDE ideas—not a production-ready product.**
+
+HatoPad is a place to explore what a remote-first, AI-first development environment can become when features can be vibecoded and implemented quickly. It is deliberately hackable rather than finished: the repository provides a working foundation, but anyone can fork it, replace parts of it, or build whatever workflow and IDE experience they want on top.
 
 The experiment is built around a simple idea from [WHY.md](WHY.md): **the development machine is the server, and the local app is the control surface**.
 
 Each task has its own workspace with files, terminals, AI conversations, and notes, so you can switch tasks and return to where you left off. Let an agent work, review its changes, or take over yourself.
 
-**Vibe Editor is self-configurable.** Customize settings, agent presets, and workflows to fit how you work. Open its source as a workspace and use the built-in AI agents to help change the editor itself.
+**HatoPad is self-configurable.** Customize settings, agent presets, and workflows to fit how you work. Open its source as a workspace and use the built-in AI agents to help change the editor itself.
 
 This is an actively developed experiment. Expect rough edges and breaking changes; it currently runs from source.
 
@@ -18,15 +21,15 @@ This is an actively developed experiment. Expect rough edges and breaking change
 
 ## First run
 
-Use **Vibe Gateway** to launch the editor. It handles remote installation, builds, updates, and the SSH connection for you.
+Use **HatoPad Gateway** to launch the editor. It handles remote installation, builds, updates, and the SSH connection for you.
 
-You need Node.js 22.12+, npm, and Git on your local machine. For a remote workspace, you also need a Unix-like server with SSH access, Node.js 22.12+, npm, Git, and an existing project directory. See the [full requirements](docs/TECHNICAL_GUIDE.md#quick-start-vibe-gateway-recommended) if installation fails or your machine needs additional system tools.
+You need Node.js 22.12+, npm, and Git on your local machine. For a remote workspace, you also need a Unix-like server with SSH access, Node.js 22.12+, npm, Git, and an existing project directory. See the [full requirements](docs/TECHNICAL_GUIDE.md#quick-start-hatopad-gateway-recommended) if installation fails or your machine needs additional system tools.
 
 On your local machine:
 
 ```bash
-git clone https://github.com/ftpud/VibeEditor.git
-cd VibeEditor
+git clone https://github.com/ftpud/HatoPad.git HatoPad
+cd HatoPad
 npm install
 npm run build
 npm run gateway
@@ -50,7 +53,7 @@ To use AI agents, authenticate your chosen provider on the machine running the w
 
 - [Technical guide](docs/TECHNICAL_GUIDE.md): detailed setup, troubleshooting, development commands, architecture, and security.
 - [Features](FEATURES.md) and [feature guides](docs/README.md).
-- [Why Vibe Editor exists](WHY.md).
+- [Why HatoPad exists](WHY.md).
 
 Available under the [MIT License](LICENSE.md).
 

@@ -2,7 +2,7 @@ import { DebugVariable } from "../../../DebugVariable";
 import { readSettingNumber, writeSetting } from "../../../settings";
 import { Settings, RefreshCw, ArrowDownToLine, ArrowRight, ArrowUpFromLine, Bug, CornerDownRight, Hammer, Play, Square, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { JavaApplyChangesResult, LanguageCapabilities, JavaDebugState, JavaProjectOptions, ProtocolOperations } from "@remote-ide/protocol";
+import type { JavaApplyChangesResult, LanguageCapabilities, JavaDebugState, JavaProjectOptions, ProtocolOperations } from "@hatopad/protocol";
 
 type Props = {
   capabilities: LanguageCapabilities;

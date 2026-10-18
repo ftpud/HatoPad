@@ -1,4 +1,4 @@
-import type { HarnessDefinition } from "@remote-ide/protocol";
+import type { HarnessDefinition } from "@hatopad/protocol";
 import type { EditorTab } from "./model";
 
 /** A workflow view belongs to the root and task where it was opened. */

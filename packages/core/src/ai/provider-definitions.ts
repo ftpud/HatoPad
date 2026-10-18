@@ -1,7 +1,8 @@
+import { stateHome } from "../state-home.js";
 import { readdirSync, readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { AiConfiguration, AiModel, AiOption, AiProviderDescriptor } from "@remote-ide/acp";
+import type { AiConfiguration, AiModel, AiOption, AiProviderDescriptor } from "@hatopad/acp";
 import { StdioAcpProvider, type ProviderContext, type ProviderFactory } from "./stdio-provider.js";
 
 /** A provider declared as data: an external ACP agent started from a command on the Core host. */
@@ -107,7 +108,7 @@ export class ConfiguredStdioProvider extends StdioAcpProvider {
 }
 
 export function providerDefinitionsDirectory(): string {
-  return process.env.REMOTE_IDE_PROVIDER_DEFINITIONS_DIR ?? path.join(os.homedir(), ".remote-ide", "providers");
+  return process.env.HATOPAD_PROVIDER_DEFINITIONS_DIR ?? path.join(stateHome(), "providers");
 }
 
 /**

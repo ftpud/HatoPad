@@ -1,4 +1,4 @@
-import type { HarnessDataSchema, HarnessDefinition, HarnessEdge, HarnessValidationIssue } from "@remote-ide/protocol";
+import type { HarnessDataSchema, HarnessDefinition, HarnessEdge, HarnessValidationIssue } from "@hatopad/protocol";
 
 export function validateHarness(harness: HarnessDefinition): { valid: boolean; issues: HarnessValidationIssue[]; order: string[] } {
   const issues: HarnessValidationIssue[] = [];

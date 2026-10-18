@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { LanguageDescriptor } from "@remote-ide/protocol";
+import type { LanguageDescriptor } from "@hatopad/protocol";
 import { projectRegistration, runProject } from "./run-projects";
 const descriptor: LanguageDescriptor = { id: "node", name: "Node.js", extensions: ["js"], projectMarkers: ["package.json"], capabilities: { run: true, build: true, projectTree: true, configuration: true, debug: false, workspaceSymbols: false, lsp: false, runConfigurations: true } };
 it("offers registration only for exact manifest filenames, including nested projects", () => {

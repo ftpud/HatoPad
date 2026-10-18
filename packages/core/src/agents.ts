@@ -1,15 +1,16 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import type { AgentFile, AgentFileScope, AiAgent } from "@remote-ide/protocol";
+import type { AgentFile, AgentFileScope, AiAgent } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 export const AGENT_TEMPLATE = `---
 name: New Agent
 description: Describe when this agent should be used.
 mcpServers:
-  - vibe-editor
+  - hatopad
 ---
 
 You are a specialized agent. Describe your role, workflow, and constraints here.
@@ -19,7 +20,7 @@ export class AgentsStore {
   private readonly root: string;
   private readonly localDirectory: string;
 
-  constructor(private readonly rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(private readonly rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.root = path.join(stateDirectory, "agents");
     this.localDirectory = path.join(this.root, "local", key);

@@ -3,7 +3,7 @@ import { DiffEditor } from "@monaco-editor/react";
 import { ChevronDown, ChevronRight, ClipboardCopy, ClipboardPaste, FileDiff, GitBranch, GitCommitVertical, GitCompareArrows, GitMerge, Plus, RefreshCw, Search, Tag, Trash2 } from "lucide-react";
 import type { editor } from "monaco-editor";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { GitBranch as Branch, GitCommit, GitCommitFile, GitMergePreview, GitMergeRef, GitTag } from "@remote-ide/protocol";
+import type { GitBranch as Branch, GitCommit, GitCommitFile, GitMergePreview, GitMergeRef, GitTag } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { DiffNavigation } from "./DiffNavigation";
 import { GitCommitPatchDialog } from "./GitCommitPatchDialog";
@@ -12,7 +12,7 @@ import { GitMergeDialog } from "./GitMergeDialog";
 import { configureMonacoThemes, monacoTheme } from "./theme";
 import { gitRefNameError, requestConfirm, requestText } from "./dialogs";
 
-/** `revision` changes whenever the repository changes (including Git used outside Vibe); the panel then reloads. */
+/** `revision` changes whenever the repository changes (including Git used outside HatoPad); the panel then reloads. */
 type Props = { client: CoreClient; height: number; revision?: number; onResizeStart(event: React.PointerEvent): void; onMergeConflict?(): void; onRepositoryChanged?(): void };
 const LOG_PAGE = 200;
 

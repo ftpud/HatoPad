@@ -3,7 +3,7 @@ import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
-import { TestRelay } from "@remote-ide/relay/testing";
+import { TestRelay } from "@hatopad/relay/testing";
 import { CoreConnector, PairingStore, pairDevice, parseHubUrl, parseLocalCoreUrl, type ConnectorStatus } from "./index.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];

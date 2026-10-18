@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import type { HarnessDefinition, HarnessRun, HarnessStateDiagnostic } from "@remote-ide/protocol";
+import type { HarnessDefinition, HarnessRun, HarnessStateDiagnostic } from "@hatopad/protocol";
 import { workflowTemplate } from "./workflow-templates.js";
 import { CoreError } from "./errors.js";
 
@@ -15,7 +16,7 @@ const mutationQueues = new Map<string, Promise<void>>();
 export class HarnessStore {
   private readonly directory: string;
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.directory = path.join(stateDirectory, "harnesses", key);
   }

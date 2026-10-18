@@ -39,11 +39,11 @@ jobs:
           node-version: 24.20.0
           cache: npm
       - run: npm ci
-      - run: npm run build -w @remote-ide/acp
-      - run: npm run build -w @remote-ide/protocol
-      - run: npm run build -w @remote-ide/core
-      - run: npm run typecheck -w @remote-ide/core
-      - run: npm run test -w @remote-ide/core
+      - run: npm run build -w @hatopad/acp
+      - run: npm run build -w @hatopad/protocol
+      - run: npm run build -w @hatopad/core
+      - run: npm run typecheck -w @hatopad/core
+      - run: npm run test -w @hatopad/core
       - run: npm run test:bundle
       - name: Build and smoke test portable Core
         run: npm run bundle:core
@@ -76,17 +76,17 @@ jobs:
           path: artifacts/cores
       - run: npm run build
       - run: npm run typecheck
-      - run: npm run typecheck -w @remote-ide/gateway
+      - run: npm run typecheck -w @hatopad/gateway
       - name: Gateway deployment and renderer tests
         if: runner.os != 'Windows'
-        run: npm run test -w @remote-ide/gateway
+        run: npm run test -w @hatopad/gateway
       - name: Gateway renderer tests
         if: runner.os == 'Windows'
-        run: npm exec -w @remote-ide/gateway -- vitest run --environment happy-dom
+        run: npm exec -w @hatopad/gateway -- vitest run --environment happy-dom
       - name: Gateway Windows renderer trust tests
         if: runner.os == 'Windows'
         run: node --test packages/gateway/dist-electron/navigation-policy.test.js
-      - run: npm run test -w @remote-ide/desktop
+      - run: npm run test -w @hatopad/desktop
       - name: Install Windows installer compiler
         if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 --yes --no-progress
@@ -95,13 +95,13 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          npm run bundle:apps 2>&1 | tee "$RUNNER_TEMP/vibe-bundle.log"
+          npm run bundle:apps 2>&1 | tee "$RUNNER_TEMP/hatopad-bundle.log"
       - name: Report packaging failure details
         if: failure() && steps.bundle.outcome == 'failure'
-        run: node scripts/annotate-test-failure.mjs "${{ runner.temp }}/vibe-bundle.log" "Bundle creation failure details"
+        run: node scripts/annotate-test-failure.mjs "${{ runner.temp }}/hatopad-bundle.log" "Bundle creation failure details"
       - uses: actions/upload-artifact@v4
         with:
-          name: vibe-early-access-${{ matrix.os }}
+          name: hatopad-early-access-${{ matrix.os }}
           path: artifacts/downloads/*
           if-no-files-found: error
           retention-days: 30

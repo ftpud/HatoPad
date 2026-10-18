@@ -1,4 +1,4 @@
-import type { ServerEvent } from "@remote-ide/protocol";
+import type { ServerEvent } from "@hatopad/protocol";
 import type { WorkspaceFileSystem } from "../filesystem.js";
 import type { LanguageDescriptor, LanguageService, LanguageServiceEvents } from "../language/service.js";
 import type { ToolSpec } from "../tools.js";

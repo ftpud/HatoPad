@@ -1,14 +1,14 @@
-# Vibe Editor — Features
+# HatoPad — Features
 
-Vibe Editor is a remote-workspace IDE: an Electron/React/Monaco desktop client talking over WebSockets to a Node.js backend ("Core") that owns the filesystem, terminal, Git, Java, and AI operations. This document lists the features actually implemented in the codebase.
+HatoPad is a remote-workspace IDE: an Electron/React/Monaco desktop client talking over WebSockets to a Node.js backend ("Core") that owns the filesystem, terminal, Git, Java, and AI operations. This document lists the features actually implemented in the codebase.
 
 ## Architecture
 
-- **`@remote-ide/core`** — workspace-scoped WebSocket backend; owns filesystem, terminal, Git, Java, HTTP, and AI operations for registered workspace roots and their task worktrees.
-- **`@remote-ide/desktop`** — Electron/React/Monaco client; connects to Core via `--host`/`--port` and renders all IDE tool windows.
-- **`@remote-ide/gateway`** — separate Electron app that manages SSH connections, starts/stops a remote Core, tunnels the port, and launches Desktop against it.
-- **`@remote-ide/protocol`** — shared TypeScript request/response/event/DTO types used by Core and Desktop.
-- **`@remote-ide/acp`** — the "AI Capability Provider" contract (shared types, provider base class, and configuration helpers) implemented by AI provider adapters.
+- **`@hatopad/core`** — workspace-scoped WebSocket backend; owns filesystem, terminal, Git, Java, HTTP, and AI operations for registered workspace roots and their task worktrees.
+- **`@hatopad/desktop`** — Electron/React/Monaco client; connects to Core via `--host`/`--port` and renders all IDE tool windows.
+- **`@hatopad/gateway`** — separate Electron app that manages SSH connections, starts/stops a remote Core, tunnels the port, and launches Desktop against it.
+- **`@hatopad/protocol`** — shared TypeScript request/response/event/DTO types used by Core and Desktop.
+- **`@hatopad/acp`** — the "AI Capability Provider" contract (shared types, provider base class, and configuration helpers) implemented by AI provider adapters.
 - Multiple project roots can be registered with aliases on the Core host; editor and terminal tabs retain their root ownership across switches. See [Multi-root protocol boundary](docs/MULTI_ROOT.md).
 - Each connected client selects a registered root and its root or task workspace; Core watches files and Git metadata with Chokidar and pushes safe reloads/refresh events over the shared protocol.
 
@@ -61,7 +61,7 @@ Vibe Editor is a remote-workspace IDE: an Electron/React/Monaco desktop client t
 - Sessions, logs, configuration, and continuation state persisted per task workspace; "Clear context" starts a fresh provider context without deleting the task workspace.
 - Attach local or workspace files to a prompt, including "Attach to AI" from the editor's right-click menu.
 - Long-running execution/output is collapsed into expandable activity blocks; task cards show in-progress, waiting-for-user, done, and error states.
-- **Vibe MCP tools**: built-in `vibe-editor` MCP server exposes tools for creating/listing/deleting task worktrees, starting task agents, appending prompts to running conversations, reading recent responses, setting or replacing the current task's multiline commit-message draft, and rewriting the latest unpushed commit message for a task selected by explicit ID. Published tips and tasks without their own commit are rejected. Also supports usage inspection, persisted continuation timers, a one-turn model/reasoning override, and fresh-session handoff. Enabled when a preset explicitly includes `vibe-editor` in its MCP allowlist. See the [internal MCP tool reference](docs/MCP.md).
+- **HatoPad MCP tools**: built-in `hatopad` MCP server exposes tools for creating/listing/deleting task worktrees, starting task agents, appending prompts to running conversations, reading recent responses, setting or replacing the current task's multiline commit-message draft, and rewriting the latest unpushed commit message for a task selected by explicit ID. Published tips and tasks without their own commit are rejected. Also supports usage inspection, persisted continuation timers, a one-turn model/reasoning override, and fresh-session handoff. Enabled when a preset explicitly includes `hatopad` in its MCP allowlist. See the [internal MCP tool reference](docs/MCP.md).
 
 ## Java & Maven
 
@@ -91,19 +91,19 @@ Vibe Editor is a remote-workspace IDE: an Electron/React/Monaco desktop client t
 - Chatbox workflow blocks provide a persistent conversation in block details, stream replies, and invoke outgoing connected blocks on demand. Follow-up messages reuse the same per-block Core sessions and frozen workflow graph, including after a turn finishes.
 - Interrupted workflows are marked failed after Core restart; existing sessions and task work remain available for inspection.
 
-## Vibe Gateway (Remote and Local Workflows)
+## HatoPad Gateway (Remote and Local Workflows)
 
 - Add/edit/delete SSH connections with password, private-key/passphrase, or OS SSH-agent authentication; test connections and explicitly trust pinned SHA-256 host-key fingerprints.
 - Remote workspace definitions, directory discovery, connection health, and copyable diagnostics.
 - **This Mac** connections launch local Core/Desktop from the existing build without SSH.
 - Credentials encrypted at rest via Electron `safeStorage`.
-- **Start server**: connects over SSH, clones the configured repository/branch under `~/.vibe` (default `https://github.com/ftpud/VibeEditor`, `main`), updating it when auto-update is enabled, rebuilds dependencies/artifacts only when the Git revision changed or artifacts are missing, runs Core on remote loopback with per-workspace PID/log files, and auto-selects a free port if the preferred one is taken.
+- **Start server**: connects over SSH, clones the configured repository/branch under `~/.hatopad-deploy` (default `https://github.com/ftpud/HatoPad`, `main`), updating it when auto-update is enabled, rebuilds dependencies/artifacts only when the Git revision changed or artifacts are missing, runs Core on remote loopback with per-workspace PID/log files, and auto-selects a free port if the preferred one is taken.
 - **Start client**: reuses cached prebuilt Desktop JS/renderer artifacts from the remote host, opens an SSH tunnel, and launches Desktop locally against the tunneled port.
 - **Stop server**: closes the tunnel and stops the tracked remote Core process; workspace cards poll and display live server status.
 
 ## Persistence
 
-- Core persists workspace layout, tasks, useful files, AI session metadata, file colors, terminal restoration data, root registrations, run configurations, workflow definitions/history, AI timers, and Git commit drafts outside the project, under `~/.remote-ide/workspaces` (overridable via `REMOTE_IDE_STATE_DIR`).
+- Core persists workspace layout, tasks, useful files, AI session metadata, file colors, terminal restoration data, root registrations, run configurations, workflow definitions/history, AI timers, and Git commit drafts outside the project, under `~/.hatopad/workspaces` (overridable via `HATOPAD_STATE_DIR`).
 - Desktop persists client-side UI preferences (tool window visibility, side panel widths, stacked panel sizes, bottom panel heights, layout mode, theme, fonts) per remote workspace in `settings.json` inside its Electron application-data directory, so panel geometry survives client restarts.
 - Buttons at the bottom of the left and right tool rails independently extend each sidebar through the lower panel area, narrowing the lower panel. Both layout modes support this, and the client-wide extension settings are restored on restart.
 - Gateway stores its own connection/workspace data in the platform's Electron application-data directory.

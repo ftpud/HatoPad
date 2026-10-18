@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpCircle, Bot, Check, CircleAlert, Download, LoaderCircle, RefreshCw, Server, Trash2, X } from "lucide-react";
-import type { AiProviderInstallation } from "@remote-ide/protocol";
+import type { AiProviderInstallation } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { AiAuthentication } from "./AiAuthentication";
 import { SegmentedControl } from "./SegmentedControl";
-import type { AiCredentialSource, AiProtocolVersion } from "@remote-ide/protocol";
+import type { AiCredentialSource, AiProtocolVersion } from "@hatopad/protocol";
 
 const busy = (item: AiProviderInstallation) => item.status === "installing" || item.status === "removing";
 const usable = (item: AiProviderInstallation) => item.status === "installed" || !!item.version;
@@ -112,7 +112,7 @@ export function AiProvidersPanel({ client, onClose, onChanged }: { client: CoreC
           </article>;
         })}
       </div>
-      <footer className="install-panel-footer"><span>Installations download from npm into <code>~/.remote-ide/provider-runtimes</code> on the Core host.</span><span>{active ? "Changes continue if you close this panel" : ""}</span></footer>
+      <footer className="install-panel-footer"><span>Installations download from npm into <code>~/.hatopad/provider-runtimes</code> on the Core host.</span><span>{active ? "Changes continue if you close this panel" : ""}</span></footer>
     </section>
   </div>, document.body);
 }

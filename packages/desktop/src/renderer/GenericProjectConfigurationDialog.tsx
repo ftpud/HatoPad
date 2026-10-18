@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { FileRevision, LanguageExtra } from "@remote-ide/protocol";
+import type { FileRevision, LanguageExtra } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { languageClient } from "./language-client";
 

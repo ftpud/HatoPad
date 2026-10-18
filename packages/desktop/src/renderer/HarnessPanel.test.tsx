@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HarnessBlock, HarnessDefinition, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessBlock, HarnessDefinition, HarnessRun } from "@hatopad/protocol";
 import { alignBlocks, autoLayoutBlocks, BlockRunDetails, dragPosition, edgePath, fitCanvasViewport, HarnessPanel, minimapScrollPosition, minimapViewport, responsePreview, parseWorkflowDefinitionImport, workflowDefinitionExport, workflowRunExport } from "./HarnessPanel";
 
 beforeEach(() => { Object.defineProperty(window, "confirm", { configurable: true, writable: true, value: vi.fn() }); });
@@ -283,7 +283,7 @@ describe("HarnessPanel", () => {
     expect(exported).toContain("token=[REDACTED]");
     expect(exported).toContain('"tokenBudget": 5000');
     expect(parseWorkflowDefinitionImport(exported)).toMatchObject({ id: "flow", blocks: [{ prompt: "token=[REDACTED]" }] });
-    expect(parseWorkflowDefinitionImport(JSON.stringify({ format: "vibe-workflow", version: 0, harness: definition }))).toEqual(definition);
+    expect(parseWorkflowDefinitionImport(JSON.stringify({ format: "hatopad-workflow", version: 0, harness: definition }))).toEqual(definition);
   });
 
   it("serializes a selected workflow run for export", () => {

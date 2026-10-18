@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { WebSocket, type WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility, type HarnessRun, type Response } from "@remote-ide/protocol";
+import { protocolCompatibility, type HarnessRun, type Response } from "@hatopad/protocol";
 import { HarnessStore } from "./harnesses.js";
 import { createServer } from "./server.js";
 
@@ -15,7 +15,7 @@ it("refreshes only the requested run without transferring historical output", as
   const workspace = path.join(directory, "workspace");
   await mkdir(workspace);
   await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   const store = new HarnessStore(workspace);
   const current: HarnessRun = { id: "current", harnessId: "flow", harnessVersion: 1, input: "start", status: "cancelled", createdAt: new Date().toISOString(), workspace, binding: { rootWorkspace: workspace, workspace }, blocks: [] };
   await store.saveRun({ ...current, id: "history", status: "succeeded", blocks: [{ blockId: "old", status: "succeeded", output: "x".repeat(500_000) }] });

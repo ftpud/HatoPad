@@ -11,7 +11,7 @@ const execute = promisify(execFile);
 const quote = (value: string) => `'${value.replaceAll("'", `'"'"'`)}'`;
 
 async function setup(versions: string[], systemVersion = "20.19.0", customNvm = false) {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-nvm-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-nvm-"));
   const nvm = path.join(directory, customNvm ? "custom nvm" : ".nvm");
   const systemBin = path.join(directory, "system-bin");
   const install = async (bin: string, version: string) => {

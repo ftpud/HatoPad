@@ -50,7 +50,7 @@ compiled output paths. Settings use `.settings/java.json`. See
 
 ## Shell run configurations
 
-Run configurations are reusable shell scripts that you launch from Vibe Editor. Use
+Run configurations are reusable shell scripts that you launch from HatoPad. Use
 them for build commands, development servers, or other commands you run often. Core
 stores the scripts outside the checkout.
 
@@ -63,7 +63,7 @@ stores the scripts outside the checkout.
    terminal. Right-click for **Open Terminal**, **Run**, **Stop**, or **Restart**.
 
 Opening or listing a configuration does not run it. Names are plain file names
-without directory separators. Vibe adds `.sh` to the stored file and leaves it out
+without directory separators. HatoPad adds `.sh` to the stored file and leaves it out
 of the displayed name. Global and local scripts can share a name; their scope
 distinguishes them.
 
@@ -88,14 +88,14 @@ Scripts are UTF-8 files stored alongside Useful Files:
 | Local | `run-configs/local/<workspace-hash>/<name>.sh` |
 | Global | `run-configs/global/<name>.sh` |
 
-The state directory is `REMOTE_IDE_STATE_DIR`, or `~/.remote-ide/workspaces` when
+The state directory is `HATOPAD_STATE_DIR`, or `~/.hatopad/workspaces` when
 unset. The workspace hash is the SHA-256 hash of the selected project's root path.
 Switching projects selects a different local collection; tasks within the same
 project share that project's configurations.
 
-## Configure with Vibe Configurator
+## Configure with HatoPad Configurator
 
-The built-in Vibe Configurator agent can discover, read and edit the same settings
+The built-in HatoPad Configurator agent can discover, read and edit the same settings
 using `configuration_list`, `configuration_read` and `configuration_write`.
 `languages/node.json` and `languages/java.json` expose complete project settings
 and named profiles in the invoking checkout. Reading an unregistered project returns

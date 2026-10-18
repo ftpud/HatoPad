@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiMessage } from "@remote-ide/protocol";
+import type { AiMessage } from "@hatopad/protocol";
 import { pageMessages } from "./message-page.js";
 
 const message = (index: number, text = `m${index}`): AiMessage => ({ id: `id${index}`, role: "assistant", text, timestamp: "2026-01-01T00:00:00Z", content: [{ type: "text", text: "attached" } as never] });

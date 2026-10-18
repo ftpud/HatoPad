@@ -8,7 +8,7 @@ import {
   parsePairingStartResponse,
   type PairingClaimant,
   type PairingStartRequest
-} from "@remote-ide/relay";
+} from "@hatopad/relay";
 
 export interface StoredPairing {
   hubUrl: string;

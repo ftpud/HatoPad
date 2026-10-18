@@ -1,5 +1,5 @@
 import { Coffee } from "lucide-react";
-import type { JavaFileType } from "@remote-ide/protocol";
+import type { JavaFileType } from "@hatopad/protocol";
 
 export function JavaFileIcon({ type }: { type?: JavaFileType }) {
   if (!type) return <Coffee className="file-kind-icon java-generic-icon" size={14} />;

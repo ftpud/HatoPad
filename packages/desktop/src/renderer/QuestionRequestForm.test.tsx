@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AiQuestionRequest } from "@remote-ide/protocol";
+import type { AiQuestionRequest } from "@hatopad/protocol";
 import { QuestionRequestForm } from "./QuestionRequestForm";
 
 afterEach(cleanup);

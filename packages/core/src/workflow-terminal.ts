@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { TerminalSessionHost, type TerminalSnapshot } from "./process-manager.js";
 
 const result = (value: unknown) => ({ id: crypto.randomUUID(), status: "idle", messages: [{ id: crypto.randomUUID(), role: "assistant", text: JSON.stringify(value), timestamp: new Date().toISOString() }] } as AiSession);
@@ -25,7 +25,7 @@ export async function executeTerminalControlAsync(input: string, workspace: stri
     terminal = host.create(workspace, 100, 30, workspace, args.name.trim());
   }
   const terminalId = terminal.terminalId;
-  const marker = `__VIBE_DONE_${crypto.randomUUID().replaceAll("-", "")}_`;
+  const marker = `__HATOPAD_DONE_${crypto.randomUUID().replaceAll("-", "")}_`;
   const done = new RegExp(`${marker}(-?\\d+)__`);
   const before = terminal.output.length;
   // The marker is only assembled by printf, so the shell's echo of this line never matches.

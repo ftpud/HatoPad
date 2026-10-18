@@ -25,7 +25,7 @@ export async function workspaceWatchOptions(workspace: string): Promise<Chokidar
     },
     // Polling avoids macOS's descriptor-per-file watcher cost. Other hosts can
     // opt in when their native watch limits are too small for the repository.
-    usePolling: process.platform === "darwin" || process.env.VIBE_WATCH_POLLING === "1",
+    usePolling: process.platform === "darwin" || process.env.HATOPAD_WATCH_POLLING === "1",
     interval: 1000,
     binaryInterval: 1500,
     awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 }

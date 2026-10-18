@@ -6,12 +6,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import { createServer, shutdownCore } from "./server.js";
 
 it("serves overview.summary without a rootId and without changing selection", async () => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "overview-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let socket: WebSocket | undefined;
   try {

@@ -7,7 +7,7 @@ import { promisify } from "node:util";
 import chokidar from "chokidar";
 import { WebSocket, type WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@remote-ide/protocol";
+import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@hatopad/protocol";
 import { createServer } from "./server.js";
 import { JavaProjectService } from "./plugins/languages/java/java.js";
 import { JdtLanguageService } from "./plugins/languages/java/jdtls.js";
@@ -16,10 +16,10 @@ import * as output from "./websocket-output.js";
 
 for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
   it(`disconnects on ${failure}, isolates healthy peers, and releases session services while preserving the PTY`, async () => {
-    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-output-integration-")));
+    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-output-integration-")));
     const workspace = path.join(directory, "primary");
     const secondary = path.join(directory, "secondary");
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     const watch = vi.spyOn(chokidar, "watch");
     const javaClose = vi.spyOn(JavaProjectService.prototype, "close");
     const jdtClose = vi.spyOn(JdtLanguageService.prototype, "close");
@@ -125,9 +125,9 @@ for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
 }
 
 it("closes services that finish initialization after an outbound failure", async () => {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-output-startup-")));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-output-startup-")));
   const workspace = path.join(directory, "primary");
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: WebSocketServer | undefined;
   let socket: WebSocket | undefined;
   let release!: () => void;

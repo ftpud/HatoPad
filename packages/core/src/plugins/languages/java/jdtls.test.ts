@@ -10,8 +10,8 @@ import { JavaSemanticCache, javaLanguageStateDirectory } from "./java-semantic-c
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-jdt-cache-")); directories.push(root);
-  const state = await mkdtemp(path.join(os.tmpdir(), "vibe-jdt-state-")); directories.push(state);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-jdt-cache-")); directories.push(root);
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-jdt-state-")); directories.push(state);
   await writeFile(path.join(root, "App.java"), "class App {}");
   const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
   return { root, state, filesystem };

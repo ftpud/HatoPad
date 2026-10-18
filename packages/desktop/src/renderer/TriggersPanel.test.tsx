@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceTrigger } from "@remote-ide/protocol";
+import type { WorkspaceTrigger } from "@hatopad/protocol";
 import { TriggersPanel } from "./TriggersPanel";
 
 afterEach(cleanup);

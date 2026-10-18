@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
-import type { AiSession, HarnessBlock, HarnessRun } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock, HarnessRun } from "@hatopad/protocol";
 import { SkillsStore } from "./skills.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { HarnessStore } from "./harnesses.js";
@@ -32,7 +32,7 @@ const block = (id: string, type: HarnessBlock["type"], extra: Partial<HarnessBlo
 async function setup() {
   directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "workflow-binding-")));
   const root = path.join(directory, "root"); await mkdir(root);
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   await exec("git", ["init", "-q", root]);
   await exec("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "--allow-empty", "-qm", "initial"]);
   const tasks = new WorkspaceTaskStore(root);
@@ -71,12 +71,12 @@ it.each([false, true])("keeps Chatbox guidance in session instructions with sele
     agent: expect.objectContaining({ name: withPreset ? "Reviewer" : "chat", instructions: expect.stringContaining("Follow the chat rules for {{input}}.") }),
     ...(withPreset ? { agentPreset: preset } : {}),
   }));
-  const request = f.provider.startFreshSession.mock.calls[0]![1] as import("@remote-ide/acp").AcpSendRequest;
+  const request = f.provider.startFreshSession.mock.calls[0]![1] as import("@hatopad/acp").AcpSendRequest;
   expect(request.agent!.instructions).toContain("Connected tools:");
   expect(request.agent!.instructions).not.toContain("first message");
   if (withPreset) {
     expect(request.agent!.instructions).toContain("Review carefully.");
-    expect(request.agent!.mcpServers).toContain("vibe-editor");
+    expect(request.agent!.mcpServers).toContain("hatopad");
   }
   await vi.waitFor(() => expect(f.runner.isActive(run.id)).toBe(false));
   await startWorkflow({ harnessId: definition.id, input: "second message", startBlockId: "chat", chatRunId: run.id, provider: "test", target: {} }, f.context);

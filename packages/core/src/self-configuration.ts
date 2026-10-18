@@ -1,30 +1,31 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import { CONFIGURATION_REFERENCES } from "./self-configuration-reference.js";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 
-export const CONFIGURATION_AGENT_NAME = "vibe-configurator.md";
-export const CONFIGURATION_SKILL_ID = "global/vibe-self-configuration";
+export const CONFIGURATION_AGENT_NAME = "hatopad-configurator.md";
+export const CONFIGURATION_SKILL_ID = "global/hatopad-self-configuration";
 export const CONFIGURATION_AGENT = `---
-name: Vibe Configurator
-description: Configure Vibe Editor workflows, triggers, agents, skills, tasks, run configurations and useful files.
+name: HatoPad Configurator
+description: Configure HatoPad workflows, triggers, agents, skills, tasks, run configurations and useful files.
 mcpServers:
-  - vibe-editor
+  - hatopad
 ---
 
-Configure Vibe Editor according to the user's request. Use the vibe-editor MCP
+Configure HatoPad according to the user's request. Use the hatopad MCP
 configuration_list, configuration_read and configuration_write tools to edit
 logical configuration documents, rather than guessing private state file paths.
-Read skills/global/vibe-self-configuration/SKILL.md for the configuration workflow.
+Read skills/global/hatopad-self-configuration/SKILL.md for the configuration workflow.
 Use the existing task tools for creating worktrees, starting sessions and lifecycle
 operations. Saving a workflow does not run it. Keep unrelated configuration and
 credentials unchanged, preserve the user's requested scope, and report what changed.
 `;
 
 export const CONFIGURATION_SKILL = `---
-name: vibe-self-configuration
-description: Create or edit Vibe Editor workflows, agent presets, skills, task metadata, run configurations and global or local useful files through the app configuration MCP interface.
+name: hatopad-self-configuration
+description: Create or edit HatoPad workflows, agent presets, skills, task metadata, run configurations and global or local useful files through the app configuration MCP interface.
 ---
 
 Use configuration_list to discover documents and their formats. The workspace
@@ -48,7 +49,7 @@ skills/workspace/{name}/SKILL.md for checkout files and skills/global/{name}/SKI
 for host-wide skills. All three scopes can be created and edited through the tools.
 
 Agent and skill documents are Markdown with name/description frontmatter. Include
-mcpServers: [vibe-editor] in agents that need app tools. Skill policy is JSON with
+mcpServers: [hatopad] in agents that need app tools. Skill policy is JSON with
 allowed/defaults arrays and optional scoped agent assignments; preserve assignments
 when changing defaults. null in an assignment permits a chat with no agent preset.
 New skills are not auto-enabled: update policy only when requested. Project allowlists
@@ -104,6 +105,8 @@ loop. Triggers cannot be deleted through configuration; the Triggers panel does 
 
 // Exact fingerprints of previously shipped skills; never replace user-edited instructions.
 const PREVIOUS_CONFIGURATION_SKILL_HASHES = new Set([
+  // Shipped before the HatoPad rebrand (text and file names said "Vibe").
+  "d40367d45835b080b23bca0825aff3d7633f7b5273210823680bdd0d3e5db2cf",
   "c75c693c7248e855cd6b2d26589c66593c43257f04b10e0a5baa46aee39a18af",
   "56930e7d161a65f291803724978469e20af359e3dc2a7e43c55e32cd9c901ea6",
   "22c077677a7c43786df14bc1fd7126b31a3901508aae14b3b7727229c61f5155",
@@ -113,14 +116,34 @@ const PREVIOUS_CONFIGURATION_SKILL_HASHES = new Set([
 
 /** Exact fingerprints of earlier shipped references, keyed by file name. */
 const PREVIOUS_REFERENCE_HASHES: Record<string, Set<string>> = {
-  "blocks.md": new Set(["552a116bbe89d3faf58e23852218084d9850ef4c27d6d39210ee535f6640b86e"]),
-  "commands.md": new Set(["5054464943837a9225c2bc0d2b59e51443497642ff5e958209a89dc1d97892ff"]),
-  "configuration.md": new Set(["926ce68a7662b262f717bb9359cd6da26d90cdc0b4243184464bb6f4efad22c2", "268e8d9d5f5fbe4e2784f0d6381388d7840081c31c1e3e048134daac99dd1a2b"])
+  "blocks.md": new Set(["552a116bbe89d3faf58e23852218084d9850ef4c27d6d39210ee535f6640b86e", "faa8c3ecbf3ead61885f1b69a83134c650c609b7fca6f6da0ee197c43d7a6763"]),
+  "commands.md": new Set(["5054464943837a9225c2bc0d2b59e51443497642ff5e958209a89dc1d97892ff", "7fc4de08342eba0236ba5f912129a5cc3febd30060e8f3b9ba2666f652e03d26"]),
+  "configuration.md": new Set(["926ce68a7662b262f717bb9359cd6da26d90cdc0b4243184464bb6f4efad22c2", "268e8d9d5f5fbe4e2784f0d6381388d7840081c31c1e3e048134daac99dd1a2b", "3684c16fc3ee025fb0806a486ab4b813b9e70846b8c95daed9b822f623c3e7b1"])
 };
 
+const sha = (text: string) => crypto.createHash("sha256").update(text).digest("hex");
+const LEGACY_AGENT_HASHES = new Set(["8136d0169d9ce93039ae3f6305fa7c98ff9454a77b69df2dcf3aa97fd347c59f"]);
+
+/**
+ * Removes the pre-rename Configurator agent and skill (`vibe-configurator.md`, `global/vibe-self-configuration`)
+ * once the renamed copies exist, but only when every file is still an untouched shipped copy; edited files are kept.
+ */
+async function removeLegacySelfConfiguration(stateDirectory: string): Promise<void> {
+  const agent = path.join(stateDirectory, "agents", "global", "vibe-configurator.md");
+  try { if (LEGACY_AGENT_HASHES.has(sha(await readFile(agent, "utf8")))) await rm(agent); } catch { /* absent or unreadable: leave it */ }
+  const directory = path.join(stateDirectory, "skills", "global", "vibe-self-configuration");
+  try {
+    const known = (name: string, content: string) => name === "SKILL.md" ? PREVIOUS_CONFIGURATION_SKILL_HASHES.has(sha(content)) : PREVIOUS_REFERENCE_HASHES[name]?.has(sha(content)) === true;
+    const references = await readdir(path.join(directory, "references")).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
+    const files = [["SKILL.md", path.join(directory, "SKILL.md")], ...references.map((name) => [name, path.join(directory, "references", name)] as const)];
+    for (const [name, file] of files) if (!known(name, await readFile(file, "utf8"))) return;
+    await rm(directory, { recursive: true });
+  } catch { /* absent or customised: leave it */ }
+}
+
 /** Install shipped global defaults on every Core host, preserving user edits. */
-export async function ensureSelfConfiguration(stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")): Promise<void> {
-  const skillDirectory = path.join(stateDirectory, "skills", "global", "vibe-self-configuration");
+export async function ensureSelfConfiguration(stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")): Promise<void> {
+  const skillDirectory = path.join(stateDirectory, "skills", "global", "hatopad-self-configuration");
   for (const [name, content] of Object.entries(CONFIGURATION_REFERENCES)) {
     const target = path.join(skillDirectory, "references", name);
     await mkdir(path.dirname(target), { recursive: true });
@@ -134,7 +157,7 @@ export async function ensureSelfConfiguration(stateDirectory = process.env.REMOT
   }
   for (const [target, content] of [
     [path.join(stateDirectory, "agents", "global", CONFIGURATION_AGENT_NAME), CONFIGURATION_AGENT],
-    [path.join(stateDirectory, "skills", "global", "vibe-self-configuration", "SKILL.md"), CONFIGURATION_SKILL]
+    [path.join(stateDirectory, "skills", "global", "hatopad-self-configuration", "SKILL.md"), CONFIGURATION_SKILL]
   ] as const) {
     await mkdir(path.dirname(target), { recursive: true });
     try { await writeFile(target, content, { encoding: "utf8", flag: "wx" }); }
@@ -146,4 +169,5 @@ export async function ensureSelfConfiguration(stateDirectory = process.env.REMOT
       }
     }
   }
+  await removeLegacySelfConfiguration(stateDirectory);
 }

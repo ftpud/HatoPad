@@ -3,7 +3,7 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { JavaDebugState } from "@remote-ide/protocol";
+import type { JavaDebugState } from "@hatopad/protocol";
 import { WorkspaceFileSystem } from "../../../filesystem.js";
 import { JavaProjectService } from "./java.js";
 import { WorkspaceStateStore } from "../../../workspace-state.js";
@@ -13,8 +13,8 @@ const hasJdk = ["javac", "jdb"].every((command) => spawnSync(command, ["-version
 // Use real javac/jdb, with a tiny Maven stand-in so this test needs no dependency downloads.
 describe.skipIf(!hasJdk)("Java debugger with a live JVM", () => {
   it("preserves object state while replacing code, restores breakpoints, and rejects schema/compile changes", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "vibe-java-live-"));
-    const stateDirectory = await mkdtemp(path.join(os.tmpdir(), "vibe-java-live-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-live-"));
+    const stateDirectory = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-live-state-"));
     const source = path.join(root, "src/main/java/com/example/App.java");
     const code = (value: number, extra = "") => `package com.example;
 public class App {

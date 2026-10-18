@@ -1,10 +1,11 @@
+import { stateHome } from "../../../state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
-import type { JavaSemanticToken } from "@remote-ide/protocol";
+import type { JavaSemanticToken } from "@hatopad/protocol";
 
-export function javaLanguageStateDirectory(workspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")): string {
+export function javaLanguageStateDirectory(workspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")): string {
   return path.join(stateDirectory, "java-language", digest(path.resolve(workspace)));
 }
 

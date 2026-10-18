@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
 import { MeetingUpdates, useMeeting } from "./workflow-meeting.js";
-import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@remote-ide/protocol";
-import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@remote-ide/acp";
+import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@hatopad/protocol";
+import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@hatopad/acp";
 import { CoreError } from "./errors.js";
 import { harnessExecutionEdges, isHarnessFlow, HarnessSchemaError, parseHarnessData, validateHarness, renderHarnessPrompt } from "./harness-graph.js";
 import type { HarnessStore } from "./harnesses.js";
-import type { AiUsage } from "@remote-ide/acp";
+import type { AiUsage } from "@hatopad/acp";
 import { takeUnfetchedText, rememberFetch, type FetchCursors } from "./workflow-fetch.js";
 import { contextHash, contextPreview, contextResult, contextOutputs, WORKFLOW_CONTEXT_CHARS } from "./workflow-context.js";
 
@@ -229,7 +229,7 @@ export class HarnessRunner {
     return live ? structuredClone(live) : (await this.store.runs()).find((run) => run.id === runId);
   }
 
-  async start(harnessId: string, input: string, dispatch: Dispatch, defaultProvider = "codex", append?: Append, startBlockId?: string, rerunRunId?: string, testDefinition?: HarnessDefinition, workspace?: string, prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>, binding?: HarnessRun["binding"], chatSettings?: { blockId: string; settings: import("@remote-ide/protocol").HarnessChatSettings }): Promise<HarnessRun> {
+  async start(harnessId: string, input: string, dispatch: Dispatch, defaultProvider = "codex", append?: Append, startBlockId?: string, rerunRunId?: string, testDefinition?: HarnessDefinition, workspace?: string, prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>, binding?: HarnessRun["binding"], chatSettings?: { blockId: string; settings: import("@hatopad/protocol").HarnessChatSettings }): Promise<HarnessRun> {
     if (this.suspended) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
     const source = rerunRunId ? (await this.store.runs()).find((run) => run.id === rerunRunId) : undefined;
     if (rerunRunId && !source) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
@@ -266,7 +266,7 @@ export class HarnessRunner {
     return run;
   }
 
-  async continueChat(runId: string, blockId: string, input: string, dispatch: Dispatch, defaultProvider: string, append: Append, binding?: HarnessRun["binding"], settings?: import("@remote-ide/protocol").HarnessChatSettings): Promise<HarnessRun> {
+  async continueChat(runId: string, blockId: string, input: string, dispatch: Dispatch, defaultProvider: string, append: Append, binding?: HarnessRun["binding"], settings?: import("@hatopad/protocol").HarnessChatSettings): Promise<HarnessRun> {
     const key = `${runId}:${blockId}`;
     if (this.resumingChats.has(key)) throw new CoreError("INVALID_REQUEST", "Wait for the current workflow turn on this Chatbox to finish before sending another message");
     this.resumingChats.add(key);

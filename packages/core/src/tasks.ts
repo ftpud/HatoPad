@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +27,7 @@ export class WorkspaceTaskStore {
   private readonly registryFile: string;
   private readonly checkedDependencyLinks = new Set<string>();
 
-  constructor(private readonly rootWorkspace: string, private readonly stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(private readonly rootWorkspace: string, private readonly stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.directory = path.join(stateDirectory, `${key}-tasks`);
     this.registryFile = path.join(this.directory, "tasks.json");
@@ -181,7 +182,7 @@ export class WorkspaceTaskStore {
       const registry = await this.listUnlocked();
       const resolvedWorkspace = path.resolve(workspace);
       const task = registry.tasks.find((item) => path.resolve(this.taskPath(item.id)) === resolvedWorkspace);
-      if (!task) throw new CoreError("INVALID_REQUEST", "set_commit_message requires a current Vibe Editor task workspace");
+      if (!task) throw new CoreError("INVALID_REQUEST", "set_commit_message requires a current HatoPad task workspace");
       const state = new WorkspaceStateStore(this.taskPath(task.id), this.stateDirectory);
       const options = await state.load();
       const overwritten = options.gitCommitMessage !== undefined;
@@ -238,7 +239,7 @@ export class WorkspaceTaskStore {
         } finally {
           await rm(messageFile, { force: true });
         }
-        await execFileAsync("git", ["-C", workspace, "update-ref", "-m", "vibe-editor: update task commit message", `refs/heads/${task.branch}`, commit, previousCommit], { encoding: "utf8" });
+        await execFileAsync("git", ["-C", workspace, "update-ref", "-m", "hatopad: update task commit message", `refs/heads/${task.branch}`, commit, previousCommit], { encoding: "utf8" });
         return { task, previousCommit, commit, previousMessage: previousMessage.stdout.replace(/\n+$/, ""), message };
       } catch (error) {
         if (error instanceof CoreError) throw error;
@@ -300,7 +301,7 @@ export class WorkspaceTaskStore {
       await this.runIntegrationSuite(integrationWorkspace, integration);
 
       if (rootStatus.stdout.trim()) {
-        await execFileAsync("git", ["-C", this.rootWorkspace, "stash", "push", "--include-untracked", "--message", `remote-ide: integration ${integration.id}`], { encoding: "utf8" });
+        await execFileAsync("git", ["-C", this.rootWorkspace, "stash", "push", "--include-untracked", "--message", `hatopad: integration ${integration.id}`], { encoding: "utf8" });
         stashedRootChanges = true;
         integration.stashReference = (await execFileAsync("git", ["-C", this.rootWorkspace, "rev-parse", "--verify", "stash@{0}"], { encoding: "utf8" })).stdout.trim();
         integration.status = "stashed"; integration.updatedAt = new Date().toISOString(); integration.recovery = `Root changes are saved in ${integration.stashReference}; restore them after integration.`; await this.saveIntegration(registry, integration);
@@ -446,7 +447,7 @@ export class WorkspaceTaskStore {
     }
     if (!gitMetadata.isDirectory()) return;
 
-    const migrationRef = `refs/vibe-editor/migration/${task.id}`;
+    const migrationRef = `refs/hatopad/migration/${task.id}`;
     const backup = path.join(path.dirname(destination), `legacy-workspace-${process.pid}`);
     let createdBranch = false;
     try {

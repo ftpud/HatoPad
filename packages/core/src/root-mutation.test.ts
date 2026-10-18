@@ -10,9 +10,9 @@ const exec = promisify(execFile);
 let workspace: string;
 let lock: string;
 beforeEach(async () => {
-  workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-lock-"));
+  workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-lock-"));
   await exec("git", ["init", workspace]);
-  lock = path.join(workspace, ".git", "vibe-editor-root-mutation.lock");
+  lock = path.join(workspace, ".git", "hatopad-root-mutation.lock");
 });
 afterEach(async () => { vi.restoreAllMocks(); await rm(workspace, { recursive: true, force: true }); });
 

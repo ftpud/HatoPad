@@ -7,8 +7,8 @@ import { JavaProjectService } from "./java.js";
 import { WorkspaceStateStore } from "../../../workspace-state.js";
 
 async function createMavenWorkspace(onEvent: ConstructorParameters<typeof JavaProjectService>[2] = () => undefined, onBuildSucceeded?: () => Promise<void>) {
-  const root = await mkdtemp(path.join(tmpdir(), "remote-ide-java-"));
-  const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-java-state-"));
+  const root = await mkdtemp(path.join(tmpdir(), "hatopad-java-"));
+  const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-java-state-"));
   await mkdir(path.join(root, "src", "main", "java", "com", "example"), { recursive: true });
   await mkdir(path.join(root, "src", "generated", "org", "demo"), { recursive: true });
   await writeFile(path.join(root, "pom.xml"), "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version></project>");

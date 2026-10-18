@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { AiPermissionRequest, AiProvider } from "@remote-ide/protocol";
+import type { AiPermissionRequest, AiProvider } from "@hatopad/protocol";
 
 export type PermissionRequestOwner = { provider: AiProvider; taskId?: string; sessionId?: string };
 

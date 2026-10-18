@@ -116,7 +116,7 @@ async function acquireRepositoryLock(workspace: string, fallbackDirectory?: stri
     directory = fallbackDirectory;
     await mkdir(directory, { recursive: true });
   }
-  const lock = path.join(directory, "vibe-editor-root-mutation.lock");
+  const lock = path.join(directory, "hatopad-root-mutation.lock");
   return acquireOwnedLock(lock, "Repository", "GIT_FAILED");
 }
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { fixtureProviderDefinition, fixturePrompts } from "@remote-ide/test-fixtures";
+import { fixtureProviderDefinition, fixturePrompts } from "@hatopad/test-fixtures";
 import { createAcpRegistry } from "./index.js";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -13,12 +13,12 @@ async function settle<T>(read: () => Promise<T>, until: (session: T) => boolean)
   return session;
 }
 
-describe("@remote-ide/test-fixtures agent", () => {
+describe("@hatopad/test-fixtures agent", () => {
   it("drives echo, permission, question and edit turns through a real provider", async () => {
     const definitions = await mkdtemp(path.join(os.tmpdir(), "fixture-defs-"));
     await writeFile(path.join(definitions, "fixture-agent.json"), JSON.stringify(fixtureProviderDefinition()));
-    vi.stubEnv("REMOTE_IDE_PROVIDER_DEFINITIONS_DIR", definitions);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", await mkdtemp(path.join(os.tmpdir(), "fixture-state-")));
+    vi.stubEnv("HATOPAD_PROVIDER_DEFINITIONS_DIR", definitions);
+    vi.stubEnv("HATOPAD_STATE_DIR", await mkdtemp(path.join(os.tmpdir(), "fixture-state-")));
     const registry = createAcpRegistry(() => undefined);
     try {
       const provider = registry.get("fixture-agent");

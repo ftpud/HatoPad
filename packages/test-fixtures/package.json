@@ -1,5 +1,5 @@
 {
-  "name": "@remote-ide/test-fixtures",
+  "name": "@hatopad/test-fixtures",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",

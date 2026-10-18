@@ -1,4 +1,4 @@
-import type { LanguageDescriptor, LanguageExtra } from "@remote-ide/protocol";
+import type { LanguageDescriptor, LanguageExtra } from "@hatopad/protocol";
 
 export type ProjectRunConfiguration = { id: string; name: string };
 export type RunProject = {

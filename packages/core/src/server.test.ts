@@ -9,7 +9,7 @@ describe("workflow snapshot policy", () => {
     const run = { definition: { edges: [
       { from: "lead", to: "helper", type: "use" },
       { from: "lead", to: "review", type: "follow" }
-    ] } } as unknown as import("@remote-ide/protocol").HarnessRun;
+    ] } } as unknown as import("@hatopad/protocol").HarnessRun;
     expect(workflowCapturesSnapshots(run, "helper")).toBe(false);
     expect(workflowCapturesSnapshots(run, "lead")).toBe(true);
     expect(workflowCapturesSnapshots(run, "review")).toBe(true);
@@ -139,11 +139,11 @@ describe("built-in app tool access", () => {
     expect(withAppTools("/workspace", "/workspace/task", [], { name: "No tools", instructions: "", mcpServers: [] }).servers).toEqual([]);
   });
 
-  it("adds the Vibe Editor server when explicitly allowed", () => {
-    const result = withAppTools("/workspace", "/workspace/task", [], { name: "Coordinator", instructions: "", mcpServers: ["vibe-editor"] }, "codex");
+  it("adds the HatoPad server when explicitly allowed", () => {
+    const result = withAppTools("/workspace", "/workspace/task", [], { name: "Coordinator", instructions: "", mcpServers: ["hatopad"] }, "codex");
     expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]).toMatchObject({ name: "vibe-editor", transport: "stdio", env: { VIBE_EDITOR_ROOT_WORKSPACE: "/workspace", VIBE_EDITOR_CURRENT_WORKSPACE: "/workspace/task", VIBE_EDITOR_CURRENT_PROVIDER: "codex" } });
-    expect(result.agent?.mcpServers).toEqual(["vibe-editor"]);
+    expect(result.servers[0]).toMatchObject({ name: "hatopad", transport: "stdio", env: { HATOPAD_ROOT_WORKSPACE: "/workspace", HATOPAD_CURRENT_WORKSPACE: "/workspace/task", HATOPAD_CURRENT_PROVIDER: "codex" } });
+    expect(result.agent?.mcpServers).toEqual(["hatopad"]);
   });
 });
 

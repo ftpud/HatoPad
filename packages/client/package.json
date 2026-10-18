@@ -1,5 +1,5 @@
 {
-  "name": "@remote-ide/client",
+  "name": "@hatopad/client",
   "version": "0.1.0",
   "license": "MIT",
   "type": "module",
@@ -17,7 +17,7 @@
     }
   },
   "dependencies": {
-    "@remote-ide/protocol": "0.1.0"
+    "@hatopad/protocol": "0.1.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",

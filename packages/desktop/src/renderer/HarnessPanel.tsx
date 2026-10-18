@@ -4,8 +4,8 @@ import { AiAuthentication } from "./AiAuthentication";
 import { WorkflowError } from "./WorkflowError";
 import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import { CopyPlus, Spline, SquareStack, ArrowLeftRight, ArrowUpDown, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Bot, ClipboardPaste, Clock, Copy, Download, Eye, FileText, GripHorizontal, LayoutGrid, List, Map as MapIcon, Maximize, MessageSquare, PanelTop, Pencil, Play, Plus, Redo2, RotateCcw, Save, Send, Settings2, Square, Terminal, Trash2, Undo2, Upload, Workflow, X, ZoomIn, ZoomOut } from "lucide-react";
-import { findAutopilotOption } from "@remote-ide/acp";
-import type { AgentFile, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, HarnessBlock, HarnessChatSettings, HarnessOperation, HarnessAppState, HarnessDataSchema, HarnessDefinition, HarnessRun, HarnessLogEntry, HarnessStateDiagnostic, HarnessValidationIssue, SkillCatalog } from "@remote-ide/protocol";
+import { findAutopilotOption } from "@hatopad/acp";
+import type { AgentFile, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, HarnessBlock, HarnessChatSettings, HarnessOperation, HarnessAppState, HarnessDataSchema, HarnessDefinition, HarnessRun, HarnessLogEntry, HarnessStateDiagnostic, HarnessValidationIssue, SkillCatalog } from "@hatopad/protocol";
 import { transferDashStyle, useWorkflowTraces } from "./workflow-tracing";
 import { ContextInspector, ContextUsageIndicator } from "./ContextInspector";
 import { ModelPicker } from "./ModelPicker";
@@ -606,12 +606,12 @@ export function HarnessPanel({ onOpenWorkflow, designOnly = false, harnesses, ru
           {(block.app?.actions ?? [block.app?.action ?? "start"]).includes("start") && <label>Start script<textarea aria-label="Run App script" placeholder="e.g. npm run dev" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label>}
           {(block.app?.actions ?? [block.app?.action ?? "start"]).includes("tail") && <label>Last N lines<input aria-label="Run App tail lines" type="number" min="1" max="10000" value={block.app?.lines ?? 100} onChange={(event) => updateBlock({ app: { ...block.app!, lines: Number(event.target.value) } })} /></label>}
           <small>Connected agents choose from the checked actions. Direct runs start the app when Run is checked; otherwise they use the single checked action or the action supplied in the input.</small>
-          <small>Runs in an interactive terminal in the task workspace. Workflow input is available in VIBE_WORKFLOW_INPUT. Keep the app in the foreground (no &amp;). Apps with the same name are shared within this workspace and stay alive after the workflow finishes. An already running app is reused.</small>
+          <small>Runs in an interactive terminal in the task workspace. Workflow input is available in HATOPAD_WORKFLOW_INPUT. Keep the app in the foreground (no &amp;). Apps with the same name are shared within this workspace and stay alive after the workflow finishes. An already running app is reused.</small>
         </>}
         {["ai", "chatbox"].includes(block.type) && <label className="harness-autopilot" title="Approve tool permission requests automatically"><input type="checkbox" aria-label="Block Autopilot" checked={block.autopilot ?? true} onChange={(event) => updateBlock({ autopilot: event.target.checked })} /> Autopilot</label>}
         {block.type === "meeting" && <small>Connect AI Agents and Chatboxes to this Meeting with Use. Participants can publish messages, read the recent tail, read a diff since their own last read, or wait for new messages without polling. The shared transcript belongs to each workflow run. Keeps the latest 1,000 messages; publishing does not start other agents.</small>}
         {block.type === "terminal_control" && <small>Use only for long-running apps and services. Do not spawn agents in terminals. List terminals first and reuse an existing terminal whenever possible; avoid spawning new terminals unnecessarily. Runs in the task workspace. Supply JSON input: {'{"action":"list"}'}, {'{"action":"open","name":"Server"}'}, {'{"action":"open_and_run","name":"Server","command":"npm run dev"}'}, {'{"action":"write","terminal_id":"ID","data":"npm run dev\\n"}'}, or {'{"action":"read","terminal_id":"ID","lines":100}'}. open_and_run starts a terminal and runs the command in one call, adding a newline automatically. Connect with Use to make these actions available to an agent.</small>}
-        {block.type === "script" && <><label>Shell script<textarea placeholder="e.g. git status --short" aria-label="Shell script" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label><small>Runs in the Core workspace. Input arrives on stdin and in VIBE_WORKFLOW_INPUT. Stdout becomes this block’s output.</small></>}
+        {block.type === "script" && <><label>Shell script<textarea placeholder="e.g. git status --short" aria-label="Shell script" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label><small>Runs in the Core workspace. Input arrives on stdin and in HATOPAD_WORKFLOW_INPUT. Stdout becomes this block’s output.</small></>}
         {!(block.type === "skill" && block.skillId) && !["task_controls", "terminal_control", "meeting", "timer", "script", "run_app", "start_input"].includes(block.type) && <label>{block.type === "markdown" ? "Markdown (blank uses input)" : block.type === "text" ? "Text" : ["user_prompt", "yes_no_prompt"].includes(block.type) ? "Question" : block.type === "start_button" ? "Start prompt" : "Instructions"}<textarea placeholder={block.type === "skill" ? "Write the instructions the agent should follow when using this skill…" : block.type === "markdown" ? "Write Markdown, or leave blank to use the incoming text…" : block.type === "text" ? "Enter text to pass to the next block…" : ["user_prompt", "yes_no_prompt"].includes(block.type) ? "What would you like to ask?" : block.type === "start_button" ? "Enter the prompt that starts this workflow…" : "Describe what this agent should do. Use {{input}} for incoming text…"} aria-label="Block prompt" rows={5} value={block.prompt} onChange={(event) => updateBlock({ prompt: event.target.value })} /></label>}
         {onTestBlock && <><label>Test input<textarea aria-label="Block test input" value={testInput} onChange={(event) => setTestInput(event.target.value)} /></label><small>Tests the current draft with connected tools. Follow steps are skipped.</small></>}
         <details><summary>Data schemas</summary><SchemaEditor title="Input schema" schema={block.inputSchema} onChange={(inputSchema) => updateBlock({ inputSchema })} /><SchemaEditor title="Output schema" schema={block.outputSchema} onChange={(outputSchema) => updateBlock({ outputSchema })} /></details>
@@ -632,14 +632,14 @@ export function HarnessPanel({ onOpenWorkflow, designOnly = false, harnesses, ru
 }
 
 export function workflowBlockClipboardPayload(block: HarnessBlock) {
-  return JSON.stringify({ type: "vibe-workflow-block", version: 1, block });
+  return JSON.stringify({ type: "hatopad-workflow-block", version: 1, block });
 }
 
 function parseWorkflowBlockClipboard(value: string): HarnessBlock | undefined {
   try {
     const parsed = JSON.parse(value) as { type?: unknown; version?: unknown; block?: Partial<HarnessBlock> };
     const block = parsed.block;
-    if (parsed.type !== "vibe-workflow-block" || parsed.version !== 1 || !block || typeof block.id !== "string" || typeof block.label !== "string" || typeof block.type !== "string" || typeof block.prompt !== "string" || !block.position || typeof block.position.x !== "number" || typeof block.position.y !== "number") return undefined;
+    if (parsed.type !== "hatopad-workflow-block" || parsed.version !== 1 || !block || typeof block.id !== "string" || typeof block.label !== "string" || typeof block.type !== "string" || typeof block.prompt !== "string" || !block.position || typeof block.position.x !== "number" || typeof block.position.y !== "number") return undefined;
     return block as HarnessBlock;
   } catch { return undefined; }
 }
@@ -1028,14 +1028,14 @@ export function responsePreview(output?: string, status?: HarnessRun["blocks"][n
 }
 
 export function workflowDefinitionExport(definition: HarnessDefinition): string {
-  return `${JSON.stringify({ format: "vibe-workflow", version: 1, definition }, redactWorkflowExportValue, 2)}\n`;
+  return `${JSON.stringify({ format: "hatopad-workflow", version: 1, definition }, redactWorkflowExportValue, 2)}\n`;
 }
 
 export function parseWorkflowDefinitionImport(value: string): HarnessDefinition {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || typeof parsed !== "object") throw new Error("This file is not a supported workflow definition");
   const envelope = parsed as { format?: unknown; version?: unknown; definition?: unknown; harness?: unknown };
-  const definition = envelope.format === "vibe-workflow"
+  const definition = envelope.format === "hatopad-workflow"
     ? envelope.version === 1 ? envelope.definition : envelope.version === 0 ? envelope.harness ?? envelope.definition : undefined
     : envelope;
   if (!isWorkflowDefinitionImport(definition)) throw new Error("This file is not a supported workflow definition");

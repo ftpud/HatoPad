@@ -1,7 +1,7 @@
 import { WorkflowError } from "./WorkflowError";
 import { forwardRef, useImperativeHandle, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ArrowLeftRight, ArrowUpDown, Play, Square, Workflow, RotateCcw, ChevronDown, ChevronUp, Maximize2, PanelTop, Minimize2 } from "lucide-react";
-import type { HarnessAppState, HarnessBlock, HarnessDefinition, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessAppState, HarnessBlock, HarnessDefinition, HarnessRun } from "@hatopad/protocol";
 import { BlockRunDetails, PauseResolution, WorkflowMessage, type HarnessPanelProps } from "./HarnessPanel";
 import { transferDashStyle, useWorkflowTraces } from "./workflow-tracing";
 

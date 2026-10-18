@@ -1,4 +1,4 @@
-import type { LanguageExtra, Request, RequestType, WorkspaceRootId } from "@remote-ide/protocol";
+import type { LanguageExtra, Request, RequestType, WorkspaceRootId } from "@hatopad/protocol";
 import { CoreError } from "../errors.js";
 import type { LanguageRegistry, LanguageSessions } from "./registry.js";
 import type { LanguageService } from "./service.js";

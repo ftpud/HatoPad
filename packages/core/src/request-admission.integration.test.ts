@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { WebSocket, type WebSocketServer } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
-import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response } from "@remote-ide/protocol";
+import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response } from "@hatopad/protocol";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
@@ -25,9 +25,9 @@ afterEach(async () => {
   if (directory) await rm(directory, { recursive: true, force: true });
 });
 async function setup() {
-  directory = await mkdtemp(path.join(os.tmpdir(), "vibe-admission-"));
+  directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-admission-"));
   const workspace = path.join(directory, "project"); await mkdir(workspace);
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
   await writeFile(path.join(workspace, "file.txt"), "original");
   server = await createServer("127.0.0.1", 0, workspace, { admission: { maxInFlight: 2 } });

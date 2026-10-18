@@ -29,7 +29,7 @@ export async function stageWorkspace(destination, workspace) {
     await mkdir(target, { recursive: true });
     await cp(path.join(root, 'packages', name, 'package.json'), path.join(target, 'package.json'));
   }
-  await run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--workspace', `@remote-ide/${workspace}`, '--include-workspace-root=false'], destination);
+  await run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--workspace', `@hatopad/${workspace}`, '--include-workspace-root=false'], destination);
 }
 
 export async function sha256(file) {
@@ -82,7 +82,7 @@ export async function copyBundledApplication(source, destination) {
 }
 
 /**
- * Vibe's UI is English-only; Chromium's other UI translations add ~60 MB per
+ * HatoPad's UI is English-only; Chromium's other UI translations add ~60 MB per
  * Electron copy. Runs on the extracted Electron before the app is signed.
  */
 export async function pruneElectronLocales(buildPath, keep = ['en.lproj', 'en-US.pak']) {

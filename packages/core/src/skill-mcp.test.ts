@@ -38,7 +38,7 @@ async function waitForChildClose(closed: Promise<{ code: number | null; signal: 
 }
 
 it("loads selected skills over MCP and exposes only skill_load, using the owning Core bridge", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-skill-mcp-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-skill-mcp-"));
   const root = path.join(directory, "project"); const bridgeRoot = path.join(directory, "primary"); const state = path.join(directory, "state");
   await mkdir(root);
   const store = new SkillsStore(state, root);
@@ -48,7 +48,7 @@ it("loads selected skills over MCP and exposes only skill_load, using the owning
   const owner = new AppEventBridge(bridgeRoot, state, appBridgeInstanceId); await owner.ready();
   const server = skillToolServer(root, root, "codex", bridgeRoot);
   if (!("command" in server)) throw new Error("Expected stdio server");
-  const child = spawn(server.command, server.args ?? [], { env: { ...process.env, ...server.env, REMOTE_IDE_STATE_DIR: state }, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(server.command, server.args ?? [], { env: { ...process.env, ...server.env, HATOPAD_STATE_DIR: state }, stdio: ["pipe", "pipe", "pipe"] });
   let output = "", stderr = "";
   child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; });
   let childClosed = false;

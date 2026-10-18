@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdtemp, mkdir, rm, realpath, symlink, writeFile } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
-import type { HarnessBlock, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessBlock, HarnessRun } from "@hatopad/protocol";
 import { HarnessRunner } from "./harness-runner.js";
 import { HarnessStore } from "./harnesses.js";
 import { WorkflowAppService } from "./workflow-app.js";

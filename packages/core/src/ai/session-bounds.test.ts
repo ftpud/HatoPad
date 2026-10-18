@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./session-bounds.js";
 
 const session = (id: string, count = 3): AiSession => ({ id, model: "m", reasoning: "r", status: "idle", messages: Array.from({ length: count }, (_, index) => ({ id: `${id}-${index}`, role: "assistant", text: "t", timestamp: "x" })) });

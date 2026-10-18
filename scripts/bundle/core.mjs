@@ -49,7 +49,7 @@ const archive = path.join(output, 'cores', `core-${target}.tar.gz`);
 await run('tar', ['-czf', archive, '-C', staging, '.']);
 // Verify the actual extracted archive outside the checkout so parent node_modules
 // cannot hide an incomplete dependency closure.
-const isolated = await mkdtemp(path.join(os.tmpdir(), 'vibe-portable-core-'));
+const isolated = await mkdtemp(path.join(os.tmpdir(), 'hatopad-portable-core-'));
 try {
   await run('tar', ['-xzf', archive, '-C', isolated]);
   await run(process.execPath, [path.join(root, 'scripts/bundle/smoke-core.mjs'), isolated]);

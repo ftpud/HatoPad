@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { AiPermissionRequest } from "@remote-ide/protocol";
+import type { AiPermissionRequest } from "@hatopad/protocol";
 import { PermissionRequestActions, type PermissionRequestOwner } from "./PermissionRequestActions";
 import { openTaskFromSummary } from "./permission-navigation";
 

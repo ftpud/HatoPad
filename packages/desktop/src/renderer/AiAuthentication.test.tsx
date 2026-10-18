@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { AiAuthentication as Authentication } from "@remote-ide/protocol";
+import type { AiAuthentication as Authentication } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { AiAuthentication, AuthenticationClientContext } from "./AiAuthentication";
 

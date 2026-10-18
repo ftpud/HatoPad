@@ -1,8 +1,9 @@
+import { stateHome } from "../state-home.js";
 import { acpErrorText, cleanAcpDiagnostics, isOAuthRefreshContention, retryOAuthRefresh } from "./acp-errors.js";
 import { AcpAuthentication, isAuthenticationError, withoutEnv } from "./authentication.js";
 import { providerInstallations, type CredentialSource, type InstallationSpec, type ProviderProtocol } from "./provider-installations.js";
 import { AcpV2Connection, type AcpV2AgentTurns } from "./acp-v2.js";
-import type { AiAuthentication, AiAuthInput, AiProviderInstallation } from "@remote-ide/acp";
+import type { AiAuthentication, AiAuthInput, AiProviderInstallation } from "@hatopad/acp";
 import type { AuthMethod } from "@agentclientprotocol/sdk";
 import { captureContextInstructions, refreshContext } from "./context.js";
 import { retryProcessSpawn } from "../process-spawn.js";
@@ -15,8 +16,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { Readable, Writable } from "node:stream";
 import { ClientSideConnection, PROTOCOL_VERSION, ndJsonStream, type Client, type ContentBlock, type CreateElicitationRequest, type CreateElicitationResponse, type ElicitationSchema, type McpServer, type PromptResponse, type RequestPermissionRequest, type RequestPermissionResponse, type SessionConfigOption, type SessionNotification } from "@agentclientprotocol/sdk";
-import { AcpProvider, applyConfiguration, mergeConfiguration, normalizeAiFailure, type AcpSendRequest, type AiConfiguration, type AiContentBlock, type AiMessage, type AiModel, type AiModelDetails, type AiOption, type AiProviderDescriptor, type AiQuestionAction, type AiQuestionAnswer, type AiQuestionField, type AiSession, type AiUsage } from "@remote-ide/acp";
-import type { TaskCheckpointProvenance } from "@remote-ide/protocol";
+import { AcpProvider, applyConfiguration, mergeConfiguration, normalizeAiFailure, type AcpSendRequest, type AiConfiguration, type AiContentBlock, type AiMessage, type AiModel, type AiModelDetails, type AiOption, type AiProviderDescriptor, type AiQuestionAction, type AiQuestionAnswer, type AiQuestionField, type AiSession, type AiUsage } from "@hatopad/acp";
+import type { TaskCheckpointProvenance } from "@hatopad/protocol";
 import { skillToolServer } from "../app-tools.js";
 import { SkillsStore } from "../skills.js";
 import { CoreError } from "../errors.js";
@@ -60,7 +61,7 @@ type ModeState = { currentModeId: string; availableModes: { id: string; name?: s
 type ModelState = { currentModelId?: string; availableModels: { modelId: string; name: string; description?: string | null; _meta?: Record<string, unknown> }[] } | null | undefined;
 type SelectChoice = { value: string; name: string; description?: string; _meta?: Record<string, unknown> };
 type CreatedSession = { sessionId: string; configOptions?: SessionConfigOption[] | null; modes?: ModeState; models?: ModelState };
-/** The calls Vibe makes on an ACP agent; ACP v1 and the v2 adapter both provide them. */
+/** The calls HatoPad makes on an ACP agent; ACP v1 and the v2 adapter both provide them. */
 type AcpConnection = Pick<ClientSideConnection, "initialize" | "newSession" | "loadSession" | "prompt" | "cancel" | "setSessionConfigOption" | "setSessionMode" | "authenticate" | "extMethod">;
 type Connected = { child: ChildProcessWithoutNullStreams; connection: AcpConnection; sessionId: string; stderr(): string; configOptions: SessionConfigOption[]; modes: ModeState; models: ModelState; steering?: SteeringMode; resumed: boolean; resumeFailed: boolean; bind(runtime: Runtime): void };
 type PermissionWaiter = { workspace: string; resolve(response: RequestPermissionResponse): void };
@@ -115,7 +116,7 @@ export interface ProviderContext {
   turns?: AcpTurnObserver;
   projectRoot?: (workspace: string) => Promise<string>;
   bridgeWorkspace?: string;
-  /** Where sessions are persisted; defaults to `REMOTE_IDE_STATE_DIR` or `~/.remote-ide/workspaces`. */
+  /** Where sessions are persisted; defaults to `HATOPAD_STATE_DIR` or `~/.hatopad/workspaces`. */
   stateDirectory?: string;
 }
 
@@ -253,7 +254,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
   constructor(ctx: ProviderContext) {
     super();
     this.onChanged = ctx.onChanged;
-    this.stateDirectory = ctx.stateDirectory ?? process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces");
+    this.stateDirectory = ctx.stateDirectory ?? process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces");
     this.turns = ctx.turns;
     this.projectRoot = ctx.projectRoot ?? (async (workspace) => workspace);
     this.bridgeWorkspace = ctx.bridgeWorkspace;
@@ -361,7 +362,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
   async send(workspace: string, request: AcpSendRequest): Promise<AiSession> {
     const prompt = request.prompt.trim();
     const command = prompt.split(/\s/, 1)[0]?.toLowerCase();
-    if (command && TERMINAL_ONLY_COMMANDS.has(command)) throw new CoreError("INVALID_REQUEST", `${command} is a terminal-only command. Use Vibe Editor's native controls instead.`);
+    if (command && TERMINAL_ONLY_COMMANDS.has(command)) throw new CoreError("INVALID_REQUEST", `${command} is a terminal-only command. Use HatoPad's native controls instead.`);
     const content = this.promptContent(workspace, prompt, request.content);
     const skillIds = request.skillIds === undefined ? undefined : await (await this.skillsFor(workspace)).validateSelection(workspace, request.skillIds, request.agentPreset);
     if (this.runtimes.get(workspace)?.running) throw new CoreError("INVALID_REQUEST", `${this.descriptor.name} is already working`);
@@ -374,7 +375,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
     // The override belongs to exactly one newly started turn. Steering an active
     // turn never consumes it; a failed runtime/prompt start leaves it queued.
     const allowedServers = request.agent?.mcpServers ? request.mcpServers?.filter((server) => request.agent!.mcpServers!.includes(server.name)) : request.mcpServers;
-    const servers = this.descriptor.capabilities.skills ? [...(allowedServers ?? []).filter((server) => server.name !== "vibe-skills"), skillToolServer(await this.projectRoot(workspace), workspace, this.descriptor.id, this.bridgeWorkspace)] : allowedServers;
+    const servers = this.descriptor.capabilities.skills ? [...(allowedServers ?? []).filter((server) => server.name !== "hatopad-skills"), skillToolServer(await this.projectRoot(workspace), workspace, this.descriptor.id, this.bridgeWorkspace)] : allowedServers;
     const sessionMeta = this.sessionInstructions(session, request.agent);
     const runtime = await this.ensureRuntime(workspace, session, servers, sessionMeta);
     runtime.captureSnapshots = request.captureSnapshots ?? runtime.captureSnapshots;
@@ -592,8 +593,8 @@ export abstract class StdioAcpProvider extends AcpProvider {
     const removed = previous?.filter((old) => !entries.some((entry) => entry.id === old.id)).map((entry) => entry.id) ?? [];
     if (previous && !added.length && !updated.length && !removed.length) return content;
     const text = previous
-      ? `Vibe skill catalogue changes: ${JSON.stringify({ added, updated, removed })}. Remove disabled skills from use. Reload updated skills with skill_load before applying them.`
-      : `Vibe skill catalogue: ${JSON.stringify({ available: entries })}. Use skill_load(id) on the vibe-skills MCP server to load instructions only when relevant, before following a skill. Supporting files are relative to the returned base directory. Reuse loaded instructions until that skill is updated or removed. Only catalogue skills are enabled; ignore earlier Vibe skill instructions for skills outside this catalogue. Changes will be sent as additions, updates and removals.`;
+      ? `HatoPad skill catalogue changes: ${JSON.stringify({ added, updated, removed })}. Remove disabled skills from use. Reload updated skills with skill_load before applying them.`
+      : `HatoPad skill catalogue: ${JSON.stringify({ available: entries })}. Use skill_load(id) on the hatopad-skills MCP server to load instructions only when relevant, before following a skill. Supporting files are relative to the returned base directory. Reuse loaded instructions until that skill is updated or removed. Only catalogue skills are enabled; ignore earlier HatoPad skill instructions for skills outside this catalogue. Changes will be sent as additions, updates and removals.`;
     captureContextInstructions(session, "Skill catalogue", text);
     session.skillCatalogue = { threadId: session.threadId!, entries };
     session.skillContext = true;
@@ -935,7 +936,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
     try {
       const initialized = await Promise.race([
         // Questions are declared only when enabled: agents then drop their question tools instead of blocking.
-        connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { auth: { terminal: true }, ...(this.optionEnabled(configuration, ASK_QUESTIONS_OPTION.id) ? { elicitation: { form: {} } } : {}) }, clientInfo: { name: "Vibe Editor", version: "0.1.0" } }),
+        connection.initialize({ protocolVersion: PROTOCOL_VERSION, clientCapabilities: { auth: { terminal: true }, ...(this.optionEnabled(configuration, ASK_QUESTIONS_OPTION.id) ? { elicitation: { form: {} } } : {}) }, clientInfo: { name: "HatoPad", version: "0.1.0" } }),
         spawnFailure
       ]);
       authMethods = initialized.authMethods ?? [];

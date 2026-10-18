@@ -46,8 +46,8 @@ describe("provider definitions", () => {
 
   it("registers a definition and runs a turn, models and permission-free usage fallback", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "provider-defs-"));
-    vi.stubEnv("REMOTE_IDE_PROVIDER_DEFINITIONS_DIR", directory);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", await mkdtemp(path.join(os.tmpdir(), "provider-state-")));
+    vi.stubEnv("HATOPAD_PROVIDER_DEFINITIONS_DIR", directory);
+    vi.stubEnv("HATOPAD_STATE_DIR", await mkdtemp(path.join(os.tmpdir(), "provider-state-")));
     await writeFile(path.join(directory, "custom.json"), JSON.stringify(base));
     const registry = createAcpRegistry(() => undefined);
     try {
@@ -70,7 +70,7 @@ describe("provider definitions", () => {
 
 describe("plugin provider isolation", () => {
   it("skips a plugin factory that throws and keeps the other providers", () => {
-    vi.stubEnv("REMOTE_IDE_PROVIDER_DEFINITIONS_DIR", path.join(os.tmpdir(), "no-provider-definitions"));
+    vi.stubEnv("HATOPAD_PROVIDER_DEFINITIONS_DIR", path.join(os.tmpdir(), "no-provider-definitions"));
     const registry = createAcpRegistry(() => undefined, undefined, undefined, undefined, [() => { throw new Error("plugin exploded"); }]);
     expect(registry.list().map((descriptor) => descriptor.id)).toEqual(["codex", "copilot", "claude"]);
   });
@@ -78,7 +78,7 @@ describe("plugin provider isolation", () => {
 
 describe("provider id collisions", () => {
   it("skips a plugin provider whose runtime id collides instead of failing startup", () => {
-    vi.stubEnv("REMOTE_IDE_PROVIDER_DEFINITIONS_DIR", path.join(os.tmpdir(), "no-provider-definitions"));
+    vi.stubEnv("HATOPAD_PROVIDER_DEFINITIONS_DIR", path.join(os.tmpdir(), "no-provider-definitions"));
     const clash: ProviderFactory = (ctx) => createAcpRegistry(ctx.onChanged).get("codex");
     const registry = createAcpRegistry(() => undefined, undefined, undefined, undefined, [clash]);
     expect(registry.list().map((descriptor) => descriptor.id)).toEqual(["codex", "copilot", "claude"]);

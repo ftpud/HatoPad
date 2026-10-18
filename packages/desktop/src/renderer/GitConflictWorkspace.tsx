@@ -1,7 +1,7 @@
 import { requestConfirm } from "./dialogs";
 import { useEffect, useState } from "react";
 import { Check, FileCode2, GitMerge, X } from "lucide-react";
-import type { GitConflictWorkspace } from "@remote-ide/protocol";
+import type { GitConflictWorkspace } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { ConflictCompareEditor } from "./ConflictCompareEditor";
 

@@ -6,7 +6,7 @@ import test from 'node:test';
 import { pruneRuntimeDependencies, copyBundledApplication } from './common.mjs';
 
 test('runtime pruning retains transitive and optional dependencies, excluding renderers and AI runtimes', async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'vibe-runtime-closure-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'hatopad-runtime-closure-'));
   const pkg = async (name, metadata = {}) => {
     const target = path.join(directory, 'node_modules', name);
     await mkdir(target, { recursive: true });
@@ -26,7 +26,7 @@ test('runtime pruning retains transitive and optional dependencies, excluding re
 });
 
 test('runtime pruning refuses incomplete required dependency closures before removing anything', async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'vibe-runtime-incomplete-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'hatopad-runtime-incomplete-'));
   try {
     await mkdir(path.join(directory, 'node_modules/keep'), { recursive: true });
     await writeFile(path.join(directory, 'node_modules/keep/package.json'), '{"name":"keep"}');
@@ -36,7 +36,7 @@ test('runtime pruning refuses incomplete required dependency closures before rem
 });
 
 test('embedded app framework links stay relative and survive removal of the original build', { skip: process.platform === 'win32' }, async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), 'vibe-embedded-framework-'));
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'hatopad-embedded-framework-'));
   const source = path.join(directory, 'source');
   const destination = path.join(directory, 'gateway/desktop');
   try {

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Request } from "@remote-ide/protocol";
+import type { Request } from "@hatopad/protocol";
 import { LanguageRegistry, LanguageSessions } from "./registry.js";
 import { handleLanguageRequest, type LanguageRequestType } from "./routes.js";
 import type { LanguageDescriptor, LanguageService } from "./service.js";

@@ -7,14 +7,14 @@ import { WorkspaceStateStore } from "../../../workspace-state.js";
 import { JavaLanguageService } from "./service.js";
 
 async function create() {
-  const root = await mkdtemp(path.join(tmpdir(), "remote-ide-lang-java-"));
+  const root = await mkdtemp(path.join(tmpdir(), "hatopad-lang-java-"));
   await mkdir(path.join(root, "src", "main", "java", "com", "example"), { recursive: true });
   await writeFile(path.join(root, "pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
   await writeFile(path.join(root, "src", "main", "java", "com", "example", "App.java"), "package com.example; public interface App {}\n");
   const filesystem = new WorkspaceFileSystem();
   await filesystem.open(root);
   const events = { output: vi.fn(), exit: vi.fn(), debugState: vi.fn(), semanticChanged: vi.fn() };
-  return { service: new JavaLanguageService(filesystem, new WorkspaceStateStore(root, await mkdtemp(path.join(tmpdir(), "remote-ide-lang-state-"))), events), events };
+  return { service: new JavaLanguageService(filesystem, new WorkspaceStateStore(root, await mkdtemp(path.join(tmpdir(), "hatopad-lang-state-"))), events), events };
 }
 
 describe("JavaLanguageService", () => {

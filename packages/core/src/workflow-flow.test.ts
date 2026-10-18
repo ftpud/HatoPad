@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
-import type { AiSession, HarnessBlock, HarnessEdge } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock, HarnessEdge } from "@hatopad/protocol";
 import { HarnessRunner } from "./harness-runner.js";
 import { HarnessStore } from "./harnesses.js";
 import { WorkflowAppService } from "./workflow-app.js";
@@ -941,7 +941,7 @@ describe("typed workflows", () => {
   });
 
   it("executes a script through MCP and passes stdout to its follower", async () => {
-    const { runner, definition, finished } = await setup([block("start", "start_input"), block("agent", "ai"), block("script", "script", { command: 'printf "result:%s" "$VIBE_WORKFLOW_INPUT"' }), block("after", "text")], [edge("start", "agent"), edge("agent", "script", "use"), edge("script", "after")]);
+    const { runner, definition, finished } = await setup([block("start", "start_input"), block("agent", "ai"), block("script", "script", { command: 'printf "result:%s" "$HATOPAD_WORKFLOW_INPUT"' }), block("after", "text")], [edge("start", "agent"), edge("agent", "script", "use"), edge("script", "after")]);
     await runner.start(definition.id, "input", async (target, input, runtime) => {
       if (target.type === "script") return executeFlowScript(target, input, os.tmpdir(), runtime.assertActive);
       expect(await runner.flowTool(runtime.runId, target.id, "workflow_use_block", { block_id: "script", input: "hello" })).toMatchObject({ output: "result:hello" });

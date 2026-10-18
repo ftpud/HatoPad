@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { HarnessDefinition } from "@remote-ide/protocol";
+import type { HarnessDefinition } from "@hatopad/protocol";
 import { openWorkflowEditor } from "./workflow-tabs";
 const workflow = { id: "check", name: "Workspace check" } as HarnessDefinition;
 it("reactivates an existing workflow tab without duplicating it", () => {

@@ -14,7 +14,7 @@ import { UsefulFilesStore } from "./useful-files.js";
 import { HarnessStore } from "./harnesses.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { ConfigurationService } from "./configuration.js";
-import { CONFIGURATION_SKILL, ensureSelfConfiguration } from "./self-configuration.js";
+import { CONFIGURATION_AGENT, CONFIGURATION_AGENT_NAME, CONFIGURATION_SKILL, ensureSelfConfiguration } from "./self-configuration.js";
 import { CONFIGURATION_REFERENCES } from "./self-configuration-reference.js";
 import { validateHarness } from "./harness-graph.js";
 import { isHarnessDefinition } from "./harnesses.js";
@@ -25,7 +25,7 @@ import { TriggerService } from "./triggers.js";
 const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map((directory) => rm(directory, { force: true, recursive: true }))); });
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-configuration-")); temporary.push(root);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-configuration-")); temporary.push(root);
   const workspace = path.join(root, "project"); const taskWorkspace = path.join(root, "checkout"); const state = path.join(root, "state");
   await Promise.all([mkdir(workspace), mkdir(taskWorkspace)]);
   const stores = { agents: new AgentsStore(workspace, state), skills: new SkillsStore(state, workspace), useful: new UsefulFilesStore(workspace, state), workflows: new HarnessStore(workspace, state), tasks: new WorkspaceTaskStore(workspace, state) };
@@ -41,7 +41,7 @@ describe("logical configuration documents", () => {
     const mcp = new AppToolService(stores.tasks, acp, taskWorkspace, undefined, undefined, undefined, stores.agents, workspace, undefined, undefined, undefined, service);
     const resource = "agents/global/reviewer.md";
     expect(await mcp.call("configuration_read", { resource })).toMatchObject({ exists: false, revision: null });
-    const first = await mcp.call("configuration_write", { resource, content: "---\nname: Reviewer\nmcpServers: [vibe-editor]\n---\nReview changes.", expected_revision: null }) as { revision: string };
+    const first = await mcp.call("configuration_write", { resource, content: "---\nname: Reviewer\nmcpServers: [hatopad]\n---\nReview changes.", expected_revision: null }) as { revision: string };
     expect((await service.list()).resources.some((item) => item.resource === resource)).toBe(true);
     expect(changed).toHaveBeenCalledWith(resource, true);
     const second = await service.write(resource, "Updated reviewer", first.revision);
@@ -123,24 +123,42 @@ describe("logical configuration documents", () => {
   });
 });
 
+/** Text as shipped before the HatoPad rename, so fingerprints recorded for earlier releases still match. */
+const preRename = (text: string) => text.replaceAll("hatopad-self-configuration", "vibe-self-configuration").replaceAll("[hatopad]", "[vibe-editor]").replaceAll("HatoPad", "Vibe Editor");
+
 describe("global configuration defaults", () => {
-  it("upgrades the latest shipped skill and installs readable linked references", async () => {
+  it("replaces the untouched pre-rename skill and installs readable linked references", async () => {
     const { state, stores, workspace, service } = await fixture();
-    const directory = path.join(state, "skills/global/vibe-self-configuration");
-    await mkdir(directory, { recursive: true });
-    const previous = CONFIGURATION_SKILL.replace("task metadata, run configurations and global or local useful files", "task metadata and global or local useful files").replace(/Run configurations are editable through[\s\S]*?(?=After a write, read back)/, "").split("\n\n## Detailed reference")[0]! + "\n";
-    await writeFile(path.join(directory, "SKILL.md"), previous);
+    const legacyDirectory = path.join(state, "skills/global/vibe-self-configuration");
+    const directory = path.join(state, "skills/global/hatopad-self-configuration");
+    await mkdir(legacyDirectory, { recursive: true });
+    const previous = preRename(CONFIGURATION_SKILL.replace("task metadata, run configurations and global or local useful files", "task metadata and global or local useful files").replace(/Run configurations are editable through[\s\S]*?(?=After a write, read back)/, "").split("\n\n## Detailed reference")[0]! + "\n");
+    await writeFile(path.join(legacyDirectory, "SKILL.md"), previous);
     await ensureSelfConfiguration(state);
-    expect(await stores.skills.read("global/vibe-self-configuration", workspace)).toBe(CONFIGURATION_SKILL);
+    expect(await stores.skills.read("global/hatopad-self-configuration", workspace)).toBe(CONFIGURATION_SKILL);
+    await expect(readFile(path.join(legacyDirectory, "SKILL.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
     for (const [name, content] of Object.entries(CONFIGURATION_REFERENCES)) {
       expect(CONFIGURATION_SKILL).toContain(`references/${name}`);
       expect(await readFile(path.join(directory, "references", name), "utf8")).toBe(content);
     }
-    expect((await service.read("skills/global/vibe-self-configuration/SKILL.md")).baseDirectory).toBe(directory);
+    expect((await service.read("skills/global/hatopad-self-configuration/SKILL.md")).baseDirectory).toBe(directory);
     const custom = path.join(directory, "references/blocks.md");
     await writeFile(custom, "Custom block guidance");
     await ensureSelfConfiguration(state);
     expect(await readFile(custom, "utf8")).toBe("Custom block guidance");
+  });
+
+  it("keeps an edited pre-rename skill and agent while installing the renamed ones", async () => {
+    const { state } = await fixture();
+    const skill = path.join(state, "skills/global/vibe-self-configuration/SKILL.md");
+    const agent = path.join(state, "agents/global/vibe-configurator.md");
+    await mkdir(path.dirname(skill), { recursive: true }); await mkdir(path.dirname(agent), { recursive: true });
+    await writeFile(skill, "My edited configuration skill"); await writeFile(agent, "---\nname: My configurator\n---\nMine");
+    await ensureSelfConfiguration(state);
+    expect(await readFile(skill, "utf8")).toBe("My edited configuration skill");
+    expect(await readFile(agent, "utf8")).toContain("My configurator");
+    expect(await readFile(path.join(state, "skills/global/hatopad-self-configuration/SKILL.md"), "utf8")).toBe(CONFIGURATION_SKILL);
+    expect(await readFile(path.join(state, "agents/global", CONFIGURATION_AGENT_NAME), "utf8")).toBe(CONFIGURATION_AGENT);
   });
 
   it("documents all protocol block types and exact app and flow command schemas", async () => {
@@ -164,38 +182,39 @@ describe("global configuration defaults", () => {
 
   it("refreshes an untouched earlier reference but keeps a user-edited one", async () => {
     const { state } = await fixture();
-    const directory = path.join(state, "skills/global/vibe-self-configuration/references");
+    const directory = path.join(state, "skills/global/hatopad-self-configuration/references");
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "configuration.md"), "My own notes");
     await ensureSelfConfiguration(state);
     expect(await readFile(path.join(directory, "configuration.md"), "utf8")).toBe("My own notes");
   });
 
-  it("upgrades the unedited shipped skill when project-local scopes change", async () => {
+  it("removes an older unedited pre-rename skill when project-local scopes changed", async () => {
     const { state, stores, workspace } = await fixture();
     const previous = CONFIGURATION_SKILL.replace("task metadata, run configurations and global or local useful files", "task metadata and global or local useful files").replace(/Run configurations are editable through[\s\S]*?(?=After a write, read back)/, "").split("\n\n## Detailed reference")[0]! + "\n";
-    const legacy = previous
+    const legacy = preRename(previous
       .replace("local agents, local skills, skill policy,\nuseful files and workflows belong to its root project and are shared by every task, while\nworkspace agents and workspace skills belong to the invoking checkout.", "local agents, useful files\nand workflows belong to its root project, while workspace agents, local skills\nand skill policy belong to the invoking checkout.")
-      .replace("Use skills/local/{name}/SKILL.md for skills shared by all tasks in this project,\nskills/workspace/{name}/SKILL.md for checkout files and skills/global/{name}/SKILL.md\nfor host-wide skills. All three scopes can be created and edited through the tools.\n\n", "");
+      .replace("Use skills/local/{name}/SKILL.md for skills shared by all tasks in this project,\nskills/workspace/{name}/SKILL.md for checkout files and skills/global/{name}/SKILL.md\nfor host-wide skills. All three scopes can be created and edited through the tools.\n\n", ""));
     const directory = path.join(state, "skills/global/vibe-self-configuration");
     await mkdir(directory, { recursive: true });
     await writeFile(path.join(directory, "SKILL.md"), legacy);
     await ensureSelfConfiguration(state);
-    expect(await stores.skills.read("global/vibe-self-configuration", workspace)).toBe(CONFIGURATION_SKILL);
+    expect(await stores.skills.read("global/hatopad-self-configuration", workspace)).toBe(CONFIGURATION_SKILL);
+    await expect(readFile(path.join(directory, "SKILL.md"), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("installs the agent and skill for every project and retains custom versions on startup", async () => {
     const { stores, state, workspace, taskWorkspace } = await fixture();
     await ensureSelfConfiguration(state);
-    const global = (await stores.agents.list(workspace)).find((agent) => agent.name === "vibe-configurator.md")!;
-    expect(global).toMatchObject({ scope: "global", agent: { name: "Vibe Configurator", mcpServers: ["vibe-editor"] } });
+    const global = (await stores.agents.list(workspace)).find((agent) => agent.name === "hatopad-configurator.md")!;
+    expect(global).toMatchObject({ scope: "global", agent: { name: "HatoPad Configurator", mcpServers: ["hatopad"] } });
     expect((await new AgentsStore(taskWorkspace, state).list(taskWorkspace)).some((agent) => agent.name === global.name)).toBe(true);
-    expect((await stores.skills.list(workspace)).skills.some((skill) => skill.id === "global/vibe-self-configuration")).toBe(true);
+    expect((await stores.skills.list(workspace)).skills.some((skill) => skill.id === "global/hatopad-self-configuration")).toBe(true);
     await stores.agents.write("global", global.name, "Custom configuration agent", workspace);
-    await stores.skills.write("global/vibe-self-configuration", workspace, "Custom configuration skill");
+    await stores.skills.write("global/hatopad-self-configuration", workspace, "Custom configuration skill");
     await ensureSelfConfiguration(state);
     expect(await stores.agents.read("global", global.name, workspace)).toBe("Custom configuration agent");
-    expect(await stores.skills.read("global/vibe-self-configuration", workspace)).toBe("Custom configuration skill");
+    expect(await stores.skills.read("global/hatopad-self-configuration", workspace)).toBe("Custom configuration skill");
   });
 
   it("creates, lists and edits persistent triggers through the configuration interface", async () => {

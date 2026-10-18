@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { TerminalSessionSnapshot } from "@remote-ide/protocol";
+import type { TerminalSessionSnapshot } from "@hatopad/protocol";
 import { CoreError } from "../errors.js";
 import type { TerminalSessionHost } from "../process-manager.js";
 import type { LanguageService } from "./service.js";

@@ -1,4 +1,4 @@
-import type { RequestType } from "@remote-ide/protocol";
+import type { RequestType } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 type JsonRecord = Record<string, unknown>;

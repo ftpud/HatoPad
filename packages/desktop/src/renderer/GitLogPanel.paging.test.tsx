@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { GitCommit } from "@remote-ide/protocol";
+import type { GitCommit } from "@hatopad/protocol";
 import { GitLogPanel } from "./GitLogPanel";
 import type { CoreClient } from "./client";
 
@@ -25,7 +25,7 @@ it("loads older commits on demand and reloads after outside repository changes",
   expect(request).toHaveBeenCalledWith("git.log", { branch: "main", limit: 200, skip: 200 });
   fireEvent.click(screen.getByText("Load more commits", { exact: true }));
   await screen.findByText("Beginning of history · 450 commits");
-  // A commit made outside Vibe: the panel reloads from the top and keeps what was loaded.
+  // A commit made outside HatoPad: the panel reloads from the top and keeps what was loaded.
   all = [{ hash: "f".repeat(40), shortHash: "new", subject: "Outside commit", author: "Dev", date: "2026-01-02", parents: [all[0]!.hash] }, ...all];
   view.rerender(<GitLogPanel client={client} height={400} revision={1} onResizeStart={vi.fn()} />);
   await screen.findByText("Outside commit", { exact: true });

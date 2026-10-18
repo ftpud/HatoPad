@@ -1,11 +1,11 @@
-import { CoreClient as SharedCoreClient } from "@remote-ide/client";
-export { CoalescedAsyncAction, type LivenessOptions } from "@remote-ide/client";
+import { CoreClient as SharedCoreClient } from "@hatopad/client";
+export { CoalescedAsyncAction, type LivenessOptions } from "@hatopad/client";
 
 /** Desktop keeps local credential access behind its Electron adapter. */
 export class CoreClient extends SharedCoreClient {
   connect(host: string, port: number): Promise<void>;
-  connect(options: import("@remote-ide/client").ConnectionOptions): Promise<void>;
-  connect(hostOrOptions: string | import("@remote-ide/client").ConnectionOptions, port?: number): Promise<void> {
+  connect(options: import("@hatopad/client").ConnectionOptions): Promise<void>;
+  connect(hostOrOptions: string | import("@hatopad/client").ConnectionOptions, port?: number): Promise<void> {
     if (typeof hostOrOptions !== "string") return super.connect(hostOrOptions);
     const host = hostOrOptions;
     return super.connect({

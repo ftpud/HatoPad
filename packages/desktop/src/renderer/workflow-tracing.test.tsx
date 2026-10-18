@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HarnessRun } from "@remote-ide/protocol";
+import type { HarnessRun } from "@hatopad/protocol";
 import { useWorkflowTraces } from "./workflow-tracing";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });

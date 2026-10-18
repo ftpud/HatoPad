@@ -27,7 +27,7 @@ it("returns usage without installing anything when Codex is not installed", asyn
   expect(readCodexAccountQuota).not.toHaveBeenCalled();
 });
 it("reads quota from the installed adapter's nested compatible CLI", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-quota-runtime-")); directories.push(directory);
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-quota-runtime-")); directories.push(directory);
   const adapter = path.join(directory, "node_modules/@agentclientprotocol/codex-acp");
   const entry = path.join(adapter, "dist/index.js");
   const cli = path.join(adapter, "node_modules/@openai/codex/bin/codex.js");

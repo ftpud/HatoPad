@@ -1,6 +1,6 @@
 import { Pause, Play, Plus, RefreshCw, Trash2, Zap } from "lucide-react";
 import { useState } from "react";
-import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, TriggerInput, WorkspaceRoot, WorkspaceTask, WorkspaceTrigger } from "@remote-ide/protocol";
+import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, TriggerInput, WorkspaceRoot, WorkspaceTask, WorkspaceTrigger } from "@hatopad/protocol";
 
 import { TriggerForm } from "./TriggerForm";
 

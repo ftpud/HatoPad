@@ -1,4 +1,4 @@
-import type { AiContextCategory, AiContextEntry, AiContextSection, AiSession } from "@remote-ide/acp";
+import type { AiContextCategory, AiContextEntry, AiContextSection, AiSession } from "@hatopad/acp";
 
 const PREVIEW_LIMIT = 1600;
 const ENTRY_LIMIT = 12;
@@ -9,7 +9,7 @@ function entry(id: string, label: string, text: string, timestamp: string): AiCo
   return { id, label: label.slice(0, 160), characters: text.length, preview: text.slice(0, PREVIEW_LIMIT), timestamp };
 }
 
-/** Record only instructions Vibe actually injected, never inferred system prompts. */
+/** Record only instructions HatoPad actually injected, never inferred system prompts. */
 export function captureContextInstructions(session: AiSession, label: string, text: string): void {
   refreshContext(session);
   const section = session.context!.sections.find((item) => item.id === "instructions")!;

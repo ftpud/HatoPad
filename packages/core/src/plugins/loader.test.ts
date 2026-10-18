@@ -29,7 +29,7 @@ describe("plugin loader", () => {
   });
 
   it("loads good plugins and isolates failures", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-plugins-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-plugins-"));
     await plugin(root, "a-good", { "plugin.json": JSON.stringify(manifest), "index.mjs": module });
     await plugin(root, "b-throws", { "plugin.json": JSON.stringify({ ...manifest, id: "thrower" }), "index.mjs": "throw new Error('boom');" });
     await plugin(root, "c-mismatch", { "plugin.json": JSON.stringify({ ...manifest, id: "mismatch", contributes: { languages: ["other"] } }), "index.mjs": module });

@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
-import type { RunConfig, RunConfigScope } from "@remote-ide/protocol";
+import type { RunConfig, RunConfigScope } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { TerminalSessionHost, type TerminalEvent } from "./process-manager.js";
 
@@ -15,7 +16,7 @@ export class RunConfigService {
   private readonly storageRoot: string;
   private readonly localDirectory: string;
   private readonly workspaceDirectories = new Map<string, string>();
-  constructor(private readonly terminals: TerminalSessionHost, private readonly changed: (workspace: string) => void, rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(private readonly terminals: TerminalSessionHost, private readonly changed: (workspace: string) => void, rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     this.storageRoot = path.join(stateDirectory, "run-configs");
     const workspaceKey = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.localDirectory = path.join(this.storageRoot, "local", workspaceKey);

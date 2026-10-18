@@ -8,11 +8,11 @@ import { ContextMenu } from "./ContextMenu";
 import { BranchPicker } from "./BranchPicker";
 import { ConnectionMenu } from "./ConnectionMenu";
 import { startBackgroundLoading } from "./background-loading";
-import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@remote-ide/protocol";
+import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@hatopad/protocol";
 import { DiffEditor, type Monaco } from "@monaco-editor/react";
 import { Archive, Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Bug, Check, ChevronDown, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileDiff, FileText, Folder, FolderOpen, GitBranch, GitCompareArrows, GitMerge, Library, ListTodo, ListTree, LoaderCircle, LogOut, MoreVertical, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, ShieldAlert, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, ProtocolOperations, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@remote-ide/protocol";
+import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, ProtocolOperations, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -157,7 +157,7 @@ export function App() {
   const [aiProvidersOpen, setAiProvidersOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  /** Bumped on every repository change, including commits/pushes made outside Vibe. */
+  /** Bumped on every repository change, including commits/pushes made outside HatoPad. */
   const [gitRevision, setGitRevision] = useState(0);
   const platform = useMemo(desktopPlatform, []);
   const [shortcutBindings, setShortcutBindings] = useState(() => { const stored = readSetting(KEYBOARD_SHORTCUTS_SETTING); const migrated = migrateShortcutSetting(stored, desktopPlatform()); if (migrated) writeSetting(KEYBOARD_SHORTCUTS_SETTING, migrated); return parseShortcutSetting(stored, desktopPlatform()); });
@@ -247,9 +247,9 @@ export function App() {
   const [runConfigs, setRunConfigs] = useState<RunConfig[]>([]);
   const [runConfigDialog, setRunConfigDialog] = useState<{ scope: RunConfigScope }>();
   const [runConfigMenu, setRunConfigMenu] = useState<{ x: number; y: number; config: RunConfig }>();
-  useEffect(() => { const listener = (event: Event) => setRunConfigDialog({ scope: (event as CustomEvent<RunConfigScope>).detail }); window.addEventListener("vibe:create-run-config", listener); return () => window.removeEventListener("vibe:create-run-config", listener); }, []);
-  useEffect(() => { window.dispatchEvent(new CustomEvent("vibe:run-configs", { detail: runConfigs })); }, [runConfigs]);
-  useEffect(() => { const listener = () => window.dispatchEvent(new CustomEvent("vibe:run-configs", { detail: runConfigs })); window.addEventListener("vibe:request-run-configs", listener); return () => window.removeEventListener("vibe:request-run-configs", listener); }, [runConfigs]);
+  useEffect(() => { const listener = (event: Event) => setRunConfigDialog({ scope: (event as CustomEvent<RunConfigScope>).detail }); window.addEventListener("hatopad:create-run-config", listener); return () => window.removeEventListener("hatopad:create-run-config", listener); }, []);
+  useEffect(() => { window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); }, [runConfigs]);
+  useEffect(() => { const listener = () => window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); window.addEventListener("hatopad:request-run-configs", listener); return () => window.removeEventListener("hatopad:request-run-configs", listener); }, [runConfigs]);
   const [agents, setAgents] = useState<AgentFile[]>([]);
   const [harnesses, setHarnesses] = useState<HarnessDefinition[]>([]);
   const [harnessRuns, setHarnessRuns] = useState<HarnessRun[]>([]);
@@ -304,9 +304,9 @@ export function App() {
   const [gitRewriteDialog, setGitRewriteDialog] = useState<{ action: "amend" | "undo"; preview: GitHistoryRewritePreview }>();
   const [gitStashDialog, setGitStashDialog] = useState(false);
   const [gitConflictPath, setGitConflictPath] = useState<string>();
-  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@remote-ide/protocol").GitPullPreview; error?: string }>();
+  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@hatopad/protocol").GitPullPreview; error?: string }>();
   const [gitPulling, setGitPulling] = useState(false);
-  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@remote-ide/protocol").GitRebasePreview; error?: string }>();
+  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@hatopad/protocol").GitRebasePreview; error?: string }>();
   const [gitRebasing, setGitRebasing] = useState(false);
   const [taskGitEntries, setTaskGitEntries] = useState<GitStatusEntry[]>([]);
   const [taskCheckpoints, setTaskCheckpoints] = useState<TaskCheckpoint[]>([]);
@@ -457,7 +457,7 @@ export function App() {
       connected && activeTab?.type === "file" ? editorTabLabel(activeTab) : undefined,
       connected ? taskName || projectName : undefined,
       connected && gitBranch !== "HEAD" ? gitBranch : undefined,
-      "Vibe Editor"
+      "HatoPad"
     ];
     document.title = titleParts.filter(Boolean).join(" — ");
   }, [activeTab?.id, activeTab?.path, activeTab?.title, gitBranch, projectName, selectedTaskId, status, tasks]);
@@ -742,7 +742,7 @@ export function App() {
   const readHarnessApp = useCallback(async (harnessId: string, blockId: string, runId?: string) => (await clientRef.current!.request("harnesses.app.read", { harnessId, blockId, runId })).app, []);
   const killHarnessApp = useCallback(async (harnessId: string, blockId: string, runId?: string) => { await clientRef.current!.request("harnesses.app.kill", { harnessId, blockId, runId }); }, []);
   const runHarness = useCallback(async (harnessId: string, input: string, startBlockId?: string, rerunRunId?: string) => { const result = await clientRef.current!.request("harnesses.run", { harnessId, input, startBlockId, rerunRunId, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
-  const chatHarness = useCallback(async (harnessId: string, blockId: string, input: string, runId?: string, settings?: import("@remote-ide/protocol").HarnessChatSettings) => { const result = await clientRef.current!.request("harnesses.chat", { harnessId, blockId, input, runId, settings, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
+  const chatHarness = useCallback(async (harnessId: string, blockId: string, input: string, runId?: string, settings?: import("@hatopad/protocol").HarnessChatSettings) => { const result = await clientRef.current!.request("harnesses.chat", { harnessId, blockId, input, runId, settings, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
   const steerHarnessChat = useCallback(async (runId: string, blockId: string, sessionId: string, input: string) => {
     const { run } = await clientRef.current!.request("harnesses.steer", { runId, blockId, sessionId, input });
     setHarnessRuns((current) => current.map((item) => item.id === runId ? run : item));
@@ -1335,11 +1335,11 @@ export function App() {
     const tab: EditorTab = { id: crypto.randomUUID(), type: "runConfig", rootId: selectedRootIdRef.current, title: config.name, path: config.name, runConfigScope: config.scope, dirty: false, content: result.config.commands, savedContent: result.config.commands, loading: false };
     updateGroup((tabs) => ({ tabs: [...tabs, tab], activeTabId: tab.id }));
   }, [updateGroup]);
-  useEffect(() => { const listener = (event: Event) => void openRunConfigFile((event as CustomEvent<RunConfig>).detail); window.addEventListener("vibe:open-run-config", listener); return () => window.removeEventListener("vibe:open-run-config", listener); }, [openRunConfigFile]);
+  useEffect(() => { const listener = (event: Event) => void openRunConfigFile((event as CustomEvent<RunConfig>).detail); window.addEventListener("hatopad:open-run-config", listener); return () => window.removeEventListener("hatopad:open-run-config", listener); }, [openRunConfigFile]);
   useEffect(() => {
     const renameConfig = (event: Event) => { const config = (event as CustomEvent<RunConfig>).detail; void requestText({ title: "Rename run configuration", label: "Name", defaultValue: config.name, confirmLabel: "Rename" }).then((newName) => { if (!newName || newName === config.name) return; void clientRef.current?.request("runConfig.rename", { scope: config.scope, name: config.name, newName }).then(({ config: renamed }) => { setRunConfigs((items) => items.map((item) => item.scope === config.scope && item.name === config.name ? renamed : item)); updateGroup((tabs, active) => ({ tabs: tabs.map((tab) => tab.type === "runConfig" && tab.runConfigScope === config.scope && tab.path === config.name ? { ...tab, path: renamed.name, title: renamed.name } : tab), activeTabId: active })); }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not rename Run Config")); }); };
     const deleteConfig = (event: Event) => { const config = (event as CustomEvent<RunConfig>).detail; void requestConfirm({ title: "Delete run configuration?", message: `Delete Run Config ${config.name}?`, confirmLabel: "Delete", danger: true }).then((confirmed) => { if (!confirmed) return; void clientRef.current?.request("runConfig.delete", { scope: config.scope, name: config.name }).then(() => { setRunConfigs((items) => items.filter((item) => item.scope !== config.scope || item.name !== config.name)); updateGroup((tabs, active) => { const next = tabs.filter((tab) => tab.type !== "runConfig" || tab.runConfigScope !== config.scope || tab.path !== config.name); return { tabs: next, activeTabId: next.some((tab) => tab.id === active) ? active : next.at(-1)?.id }; }); }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not delete Run Config")); }); };
-    window.addEventListener("vibe:rename-run-config", renameConfig); window.addEventListener("vibe:delete-run-config", deleteConfig); return () => { window.removeEventListener("vibe:rename-run-config", renameConfig); window.removeEventListener("vibe:delete-run-config", deleteConfig); };
+    window.addEventListener("hatopad:rename-run-config", renameConfig); window.addEventListener("hatopad:delete-run-config", deleteConfig); return () => { window.removeEventListener("hatopad:rename-run-config", renameConfig); window.removeEventListener("hatopad:delete-run-config", deleteConfig); };
   }, [updateGroup]);
 
   const openAgentFile = async (file: AgentFile) => {
@@ -1514,7 +1514,7 @@ export function App() {
     finally { setGitFetching(false); }
   };
 
-  const executePull = async (strategy: import("@remote-ide/protocol").GitPullStrategy) => {
+  const executePull = async (strategy: import("@hatopad/protocol").GitPullStrategy) => {
     if (!clientRef.current || !gitPullDialog || gitPulling) return;
     setGitPulling(true); setGitPullDialog((current) => current ? { preview: current.preview } : current); showStatus(`Fetching again, then pulling with ${strategy}…`, "progress");
     try {
@@ -1526,7 +1526,7 @@ export function App() {
     } finally { setGitPulling(false); }
   };
 
-  useEffect(() => { const listener = () => void previewPull(); window.addEventListener("vibe:git-pull", listener); return () => window.removeEventListener("vibe:git-pull", listener); }, [gitOperationRunning]);
+  useEffect(() => { const listener = () => void previewPull(); window.addEventListener("hatopad:git-pull", listener); return () => window.removeEventListener("hatopad:git-pull", listener); }, [gitOperationRunning]);
 
   const previewInteractiveRebase = async () => {
     if (!clientRef.current || gitOperationRunning) return;
@@ -1536,7 +1536,7 @@ export function App() {
     finally { setGitRebasing(false); }
   };
 
-  const executeInteractiveRebase = async (items: import("@remote-ide/protocol").GitRebaseTodoItem[]) => {
+  const executeInteractiveRebase = async (items: import("@hatopad/protocol").GitRebaseTodoItem[]) => {
     if (!clientRef.current || !gitRebaseDialog || gitRebasing) return;
     setGitRebasing(true); setGitRebaseDialog((current) => current ? { preview: current.preview } : current); showStatus("Running interactive rebase…", "progress");
     try {
@@ -1548,7 +1548,7 @@ export function App() {
     finally { setGitRebasing(false); }
   };
 
-  useEffect(() => { const listener = () => void previewInteractiveRebase(); window.addEventListener("vibe:git-rebase", listener); return () => window.removeEventListener("vibe:git-rebase", listener); }, [gitOperationRunning]);
+  useEffect(() => { const listener = () => void previewInteractiveRebase(); window.addEventListener("hatopad:git-rebase", listener); return () => window.removeEventListener("hatopad:git-rebase", listener); }, [gitOperationRunning]);
 
   const openGitHunkDialog = async (path: string, hunk: GitDiffHunk, x: number, y: number) => {
     if (!clientRef.current) return;
@@ -1863,7 +1863,7 @@ export function App() {
       throw error;
     }
   }, [aiToken, applyAiSession, refreshAi, refreshAiStatuses, setStatusMessage]);
-  const answerAiQuestion = useCallback(async (owner: PermissionRequestOwner, requestId: string, action: import("@remote-ide/protocol").AiQuestionAction, answer?: import("@remote-ide/protocol").AiQuestionAnswer) => {
+  const answerAiQuestion = useCallback(async (owner: PermissionRequestOwner, requestId: string, action: import("@hatopad/protocol").AiQuestionAction, answer?: import("@hatopad/protocol").AiQuestionAnswer) => {
     if (!clientRef.current) return;
     const isActiveOwner = owner.taskId === selectedTaskIdRef.current && owner.provider === aiProviderRef.current;
     const token = isActiveOwner ? aiToken() : undefined;
@@ -3414,7 +3414,7 @@ function reviewOutcome(action: string, result: { applied: string[]; alreadyAppli
 function ConnectionScreen(props: { host: string; port: string; status: ConnectionStatus; statusMessage: string; setHost(value: string): void; setPort(value: string): void; connect(): Promise<void> }) {
   const connecting = props.status === "connecting";
   return <main className="connection-screen"><form className="connection-form" onSubmit={(event) => { event.preventDefault(); void props.connect(); }}>
-    <h1>Vibe Editor</h1><p>Connect to a core backend</p>
+    <h1>HatoPad</h1><p>Connect to a core backend</p>
     <label>Host<input autoFocus value={props.host} onChange={(event) => props.setHost(event.target.value)} placeholder="192.168.1.50" required /></label>
     <label>Port<input value={props.port} onChange={(event) => props.setPort(event.target.value)} type="number" min="1" max="65535" required /></label>
     {props.statusMessage && <div role="status" aria-live="polite" className={`connection-message ${props.status}`}>{props.statusMessage}</div>}
@@ -3547,10 +3547,10 @@ function TaskPreviewMarkdown({ children }: { children: string }) {
 function UsefulFileSection({ title, scope, files, activeTab, onOpen, onCreate, onRename, onDelete }: { title: string; scope: UsefulFileScope; files: UsefulFile[]; activeTab?: EditorTab; onOpen(file: UsefulFile): void; onCreate(scope: UsefulFileScope): void; onRename(file: UsefulFile): void; onDelete(file: UsefulFile): void }) {
   const scoped = files.filter((file) => file.scope === scope);
   const [configs, setConfigs] = useState<RunConfig[]>([]);
-  useEffect(() => { const listener = (event: Event) => setConfigs((event as CustomEvent<RunConfig[]>).detail); window.addEventListener("vibe:run-configs", listener); window.dispatchEvent(new Event("vibe:request-run-configs")); return () => window.removeEventListener("vibe:run-configs", listener); }, []);
-  return <section className="useful-section"><header><span>{title}</span><button title={`Create ${title} file`} onClick={() => onCreate(scope)}><Plus size={14} /></button><button title={`Create ${title} Run Config`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:create-run-config", { detail: scope }))}><Play size={13} /><Plus size={9} /></button></header>
+  useEffect(() => { const listener = (event: Event) => setConfigs((event as CustomEvent<RunConfig[]>).detail); window.addEventListener("hatopad:run-configs", listener); window.dispatchEvent(new Event("hatopad:request-run-configs")); return () => window.removeEventListener("hatopad:run-configs", listener); }, []);
+  return <section className="useful-section"><header><span>{title}</span><button title={`Create ${title} file`} onClick={() => onCreate(scope)}><Plus size={14} /></button><button title={`Create ${title} Run Config`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:create-run-config", { detail: scope }))}><Play size={13} /><Plus size={9} /></button></header>
     {scoped.length === 0 ? <div className="useful-empty">No files</div> : scoped.map((file) => <div key={file.name} className={`useful-row ${activeTab?.type === "useful" && activeTab.usefulScope === scope && activeTab.path === file.name ? "selected" : ""}`}><button className="useful-open" title={file.name} onClick={() => void onOpen(file)}><FileKindIcon name={file.name} /><span>{file.name}</span></button><button title={`Rename ${file.name}`} onClick={() => onRename(file)}><Pencil size={12} /></button><button title={`Delete ${file.name}`} onClick={() => onDelete(file)}><Trash2 size={12} /></button></div>)}
-    {configs.filter((config) => config.scope === scope).map((config) => <div key={`run:${config.name}`} className={`useful-row run-config-useful-row ${activeTab?.type === "runConfig" && activeTab.runConfigScope === scope && activeTab.path === config.name ? "selected" : ""}`}><button className="useful-open" title={`${config.name} (${config.status})`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:open-run-config", { detail: config }))}><Play className={`run-config-icon ${config.status}`} size={14} /><span>{config.name}</span></button><button title={`Rename ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:rename-run-config", { detail: config }))}><Pencil size={12} /></button><button title={`Delete ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:delete-run-config", { detail: config }))}><Trash2 size={12} /></button></div>)}
+    {configs.filter((config) => config.scope === scope).map((config) => <div key={`run:${config.name}`} className={`useful-row run-config-useful-row ${activeTab?.type === "runConfig" && activeTab.runConfigScope === scope && activeTab.path === config.name ? "selected" : ""}`}><button className="useful-open" title={`${config.name} (${config.status})`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:open-run-config", { detail: config }))}><Play className={`run-config-icon ${config.status}`} size={14} /><span>{config.name}</span></button><button title={`Rename ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:rename-run-config", { detail: config }))}><Pencil size={12} /></button><button title={`Delete ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:delete-run-config", { detail: config }))}><Trash2 size={12} /></button></div>)}
   </section>;
 }
 

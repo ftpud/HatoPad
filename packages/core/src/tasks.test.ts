@@ -12,8 +12,8 @@ const execFileAsync = promisify(execFile);
 
 describe("WorkspaceTaskStore", () => {
   it("lists and selects tasks when the workspace has no Git repository", async () => {
-    const workspace = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-non-git-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-non-git-state-"));
+    const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-non-git-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-non-git-state-"));
     const store = new WorkspaceTaskStore(workspace, state);
 
     await expect(store.list()).resolves.toEqual({ tasks: [] });
@@ -22,8 +22,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("rejects unsafe task path IDs while accepting safe opaque legacy IDs", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-path-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-path-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-path-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-path-state-"));
     const store = new WorkspaceTaskStore(root, state);
     expect(store.taskPath("legacy-task_42")).toBe(path.join(state, `${crypto.createHash("sha256").update(root).digest("hex")}-tasks`, "legacy-task_42", "workspace"));
 
@@ -35,8 +35,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("rejects malformed task creation values before creating a worktree or branch", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-invalid-create-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-invalid-create-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-invalid-create-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-invalid-create-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
@@ -60,8 +60,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("preserves overlapping registry updates from separate Core processes", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-concurrent-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-concurrent-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-concurrent-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-concurrent-state-"));
     await execFileAsync("git", ["init", root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
@@ -100,8 +100,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("persists finished task status", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-status-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-status-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-status-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-status-state-"));
     await execFileAsync("git", ["init", root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
@@ -117,8 +117,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("persists a display-name rename and archives without removing the worktree or branch", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-lifecycle-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-lifecycle-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-lifecycle-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-lifecycle-state-"));
     await execFileAsync("git", ["init", root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
@@ -143,8 +143,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("rewrites only an explicit task's unpushed tip message while preserving its contents and working state", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-git-message-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-git-message-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-git-message-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-git-message-state-"));
     await execFileAsync("git", ["init", root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
@@ -186,10 +186,10 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("refuses to rewrite a task tip already published to its upstream", async () => {
-    const parent = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-published-message-"));
+    const parent = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-published-message-"));
     const remote = path.join(parent, "remote.git");
     const root = path.join(parent, "root");
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-published-state-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-published-state-"));
     await execFileAsync("git", ["init", "--bare", remote]);
     await execFileAsync("git", ["clone", remote, root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -213,8 +213,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("sets, overwrites, and isolates multiline commit message drafts by current task workspace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-message-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-message-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-message-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-message-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
@@ -230,7 +230,7 @@ describe("WorkspaceTaskStore", () => {
     await expect(store.setCommitMessage(store.taskPath(first.id), multiline)).resolves.toEqual({ task: first, message: multiline, overwritten: true });
     await expect(firstState.load()).resolves.toMatchObject({ gitCommitMessage: multiline });
     await expect(secondState.load()).resolves.toEqual({ openFiles: [] });
-    await expect(store.setCommitMessage(root, "Wrong task")).rejects.toThrow("requires a current Vibe Editor task workspace");
+    await expect(store.setCommitMessage(root, "Wrong task")).rejects.toThrow("requires a current HatoPad task workspace");
     await expect(store.setCommitMessage(store.taskPath(first.id), " \n\t ")).rejects.toThrow("must contain at least one non-whitespace character");
     await expect(store.setCommitMessage(store.taskPath(first.id), "x".repeat(10_001))).rejects.toThrow("must be at most 10000 characters");
     await expect(secondState.load()).resolves.toEqual({ openFiles: [] });
@@ -240,8 +240,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("creates a random task without changing the selected workspace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-random-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-random-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-random-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-random-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
@@ -257,8 +257,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("creates a linked worktree and branch, merges it, and persists selection", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
@@ -300,10 +300,10 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("creates a new task from the root tip that publishes to a same-named remote branch with plain git push", async () => {
-    const parent = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-push-"));
+    const parent = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-push-"));
     const remote = path.join(parent, "remote.git");
     const root = path.join(parent, "root");
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-push-state-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-push-state-"));
     await execFileAsync("git", ["init", "--bare", remote]);
     await execFileAsync("git", ["clone", remote, root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -333,8 +333,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("commits task changes and preserves uncommitted main workspace changes while rebasing", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-smart-merge-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-smart-merge-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-smart-merge-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-smart-merge-state-"));
     await execFileAsync("git", ["init", root]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
@@ -371,8 +371,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("creates a task worktree from an existing branch without recreating it", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-existing-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-existing-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-existing-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-existing-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
@@ -389,8 +389,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("carries the root working state into a new worktree without changing the root", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, ".gitignore"), "ignored.txt\n");
     await writeFile(path.join(root, "staged.txt"), "base\n");
@@ -420,8 +420,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("leaves node_modules out of the task workspace", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await mkdir(path.join(root, "node_modules", "some-dep"), { recursive: true });
@@ -438,8 +438,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("removes node_modules symlinks from existing task worktrees", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await mkdir(path.join(root, "node_modules"));
@@ -458,8 +458,8 @@ describe("WorkspaceTaskStore", () => {
   });
 
   it("automatically migrates a legacy copied repository and preserves its changes", async () => {
-    const root = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-root-"));
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-task-state-"));
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);

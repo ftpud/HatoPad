@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { LanguageDebugVariable, ProtocolOperations } from "@remote-ide/protocol";
+import type { LanguageDebugVariable, ProtocolOperations } from "@hatopad/protocol";
 export type DebugInspect = (reference: string, start?: number) => Promise<ProtocolOperations["language.debug.variables"]["result"]>;
 
 export function DebugVariable({ variable, onInspect, depth = 0, disabled = false, initialExpanded = false }: { variable: LanguageDebugVariable; onInspect: DebugInspect; depth?: number; disabled?: boolean; initialExpanded?: boolean }) {

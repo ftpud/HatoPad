@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { RootedJavaDiagnostic } from "@remote-ide/protocol";
+import type { RootedJavaDiagnostic } from "@hatopad/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProblemsPanel } from "./ProblemsPanel";
 

@@ -2,7 +2,7 @@ import { DiffEditor } from "@monaco-editor/react";
 import { GitCommitHorizontal, X } from "lucide-react";
 import type { editor } from "monaco-editor";
 import { useEffect, useRef, useState } from "react";
-import type { GitCommit } from "@remote-ide/protocol";
+import type { GitCommit } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { DiffNavigation } from "./DiffNavigation";
 import { configureMonacoThemes, monacoTheme } from "./theme";

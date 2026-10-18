@@ -1,7 +1,7 @@
 import { parse as parseEnv } from "dotenv";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
-import type { FileRevision } from "@remote-ide/protocol";
+import type { FileRevision } from "@hatopad/protocol";
 import { CoreError } from "../../../errors.js";
 import type { WorkspaceFileSystem } from "../../../filesystem.js";
 import { defaultRunConfigurations, npmConfigurationPath, parseNpmConfiguration, validatePackageJsonPath, validateNpmRunConfiguration, type NpmProjectOptions, type NpmRunConfiguration, type PackageManager } from "./npm-settings.js";

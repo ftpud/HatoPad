@@ -2,7 +2,7 @@ import { AcpRegistry } from "./acp.js";
 import { BUILT_IN_PROVIDERS } from "../plugins/builtin.js";
 export { BUILT_IN_PROVIDERS } from "../plugins/builtin.js";
 import { definitionFactory, loadProviderDefinitions } from "./provider-definitions.js";
-import type { AiProviderOrigin } from "@remote-ide/acp";
+import type { AiProviderOrigin } from "@hatopad/acp";
 import type { AcpTurnObserver, ProviderContext, ProviderFactory } from "./stdio-provider.js";
 
 /** A throwing plugin factory is logged and skipped so it cannot break startup or other providers. */

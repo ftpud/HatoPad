@@ -1,6 +1,6 @@
 import { AlertCircle, AlertTriangle, RefreshCw, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
-import type { LanguageDiagnostic, WorkspaceRootId } from "@remote-ide/protocol";
+import type { LanguageDiagnostic, WorkspaceRootId } from "@hatopad/protocol";
 
 export type ProblemDiagnostic = LanguageDiagnostic & { rootId: WorkspaceRootId; language?: string };
 

@@ -14,7 +14,7 @@ test("development trust is limited to the configured origin and document route",
   for (const url of ["http://localhost:5174/other", "http://localhost:5174.evil.test/", "http://localhost:5173/", "http://user@localhost:5174/"]) assert.equal(isTrustedRendererUrl(url, renderer, "http://localhost:5174/"), false);
 });
 test("packaged renderer trust handles Chromium's escaped Windows temp directory names", () => {
-  const renderer = "/Users/RUNNER~1/Vibe Gateway/dist-renderer/index.html";
+  const renderer = "/Users/RUNNER~1/HatoPad Gateway/dist-renderer/index.html";
   const document = pathToFileURL(renderer).href;
   assert.equal(isTrustedIpcFrame({ url: document.replace(/~|%7e/i, "%7E"), isMainFrame: true }, true, renderer), true);
   assert.equal(isTrustedRendererUrl(document.replace(/~|%7e/i, "%7e"), renderer), true);

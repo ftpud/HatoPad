@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { WebSocket, type WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility, type Response } from "@remote-ide/protocol";
+import { protocolCompatibility, type Response } from "@hatopad/protocol";
 import { createServer } from "./server.js";
 
 it("returns correlated initial/recovery snapshot errors and keeps the same connection usable", async () => {
@@ -16,8 +16,8 @@ it("returns correlated initial/recovery snapshot errors and keeps the same conne
   await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
   await writeFile(path.join(workspace, "a"), "a");
   await writeFile(path.join(workspace, "b"), "b");
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
-  vi.stubEnv("VIBE_TREE_MAX_NODES", "1");
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_TREE_MAX_NODES", "1");
   let server: WebSocketServer | undefined;
   const sockets: WebSocket[] = [];
   try {

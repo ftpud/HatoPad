@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import { execFile } from "node:child_process";
 import os from "node:os";
 import { constants } from "node:fs";
@@ -6,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { FileRevision, FileTreeNode, FilesystemDeletePreview, FilesystemDeleteResult, FilesystemSnapshotEntry, FilesystemTransferKind, FilesystemTransferPreflight, FilesystemTransferRequest, FilesystemTransferResult } from "@remote-ide/protocol";
+import type { FileRevision, FileTreeNode, FilesystemDeletePreview, FilesystemDeleteResult, FilesystemSnapshotEntry, FilesystemTransferKind, FilesystemTransferPreflight, FilesystemTransferRequest, FilesystemTransferResult } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
@@ -26,7 +27,7 @@ export const DEFAULT_WORKSPACE_TREE_LIMITS: Readonly<WorkspaceTreeLimits> = {
 };
 
 function treeTooLarge(limit: string): CoreError {
-  return new CoreError("WORKSPACE_TREE_TOO_LARGE", `Workspace tree exceeds ${limit}. Open a smaller workspace, exclude generated files with Git ignore rules, disable includeIgnored, or adjust Core VIBE_TREE_* limits and outbound capacity.`);
+  return new CoreError("WORKSPACE_TREE_TOO_LARGE", `Workspace tree exceeds ${limit}. Open a smaller workspace, exclude generated files with Git ignore rules, disable includeIgnored, or adjust Core HATOPAD_TREE_* limits and outbound capacity.`);
 }
 
 class TreeBudget {
@@ -45,9 +46,9 @@ export class WorkspaceFileSystem {
   private workspace?: string;
   private readonly treeLimits: WorkspaceTreeLimits;
 
-  constructor(limits: Partial<WorkspaceTreeLimits> = {}, private readonly stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(limits: Partial<WorkspaceTreeLimits> = {}, private readonly stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     this.treeLimits = { ...DEFAULT_WORKSPACE_TREE_LIMITS };
-    const variables = { maxNodes: "VIBE_TREE_MAX_NODES", maxPathBytes: "VIBE_TREE_MAX_PATH_BYTES", maxDepth: "VIBE_TREE_MAX_DEPTH" } as const;
+    const variables = { maxNodes: "HATOPAD_TREE_MAX_NODES", maxPathBytes: "HATOPAD_TREE_MAX_PATH_BYTES", maxDepth: "HATOPAD_TREE_MAX_DEPTH" } as const;
     for (const key of Object.keys(variables) as (keyof WorkspaceTreeLimits)[]) {
       const configured = limits[key] ?? process.env[variables[key]];
       if (configured === undefined) continue;
@@ -243,7 +244,7 @@ export class WorkspaceFileSystem {
     if (preview.confirmationRequired && !confirmed) throw new CoreError("INVALID_REQUEST", "Confirm the current transfer preflight before applying it");
     const completed: FilesystemTransferRequest[] = []; const failures: FilesystemTransferResult["failures"] = preview.skipped.map((item) => ({ source: item.source, destination: requests.find((request) => request.source === item.source)?.destination ?? "", message: item.reason }));
     for (const item of preview.items) {
-      const temporaryName = `.vibe-transfer-${randomUUID()}`; const destination = this.validateRelative(item.destination); const parent = path.dirname(destination); const temporary = path.join(parent, temporaryName); const backup = `${temporary}.backup`;
+      const temporaryName = `.hatopad-transfer-${randomUUID()}`; const destination = this.validateRelative(item.destination); const parent = path.dirname(destination); const temporary = path.join(parent, temporaryName); const backup = `${temporary}.backup`;
       try {
         const source = await this.resolveMutationTarget(item.source);
         if (item.caseOnlyRename) {

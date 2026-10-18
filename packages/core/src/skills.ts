@@ -1,10 +1,11 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
-import { resolveSkillIds, skillAllowedForAgent } from "@remote-ide/protocol";
-import type { AiAgentPreset, SkillCatalog, SkillFile, SkillPolicy, SkillScope } from "@remote-ide/protocol";
-import type { AiSession, AiSkillSummary } from "@remote-ide/acp";
+import { resolveSkillIds, skillAllowedForAgent } from "@hatopad/protocol";
+import type { AiAgentPreset, SkillCatalog, SkillFile, SkillPolicy, SkillScope } from "@hatopad/protocol";
+import type { AiSession, AiSkillSummary } from "@hatopad/acp";
 import { parseAgent } from "./agents.js";
 import { CoreError } from "./errors.js";
 
@@ -13,9 +14,17 @@ const loadedSkills = new WeakMap<NonNullable<AiSession["skillCatalogue"]>, Map<s
 const MAX_BYTES = 256 * 1024;
 export const SKILL_TEMPLATE = "---\nname: New Skill\ndescription: Describe when to use this skill.\n---\n\nDescribe the workflow and instructions here.\n";
 
+const LEGACY_SKILL_IDS: Readonly<Record<string, string>> = { "global/vibe-self-configuration": "global/hatopad-self-configuration" };
+/** Stored policies written before the rename still name the old shipped skill; map it so the renamed skill stays allowed. */
+function renameLegacySkillIds(policy: SkillPolicy): SkillPolicy {
+  const rename = (id: string) => LEGACY_SKILL_IDS[id] ?? id;
+  if (![...policy.allowed, ...policy.defaults, ...Object.keys(policy.agents ?? {})].some((id) => id in LEGACY_SKILL_IDS)) return policy;
+  return { ...policy, allowed: [...new Set(policy.allowed.map(rename))], defaults: [...new Set(policy.defaults.map(rename))], ...(policy.agents ? { agents: Object.fromEntries(Object.entries(policy.agents).map(([id, choices]) => [rename(id), choices])) } : {}) };
+}
+
 /** Core owns discovery, project policy and instruction loading for all providers. */
 export class SkillsStore {
-  constructor(private readonly stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces"), private readonly rootWorkspace?: string) {}
+  constructor(private readonly stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"), private readonly rootWorkspace?: string) {}
 
   private directory(scope: SkillScope, workspace: string): string {
     if (scope === "global") return path.join(this.stateDirectory, "skills", "global");
@@ -106,6 +115,7 @@ export class SkillsStore {
     catch (error) {
       throw new CoreError("INVALID_REQUEST", `Invalid skill policy (${storedPolicy?.path}): ${error instanceof Error ? error.message : String(error)}`);
     }
+    policy = renameLegacySkillIds(policy);
     return { skills, policy, policyStorage: storedPolicy?.storage ?? "local", ...(Object.keys(legacyIds).length ? { legacyIds } : {}) };
   }
 

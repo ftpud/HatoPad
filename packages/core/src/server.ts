@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import { runLanguageInTerminal, hasLanguageTerminalRun, stopLanguageTerminalRun } from "./language/terminal.js";
 import { validateRequestPayload } from "./request-validation.js";
 import { coreAccessPolicy, type CoreAccessOptions } from "./access-policy.js";
@@ -18,7 +19,7 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type CoreCapability, coreCapabilities, overviewLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@remote-ide/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { TerminalSessionHost } from "./process-manager.js";
@@ -28,7 +29,7 @@ import { WorkspaceSearch } from "./search.js";
 import { LanguageRegistry, LanguageSessions } from "./language/registry.js";
 import type { LanguageServiceEvents } from "./language/service.js";
 import { BUILT_IN_LANGUAGES, JavaLanguageService } from "./plugins/builtin.js";
-import type { PluginStatus } from "@remote-ide/protocol";
+import type { PluginStatus } from "@hatopad/protocol";
 import { loadPlugins, pluginsDirectory } from "./plugins/loader.js";
 import { handleLanguageRequest } from "./language/routes.js";
 import { toolInstallations } from "./tools.js";
@@ -64,8 +65,8 @@ import { MAX_FILE_SIZE } from "./filesystem.js";
 import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
 import { projectProgress } from "./harness-progress.js";
 import { boundPermission, boundQuestion, boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./ai/session-bounds.js";
-import type { ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@remote-ide/protocol";
-import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@remote-ide/acp";
+import type { ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
+import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@hatopad/acp";
 
 const execFileAsync = promisify(execFile);
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -193,7 +194,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   const validation = new WorkspaceFileSystem();
   await validation.initialize(workspacePath);
   const workspace = validation.getWorkspace();
-  const workspaceState = new WorkspaceStateStore(workspace, process.env.REMOTE_IDE_STATE_DIR);
+  const workspaceState = new WorkspaceStateStore(workspace, process.env.HATOPAD_STATE_DIR);
   const watcher = chokidar.watch(workspace, await workspaceWatchOptions(workspace));
   // A large initial scan must not block protocol health or crash Core on a
   // native watch limit. The filesystem is queried directly by workspace.open.
@@ -347,7 +348,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     for (const socket of activeSessions) sendWebSocketData(socket, encoded);
   }, async (timer, effect, reconcile) => {
     if (!timer.workflowRunId || !timer.workflowBlockId) return effect();
-    let owner: { rootId: string; run: import("@remote-ide/protocol").HarnessRun } | undefined;
+    let owner: { rootId: string; run: import("@hatopad/protocol").HarnessRun } | undefined;
     for (const candidate of roots.list()) {
       const run = await harnessRunner(candidate.id).readRun(timer.workflowRunId);
       if (run) { owner = { rootId: candidate.id, run }; break; }
@@ -490,7 +491,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       await configurationFilesystem.initialize(currentWorkspace);
       const configurationRegistry = new LanguageRegistry();
       const configurationEvents: LanguageServiceEvents = { output() {}, exit() {}, debugState() {}, semanticChanged() {} };
-      const configurationState = new WorkspaceStateStore(currentWorkspace, process.env.REMOTE_IDE_STATE_DIR);
+      const configurationState = new WorkspaceStateStore(currentWorkspace, process.env.HATOPAD_STATE_DIR);
       for (const language of BUILT_IN_LANGUAGES) configurationRegistry.register(language.descriptor, (workspace) => language.create({ workspace, filesystem: configurationFilesystem, state: configurationState, events: configurationEvents, rootId, emit() {} }));
       for (const language of plugins.languages) configurationRegistry.register(language.descriptor, (workspace) => language.create(workspace, configurationEvents));
       const configurationLanguages = new LanguageSessions(configurationRegistry, currentWorkspace);
@@ -610,7 +611,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       workspaceOwners.set(path.resolve(nextWorkspace), ownerRootId);
       runConfigs.registerWorkspace(nextWorkspace, roots.get(ownerRootId).path);
       runConfigWatcher.add(runConfigs.directory(nextWorkspace, "local"));
-      const workspaceState = new WorkspaceStateStore(nextWorkspace, process.env.REMOTE_IDE_STATE_DIR);
+      const workspaceState = new WorkspaceStateStore(nextWorkspace, process.env.HATOPAD_STATE_DIR);
       const search = new WorkspaceSearch(filesystem);
       const git = new GitService(nextWorkspace);
       const send = (message: ServerEvent) => { if (socket.readyState === WebSocket.OPEN) sendWebSocketData(socket, JSON.stringify(message)); };
@@ -747,7 +748,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           const target = roots.get(parsed.payload.rootId);
           const targetContext = contextFor(target.id);
           if (workflowApps.hasWorkspace(target.path)) throw new CoreError("INVALID_REQUEST", "Kill running workflow apps before removing this root");
-          const [targetTasks, targetOptions] = await Promise.all([targetContext.tasks.list(), new WorkspaceStateStore(target.path, process.env.REMOTE_IDE_STATE_DIR).load()]);
+          const [targetTasks, targetOptions] = await Promise.all([targetContext.tasks.list(), new WorkspaceStateStore(target.path, process.env.HATOPAD_STATE_DIR).load()]);
           const blocker = rootRemovalBlocker({ tasks: targetTasks.tasks.length, openFiles: targetOptions.openFiles.length, terminals: terminalHost.hasWorkspace(target.path), transfers: remoteTransfers.hasWorkspace(target.path) });
           if (blocker) throw new CoreError("INVALID_REQUEST", blocker);
           admission.assertOpen();
@@ -1510,10 +1511,10 @@ async function resolveWorkflowCommit(workspace: string, reference: string): Prom
 
 function boundedWorkflowOutput(value: string, limit = 200_000): string { return value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by Core`; }
 
-export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { chatRunId?: string; chatSettings?: import("@remote-ide/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
+export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { chatRunId?: string; chatSettings?: import("@hatopad/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
   acp: AcpRegistry; tasks: WorkspaceTaskStore; agents: AgentsStore; harnessRunner: HarnessRunner; workflowApps: WorkflowAppService;
   aiTimers: AiTimerService; rootWorkspace: string; bridgeWorkspace: string; workspacePath: string;
-}): Promise<import("@remote-ide/protocol").HarnessRun> {
+}): Promise<import("@hatopad/protocol").HarnessRun> {
   const { acp, tasks, agents, harnessRunner, workflowApps, aiTimers, rootWorkspace, bridgeWorkspace } = context;
   const previousRunId = input.chatRunId ?? input.rerunRunId;
   const previousRun = previousRunId ? await harnessRunner.readRun(previousRunId) : undefined;
@@ -1599,11 +1600,11 @@ export function workflowTurnInstructions(protocol: AiProtocolVersion | undefined
 }
 
 /** Helpers connected through use edges share the lead's workspace snapshot coverage. */
-export function workflowCapturesSnapshots(run: import("@remote-ide/protocol").HarnessRun | undefined, blockId: string): boolean {
+export function workflowCapturesSnapshots(run: import("@hatopad/protocol").HarnessRun | undefined, blockId: string): boolean {
   return !run?.definition?.edges.some((edge) => edge.type === "use" && edge.to === blockId);
 }
 
-export async function workflowRunWorkspace(run: import("@remote-ide/protocol").HarnessRun | undefined, fallback: string): Promise<string> {
+export async function workflowRunWorkspace(run: import("@hatopad/protocol").HarnessRun | undefined, fallback: string): Promise<string> {
   if (!run) return availableWorkflowWorkspace(fallback);
   const recorded = run.binding?.workspace ?? run.workspace;
   if (recorded) return availableWorkflowWorkspace(recorded);
@@ -1624,7 +1625,7 @@ async function availableWorkflowWorkspace(workspace: string): Promise<string> {
   } catch { throw new CoreError("FILE_NOT_FOUND", `Workflow worktree is unavailable: ${workspace}`); }
 }
 
-export async function validateWorkflowBinding(binding: import("@remote-ide/protocol").HarnessWorkspaceBinding, tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">, rootWorkspace: string): Promise<void> {
+export async function validateWorkflowBinding(binding: import("@hatopad/protocol").HarnessWorkspaceBinding, tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">, rootWorkspace: string): Promise<void> {
   if (!binding || typeof binding.rootWorkspace !== "string" || typeof binding.workspace !== "string" || (binding.taskId !== undefined && (typeof binding.taskId !== "string" || !binding.taskId))) throw new CoreError("INVALID_REQUEST", "Workflow has an invalid recorded worktree binding");
   if (path.resolve(binding.rootWorkspace) !== path.resolve(rootWorkspace)) throw new CoreError("INVALID_REQUEST", "Workflow run belongs to a different root");
   if (binding.taskId) {
@@ -1635,7 +1636,7 @@ export async function validateWorkflowBinding(binding: import("@remote-ide/proto
   if (await availableWorkflowWorkspace(binding.workspace) !== binding.workspace) throw new CoreError("INVALID_REQUEST", "Workflow bound worktree was redirected");
 }
 
-export async function resolveWorkflowBinding(run: import("@remote-ide/protocol").HarnessRun | undefined, target: import("@remote-ide/protocol").HarnessTaskTarget | undefined, context: { tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">; rootWorkspace: string; workspacePath: string }): Promise<import("@remote-ide/protocol").HarnessWorkspaceBinding> {
+export async function resolveWorkflowBinding(run: import("@hatopad/protocol").HarnessRun | undefined, target: import("@hatopad/protocol").HarnessTaskTarget | undefined, context: { tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">; rootWorkspace: string; workspacePath: string }): Promise<import("@hatopad/protocol").HarnessWorkspaceBinding> {
   if (target !== undefined && (!target || typeof target !== "object" || (target.taskId !== undefined && (typeof target.taskId !== "string" || !target.taskId)))) throw new CoreError("INVALID_REQUEST", "Workflow target must identify a task or explicitly select the root workspace");
   if (run?.binding) { await validateWorkflowBinding(run.binding, context.tasks, context.rootWorkspace); return run.binding; }
   const workspace = run ? await workflowRunWorkspace(run, context.rootWorkspace)
@@ -1649,7 +1650,7 @@ export async function resolveWorkflowBinding(run: import("@remote-ide/protocol")
   return { rootWorkspace: context.rootWorkspace, workspace, ...(task ? { taskId: task.id, taskName: task.name } : {}) };
 }
 
-export async function validateWorkflowTarget(run: import("@remote-ide/protocol").HarnessRun, workspace: string, context: Parameters<typeof resolveWorkflowBinding>[2]): Promise<void> {
+export async function validateWorkflowTarget(run: import("@hatopad/protocol").HarnessRun, workspace: string, context: Parameters<typeof resolveWorkflowBinding>[2]): Promise<void> {
   const binding = await resolveWorkflowBinding(run, undefined, context);
   const resolved = await availableWorkflowWorkspace(workspace);
   if (resolved === binding.workspace) return;
@@ -1660,7 +1661,7 @@ export async function validateWorkflowTarget(run: import("@remote-ide/protocol")
 }
 
 async function workflowSessionWorkspace(workspace: string, runId: string, blockId: string): Promise<string> {
-  const stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces");
+  const stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces");
   const workspaceKey = crypto.createHash("sha256").update(path.resolve(workspace)).digest("hex");
   const sessionKey = crypto.createHash("sha256").update(`${runId}:${blockId}`).digest("hex");
   const directory = path.join(stateDirectory, "workflow-sessions", workspaceKey); const alias = path.join(directory, sessionKey);

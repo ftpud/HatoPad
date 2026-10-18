@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { HarnessBlock } from "@remote-ide/protocol";
+import type { HarnessBlock } from "@hatopad/protocol";
 import { WorkflowAppService } from "./workflow-app.js";
 import { managedProcesses } from "./managed-processes.js";
 import { listProjectApps, killProjectApp } from "./project-processes.js";

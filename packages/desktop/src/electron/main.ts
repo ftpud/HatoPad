@@ -6,9 +6,13 @@ import { registerProjectTransferIpc } from "./project-transfer.js";
 import { restoreWindowInputFocus } from "./window-focus.js";
 import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js";
 import { connectionToken } from "./connection-token.js";
+import { legacyUserDataPath } from "./legacy-user-data.js";
+import { applyLegacyEnvironmentWithWarning } from "@hatopad/protocol";
+
+applyLegacyEnvironmentWithWarning(process.env);
 
 const bundleSmokeTest = (app.isPackaged && process.argv.includes("--bundle-smoke-test")) || (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
-if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `vibe-desktop-bundle-smoke-${process.pid}`));
+if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `hatopad-desktop-bundle-smoke-${process.pid}`));
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const rendererFilePath = path.resolve(directory, "../dist-renderer/index.html");
@@ -25,11 +29,12 @@ const launchConfig = {
   port: launchOption("port")
 };
 
-process.title = "Vibe Editor";
-app.name = "Vibe Editor";
-app.setName("Vibe Editor");
-app.setAppUserModelId("com.vibe-editor.desktop");
-app.commandLine.appendSwitch("class", "VibeEditor");
+if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));
+process.title = "HatoPad";
+app.name = "HatoPad";
+app.setName("HatoPad");
+app.setAppUserModelId("com.hatopad.desktop");
+app.commandLine.appendSwitch("class", "HatoPad");
 
 const settings = new SettingsStore(path.join(app.getPath("userData"), "settings.json"));
 function assertTrustedIpcSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
@@ -88,7 +93,7 @@ onIpc("editor:open-window", (_event, options: unknown) => {
 
 function createWindow(extraQuery: Record<string, string> = {}): void {
   const window = new BrowserWindow({
-    title: extraQuery.detached === "1" ? (extraQuery.path?.split("/").pop() ?? "Vibe Editor") : "Vibe Editor",
+    title: extraQuery.detached === "1" ? (extraQuery.path?.split("/").pop() ?? "HatoPad") : "HatoPad",
     icon: appIcon,
     show: !bundleSmokeTest,
     width: 1280,
@@ -158,7 +163,7 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
 }
 
 app.whenReady().then(() => {
-  app.setName("Vibe Editor"); process.title = "Vibe Editor";
+  app.setName("HatoPad"); process.title = "HatoPad";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   createWindow();
 });

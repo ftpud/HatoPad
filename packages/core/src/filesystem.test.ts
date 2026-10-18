@@ -18,7 +18,7 @@ describe("WorkspaceFileSystem", () => {
   let fs: WorkspaceFileSystem;
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), "remote-ide-"));
+    root = await mkdtemp(path.join(tmpdir(), "hatopad-"));
     await mkdir(path.join(root, "src"));
     await writeFile(path.join(root, "src", "index.ts"), "export const value = 1;\n");
     fs = new WorkspaceFileSystem({}, `${root}-state`);
@@ -218,7 +218,7 @@ describe("WorkspaceFileSystem", () => {
   });
 
   it("blocks symlinks that leave the workspace", async () => {
-    const outside = await mkdtemp(path.join(tmpdir(), "remote-ide-outside-"));
+    const outside = await mkdtemp(path.join(tmpdir(), "hatopad-outside-"));
     await writeFile(path.join(outside, "secret.txt"), "secret");
     await symlink(path.join(outside, "secret.txt"), path.join(root, "link.txt"));
     await fs.open(root);
@@ -246,7 +246,7 @@ describe("workspace tree producer limits", () => {
   }, 15_000);
 
   it("honors configured environment limits while leaving other limits unlimited", async () => {
-    vi.stubEnv("VIBE_TREE_MAX_NODES", "1");
+    vi.stubEnv("HATOPAD_TREE_MAX_NODES", "1");
     try {
       const root = await mkdtemp(path.join(tmpdir(), "tree-env-limit-"));
       await writeFile(path.join(root, "é".repeat(100)), "x");

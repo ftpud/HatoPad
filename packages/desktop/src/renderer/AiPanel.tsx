@@ -3,8 +3,8 @@ import { Check, ChevronDown, ListPlus, MessageSquare, Paperclip, Plus, Send, Set
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { findAutopilotOption } from "@remote-ide/acp";
-import type { SkillFile, AiQuestionAction, AiQuestionAnswer, AiConfiguration, AiContentBlock, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiUsage } from "@remote-ide/protocol";
+import { findAutopilotOption } from "@hatopad/acp";
+import type { SkillFile, AiQuestionAction, AiQuestionAnswer, AiConfiguration, AiContentBlock, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiUsage } from "@hatopad/protocol";
 import { SkillChatChips, SkillChatControls } from "./SkillChatControls";
 import { ContextInspector, ContextUsageIndicator } from "./ContextInspector";
 export { ContextUsageIndicator, contextUsage, type ContextUsage } from "./ContextInspector";

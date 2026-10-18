@@ -1,7 +1,7 @@
 import { DiffEditor } from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, CircleAlert, CircleCheck, LoaderCircle, PackageOpen, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import type { GitCommitFile, GitStash, GitStashInclusion, GitStashPreview } from "@remote-ide/protocol";
+import type { GitCommitFile, GitStash, GitStashInclusion, GitStashPreview } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { requestConfirm } from "./dialogs";
 import { configureMonacoThemes, monacoTheme } from "./theme";

@@ -1,8 +1,9 @@
+import "./legacy-env-bootstrap.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import { createInterface } from "node:readline";
-import { findAutopilotOption, type AiAgent, type AiConfiguration, type AiMcpServer, type AiModel, type AiOption, type AiProvider, type AiQuotaWindow, type AiSession, type AiUsage } from "@remote-ide/acp";
-import type { AgentFileReference } from "@remote-ide/protocol";
+import { findAutopilotOption, type AiAgent, type AiConfiguration, type AiMcpServer, type AiModel, type AiOption, type AiProvider, type AiQuotaWindow, type AiSession, type AiUsage } from "@hatopad/acp";
+import type { AgentFileReference } from "@hatopad/protocol";
 import { WorkspaceTaskStore, type WorkspaceTask } from "./tasks.js";
 import type { AcpRegistry } from "./ai/index.js";
 import { summarizeAiSessions } from "./ai/summary.js";
@@ -54,7 +55,7 @@ export const appToolDefinitions = [
   },
   {
     name: "timer_set",
-    description: "Set or replace a timer for this agent. After the requested number of seconds, Vibe Editor sends the continuation prompt back to this task's AI session.",
+    description: "Set or replace a timer for this agent. After the requested number of seconds, HatoPad sends the continuation prompt back to this task's AI session.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -67,7 +68,7 @@ export const appToolDefinitions = [
   },
   {
     name: "timer_set_at",
-    description: "Set or replace a timer for this agent at an exact ISO-8601 timestamp. Use this with reset timestamps returned by ai_usage. After that instant, Vibe Editor sends the continuation prompt back to this same AI session.",
+    description: "Set or replace a timer for this agent at an exact ISO-8601 timestamp. Use this with reset timestamps returned by ai_usage. After that instant, HatoPad sends the continuation prompt back to this same AI session.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -101,7 +102,7 @@ export const appToolDefinitions = [
   },
   {
     name: "task_create",
-    description: "Create an isolated Vibe Editor task worktree without starting an agent.",
+    description: "Create an isolated HatoPad task worktree without starting an agent.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: { branch: { type: "string", description: "Git branch name for the task." }, idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended task. Reuse it only when retrying the same creation." } },
@@ -110,7 +111,7 @@ export const appToolDefinitions = [
   },
   {
     name: "task_create_and_start",
-    description: "Create an isolated Vibe Editor task and start a provider/model session in it, optionally selecting an agent preset and reasoning effort.",
+    description: "Create an isolated HatoPad task and start a provider/model session in it, optionally selecting an agent preset and reasoning effort.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -141,12 +142,12 @@ export const appToolDefinitions = [
   },
   {
     name: "task_list",
-    description: "List Vibe Editor tasks and their current aggregate and per-provider AI status.",
+    description: "List HatoPad tasks and their current aggregate and per-provider AI status.",
     inputSchema: { type: "object", additionalProperties: false, properties: {} }
   },
   {
     name: "task_merge",
-    description: "Commit outstanding changes in a Vibe Editor task and merge its branch into the root workspace. Smart merge preserves root workspace changes.",
+    description: "Commit outstanding changes in a HatoPad task and merge its branch into the root workspace. Smart merge preserves root workspace changes.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -159,7 +160,7 @@ export const appToolDefinitions = [
   },
   {
     name: "task_delete",
-    description: "Delete a Vibe Editor task, its worktree, and its task branch.",
+    description: "Delete a HatoPad task, its worktree, and its task branch.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: { task_id: { type: "string", description: "Task id returned by task_create or task_list." } },
@@ -168,7 +169,7 @@ export const appToolDefinitions = [
   },
   {
     name: "task_set_status",
-    description: "Mark a Vibe Editor task as finished or restore it to active.",
+    description: "Mark a HatoPad task as finished or restore it to active.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -209,7 +210,7 @@ export const appToolDefinitions = [
   },
   {
     name: "set_commit_message",
-    description: "Set or replace the Git commit message draft for a Vibe Editor task. Omit task_id to use the current task. Preserves multiline text and does not create a commit.",
+    description: "Set or replace the Git commit message draft for a HatoPad task. Omit task_id to use the current task. Preserves multiline text and does not create a commit.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -221,7 +222,7 @@ export const appToolDefinitions = [
   },
   {
     name: "task_update_commit_message",
-    description: "Rewrite the latest unpushed commit message on a specific Vibe Editor task branch. Does not change commit contents or working-tree changes and refuses unsafe published-history rewrites.",
+    description: "Rewrite the latest unpushed commit message on a specific HatoPad task branch. Does not change commit contents or working-tree changes and refuses unsafe published-history rewrites.",
     inputSchema: {
       type: "object", additionalProperties: false,
       properties: {
@@ -243,7 +244,7 @@ export const appToolDefinitions = [
   },
   {
     name: "configuration_list",
-    description: "Discover editable Vibe Editor configuration documents, resource formats, scopes and provider metadata. Optionally include provider models when designing AI workflow blocks.",
+    description: "Discover editable HatoPad configuration documents, resource formats, scopes and provider metadata. Optionally include provider models when designing AI workflow blocks.",
     inputSchema: { type: "object", additionalProperties: false, properties: { include_models: { type: "boolean", description: "Include live provider model catalogues; omit for ordinary configuration edits." } } }
   },
   {
@@ -258,7 +259,7 @@ export const appToolDefinitions = [
   },
   {
     name: "skill_load",
-    description: "Load a skill from the current turn's Vibe catalogue when its description matches the task. Returns SKILL.md, revision and base directory for supporting files. Repeated unchanged loads return unchanged: true and empty content; reuse the earlier instructions. Unselected or disallowed skills cannot be loaded.",
+    description: "Load a skill from the current turn's HatoPad catalogue when its description matches the task. Returns SKILL.md, revision and base directory for supporting files. Repeated unchanged loads return unchanged: true and empty content; reuse the earlier instructions. Unselected or disallowed skills cannot be loaded.",
     inputSchema: { type: "object", additionalProperties: false, properties: { id: { type: "string", minLength: 1 } }, required: ["id"] }
   },
 ] as const;
@@ -652,12 +653,12 @@ export const flowToolDefinitions = [
 ];
 
 async function main() {
-  const rootWorkspace = process.env.VIBE_EDITOR_ROOT_WORKSPACE;
-  if (!rootWorkspace) throw new Error("VIBE_EDITOR_ROOT_WORKSPACE is required");
-  const currentWorkspace = process.env.VIBE_EDITOR_CURRENT_WORKSPACE;
-  if (!currentWorkspace) throw new Error("VIBE_EDITOR_CURRENT_WORKSPACE is required");
-  const currentProvider = process.env.VIBE_EDITOR_CURRENT_PROVIDER;
-  const bridge = new AppEventBridge(process.env.VIBE_EDITOR_BRIDGE_WORKSPACE ?? rootWorkspace);
+  const rootWorkspace = process.env.HATOPAD_ROOT_WORKSPACE;
+  if (!rootWorkspace) throw new Error("HATOPAD_ROOT_WORKSPACE is required");
+  const currentWorkspace = process.env.HATOPAD_CURRENT_WORKSPACE;
+  if (!currentWorkspace) throw new Error("HATOPAD_CURRENT_WORKSPACE is required");
+  const currentProvider = process.env.HATOPAD_CURRENT_PROVIDER;
+  const bridge = new AppEventBridge(process.env.HATOPAD_BRIDGE_WORKSPACE ?? rootWorkspace);
   const lines = createInterface({ input: process.stdin, terminal: false });
   for await (const line of lines) {
     if (!line.trim()) continue;
@@ -665,13 +666,13 @@ async function main() {
     if (request.id === undefined) continue;
     try {
       let result: unknown;
-      if (request.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "vibe-editor", version: "0.1.0" } };
+      if (request.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "hatopad", version: "0.1.0" } };
       else if (request.method === "ping") result = {};
-      else if (request.method === "tools/list") result = { tools: process.env.VIBE_EDITOR_SKILLS_ONLY ? appToolDefinitions.filter((tool) => tool.name === "skill_load") : process.env.VIBE_EDITOR_FLOW_TOOLS ? [...flowToolDefinitions, ...appToolDefinitions.filter((tool) => !["workflow_run_stack", "workflow_resume_failed", "workflow_plan_features"].includes(tool.name))] : appToolDefinitions };
+      else if (request.method === "tools/list") result = { tools: process.env.HATOPAD_SKILLS_ONLY ? appToolDefinitions.filter((tool) => tool.name === "skill_load") : process.env.HATOPAD_FLOW_TOOLS ? [...flowToolDefinitions, ...appToolDefinitions.filter((tool) => !["workflow_run_stack", "workflow_resume_failed", "workflow_plan_features"].includes(tool.name))] : appToolDefinitions };
       else if (request.method === "tools/call") {
         const params = request.params ?? {};
-        if (process.env.VIBE_EDITOR_SKILLS_ONLY && params.name !== "skill_load") throw new Error("Only skill_load is available on this server");
-        const workflowRunId = process.env.VIBE_EDITOR_WORKFLOW_RUN_ID; const workflowBlockId = process.env.VIBE_EDITOR_WORKFLOW_BLOCK_ID;
+        if (process.env.HATOPAD_SKILLS_ONLY && params.name !== "skill_load") throw new Error("Only skill_load is available on this server");
+        const workflowRunId = process.env.HATOPAD_WORKFLOW_RUN_ID; const workflowBlockId = process.env.HATOPAD_WORKFLOW_BLOCK_ID;
         const value = await bridge.call({ name: requiredString(params, "name"), args: (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>, currentWorkspace, ...(currentProvider ? { currentProvider } : {}), ...(workflowRunId ? { workflowRunId } : {}), ...(workflowBlockId ? { workflowBlockId } : {}) }, 86_460_000);
         result = toolResult(value);
       } else throw Object.assign(new Error(`Method not found: ${request.method}`), { code: -32601 });
@@ -699,7 +700,7 @@ function inheritedAutopilot(parentOptions: AiOption[], parent: AiSession, childO
 }
 
 export function withAppTools(rootWorkspace: string, currentWorkspace: string, servers?: AiMcpServer[], agent?: AiAgent, currentProvider?: AiProvider, bridgeWorkspace = rootWorkspace): { servers: AiMcpServer[]; agent?: AiAgent } {
-  if (!agent?.mcpServers?.includes("vibe-editor")) return { servers: servers ?? [], ...(agent ? { agent } : {}) };
+  if (!agent?.mcpServers?.includes("hatopad")) return { servers: servers ?? [], ...(agent ? { agent } : {}) };
   const appServer = appToolServer(rootWorkspace, currentWorkspace, currentProvider, bridgeWorkspace);
   const filtered = (servers ?? []).filter((server) => server.name !== appServer.name);
   return { servers: [...filtered, appServer], agent };
@@ -708,7 +709,7 @@ export function withAppTools(rootWorkspace: string, currentWorkspace: string, se
 export function skillToolServer(rootWorkspace: string, workspace: string, provider: AiProvider, bridgeWorkspace = rootWorkspace): AiMcpServer {
   const server = appToolServer(rootWorkspace, workspace, provider, bridgeWorkspace);
   if (server.transport !== "stdio") throw new Error("Skills require the Core stdio tool server");
-  return { ...server, name: "vibe-skills", env: { ...server.env, VIBE_EDITOR_SKILLS_ONLY: "1" } };
+  return { ...server, name: "hatopad-skills", env: { ...server.env, HATOPAD_SKILLS_ONLY: "1" } };
 }
 
 export function appToolServer(rootWorkspace: string, currentWorkspace: string, currentProvider?: AiProvider, bridgeWorkspace = rootWorkspace, workflow?: { runId: string; blockId: string; flow?: boolean }): AiMcpServer {
@@ -716,8 +717,8 @@ export function appToolServer(rootWorkspace: string, currentWorkspace: string, c
   const source = fileURLToPath(new URL("app-tools.ts", import.meta.url));
   const runningFromSource = import.meta.url.endsWith("/src/app-tools.ts");
   return runningFromSource
-    ? { transport: "stdio", name: "vibe-editor", command: process.execPath, args: ["--import", "tsx", source], env: { VIBE_EDITOR_BRIDGE_INSTANCE_ID: appBridgeInstanceId, VIBE_EDITOR_ROOT_WORKSPACE: rootWorkspace, VIBE_EDITOR_CURRENT_WORKSPACE: currentWorkspace, VIBE_EDITOR_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { VIBE_EDITOR_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { VIBE_EDITOR_WORKFLOW_RUN_ID: workflow.runId, VIBE_EDITOR_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { VIBE_EDITOR_FLOW_TOOLS: "1" } : {}) } : {}) } }
-    : { transport: "stdio", name: "vibe-editor", command: process.execPath, args: [compiled], env: { VIBE_EDITOR_BRIDGE_INSTANCE_ID: appBridgeInstanceId, VIBE_EDITOR_ROOT_WORKSPACE: rootWorkspace, VIBE_EDITOR_CURRENT_WORKSPACE: currentWorkspace, VIBE_EDITOR_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { VIBE_EDITOR_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { VIBE_EDITOR_WORKFLOW_RUN_ID: workflow.runId, VIBE_EDITOR_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { VIBE_EDITOR_FLOW_TOOLS: "1" } : {}) } : {}) } };
+    ? { transport: "stdio", name: "hatopad", command: process.execPath, args: ["--import", "tsx", source], env: { HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } }
+    : { transport: "stdio", name: "hatopad", command: process.execPath, args: [compiled], env: { HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } };
 }
 
 function workflowOperationKind(name: string): "timer_create" | "task_create" | "prompt_delivery" | "merge" | undefined {

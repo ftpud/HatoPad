@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline/promises";
@@ -12,15 +13,15 @@ export interface HubOptions {
 }
 
 export function defaultPairingFile(environment = process.env): string {
-  return environment.REMOTE_IDE_HUB_PAIRING_FILE || path.join(os.homedir(), ".remote-ide", "hub", "pairing.json");
+  return environment.HATOPAD_HUB_PAIRING_FILE || path.join(stateHome(), "hub", "pairing.json");
 }
 
-/** `--hub-pair <https origin>` and `--hub-connect` (or REMOTE_IDE_HUB_CONNECT=1). Both are opt-in; direct Core use needs neither. */
+/** `--hub-pair <https origin>` and `--hub-connect` (or HATOPAD_HUB_CONNECT=1). Both are opt-in; direct Core use needs neither. */
 export function parseHubOptions(argv: string[], environment = process.env): HubOptions {
   const pairIndex = argv.indexOf("--hub-pair");
   const pairOrigin = pairIndex >= 0 ? argv[pairIndex + 1] : undefined;
   if (pairIndex >= 0 && (!pairOrigin || pairOrigin.startsWith("--"))) throw new Error("--hub-pair requires the hub origin, e.g. https://hub.example");
-  return { pairOrigin, connect: argv.includes("--hub-connect") || environment.REMOTE_IDE_HUB_CONNECT === "1", storeFile: defaultPairingFile(environment) };
+  return { pairOrigin, connect: argv.includes("--hub-connect") || environment.HATOPAD_HUB_CONNECT === "1", storeFile: defaultPairingFile(environment) };
 }
 
 /** Relay WebSocket URL for a paired hub origin. */
@@ -34,7 +35,7 @@ export function hubRelayUrl(origin: string): string {
 
 /** Interactive pairing on this machine. The code and prompt go to the terminal only; nothing is logged. */
 export async function runHubPairing(options: HubOptions): Promise<boolean> {
-  const { PairingStore, pairDevice } = await import("@remote-ide/connector");
+  const { PairingStore, pairDevice } = await import("@hatopad/connector");
   const result = await pairDevice({
     hubOrigin: options.pairOrigin!,
     deviceName: os.hostname().slice(0, 80) || "Core",
@@ -55,7 +56,7 @@ export async function runHubPairing(options: HubOptions): Promise<boolean> {
 
 /** Start the connector for an already paired Core. Returns a stop function. */
 export async function startHubConnector(options: HubOptions, port: number, token: string): Promise<(() => Promise<void>) | undefined> {
-  const { CoreConnector, PairingStore } = await import("@remote-ide/connector");
+  const { CoreConnector, PairingStore } = await import("@hatopad/connector");
   const pairing = await new PairingStore(options.storeFile).load();
   if (!pairing) { console.error("[core] hub connection requested but this Core is not paired; run with --hub-pair <origin>"); return undefined; }
   const connector = new CoreConnector({

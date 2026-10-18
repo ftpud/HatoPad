@@ -7,7 +7,7 @@ need to start an ACP agent; use a plugin for code.
 ## Trust model
 
 - **Opt-in, host-only.** Core loads plugins only when the operator sets
-  `REMOTE_IDE_PLUGINS_DIR` on the Core host. Nothing is loaded from a workspace,
+  `HATOPAD_PLUGINS_DIR` on the Core host. Nothing is loaded from a workspace,
   and Desktop cannot install, enable or disable plugins (it only lists them via
   `plugins.list`).
 - **A plugin is arbitrary code running as the Core user.** It can read workspace
@@ -21,8 +21,8 @@ need to start an ACP agent; use a plugin for code.
 ## Layout
 
 ```
-<REMOTE_IDE_PLUGINS_DIR>/<name>/plugin.json
-<REMOTE_IDE_PLUGINS_DIR>/<name>/<core entry>.mjs
+<HATOPAD_PLUGINS_DIR>/<name>/plugin.json
+<HATOPAD_PLUGINS_DIR>/<name>/<core entry>.mjs
 ```
 
 ```json
@@ -66,7 +66,7 @@ packages/core/src/plugins/
   ai/<id>/              AI providers (index.ts exports the provider factory)
   languages/java/       Java service, JDT LS, Maven/config, caches, host tools
   languages/node/       Node (npm scripts) service
-  loader.ts             external plugin loader (REMOTE_IDE_PLUGINS_DIR)
+  loader.ts             external plugin loader (HATOPAD_PLUGINS_DIR)
 ```
 
 Java-only Desktop UI mirrors this under `packages/desktop/src/renderer/plugins/languages/java/` (bundled statically; remote renderer bundles stay deferred). Shared pieces such as `DebugVariable` and `ProjectTree` stay in the renderer root.

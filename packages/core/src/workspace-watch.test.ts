@@ -8,7 +8,7 @@ import { expect, it } from "vitest";
 import { workspaceWatchOptions } from "./workspace-watch.js";
 
 it("prunes ignored build trees while watching tracked files under an ignore rule", async () => {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-large-watch-"));
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-large-watch-"));
   let watcher: ReturnType<typeof chokidar.watch> | undefined;
   try {
     await promisify(execFile)("git", ["init", "-q", root]);

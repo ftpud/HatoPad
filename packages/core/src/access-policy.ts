@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import { timingSafeEqual, randomBytes, randomUUID } from "node:crypto";
 import { link, lstat, mkdir, open, readFile, unlink } from "node:fs/promises";
 import os from "node:os";
@@ -29,15 +30,15 @@ export function coreAccessPolicy(host: string, options: CoreAccessOptions = {}) 
 
 /** Shared by direct local Core/Desktop launches; Gateway may supply its own file. */
 export function defaultCoreTokenFile(port: number): string {
-  return path.join(os.homedir(), ".remote-ide", "core-tokens", `${port}.token`);
+  return path.join(stateHome(), "core-tokens", `${port}.token`);
 }
 
 export async function loadCoreSessionToken(port: number, environment = process.env): Promise<{ token: string; file?: string }> {
-  if (environment.REMOTE_IDE_SESSION_TOKEN) {
-    coreAccessPolicy("127.0.0.1", { token: environment.REMOTE_IDE_SESSION_TOKEN });
-    return { token: environment.REMOTE_IDE_SESSION_TOKEN };
+  if (environment.HATOPAD_SESSION_TOKEN) {
+    coreAccessPolicy("127.0.0.1", { token: environment.HATOPAD_SESSION_TOKEN });
+    return { token: environment.HATOPAD_SESSION_TOKEN };
   }
-  const file = environment.REMOTE_IDE_SESSION_TOKEN_FILE || defaultCoreTokenFile(port);
+  const file = environment.HATOPAD_SESSION_TOKEN_FILE || defaultCoreTokenFile(port);
   await mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
   const temporary = `${file}.${process.pid}.${randomUUID()}.tmp`;
   try {

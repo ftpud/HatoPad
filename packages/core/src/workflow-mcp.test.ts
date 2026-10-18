@@ -6,7 +6,7 @@ import { expect, it } from "vitest";
 it("advertises typed workflow tools over the real MCP transport", async () => {
   const replies = await new Promise<string>((resolve, reject) => {
     const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./app-tools.ts", import.meta.url))], {
-      env: { ...process.env, VIBE_EDITOR_ROOT_WORKSPACE: os.tmpdir(), VIBE_EDITOR_CURRENT_WORKSPACE: os.tmpdir(), VIBE_EDITOR_WORKFLOW_RUN_ID: "run", VIBE_EDITOR_WORKFLOW_BLOCK_ID: "agent", VIBE_EDITOR_FLOW_TOOLS: "1" }, stdio: ["pipe", "pipe", "pipe"]
+      env: { ...process.env, HATOPAD_ROOT_WORKSPACE: os.tmpdir(), HATOPAD_CURRENT_WORKSPACE: os.tmpdir(), HATOPAD_WORKFLOW_RUN_ID: "run", HATOPAD_WORKFLOW_BLOCK_ID: "agent", HATOPAD_FLOW_TOOLS: "1" }, stdio: ["pipe", "pipe", "pipe"]
     });
     let output = "", error = "";
     child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { error += chunk; });

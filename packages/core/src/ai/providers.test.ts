@@ -4,7 +4,7 @@ import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import type { AiConfiguration, AiModel, AiProviderDescriptor, AiSession } from "@remote-ide/acp";
+import type { AiConfiguration, AiModel, AiProviderDescriptor, AiSession } from "@hatopad/acp";
 import { CodexSessionManager, CopilotSessionManager, ClaudeSessionManager } from "../plugins/builtin.js";
 import { ASK_QUESTIONS_OPTION, LIVE_STEERING_OPTION, StdioAcpProvider, SYSTEM_INSTRUCTIONS_OPTION, type AcpTurnObserver } from "./stdio-provider.js";
 import { SkillsStore } from "../skills.js";
@@ -97,7 +97,7 @@ describe("ACP integration", () => {
 
   it("launches installed agents with Core's Node, honours Core-host overrides and refuses uninstalled providers", async () => {
     for (const name of ["CODEX_PATH", "CODEX_ACP_COMMAND", "CLAUDE_ACP_COMMAND", "CLAUDE_AGENT_ACP_PATH", "COPILOT_CLI_PATH"]) vi.stubEnv(name, undefined);
-    vi.stubEnv("REMOTE_IDE_PROVIDER_RUNTIME_DIR", path.join(os.tmpdir(), `vibe-no-providers-${crypto.randomUUID()}`));
+    vi.stubEnv("HATOPAD_PROVIDER_RUNTIME_DIR", path.join(os.tmpdir(), `hatopad-no-providers-${crypto.randomUUID()}`));
     class InspectCodex extends CodexSessionManager { launch(configuration: AiConfiguration) { return this.command(configuration); } prepare() { return this.prepareLaunch(); } }
     class InspectClaude extends ClaudeSessionManager { launch(configuration: AiConfiguration) { return this.command(configuration); } }
     class InspectCopilot extends CopilotSessionManager { launch(configuration: AiConfiguration) { return this.command(configuration); } }
@@ -141,7 +141,7 @@ describe("ACP integration", () => {
   });
 
   it("keeps a session owned by another live process in progress but marks an abandoned session as error", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-owner-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-owner-"));
     const workspace = process.cwd();
     const running = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on" });
     await running.send(workspace, { prompt: "slow work", configuration: { model: "model-a" } });
@@ -158,7 +158,7 @@ describe("ACP integration", () => {
   });
 
   it("persists model settings independently by provider and workspace", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-settings-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-settings-"));
     const workspace = "/workspace/one";
     const codex = new CodexSessionManager({ onChanged: () => undefined, stateDirectory: state });
     const copilot = new CopilotSessionManager({ onChanged: () => undefined, stateDirectory: state });
@@ -170,7 +170,7 @@ describe("ACP integration", () => {
   });
 
   it("serializes concurrent ACP session saves", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-concurrent-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-concurrent-"));
     const provider = new CodexSessionManager({ onChanged: () => undefined, stateDirectory: state });
     await Promise.all(Array.from({ length: 20 }, (_, index) => provider.configure("/workspace/concurrent", { model: `model-${index}`, reasoning: "medium" })));
     expect((await provider.get("/workspace/concurrent")).model).toMatch(/^model-\d+$/);
@@ -188,21 +188,21 @@ describe("ACP integration", () => {
       protected async protocol() { return "v2" as const; }
       constructor(state: string, private readonly v2Env: NodeJS.ProcessEnv = { FAKE_V2_REQUIRE_MCP: "1" }) { super(() => undefined, state); }
     }
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-v2-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-v2-"));
     const workspace = process.cwd();
     const provider = new FakeV2Provider(state);
-    // Vibe always passes its own stdio tool servers; v2 agents reject them unless typed.
-    await provider.send(workspace, { prompt: "ping", configuration: { model: "model-b" }, mcpServers: [{ name: "vibe-tools", command: process.execPath, args: ["-e", "0"] }] });
+    // HatoPad always passes its own stdio tool servers; v2 agents reject them unless typed.
+    await provider.send(workspace, { prompt: "ping", configuration: { model: "model-b" }, mcpServers: [{ name: "hatopad-tools", command: process.execPath, args: ["-e", "0"] }] });
     const session = await settle(provider, workspace);
     expect(session.failure).toBeUndefined();
     expect(session.status).toBe("done");
-    // The whole-message upsert extends the streamed "Hello" chunk; the prompt arrives after Vibe's skill catalogue.
+    // The whole-message upsert extends the streamed "Hello" chunk; the prompt arrives after HatoPad's skill catalogue.
     const assistant = session.messages.filter((message) => message.role === "assistant").map((message) => message.text).join("");
     expect(assistant).toMatch(/^Hello from v2: [\s\S]*ping$/);
     expect(session.messages.find((message) => message.id === "tool-1")?.text).toContain("Run echo");
     expect(session.tokens).toMatchObject({ total: 30, input: 10, output: 20 });
     await provider.shutdown();
-    const v1Only = new FakeV2Provider(await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-v2-only-v1-")), { FAKE_V2_ONLY_V1: "1" });
+    const v1Only = new FakeV2Provider(await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-v2-only-v1-")), { FAKE_V2_ONLY_V1: "1" });
     await expect(v1Only.send(workspace, { prompt: "ping", configuration: {} })).rejects.toThrow("does not support ACP v2");
   });
 
@@ -211,7 +211,7 @@ describe("ACP integration", () => {
       protected command(_configuration: AiConfiguration) { return { command: process.execPath, args: [FAKE_V2_AGENT], env: { FAKE_V2_AGENT_TURN: "1" } }; }
       protected async protocol() { return "v2" as const; }
     }
-    const provider = new AgentTurnV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-v2-agent-turn-")));
+    const provider = new AgentTurnV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-v2-agent-turn-")));
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "start a build", configuration: {} });
     await until(provider, workspace, (session) => session.status === "done");
@@ -229,7 +229,7 @@ describe("ACP integration", () => {
       protected command(_configuration: AiConfiguration) { return { command: process.execPath, args: [FAKE_V2_AGENT], env: { FAKE_V2_STEERING: "queue" } }; }
       protected async protocol() { return "v2" as const; }
     }
-    const provider = new QueueingV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-v2-queued-steer-")));
+    const provider = new QueueingV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-v2-queued-steer-")));
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: {} });
     await provider.steer(workspace, "hi");
@@ -245,7 +245,7 @@ describe("ACP integration", () => {
       protected command(_configuration: AiConfiguration) { return { command: process.execPath, args: [FAKE_V2_AGENT], env: { FAKE_CONFIG_FEEDBACK: "on" } }; }
       protected async protocol() { return "v2" as const; }
     }
-    const provider = new FeedbackV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-v2-config-feedback-")));
+    const provider = new FeedbackV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-v2-config-feedback-")));
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "hello", configuration: { model: "model-b", reasoning: "high" } });
     const session = await settle(provider, workspace);
@@ -265,7 +265,7 @@ describe("ACP integration", () => {
       protected async protocol() { return "v2" as const; }
     }
     const workspace = process.cwd();
-    const provider = new SteeringV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-v2-steer-")));
+    const provider = new SteeringV2Provider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-v2-steer-")));
     await provider.send(workspace, { prompt: "first", configuration: {} });
     const working = await until(provider, workspace, (session) => session.messages.some((message) => message.text.includes("Hello from v2:")));
     expect(working.steering).toBe(true);
@@ -332,11 +332,11 @@ describe("ACP integration", () => {
     vi.stubEnv("FAKE_SECRET", "sk-test");
     try {
       const workspace = process.cwd();
-      const inherits = new CredentialProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-credentials-")));
+      const inherits = new CredentialProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-credentials-")));
       await inherits.send(workspace, { prompt: "ping", configuration: {} });
       expect((await settle(inherits, workspace)).messages.map((message) => message.text).join("")).toContain("(secret visible)");
       await inherits.shutdown();
-      const login = new CredentialProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-credentials-login-")));
+      const login = new CredentialProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-credentials-login-")));
       login.withheld = ["FAKE_SECRET"];
       await login.send(workspace, { prompt: "ping", configuration: {} });
       const session = await settle(login, workspace);
@@ -346,7 +346,7 @@ describe("ACP integration", () => {
   });
 
   it("coalesces streamed chunks that carry no message id into one message per segment", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-stream-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-stream-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "hello", configuration: { model: "model-a", reasoning: "high" } });
@@ -370,7 +370,7 @@ describe("ACP integration", () => {
   });
 
   it("consumes a queued model selection on exactly the next new turn", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-next-model-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-next-model-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     await provider.configureNext(workspace, { model: "model-a", reasoning: "high" });
@@ -388,7 +388,7 @@ describe("ACP integration", () => {
   });
 
   it("uses an explicitly selected model instead of a stale queued model on the first prompt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-explicit-model-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-explicit-model-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     await provider.configureNext(workspace, { model: "model-a", reasoning: "high" });
@@ -404,7 +404,7 @@ describe("ACP integration", () => {
   });
 
   it("forces a model-authored continuation into a new turn that consumes the queued model", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-model-continuation-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-model-continuation-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-b", reasoning: "" } });
@@ -421,7 +421,7 @@ describe("ACP integration", () => {
   }, 20_000);
 
   it("archives conversations so they can be listed, switched back to and removed", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-sessions-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-sessions-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
 
@@ -464,7 +464,7 @@ describe("ACP integration", () => {
   });
 
   it("reads the model catalogue, pricing metadata and per-model reasoning levels from the live agent", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-models-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-models-"));
     const provider = new FakeProvider(() => undefined, state);
     expect(await provider.models()).toEqual([
       { id: "model-a", name: "MODEL-A", description: "Fast test model", price: "0.33x", priceTier: "low", available: true, defaultReasoning: "medium", reasoningLevels: ["low", "medium", "high"], reasoningDescriptions: { low: "low effort", medium: "medium effort", high: "high effort" } },
@@ -473,7 +473,7 @@ describe("ACP integration", () => {
   });
 
   it("keeps the session alive when the selected model rejects a reasoning effort", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-effort-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-effort-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "hello", configuration: { model: "model-b", reasoning: "high" } });
@@ -486,7 +486,7 @@ describe("ACP integration", () => {
   });
 
   it("keeps an accepted model when the agent acknowledges configuration without returning options", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-config-ack-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-config-ack-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_CONFIG_ACK_ONLY: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "hello", configuration: { model: "model-b", reasoning: "" } });
@@ -497,7 +497,7 @@ describe("ACP integration", () => {
   });
 
   it("reports token usage for the latest turn", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-usage-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-usage-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     expect(await provider.usage(workspace)).toMatchObject({ supported: false });
@@ -508,10 +508,10 @@ describe("ACP integration", () => {
   });
 
   it("injects selected agent instructions once per provider session and again when they change", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-agent-preset-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-agent-preset-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_ECHO_PROMPT: "on" });
     const workspace = process.cwd();
-    const dispatcher = { name: "Dispatcher", description: "Coordinates work", instructions: "Delegate bounded tasks.", mcpServers: ["vibe-editor"] };
+    const dispatcher = { name: "Dispatcher", description: "Coordinates work", instructions: "Delegate bounded tasks.", mcpServers: ["hatopad"] };
 
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-a" }, agent: dispatcher });
     await settle(provider, workspace);
@@ -554,7 +554,7 @@ describe("ACP integration", () => {
     expect(codex["command"]({ mode: "read-only" }).env.INITIAL_AGENT_MODE).toBe("read-only");
   });
   it.each([false, true])("skips helper snapshots for sends and steering (live steering: %s) and preserves regular checkpoints", async (liveSteering) => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-snapshots-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-snapshots-"));
     const releaseFile = path.join(state, "release-prompt");
     const turns = { begin: vi.fn(async () => crypto.randomUUID()), complete: vi.fn(async () => {}) };
     const provider = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on", FAKE_PROMPT_RELEASE_FILE: releaseFile, ...(liveSteering ? { FAKE_STEERING: "on" } : {}) }, undefined, turns);
@@ -590,7 +590,7 @@ describe("ACP integration", () => {
   }, 20_000);
 
   it("queues mid-turn input for agents without steering and runs it next", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-queue-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-queue-"));
     const provider = new FakeProvider(() => undefined, state);
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-a" } });
@@ -605,7 +605,7 @@ describe("ACP integration", () => {
   });
 
   it("archives a running conversation and starts a context-empty handoff session", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-fresh-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-fresh-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on" });
     const workspace = process.cwd();
     const first = await provider.send(workspace, { prompt: "old context", configuration: { model: "model-a", reasoning: "high" } });
@@ -621,7 +621,7 @@ describe("ACP integration", () => {
   }, 20_000);
 
   it("carries the selected local agent preset into a queued fresh session", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-fresh-agent-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-fresh-agent-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on" });
     const workspace = process.cwd();
     const oleg = { name: "Oleg", instructions: "Implement repository features end to end." };
@@ -639,7 +639,7 @@ describe("ACP integration", () => {
   }, 20_000);
 
   it("injects mid-turn input into the live turn when the agent supports steering", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-steer-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-steer-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_STEERING: "on", FAKE_SLOW: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-a" } });
@@ -657,7 +657,7 @@ describe("ACP integration", () => {
   });
 
   it("stays interrupted even when the agent reports the cancelled turn as a success", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-interrupt-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-interrupt-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_SLOW: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-a" } });
@@ -674,13 +674,13 @@ describe("ACP integration", () => {
   });
 
   it("rejects mid-turn input when nothing is running", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-idle-steer-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-idle-steer-"));
     const provider = new FakeProvider(() => undefined, state);
     await expect(provider.steer(process.cwd(), "hello")).rejects.toThrow("not currently working");
   });
 
   it("loads the persisted ACP session while keeping the local transcript in order", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-resume-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-resume-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_LOAD: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "first", configuration: { model: "model-a" } });
@@ -699,7 +699,7 @@ describe("ACP integration", () => {
   });
 
   it("blocks permission requests until the user selects an advertised option", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-permission-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-permission-"));
     const provider = new FakeProvider(() => undefined, state, { FAKE_PERMISSION: "on" });
     const workspace = process.cwd();
     await provider.send(workspace, { prompt: "permission", configuration: { model: "model-a" } });
@@ -750,7 +750,7 @@ describe("ACP integration", () => {
   }, 15_000);
 
   it("maps typed prompt blocks and remote MCP transports to ACP", async () => {
-    const provider = new FakeProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-content-")));
+    const provider = new FakeProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-content-")));
     const blocks = provider["promptContent"](process.cwd(), "look", [
       { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
       { type: "resource", uri: "attachment:notes.txt", mimeType: "text/plain", text: "notes" },
@@ -761,7 +761,7 @@ describe("ACP integration", () => {
   });
 
   it("passes a selected agent and user request in the same ACP text block", async () => {
-    const provider = new FakeProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "remote-ide-ai-agent-")));
+    const provider = new FakeProvider(() => undefined, await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-agent-")));
     const content = provider["withAgent"]([{ type: "text", text: "Fix the bug" }], { name: "Reviewer", description: "Checks correctness", instructions: "Review every change." });
     expect(content).toEqual([{ type: "text", text: "Selected agent: Reviewer\nAgent description: Checks correctness\n\n<agent_instructions>\nReview every change.\n</agent_instructions>\n\n<user_request>\nFix the bug\n</user_request>" }]);
   });
@@ -849,7 +849,7 @@ describe("chat skills", () => {
     await provider.setSkills(workspace, ["local/review"], initial.id);
     const send = async (prompt: string) => { await provider.send(workspace, { prompt, configuration: { model: "model-a" } }); const session = await settle(provider, workspace); return JSON.parse(session.messages.filter((message) => message.text.startsWith("PROMPT:")).at(-1)!.text.slice(7)).map((block: { text?: string }) => block.text ?? "").join("\n") as string; };
     const first = await send("First");
-    expect(first).toContain("Vibe skill catalogue:"); expect(first).toContain("Review changes"); expect(first).not.toContain("Secret long workflow");
+    expect(first).toContain("HatoPad skill catalogue:"); expect(first).toContain("Review changes"); expect(first).not.toContain("Secret long workflow");
     expect(await send("Unchanged")).toBe("Unchanged");
     await provider.configure(workspace, { maxAiCredits: 1 });
     expect(await send("Resumed")).toBe("Resumed");
@@ -867,7 +867,7 @@ describe("chat skills", () => {
     expect(await send("Revoked")).toContain('"removed":["local/testing"]');
     expect(await send("Still unchanged")).toBe("Still unchanged");
     await provider.clear(workspace);
-    expect(await send("Fresh")).toContain("Vibe skill catalogue:");
+    expect(await send("Fresh")).toContain("HatoPad skill catalogue:");
     await provider.clear(workspace);
   });
 

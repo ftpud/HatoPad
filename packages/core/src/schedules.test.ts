@@ -3,7 +3,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { mkdtemp, readFile, readdir, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ScheduleInput } from "@remote-ide/protocol";
+import type { ScheduleInput } from "@hatopad/protocol";
 import { ScheduleService, validateSchedule } from "./schedules.js";
 
 const directories: string[] = [];
@@ -11,7 +11,7 @@ const services: ScheduleService[] = [];
 afterEach(async () => { vi.useRealTimers(); for (const service of services.splice(0)) await service.close(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const input = (extra: Partial<ScheduleInput> = {}): ScheduleInput => ({ name: "Daily check", dueAt: new Date(Date.now() + 60_000).toISOString(), taskId: "task-a", action: { type: "prompt", provider: "codex", prompt: "Check the build", agent: { scope: "local", name: "reviewer.md" } }, ...extra });
 async function harness(deliver = vi.fn(async () => ({})), directory?: string) {
-  const state = directory ?? await mkdtemp(path.join(os.tmpdir(), "vibe-schedules-"));
+  const state = directory ?? await mkdtemp(path.join(os.tmpdir(), "hatopad-schedules-"));
   if (!directory) directories.push(state);
   const changed = vi.fn();
   const service = new ScheduleService("/workspace", deliver, changed, state);
@@ -69,7 +69,7 @@ describe("durable user schedules", () => {
   });
 
   it("fails closed and preserves corrupt schedule bytes when no valid backup exists", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-schedule-corrupt-")); directories.push(state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-corrupt-")); directories.push(state);
     const file = stateFile(state);
     const corrupt = "{\"schedules\":[null]}";
     await writeFile(file, corrupt, "utf8");
@@ -136,7 +136,7 @@ describe("durable user schedules", () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => { release = resolve; });
     const sent = vi.fn();
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-schedule-race-")); directories.push(state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-race-")); directories.push(state);
     const service = new ScheduleService("/workspace", async (_, active) => { await gate; if (active()) sent(); return {}; }, vi.fn(), state);
     services.push(service); await service.start();
     const schedule = await service.create("root-a", input({ intervalSeconds: 60 }));

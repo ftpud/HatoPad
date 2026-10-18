@@ -31,7 +31,7 @@ readline.createInterface({ input: process.stdin }).on("line", (line) => {
   if (["session/new", "session/prompt"].includes(message.method) && failOAuth(message)) return;
   // Like real v2 agents, reject MCP servers without a transport `type` (v1 leaves stdio untyped).
   if ((message.method === "session/new" || message.method === "session/resume") && (message.params.mcpServers ?? []).some((server) => !server.type)) return send({ id: message.id, error: { code: -32602, message: "Invalid params" } });
-  if (message.method === "session/new") { if (process.env.FAKE_V2_REQUIRE_MCP === "1" && !(message.params.mcpServers ?? []).length) return send({ id: message.id, error: { code: -32602, message: "Expected Vibe MCP servers" } }); return ok({ sessionId: "v2-session", configOptions: options() }); }
+  if (message.method === "session/new") { if (process.env.FAKE_V2_REQUIRE_MCP === "1" && !(message.params.mcpServers ?? []).length) return send({ id: message.id, error: { code: -32602, message: "Expected HatoPad MCP servers" } }); return ok({ sessionId: "v2-session", configOptions: options() }); }
   if (message.method === "session/resume") return ok({ configOptions: options() });
   if (message.method === "session/set_config_option") {
     // Real v2 agents require the value `type` discriminator.

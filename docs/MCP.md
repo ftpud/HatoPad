@@ -1,15 +1,15 @@
 # Internal MCP tools
 
-The built-in `vibe-editor` MCP server lets an AI agent manage tasks and control its
-Vibe Editor session. Workflow agents can also call tools for connected blocks. Core
+The built-in `hatopad` MCP server lets an AI agent manage tasks and control its
+HatoPad session. Workflow agents can also call tools for connected blocks. Core
 owns the worktrees, processes, and saved state behind these tools.
 
-This page covers Vibe's internal tools. For the Codex/Copilot abstraction and
+This page covers HatoPad's internal tools. For the Codex/Copilot abstraction and
 provider transport, see [ACP](ACP.md).
 
 ## Enable the tools
 
-Select an agent preset whose `mcpServers` allowlist includes `vibe-editor`. An empty
+Select an agent preset whose `mcpServers` allowlist includes `hatopad`. An empty
 or omitted list does not enable the built-in server. Presets can be managed in the
 Desktop **Agents** panel or committed under `.agents/*.md`.
 
@@ -83,7 +83,7 @@ a replacement.
 
 ## Choose the agent for a new task
 
-An **agent** is a Vibe Editor instruction preset. `provider` selects the Codex or
+An **agent** is a HatoPad instruction preset. `provider` selects the Codex or
 Copilot backend, `model` selects its model, and `agent` selects the Markdown preset
 whose instructions and MCP allowlist are attached to the new session.
 
@@ -108,8 +108,8 @@ mcpServers: []
 Review the requested change, run focused checks, and report concrete findings.
 ```
 
-Add `vibe-editor` under `mcpServers` when the started task should itself receive the
-built-in Vibe Editor MCP tools. An empty or omitted `mcpServers` list gives the
+Add `hatopad` under `mcpServers` when the started task should itself receive the
+built-in HatoPad MCP tools. An empty or omitted `mcpServers` list gives the
 preset no built-in task tools.
 
 `task_create_and_start` accepts `agent` as either a precise `{ "scope", "name" }`

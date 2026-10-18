@@ -1,14 +1,14 @@
 Unicode true
-Name "Vibe Gateway"
+Name "HatoPad Gateway"
 OutFile "${OUTPUT}"
-InstallDir "$LOCALAPPDATA\Programs\Vibe Gateway"
+InstallDir "$LOCALAPPDATA\Programs\HatoPad Gateway"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 VIProductVersion "${VERSION}.0"
-VIAddVersionKey "ProductName" "Vibe Gateway"
-VIAddVersionKey "FileDescription" "Vibe Gateway Early Access Setup"
+VIAddVersionKey "ProductName" "HatoPad Gateway"
+VIAddVersionKey "FileDescription" "HatoPad Gateway Early Access Setup"
 VIAddVersionKey "FileVersion" "${VERSION}"
-VIAddVersionKey "LegalCopyright" "Vibe Editor contributors"
+VIAddVersionKey "LegalCopyright" "HatoPad contributors"
 
 !include "MUI2.nsh"
 !insertmacro MUI_PAGE_WELCOME
@@ -20,23 +20,27 @@ VIAddVersionKey "LegalCopyright" "Vibe Editor contributors"
 
 Section "Install"
   SetShellVarContext current
+  ; Replace a pre-rename installation (the previous product name) so only one entry remains.
+  Delete "$SMPROGRAMS\Vibe Gateway.lnk"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway"
+  RMDir /r "$LOCALAPPDATA\Programs\Vibe Gateway"
   SetOutPath "$INSTDIR"
   File /r "${SOURCE}\*"
   IfErrors 0 +2
-    Abort "Could not install Gateway. Close Vibe Gateway and Vibe Editor, then retry."
+    Abort "Could not install Gateway. Close HatoPad Gateway and HatoPad, then retry."
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\Vibe Gateway.lnk" "$INSTDIR\Vibe Gateway.exe"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "DisplayName" "Vibe Gateway (Early Access)"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "DisplayVersion" "${VERSION}"
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
-  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "InstallLocation" "$INSTDIR"
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "NoModify" 1
-  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway" "NoRepair" 1
+  CreateShortcut "$SMPROGRAMS\HatoPad Gateway.lnk" "$INSTDIR\HatoPad Gateway.exe"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "DisplayName" "HatoPad Gateway (Early Access)"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "DisplayVersion" "${VERSION}"
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "UninstallString" '$\"$INSTDIR\Uninstall.exe$\"'
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "InstallLocation" "$INSTDIR"
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "NoModify" 1
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway" "NoRepair" 1
 SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
-  Delete "$SMPROGRAMS\Vibe Gateway.lnk"
-  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway"
+  Delete "$SMPROGRAMS\HatoPad Gateway.lnk"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\HatoPadGateway"
   RMDir /r "$INSTDIR"
 SectionEnd

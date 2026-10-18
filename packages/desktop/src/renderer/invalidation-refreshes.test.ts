@@ -1,5 +1,5 @@
 import { expect, it, vi } from "vitest";
-import type { ServerEvent } from "@remote-ide/protocol";
+import type { ServerEvent } from "@hatopad/protocol";
 import { InvalidationRefreshes, type InvalidationScope } from "./invalidation-refreshes";
 import { CoalescedAsyncAction } from "./client";
 

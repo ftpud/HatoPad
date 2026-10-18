@@ -1,5 +1,5 @@
 import { useState, type CSSProperties } from "react";
-import type { AiContextCategory, AiSession } from "@remote-ide/protocol";
+import type { AiContextCategory, AiSession } from "@hatopad/protocol";
 
 export type ContextSource = Pick<AiSession, "context" | "contextUsed" | "contextLimit">;
 export type ContextUsage = { used: number; limit: number; percent: number };

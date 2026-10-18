@@ -41,15 +41,15 @@ for (const kind of ['desktop', 'gateway']) {
   await mkdir(resources, { recursive: true });
   if (kind === 'gateway') await cp(coresDirectory, path.join(resources, 'cores'), { recursive: true });
   // Gateway embeds only the Editor's app files and runs them on its own Electron
-  // runtime (`--vibe-editor`), instead of carrying a second Electron copy.
+  // runtime (`--hatopad`), instead of carrying a second Electron copy.
   await writeJson(path.join(resources, 'manifest.json'), { schema: 1, channel: 'early-access', version, commit, cores, ...(kind === 'gateway' ? { desktopApp: 'desktop' } : {}) });
   const embedDesktop = desktopBundle ? [async ({ buildPath }) => {
-    const resourcesRoot = process.platform === 'darwin' ? path.join(buildPath, `${kind === 'desktop' ? 'Vibe Editor' : 'Vibe Gateway'}.app`, 'Contents/Resources') : path.join(buildPath, 'resources');
+    const resourcesRoot = process.platform === 'darwin' ? path.join(buildPath, `${kind === 'desktop' ? 'HatoPad' : 'HatoPad Gateway'}.app`, 'Contents/Resources') : path.join(buildPath, 'resources');
     await copyBundledApplication(desktopBundle, path.join(resourcesRoot, 'bundle/desktop'));
   }] : undefined;
-  const name = kind === 'desktop' ? 'Vibe Editor' : 'Vibe Gateway';
+  const name = kind === 'desktop' ? 'HatoPad' : 'HatoPad Gateway';
   const icon = process.platform === 'darwin' ? await macApplicationIcon(path.join(appDirectory, 'assets/app-icon.png'), path.join(staging, 'icons')) : undefined;
-  const [built] = await packager({ dir: appDirectory, out: path.join(output, 'apps'), name, icon, appBundleId: `com.vibe-editor.${kind}`, appVersion: version, win32metadata: { CompanyName: 'Vibe Editor', ProductName: name, FileDescription: name }, electronVersion, platform: process.platform, arch: process.arch, overwrite: true, prune: false, asar: false, extraResource: [resources], afterExtract: [({ buildPath }) => pruneElectronLocales(buildPath)], afterCopyExtraResources: embedDesktop, osxSign: process.platform === 'darwin' ? { identity: '-', identityValidation: false, optionsForFile: () => ({ entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation'] }) } : undefined });
+  const [built] = await packager({ dir: appDirectory, out: path.join(output, 'apps'), name, icon, appBundleId: `com.hatopad.${kind}`, appVersion: version, win32metadata: { CompanyName: 'HatoPad', ProductName: name, FileDescription: name }, electronVersion, platform: process.platform, arch: process.arch, overwrite: true, prune: false, asar: false, extraResource: [resources], afterExtract: [({ buildPath }) => pruneElectronLocales(buildPath)], afterCopyExtraResources: embedDesktop, osxSign: process.platform === 'darwin' ? { identity: '-', identityValidation: false, optionsForFile: () => ({ entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation'] }) } : undefined });
   if (process.platform === 'darwin') {
     const bundle = path.join(built, `${name}.app/Contents`);
     const iconFile = execFileSync('/usr/bin/plutil', ['-extract', 'CFBundleIconFile', 'raw', '-o', '-', path.join(bundle, 'Info.plist')], { encoding: 'utf8' }).trim();
@@ -64,14 +64,14 @@ for (const kind of ['desktop', 'gateway']) {
   const localCore = Boolean(cores[`${process.platform}-${process.arch}`]);
   await smokeApplication(executable, kind === 'gateway' && localCore ? ['--bundle-core-smoke-test'] : []);
   // The embedded Editor must start on Gateway's runtime.
-  if (kind === 'gateway') await smokeApplication(executable, ['--vibe-editor']);
+  if (kind === 'gateway') await smokeApplication(executable, ['--hatopad']);
   if (kind === 'desktop') desktopBundle = process.platform === 'darwin' ? path.join(built, `${name}.app/Contents/Resources/app`) : path.join(built, 'resources/app');
   const destination = path.join(output, 'downloads');
   await mkdir(destination, { recursive: true });
   let archive;
   if (kind === 'gateway') archive = await packageGatewayInstaller(built, destination, version, smokeApplication);
   else {
-    archive = path.join(destination, `vibe-${kind}-${version}-${process.platform}-${process.arch}.zip`);
+    archive = path.join(destination, `hatopad-${kind}-${version}-${process.platform}-${process.arch}.zip`);
     if (process.platform === 'darwin') await run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', path.join(built, `${name}.app`), archive]);
     // Windows' own bsdtar writes .zip with -a. Git for Windows puts GNU tar earlier on PATH,
     // which rejects -a and reads "D:\\..." as a remote host, so name the system binary.

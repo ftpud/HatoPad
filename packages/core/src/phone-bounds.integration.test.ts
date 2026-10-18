@@ -6,12 +6,12 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { coreCapabilities, protocolCompatibility } from "@remote-ide/protocol";
+import { coreCapabilities, protocolCompatibility } from "@hatopad/protocol";
 import { createServer, shutdownCore } from "./server.js";
 
 it("advertises capabilities and bounds file, diff and conversation reads", async () => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "phone-bounds-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let socket: WebSocket | undefined;
   try {
@@ -79,7 +79,7 @@ it("advertises capabilities and bounds file, diff and conversation reads", async
 
 it("rejects an invalid connection sessionMessageLimit only after authentication and accepts valid ones", async () => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "session-limit-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   const sockets: WebSocket[] = [];
   try {
@@ -109,7 +109,7 @@ it("lists directories lazily, hides escapes and restores roots without a tree", 
   const container = await realpath(await mkdtemp(path.join(os.tmpdir(), "list-dir-")));
   const directory = path.join(container, "repo");
   await mkdir(path.join(directory, "src"), { recursive: true });
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(container, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(container, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let socket: WebSocket | undefined;
   try {

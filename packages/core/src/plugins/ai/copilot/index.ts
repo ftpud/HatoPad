@@ -1,5 +1,5 @@
 import type { ProviderContext } from "../../../ai/stdio-provider.js";
-import type { AiConfiguration, AiModel, AiProviderDescriptor } from "@remote-ide/acp";
+import type { AiConfiguration, AiModel, AiProviderDescriptor } from "@hatopad/acp";
 import { StdioAcpProvider } from "../../../ai/stdio-provider.js";
 import type { InstallationSpec } from "../../../ai/provider-installations.js";
 

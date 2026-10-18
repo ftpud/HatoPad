@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { buildOverview, pageOverview, type OverviewSource } from "./overview.js";
 
 const session = (extra: Partial<AiSession>): AiSession => ({ model: "m", reasoning: "r", status: "user_prompt", messages: [], ...extra });

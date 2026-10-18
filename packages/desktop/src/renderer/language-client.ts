@@ -1,4 +1,4 @@
-import type { JavaFileType, JavaProjectNode, LanguageProjectNode, LanguageBreakpoint, LanguageDebugCommand, ProtocolOperations, RequestType } from "@remote-ide/protocol";
+import type { JavaFileType, JavaProjectNode, LanguageProjectNode, LanguageBreakpoint, LanguageDebugCommand, ProtocolOperations, RequestType } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 
 type LanguageRequest = Exclude<Extract<RequestType, `language.${string}`>, "language.list">;

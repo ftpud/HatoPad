@@ -1,4 +1,4 @@
-import type { GitRebaseAction, GitRebasePreview, GitRebaseTodoItem } from "@remote-ide/protocol";
+import type { GitRebaseAction, GitRebasePreview, GitRebaseTodoItem } from "@hatopad/protocol";
 import { ArrowDown, ArrowUp, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
 

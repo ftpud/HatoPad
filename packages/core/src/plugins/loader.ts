@@ -22,8 +22,8 @@ export interface ProviderContribution { id: string; create: ProviderFactory }
 /** What a plugin's Core module must export. */
 export interface PluginModule { apiVersion: number; providers?: ProviderContribution[]; languages?: LanguageContribution[] }
 
-export type { PluginStatus } from "@remote-ide/protocol";
-import type { PluginStatus } from "@remote-ide/protocol";
+export type { PluginStatus } from "@hatopad/protocol";
+import type { PluginStatus } from "@hatopad/protocol";
 export interface LoadedPlugins { status: PluginStatus[]; providers: ProviderFactory[]; languages: LanguageContribution[] }
 
 const KEYS = new Set(["id", "name", "version", "apiVersion", "contributes", "core"]);
@@ -48,7 +48,7 @@ export function validateManifest(input: unknown): PluginManifest {
 }
 
 /** The plugin directory is chosen by the Core host's operator; nothing is ever loaded from a workspace. */
-export function pluginsDirectory(): string | undefined { return process.env.REMOTE_IDE_PLUGINS_DIR || undefined; }
+export function pluginsDirectory(): string | undefined { return process.env.HATOPAD_PLUGINS_DIR || undefined; }
 
 /**
  * Loads every `<directory>/<plugin>/plugin.json`. A plugin that fails to

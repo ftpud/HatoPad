@@ -1,4 +1,4 @@
-import type { JavaBreakpoint, JavaProjectOptions, JavaRunConfiguration } from "@remote-ide/protocol";
+import type { JavaBreakpoint, JavaProjectOptions, JavaRunConfiguration } from "@hatopad/protocol";
 import { CoreError } from "../../../errors.js";
 import { isSafeRelativePath } from "../../../path-safety.js";
 import { registerWorkspaceStateValidator } from "../../../workspace-state.js";

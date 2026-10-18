@@ -1,7 +1,7 @@
 import type { Monaco } from "@monaco-editor/react";
 import type { editor, IPosition } from "monaco-editor";
 import { createRoot } from "react-dom/client";
-import type { LanguageDebugState, LanguageDebugVariable } from "@remote-ide/protocol";
+import type { LanguageDebugState, LanguageDebugVariable } from "@hatopad/protocol";
 import { DebugVariable, type DebugInspect } from "./DebugVariable";
 
 /** Only read identifiers, fields, and array elements; never execute hovered code. */
@@ -38,7 +38,7 @@ export function attachDebugEditor(instance: editor.IStandaloneCodeEditor, api: M
   const root = createRoot(node);
   let position: IPosition | null = null;
   const widget: editor.IContentWidget = {
-    getId: () => "vibe.debug.object-hover",
+    getId: () => "hatopad.debug.object-hover",
     getDomNode: () => node,
     allowEditorOverflow: true,
     suppressMouseDown: true,

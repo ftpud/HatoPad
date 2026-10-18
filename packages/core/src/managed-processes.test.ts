@@ -105,7 +105,7 @@ describe("managed process ownership", () => {
 describe.skipIf(process.platform !== "linux")("real Linux subprocess lifecycle", () => {
   it("finds orphaned background commands from a short-lived parent and kills them with their agent, isolating another task", async () => {
     const host = new ManagedProcesses(); hosts.push(host);
-    const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-process-test-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-process-test-"));
     let orphanPid: number | undefined;
     try {
       const marker = path.join(directory, "pid");
