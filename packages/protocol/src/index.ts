@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -224,6 +224,12 @@ export type ScheduledAction =
   | { type: "prompt"; provider: AiProvider; prompt: string; agent?: AgentFileReference; /** Start a context-empty session instead of continuing the current one; agent, model and reasoning only apply then. */ newSession?: boolean; /** Overrides the session's model for this prompt. */ model?: string; /** Overrides the session's reasoning effort for this prompt. */ reasoning?: string }
   | { type: "workflow"; provider: AiProvider; harnessId: string; input: string; startBlockId?: string };
 export type ScheduleInput = { name: string; dueAt: string; intervalSeconds?: number; taskId?: string; action: ScheduledAction };
+/** Content-free action summary: no prompt or workflow input text. */
+export type ScheduledActionSummary = { type: "prompt"; provider: AiProvider; newSession?: boolean; agent?: AgentFileReference; model?: string; reasoning?: string } | { type: "workflow"; provider: AiProvider; harnessId: string; startBlockId?: string };
+export type ScheduleSummary = { id: string; revision: string; rootId: WorkspaceRootId; name: string; enabled: boolean; dueAt: string; intervalSeconds?: number; taskId?: string; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string; action: ScheduledActionSummary };
+export type TriggerSummary = { id: string; revision: string; rootId: WorkspaceRootId; name: string; enabled: boolean; source: TriggerSource; taskId?: string; debounceSeconds?: number; maxFiresPerHour?: number; fireCount: number; recentFires?: number; capResetsAt?: string; firing?: boolean; lastFiredAt?: string; lastSkipped?: string; lastError?: string; action: ScheduledActionSummary };
+/** Page limits for schedule/trigger summaries; definitions are read one at a time. */
+export const automationPageLimits = { defaultItems: 25, maxItems: 25 } as const;
 export type WorkspaceSchedule = ScheduleInput & { launching?: boolean; revision?: string; id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string };
 export type TriggerFileEvent = "created" | "changed" | "deleted";
 /** What a trigger watches: a file/directory (polled for changes) or a named pipe (FIFO) whose incoming data fires it. */
@@ -416,6 +422,8 @@ export type ProtocolOperations = {
   "tasks.merge": { payload: { taskId: string; strategy?: "merge" | "smart" }; result: { targetBranch: string } };
   "schedules.agents": { payload: { taskId?: string }; result: { agents: AgentFile[] } };
   "schedules.list": { payload: Record<string, never>; result: { schedules: WorkspaceSchedule[] } };
+  "schedules.page": { payload: { limit?: number; cursor?: string; query?: string }; result: { items: ScheduleSummary[]; total: number; revision: string; nextCursor?: string; restarted?: boolean } };
+  "schedules.read": { payload: { scheduleId: string }; result: { schedule: WorkspaceSchedule } };
   "schedules.create": { payload: ScheduleInput; result: { schedule: WorkspaceSchedule } };
   "schedules.update": { payload: { scheduleId: string; input: ScheduleInput; enabled: boolean; expectedRevision: string }; result: { schedule: WorkspaceSchedule } };
   "schedules.enabled": { payload: { scheduleId: string; enabled: boolean }; result: { schedule: WorkspaceSchedule } };
@@ -423,6 +431,8 @@ export type ProtocolOperations = {
   "schedules.fire": { payload: { scheduleId: string }; result: { fired: boolean } };
   "triggers.history": { payload: { triggerId: string; limit?: number; before?: string }; result: { entries: TriggerFireRecord[]; nextBefore?: string } };
   "triggers.list": { payload: Record<string, never>; result: { triggers: WorkspaceTrigger[] } };
+  "triggers.page": { payload: { limit?: number; cursor?: string; query?: string }; result: { items: TriggerSummary[]; total: number; revision: string; nextCursor?: string; restarted?: boolean } };
+  "triggers.read": { payload: { triggerId: string }; result: { trigger: WorkspaceTrigger } };
   "triggers.create": { payload: TriggerInput; result: { trigger: WorkspaceTrigger } };
   "triggers.update": { payload: { triggerId: string; input: TriggerInput; enabled: boolean; expectedRevision: string }; result: { trigger: WorkspaceTrigger } };
   "triggers.enabled": { payload: { triggerId: string; enabled: boolean }; result: { trigger: WorkspaceTrigger } };
@@ -947,12 +957,16 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "tasks.merge": true,
   "schedules.agents": true,
   "schedules.list": true,
+  "schedules.page": true,
+  "schedules.read": true,
   "schedules.update": true,
   "schedules.create": true,
   "schedules.enabled": true,
   "schedules.delete": true,
   "schedules.fire": true,
   "triggers.list": true,
+  "triggers.page": true,
+  "triggers.read": true,
   "triggers.history": true,
   "triggers.update": true,
   "triggers.create": true,

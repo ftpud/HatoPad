@@ -29,6 +29,7 @@ import { MetadataHintBatcher } from "./metadata-hints.js";
 import { workPage, workText, triggerIssueKind, type WorkTarget } from "./overview-work.js";
 import { TerminalWatchers } from "./terminal-watchers.js";
 import { watchSnapshot, watchSummary } from "./terminal-watch.js";
+import { automationPage, summarizeSchedule, summarizeTrigger } from "./automation-page.js";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { TerminalSessionHost } from "./process-manager.js";
@@ -1173,6 +1174,18 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       const task = request.payload.taskId ? (await tasks.list()).tasks.find((item) => item.id === request.payload.taskId) : undefined;
       if (request.payload.taskId && !task) throw new CoreError("FILE_NOT_FOUND", "Task no longer exists");
       return { agents: await agents.list(task ? tasks.taskPath(task.id) : rootWorkspace) };
+    }
+    case "schedules.page": return automationPage("schedules", request.rootId!, schedules.list(true).filter(item => item.rootId === request.rootId), summarizeSchedule, request.payload);
+    case "schedules.read": {
+      const id = request.payload.scheduleId; if (typeof id !== "string" || !id || id.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a schedule");
+      const schedule = schedules.list(true).find(item => item.id === id && item.rootId === request.rootId); if (!schedule) throw new CoreError("FILE_NOT_FOUND", "Schedule is unavailable in this root");
+      return { schedule };
+    }
+    case "triggers.page": return automationPage("triggers", request.rootId!, triggers.list(true).filter(item => item.rootId === request.rootId), summarizeTrigger, request.payload);
+    case "triggers.read": {
+      const id = request.payload.triggerId; if (typeof id !== "string" || !id || id.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a trigger");
+      const trigger = triggers.list(true).find(item => item.id === id && item.rootId === request.rootId); if (!trigger) throw new CoreError("FILE_NOT_FOUND", "Trigger is unavailable in this root");
+      return { trigger };
     }
     case "schedules.list": return { schedules: schedules.list(true).filter(item => item.rootId === request.rootId) };
     case "schedules.create": {

@@ -43,6 +43,12 @@ changing one connection's selection does not change another connection.
 - `harnesses.blockDetail` {runId, blockId, outputChars 1–64000 (default 16000), chatLimit 1–50 (default 20),
   chatBefore} returns the newest output characters, counts, and a newest-first Chatbox page (text clipped to
   4000 characters, `chatNextBefore` to continue). It excludes prompts, the definition and run input.
+- `automation.paging` adds `schedules.page` / `triggers.page` {limit 1–25 (default 25), cursor, query ≤100
+  characters} returning root-owned, name-ordered summaries (id, revision, name, state, due/interval, target
+  task id, clipped last error, action type/provider/ids only — never prompt or workflow input), `total`,
+  `revision`, `nextCursor` and `restarted`. Cursors are bound to root, kind and query and restart when any
+  item's revision changes. `schedules.read` / `triggers.read` {id} return the full revisioned definition for
+  editing; ids outside the addressed root are `FILE_NOT_FOUND`. Updates still require `expectedRevision`.
 - `tasks.commitMessage` gates get/set/update operations. Get takes taskId and
   returns the saved draft plus current head. Set takes taskId/message and saves
   a draft without committing. Update takes taskId/message/expectedHead and
