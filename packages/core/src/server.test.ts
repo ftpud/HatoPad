@@ -1,8 +1,66 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertWorkflowModelAvailable, settleWorkflowSession, workflowCapturesSnapshots, workflowConfiguration, workflowTurnInstructions } from "./server.js";
+import { assertWorkflowModelAvailable, settleWorkflowSession, steerWorkflowSession, workflowCapturesSnapshots, workflowConfiguration, workflowTurnInstructions } from "./server.js";
 import { ClaudeSessionManager } from "./plugins/builtin.js";
 import { WebSocket } from "ws";
 import { assertRequestRoot, assertRootRemovalAllowed, assertSessionChangeAllowed, LiveRootSelections, permissionTargetWorkspace, protocolHandshake, renameWorkspacePaths, rootRemovalBlocker, selectRootWorkspace, sendWebSocketData, transactionalRootSelection, WorkspaceWatchBatcher } from "./server.js";
+
+describe("steering timer-paused workflow sessions", () => {
+  const timer = { id: "timer", workspace: "/workflow/chat", provider: "codex", dueAt: "2099-01-01T00:00:00.000Z", workflowRunId: "run", workflowBlockId: "chat", workflowFlow: true };
+  const session = { id: "owned", status: "done", model: "model", reasoning: "high", configuration: { model: "model", reasoning: "high", autopilot: true }, messages: [] };
+
+  it("starts another turn in the idle session and restores its workflow tools", async () => {
+    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => session), steer: vi.fn(async () => { throw new Error("not currently working"); }), send: vi.fn(async () => ({ ...session, status: "in_progress" })) };
+    const timers = { next: vi.fn(async () => timer) };
+    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    expect(provider.steer).not.toHaveBeenCalled();
+    expect(provider.send).toHaveBeenCalledWith("/workflow/chat", expect.objectContaining({ prompt: "Check now", configuration: session.configuration, mcpServers: [expect.objectContaining({ name: expect.any(String) })] }));
+    expect(JSON.stringify(provider.send.mock.calls)).toContain("chat");
+  });
+
+  it("uses live steering for an active turn and rejects an idle session without a workflow timer", async () => {
+    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => ({ ...session, status: "in_progress" })), steer: vi.fn(async () => session), send: vi.fn() };
+    const timers = { next: vi.fn(async () => undefined) };
+    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    expect(provider.steer).toHaveBeenCalledWith("/workflow/chat", "Check now");
+    expect(provider.send).not.toHaveBeenCalled();
+    provider.get.mockResolvedValue(session);
+    await expect(steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace")).rejects.toThrow("no longer working");
+  });
+
+  it("refreshes a short response even if the turn finishes between timer polls", async () => {
+    vi.useFakeTimers();
+    try {
+      let active = true;
+      const reply = { ...session, messages: [{ id: "reply", role: "assistant", text: "Checked", timestamp: "now" }] };
+      const provider = { descriptor: { id: "codex" }, get: vi.fn().mockResolvedValueOnce(session).mockResolvedValue(reply) };
+      const timers = { next: vi.fn(async () => timer) };
+      const activity = vi.fn(async (current) => { if (current === reply) active = false; });
+      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      await vi.advanceTimersByTimeAsync(1000);
+      await settled;
+      expect(activity).toHaveBeenCalledWith(reply, timer.dueAt);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("observes a steered turn before the existing timer fires", async () => {
+    vi.useFakeTimers();
+    try {
+      let current = session;
+      let active = true;
+      const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => current) };
+      const timers = { next: vi.fn(async () => timer) };
+      const activity = vi.fn(async (_session, waitingUntil) => { if (!waitingUntil) active = false; });
+      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(activity).toHaveBeenCalledWith(session, timer.dueAt);
+      current = { ...session, status: "in_progress" };
+      await vi.advanceTimersByTimeAsync(1000);
+      await settled;
+      expect(activity).toHaveBeenCalledWith(current);
+      expect(timers.next).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
 
 describe("workflow snapshot policy", () => {
   it("skips use-connected helpers while retaining lead and follow-block snapshots", () => {

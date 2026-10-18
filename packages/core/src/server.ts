@@ -326,7 +326,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     },
     changed: () => { for (const root of roots.list()) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: root.id } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); } }
   });
-  const harnessRunner = (rootId: string) => {
+  const harnessRunner = (rootId: string): HarnessRunner => {
     if (draining) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
     let runner = harnessRunners.get(rootId);
     if (!runner) {
@@ -337,7 +337,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       }, 4, undefined, (document) => {
         const event = JSON.stringify({ type: "workflow.document", payload: { rootId, ...document } } satisfies ServerEvent);
         for (const socket of activeSessions) sendWebSocketData(socket, event);
-      }, (provider, workspace, input) => acp.get(provider).steer(workspace, input));
+      }, (provider, workspace, input) => steerWorkflowSession(acp.get(provider), workspace, input, aiTimers, roots.get(rootId).path, rootWorkspace));
       harnessRunners.set(rootId, runner);
     }
     return runner;
@@ -1233,7 +1233,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (!option) throw new CoreError("INVALID_REQUEST", "This provider does not support Autopilot");
       return provider.configure(target, { [option.option.id]: enabled ? option.on : option.off });
     }) };
-    case "harnesses.steer": return { run: await harnessRunner.steerChat(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.input, (provider, target, input) => acp.get(provider).steer(target, input)) };
+    case "harnesses.steer": return { run: await harnessRunner.steerChat(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.input, (provider, target, input) => steerWorkflowSession(acp.get(provider), target, input, aiTimers, rootWorkspace, bridgeWorkspace)) };
     case "harnesses.append": return { run: await harnessRunner.appendInput(request.payload.runId, request.payload.input) };
     case "harnesses.permission.resolve": return { run: await harnessRunner.resolvePermission(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.pauseId, request.payload.requestId, request.payload.optionId, async (provider, target, requestId, optionId) => acp.get(provider).resolvePermission(target, requestId, optionId)) };
     case "harnesses.answer": return { run: await harnessRunner.answerQuestion(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.pauseId, request.payload.input, async (provider, target, input) => acp.get(provider).steer(target, input)) };
@@ -1683,6 +1683,18 @@ export function workflowConfiguration(options: AiOption[], block: Pick<HarnessBl
   return { ...(block.model ? { model: block.model } : {}), ...(block.reasoning ? { reasoning: block.reasoning } : {}), ...workflowFeatureOptions(options, block), ...(autopilot ? { [autopilot.option.id]: block.autopilot === false ? autopilot.off : autopilot.on } : {}) };
 }
 
+/** Timer-paused workflows can own an idle provider turn; resume that same conversation. */
+export async function steerWorkflowSession(provider: ReturnType<AcpRegistry["get"]>, workspace: string, input: string, timers: Pick<AiTimerService, "next">, rootWorkspace: string, bridgeWorkspace: string) {
+  const session = await provider.get(workspace);
+  if (session.status === "in_progress" || session.status === "user_prompt") return provider.steer(workspace, input);
+  const timer = await timers.next(workspace, provider.descriptor.id);
+  if (!timer?.workflowRunId || !timer.workflowBlockId) throw new CoreError("INVALID_REQUEST", "Workflow session is no longer working or waiting for a timer");
+  return provider.send(workspace, {
+    prompt: input, configuration: session.configuration ?? { model: session.model, reasoning: session.reasoning },
+    mcpServers: [appToolServer(rootWorkspace, workspace, provider.descriptor.id, bridgeWorkspace, { runId: timer.workflowRunId, blockId: timer.workflowBlockId, flow: timer.workflowFlow })],
+  });
+}
+
 export async function settleWorkflowSession(provider: ReturnType<AcpRegistry["get"]>, workspace: string, timers: Pick<AiTimerService, "next" | "scheduleAt">, watchdog?: { runId: string; blockId: string }, active: () => boolean = () => true, activity?: (session: AiSession, waitingUntil?: string) => Promise<void>) {
   let session = await provider.get(workspace);
   for (;;) {
@@ -1698,7 +1710,12 @@ export async function settleWorkflowSession(provider: ReturnType<AcpRegistry["ge
     await activity?.(session, timer?.dueAt);
     if (session.status === "user_prompt" && !timer && activity) { await delay(250); session = await provider.get(workspace); continue; }
     if (!timer) return session;
-    while (active() && await timers.next(workspace, provider.descriptor.id)) await delay(Math.min(250, Math.max(10, new Date(timer.dueAt).getTime() - Date.now())));
+    while (active() && (timer = await timers.next(workspace, provider.descriptor.id))) {
+      await delay(Math.min(250, Math.max(10, new Date(timer.dueAt).getTime() - Date.now())));
+      session = await provider.get(workspace);
+      if (session.status === "in_progress" || session.pendingPermission) break;
+      await activity?.(session, timer.dueAt);
+    }
     await delay(250); session = await provider.get(workspace);
   }
 }
