@@ -12,7 +12,7 @@ export function summarizeAction(action: ScheduledAction): ScheduledActionSummary
 
 export function summarizeSchedule(item: WorkspaceSchedule): ScheduleSummary {
   return {
-    id: item.id, revision: item.revision ?? "", rootId: item.rootId, name: item.name.slice(0, 180), enabled: item.enabled, dueAt: item.dueAt,
+    id: item.id, revision: item.revision ?? "", rootId: item.rootId, name: item.name.slice(0, 180), enabled: item.enabled, dueAt: item.dueAt, ...(item.launching ? { launching: true } : {}),
     ...(item.intervalSeconds ? { intervalSeconds: item.intervalSeconds } : {}), ...(item.taskId ? { taskId: item.taskId } : {}),
     ...(item.lastRunAt ? { lastRunAt: item.lastRunAt } : {}), ...(item.lastError ? { lastError: clip(item.lastError, 400)! } : {}), ...(item.lastWorkflowRunId ? { lastWorkflowRunId: item.lastWorkflowRunId } : {}),
     action: summarizeAction(item.action)

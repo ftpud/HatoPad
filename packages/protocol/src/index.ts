@@ -226,7 +226,7 @@ export type ScheduledAction =
 export type ScheduleInput = { name: string; dueAt: string; intervalSeconds?: number; taskId?: string; action: ScheduledAction };
 /** Content-free action summary: no prompt or workflow input text. */
 export type ScheduledActionSummary = { type: "prompt"; provider: AiProvider; newSession?: boolean; agent?: AgentFileReference; model?: string; reasoning?: string } | { type: "workflow"; provider: AiProvider; harnessId: string; startBlockId?: string };
-export type ScheduleSummary = { id: string; revision: string; rootId: WorkspaceRootId; name: string; enabled: boolean; dueAt: string; intervalSeconds?: number; taskId?: string; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string; action: ScheduledActionSummary };
+export type ScheduleSummary = { launching?: boolean; id: string; revision: string; rootId: WorkspaceRootId; name: string; enabled: boolean; dueAt: string; intervalSeconds?: number; taskId?: string; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string; action: ScheduledActionSummary };
 export type TriggerSummary = { id: string; revision: string; rootId: WorkspaceRootId; name: string; enabled: boolean; source: TriggerSource; taskId?: string; debounceSeconds?: number; maxFiresPerHour?: number; fireCount: number; recentFires?: number; capResetsAt?: string; firing?: boolean; lastFiredAt?: string; lastSkipped?: string; lastError?: string; action: ScheduledActionSummary };
 /** Page limits for schedule/trigger summaries; definitions are read one at a time. */
 export const automationPageLimits = { defaultItems: 25, maxItems: 25 } as const;
