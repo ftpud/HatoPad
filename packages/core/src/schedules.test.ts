@@ -243,3 +243,15 @@ it("stops automatic retries when damaged state prevents recording a launch failu
     await service.setEnabled(schedule.id, false);
   }
 });
+
+it("updates schedules atomically with root ownership and stale revision checks", async () => {
+  const { service } = await harness();
+  const created = await service.create("root-a", input());
+  const revision = service.list(true)[0]!.revision!;
+  await expect(service.update(created.id, "root-b", input({ name: "wrong root" }), true, revision)).rejects.toThrow("this root");
+  const updated = await service.update(created.id, "root-a", input({ name: "Updated" }), false, revision);
+  expect(updated).toMatchObject({ id: created.id, name: "Updated", enabled: false, rootId: "root-a" });
+  expect(updated.revision).not.toBe(revision);
+  await expect(service.update(created.id, "root-a", input({ name: "stale" }), true, revision)).rejects.toThrow("refresh");
+  expect(service.list()[0]!.name).toBe("Updated");
+});

@@ -132,3 +132,15 @@ describe("reactive triggers", () => {
     await vi.waitFor(() => expect(second.list()[0]).toMatchObject({ enabled: true, fireCount: 1 }));
   });
 });
+
+it("retains trigger identity and counters when updating and rejects stale or foreign-root edits", async () => {
+  const { service, dir } = await harness();
+  const input: TriggerInput = { name: "Original", source: { type: "file", path: path.join(dir, "watched"), events: ["changed"] }, action };
+  const created = await service.create("root-a", input);
+  const revision = service.list(true)[0]!.revision!;
+  await expect(service.update(created.id, { ...input, name: "foreign" }, false, revision, "root-b")).rejects.toThrow("this root");
+  const updated = await service.update(created.id, { ...input, name: "Updated" }, false, revision, "root-a");
+  expect(updated).toMatchObject({ id: created.id, name: "Updated", rootId: "root-a", fireCount: 0, enabled: false });
+  await expect(service.update(created.id, input, true, revision, "root-a")).rejects.toThrow("refresh");
+  expect(service.list()[0]!.name).toBe("Updated");
+});

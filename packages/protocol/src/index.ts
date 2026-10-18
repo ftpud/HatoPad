@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -214,12 +214,12 @@ export type ScheduledAction =
   | { type: "prompt"; provider: AiProvider; prompt: string; agent?: AgentFileReference; /** Start a context-empty session instead of continuing the current one; agent, model and reasoning only apply then. */ newSession?: boolean; /** Overrides the session's model for this prompt. */ model?: string; /** Overrides the session's reasoning effort for this prompt. */ reasoning?: string }
   | { type: "workflow"; provider: AiProvider; harnessId: string; input: string; startBlockId?: string };
 export type ScheduleInput = { name: string; dueAt: string; intervalSeconds?: number; taskId?: string; action: ScheduledAction };
-export type WorkspaceSchedule = ScheduleInput & { id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string };
+export type WorkspaceSchedule = ScheduleInput & { revision?: string; id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string };
 export type TriggerFileEvent = "created" | "changed" | "deleted";
 /** What a trigger watches: a file/directory (polled for changes) or a named pipe (FIFO) whose incoming data fires it. */
 export type TriggerSource = { type: "file"; path: string; events: TriggerFileEvent[] } | { type: "fifo"; path: string };
 export type TriggerInput = { name: string; source: TriggerSource; taskId?: string; action: ScheduledAction; debounceSeconds?: number; maxFiresPerHour?: number };
-export type WorkspaceTrigger = TriggerInput & { id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; fireCount: number; lastFiredAt?: string; lastEvent?: string; lastSkipped?: string; lastError?: string; lastWorkflowRunId?: string };
+export type WorkspaceTrigger = TriggerInput & { revision?: string; id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; fireCount: number; lastFiredAt?: string; lastEvent?: string; lastSkipped?: string; lastError?: string; lastWorkflowRunId?: string };
 /** One explicitly registered Run App launch, including surviving descendants. */
 export type ManagedWorkflowApp = { kind: "workflow-app"; id: string; name: string; pid: number; launcherPid?: number; command: string; status: "running" | "descendants-running"; processCount: number; workspace: string; rootWorkspace: string; taskId?: string; taskName?: string; workflowRunId?: string; workflowBlockId?: string };
 export type ManagedProcess = { id: string; pid: number; command: string; status: "running"; workspace: string; rootWorkspace: string; taskId?: string; taskName?: string; workflowRunId?: string; workflowBlockId?: string; provider?: string; sessionId?: string; kind: "agent" | "command" | "workflow-app"; appName?: string; parentPid?: number };
@@ -400,19 +400,22 @@ export type ProtocolOperations = {
   "schedules.agents": { payload: { taskId?: string }; result: { agents: AgentFile[] } };
   "schedules.list": { payload: Record<string, never>; result: { schedules: WorkspaceSchedule[] } };
   "schedules.create": { payload: ScheduleInput; result: { schedule: WorkspaceSchedule } };
+  "schedules.update": { payload: { scheduleId: string; input: ScheduleInput; enabled: boolean; expectedRevision: string }; result: { schedule: WorkspaceSchedule } };
   "schedules.enabled": { payload: { scheduleId: string; enabled: boolean }; result: { schedule: WorkspaceSchedule } };
   "schedules.delete": { payload: { scheduleId: string }; result: { deleted: boolean } };
   "schedules.fire": { payload: { scheduleId: string }; result: { fired: boolean } };
   "triggers.list": { payload: Record<string, never>; result: { triggers: WorkspaceTrigger[] } };
   "triggers.create": { payload: TriggerInput; result: { trigger: WorkspaceTrigger } };
+  "triggers.update": { payload: { triggerId: string; input: TriggerInput; enabled: boolean; expectedRevision: string }; result: { trigger: WorkspaceTrigger } };
   "triggers.enabled": { payload: { triggerId: string; enabled: boolean }; result: { trigger: WorkspaceTrigger } };
   "triggers.delete": { payload: { triggerId: string }; result: { deleted: boolean } };
   "triggers.fire": { payload: { triggerId: string }; result: { fired: boolean } };
   "processes.list": { payload: Record<string, never>; result: { processes: ManagedWorkflowApp[] } };
   "processes.kill": { payload: { processId: string }; result: { killed: boolean } };
-  "timers.list": { payload: Record<string, never>; result: { timers: AiContinuationTimer[] } };
-  "timers.cancel": { payload: { timerId: string }; result: { cancelled: boolean } };
-  "timers.fire": { payload: { timerId: string }; result: { fired: boolean } };
+  "timers.list": { payload: { rootScoped?: boolean }; result: { timers: AiContinuationTimer[] } };
+  "timers.create": { payload: { taskId?: string; provider: AiProvider; prompt: string; seconds?: number; dueAt?: string }; result: { timer: AiContinuationTimer } };
+  "timers.cancel": { payload: { timerId: string; rootScoped?: boolean }; result: { cancelled: boolean } };
+  "timers.fire": { payload: { timerId: string; rootScoped?: boolean }; result: { fired: boolean } };
   "timers.cancelAll": { payload: Record<string, never>; result: { cancelled: number; pausedSchedules: number } };
   "tasks.timer.cancel": { payload: { taskId?: string }; result: { cancelled: boolean } };
   "tasks.timer.fire": { payload: { taskId?: string }; result: { fired: boolean } };
@@ -609,6 +612,11 @@ export type ProtocolOperations = {
     payload: { terminalId: string };
     result: Record<string, never>;
   };
+  "git.summary": { payload: { limit?: number; offset?: number }; result: GitSummary };
+  "taskGit.summary": { payload: { limit?: number; offset?: number }; result: { checkpoints: TaskCheckpointSummary[]; nextOffset?: number } };
+  "tasks.commitMessage.get": { payload: { taskId: string }; result: { message: string; head: string } };
+  "tasks.commitMessage.set": { payload: { taskId: string; message: string }; result: { message: string } };
+  "tasks.commitMessage.update": { payload: { taskId: string; message: string; expectedHead: string }; result: { previousCommit: string; commit: string; message: string } };
   "git.status": {
     payload: Record<string, never>;
     result: { branch: string; entries: GitStatusEntry[]; upstream?: GitUpstreamStatus };
@@ -896,11 +904,13 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "tasks.merge": true,
   "schedules.agents": true,
   "schedules.list": true,
+  "schedules.update": true,
   "schedules.create": true,
   "schedules.enabled": true,
   "schedules.delete": true,
   "schedules.fire": true,
   "triggers.list": true,
+  "triggers.update": true,
   "triggers.create": true,
   "triggers.enabled": true,
   "triggers.delete": true,
@@ -908,6 +918,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "processes.list": true,
   "processes.kill": true,
   "timers.list": true,
+  "timers.create": true,
   "timers.cancel": true,
   "timers.fire": true,
   "timers.cancelAll": true,
@@ -1027,6 +1038,11 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "terminal.input": true,
   "terminal.resize": true,
   "terminal.close": true,
+  "git.summary": true,
+  "taskGit.summary": true,
+  "tasks.commitMessage.get": true,
+  "tasks.commitMessage.set": true,
+  "tasks.commitMessage.update": true,
   "git.status": true,
   "git.diff": true,
   "git.stage": true,
@@ -1142,3 +1158,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
 export const requestTypes: RequestType[] = Object.keys(requestTypeRegistry) as RequestType[];
 
 export { isServerEvent, serverEventTypes } from "./server-events.js";
+
+/** Content-free bounded Git inventory. Null counts explicitly mean unavailable/binary. */
+export type GitSummary = { branch: string; upstream?: GitUpstreamStatus; clean: boolean; totalFiles: number; additions: number; deletions: number; unknownCounts: number; revision: string; nextOffset?: number; entries: (GitStatusEntry & { additions: number | null; deletions: number | null; group: "conflicted" | "untracked" | "staged" | "working-tree" })[] };
+export type TaskCheckpointSummary = Pick<TaskCheckpoint, "id" | "promptId" | "provider" | "sessionId" | "startedAt" | "completedAt" | "status"> & { fileCount: number; additions: number; deletions: number; unknownCounts: number };

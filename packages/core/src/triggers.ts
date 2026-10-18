@@ -35,6 +35,8 @@ export function validateTrigger(input: TriggerInput): void {
   validateScheduledAction(input.action);
 }
 
+function revision(value: object): string { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
+
 type TriggerFile = { triggers: WorkspaceTrigger[] };
 
 /**
@@ -64,7 +66,7 @@ export class TriggerService {
     for (const trigger of this.triggers) void this.arm(trigger);
   }
 
-  list(): WorkspaceTrigger[] { return this.triggers.map((trigger) => structuredClone(trigger)).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
+  list(includeRevision = false): WorkspaceTrigger[] { return this.triggers.map((trigger) => structuredClone({ ...trigger, ...(includeRevision ? { revision: revision(trigger) } : {}) })).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); }
 
   /** `input.source.path` must already be absolute. */
   async create(rootId: string, input: TriggerInput): Promise<WorkspaceTrigger> {
@@ -80,18 +82,24 @@ export class TriggerService {
   }
 
   /** Replaces a trigger's definition (used by the configuration interface); counters and history are kept. */
-  async update(id: string, input: TriggerInput, enabled: boolean): Promise<WorkspaceTrigger> {
+  async update(id: string, input: TriggerInput, enabled: boolean, expectedRevision?: string, rootId?: string): Promise<WorkspaceTrigger> {
     this.assertOpen();
     validateTrigger(input);
     if (!path.isAbsolute(input.source.path)) throw new CoreError("INVALID_REQUEST", "Trigger paths must be absolute");
     if (!this.triggers.some((item) => item.id === id)) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists");
     if (input.source.type === "fifo") await ensureFifo(input.source.path);
-    this.cancel(id);
-    await this.mutate((items) => items.map((item) => item.id === id ? { ...structuredClone(input), name: input.name.trim(), id, rootId: item.rootId, createdAt: item.createdAt, fireCount: item.fireCount, enabled, ...(item.lastFiredAt ? { lastFiredAt: item.lastFiredAt } : {}), ...(item.lastEvent ? { lastEvent: item.lastEvent } : {}), ...(item.lastWorkflowRunId ? { lastWorkflowRunId: item.lastWorkflowRunId } : {}) } : item));
+    if (typeof enabled !== "boolean") throw new CoreError("INVALID_REQUEST", "Enabled must be a boolean");
+    await this.mutate((items) => {
+      const previous = items.find(item => item.id === id && (rootId === undefined || item.rootId === rootId));
+      if (!previous) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists in this root");
+      if ((expectedRevision !== undefined && revision(previous) !== expectedRevision) || this.running.has(id)) throw new CoreError("INVALID_REQUEST", "Trigger changed or is firing; refresh before editing");
+      return items.map((item) => item.id === id ? { ...structuredClone(input), name: input.name.trim(), id, rootId: item.rootId, createdAt: item.createdAt, fireCount: item.fireCount, enabled, ...(item.lastFiredAt ? { lastFiredAt: item.lastFiredAt } : {}), ...(item.lastEvent ? { lastEvent: item.lastEvent } : {}), ...(item.lastWorkflowRunId ? { lastWorkflowRunId: item.lastWorkflowRunId } : {}) } : item);
+    });
     const trigger = this.triggers.find((item) => item.id === id);
     if (!trigger) throw new CoreError("FILE_NOT_FOUND", "Trigger no longer exists");
+    this.cancel(id);
     void this.arm(trigger);
-    return structuredClone(trigger);
+    return this.list(true).find(item => item.id === id)!;
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<WorkspaceTrigger> {
@@ -279,7 +287,12 @@ export class TriggerService {
       this.triggers = items;
       this.changed();
     }));
-    this.writes = write;
+    // Rejected optimistic edits are handled requests, not failed shutdown work.
+    this.writes = write.catch(error => {
+      if (error instanceof CoreError && ["INVALID_REQUEST", "FILE_NOT_FOUND"].includes(error.code)) return;
+      throw error;
+    });
+    void this.writes.catch(() => undefined);
     await write;
   }
 }

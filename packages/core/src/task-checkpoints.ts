@@ -5,7 +5,8 @@ import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chmod, lstat, mkdir, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
-import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance } from "@hatopad/protocol";
+import type { AiProvider, TaskCheckpoint, TaskCheckpointFile, TaskCheckpointProvenance, TaskCheckpointSummary } from "@hatopad/protocol";
+import { diffLines } from "diff";
 import { CoreError } from "./errors.js";
 
 const execFileAsync = promisify(execFile);
@@ -52,6 +53,26 @@ export class TaskCheckpointStore {
   async history(): Promise<TaskCheckpoint[]> {
     const checkpoints = await this.all();
     return checkpoints.map((item) => ({ id: item.id, promptId: item.promptId, provider: item.provider, prompt: item.prompt, startedAt: item.startedAt, status: item.status, ...(item.sessionId ? { sessionId: item.sessionId } : {}), ...(item.completedAt ? { completedAt: item.completedAt } : {}), ...(item.provenance ? { provenance: item.provenance } : {}), files: changes(item.before, item.after ?? item.before) }));
+  }
+
+  async summary(limit = 25, offset = 0): Promise<{ checkpoints: TaskCheckpointSummary[]; nextOffset?: number }> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0 || offset > 10_000) throw new CoreError("INVALID_REQUEST", "Choose a valid checkpoint page");
+    const all = await this.all();
+    const checkpoints = await Promise.all(all.slice(offset, offset + limit).map(async item => {
+      const files = changes(item.before, item.after ?? item.before);
+      let additions = 0, deletions = 0, unknownCounts = 0;
+      for (const file of files) {
+        const before = item.before[file.originalPath ?? file.path], after = item.after?.[file.path];
+        if (before?.binary || after?.binary || (before?.size ?? 0) + (after?.size ?? 0) > 512 * 1024) { unknownCounts++; continue; }
+        const a = before ? (await this.blob(before.hash)).toString("utf8") : "";
+        const b = after ? (await this.blob(after.hash)).toString("utf8") : "";
+        const delta = diffLines(a, b, { timeout: 25, maxEditLength: 10_000 });
+        if (!delta) { unknownCounts++; continue; }
+        for (const part of delta) { if (part.added) additions += part.count; if (part.removed) deletions += part.count; }
+      }
+      return { id: item.id, promptId: item.promptId, provider: item.provider, ...(item.sessionId ? { sessionId: item.sessionId } : {}), startedAt: item.startedAt, ...(item.completedAt ? { completedAt: item.completedAt } : {}), status: item.status, fileCount: files.length, additions, deletions, unknownCounts };
+    }));
+    return { checkpoints, ...(offset + limit < all.length ? { nextOffset: offset + limit } : {}) };
   }
 
   async diff(id: string, filePath: string): Promise<{ originalContent: string; modifiedContent: string; binary: boolean; truncated: boolean }> {

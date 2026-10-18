@@ -59,3 +59,21 @@ describe("TaskCheckpointStore", () => {
     expect(checkpoint.provenance).toMatchObject({ model: "model-a", agent: { name: "Oleg" }, attachments: [{ name: "brief.md" }], usage: { total: 10 }, commit: expect.stringMatching(/^[0-9a-f]{40}$/) });
   });
 });
+
+it("returns paged checkpoint counts without prompt or file bodies", async () => {
+  const { workspace, store } = await fixture();
+  const first = await store.begin("codex", "PRIVATE PROMPT");
+  await writeFile(path.join(workspace, "tracked.txt"), "after\n");
+  await store.complete(first, "completed");
+  const second = await store.begin("codex", "SECOND PRIVATE PROMPT");
+  await writeFile(path.join(workspace, "new.txt"), "one\ntwo\n");
+  await store.complete(second, "completed");
+  const page = await store.summary(1);
+  expect(page.checkpoints).toHaveLength(1); expect(page.nextOffset).toBe(1);
+  expect(JSON.stringify(page)).not.toContain("PRIVATE PROMPT");
+  expect(JSON.stringify(page)).not.toContain("one\\ntwo");
+  const all = [...page.checkpoints, ...(await store.summary(1, 1)).checkpoints];
+  expect(all.find(item => item.id === first)).toMatchObject({ fileCount: 1, additions: 1, deletions: 1, unknownCounts: 0 });
+  expect(all.find(item => item.id === second)).toMatchObject({ fileCount: 1, additions: 2, deletions: 0 });
+  await expect(store.summary(101)).rejects.toThrow("page");
+});

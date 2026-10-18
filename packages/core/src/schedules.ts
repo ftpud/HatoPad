@@ -33,6 +33,7 @@ function abandoned(launch: PendingLaunch): boolean {
   try { process.kill(launch.pid, 0); return false; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
 }
+function revision(value: object): string { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function withoutLaunch(schedule: StoredSchedule): WorkspaceSchedule { const { pendingLaunch: _pendingLaunch, ...value } = schedule; return value; }
 function interrupted(schedule: StoredSchedule): WorkspaceSchedule { return { ...withoutLaunch(schedule), enabled: false, lastError: UNKNOWN_LAUNCH }; }
 function publicSchedule(schedule: StoredSchedule): WorkspaceSchedule {
@@ -122,7 +123,7 @@ export class ScheduleService {
     }
   }
 
-  list(): WorkspaceSchedule[] { return this.schedules.map((schedule) => structuredClone(publicSchedule(schedule))).sort((a, b) => a.dueAt.localeCompare(b.dueAt)); }
+  list(includeRevision = false): WorkspaceSchedule[] { return this.schedules.map((schedule) => structuredClone({ ...publicSchedule(schedule), ...(includeRevision ? { revision: revision(schedule) } : {}) })).sort((a, b) => a.dueAt.localeCompare(b.dueAt)); }
 
   async create(rootId: string, input: ScheduleInput): Promise<WorkspaceSchedule> {
     this.assertOpen();
@@ -133,6 +134,21 @@ export class ScheduleService {
     await this.mutate((items) => [...items, schedule]);
     this.arm(schedule);
     return schedule;
+  }
+
+  async update(id: string, rootId: string, input: ScheduleInput, enabled: boolean, expectedRevision: string): Promise<WorkspaceSchedule> {
+    this.assertOpen(); validateSchedule(input);
+    if (typeof enabled !== "boolean" || typeof expectedRevision !== "string") throw new CoreError("INVALID_REQUEST", "Enabled and expected revision are required");
+    if (enabled && Date.parse(input.dueAt) <= Date.now()) throw new CoreError("INVALID_REQUEST", "First run time must be in the future");
+    await this.mutate(items => {
+      const previous = items.find(item => item.id === id && item.rootId === rootId);
+      if (!previous) throw new CoreError("FILE_NOT_FOUND", "Schedule no longer exists in this root");
+      if (revision(previous) !== expectedRevision || previous.pendingLaunch || this.running.has(id)) throw new CoreError("INVALID_REQUEST", "Schedule changed or is launching; refresh before editing");
+      return items.map(item => item.id === id ? { ...item, ...structuredClone(input), name: input.name.trim(), dueAt: new Date(input.dueAt).toISOString(), enabled } : item);
+    });
+    this.cancellationEpochs.set(id, (this.cancellationEpochs.get(id) ?? 0) + 1);
+    this.disarm(id); this.arm(this.schedules.find(item => item.id === id)!);
+    return this.list(true).find(item => item.id === id)!;
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<WorkspaceSchedule> {
@@ -250,7 +266,12 @@ export class ScheduleService {
         this.changed();
       });
     });
-    this.writes = write;
+    // Rejected optimistic edits are handled requests, not failed shutdown work.
+    this.writes = write.catch(error => {
+      if (error instanceof CoreError && ["INVALID_REQUEST", "FILE_NOT_FOUND"].includes(error.code)) return;
+      throw error;
+    });
+    void this.writes.catch(() => undefined);
     await write;
   }
 

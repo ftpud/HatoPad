@@ -175,6 +175,14 @@ export class WorkspaceTaskStore {
     }, this.directory);
   }
 
+  async getCommitMessage(taskId: string): Promise<{ message: string; head: string }> {
+    if (!(await this.list()).tasks.some(task => task.id === taskId)) throw new CoreError("FILE_NOT_FOUND", "Task no longer exists");
+    const workspace = this.taskPath(taskId);
+    const options = await new WorkspaceStateStore(workspace, this.stateDirectory).load();
+    let head = ""; try { head = (await taskGit(workspace, ["rev-parse", "--verify", "HEAD"])).stdout.trim(); } catch { /* Unborn branch. */ }
+    return { message: options.gitCommitMessage ?? "", head };
+  }
+
   async setCommitMessage(workspace: string, message: string): Promise<TaskCommitMessageUpdate> {
     if (typeof message !== "string" || !message.trim()) throw new CoreError("INVALID_REQUEST", "Commit message must contain at least one non-whitespace character");
     if (message.length > 10_000) throw new CoreError("INVALID_REQUEST", "Commit message must be at most 10000 characters");
@@ -191,7 +199,7 @@ export class WorkspaceTaskStore {
     }, this.directory);
   }
 
-  async updateGitCommitMessage(taskId: string, message: string): Promise<TaskGitCommitMessageUpdate> {
+  async updateGitCommitMessage(taskId: string, message: string, expectedHead?: string): Promise<TaskGitCommitMessageUpdate> {
     validateCommitMessage(message);
     return serializedRootMutation(this.rootWorkspace, async () => {
       const registry = await this.listUnlocked();
@@ -205,6 +213,8 @@ export class WorkspaceTaskStore {
         let previousCommit: string;
         try { previousCommit = (await execFileAsync("git", ["-C", workspace, "rev-parse", "--verify", "HEAD"], { encoding: "utf8" })).stdout.trim(); }
         catch { throw new CoreError("INVALID_REQUEST", `Task '${taskId}' has no commit to update`); }
+
+        if (expectedHead !== undefined && previousCommit !== expectedHead) throw new CoreError("INVALID_REQUEST", "Task HEAD changed; refresh before updating the commit message");
 
         const taskCommitCount = Number((await execFileAsync("git", ["-C", workspace, "rev-list", "--count", `${task.baseBranch}..HEAD`], { encoding: "utf8" })).stdout.trim());
         if (!taskCommitCount) throw new CoreError("INVALID_REQUEST", `Task '${taskId}' has no task commit to update`);

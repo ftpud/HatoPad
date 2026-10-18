@@ -10,8 +10,9 @@ import { coreCapabilities, protocolCompatibility } from "@hatopad/protocol";
 import { createServer, shutdownCore } from "./server.js";
 
 it("advertises capabilities and bounds file, diff and conversation reads", async () => {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "phone-bounds-")));
-  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
+  const container = await realpath(await mkdtemp(path.join(os.tmpdir(), "phone-bounds-")));
+  const directory = path.join(container, "repo"); await mkdir(directory);
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(container, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let socket: WebSocket | undefined;
   try {
@@ -41,6 +42,42 @@ it("advertises capabilities and bounds file, diff and conversation reads", async
     const handshake = await request("protocol.handshake", { compatibility: protocolCompatibility });
     expect(handshake.result.capabilities).toEqual([...coreCapabilities]);
     const rootId = (await request("workspace.roots", {})).result.selectedRootId as string;
+
+    const scheduleInput = { name: "Cloud schedule", dueAt: new Date(Date.now() + 86_400_000).toISOString(), action: { type: "prompt", provider: "codex", prompt: "Synthetic check" } };
+    const scheduleCreated = await request("schedules.create", scheduleInput, rootId);
+    expect(scheduleCreated).toMatchObject({ ok: true });
+    const schedule = (await request("schedules.list", {}, rootId)).result.schedules[0];
+    expect(typeof schedule.revision).toBe("string");
+    expect(await request("schedules.update", { scheduleId: schedule.id, input: { ...scheduleInput, rootId: "foreign" }, enabled: true, expectedRevision: schedule.revision }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("schedules.update", { scheduleId: schedule.id, input: { ...scheduleInput, name: "Updated" }, enabled: false, expectedRevision: schedule.revision }, rootId)).toMatchObject({ ok: true, result: { schedule: { id: schedule.id, name: "Updated", enabled: false } } });
+    expect(await request("schedules.update", { scheduleId: schedule.id, input: scheduleInput, enabled: true, expectedRevision: schedule.revision }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    const secondRootPath = path.join(directory, "second-root"); await mkdir(secondRootPath);
+    const secondRoot = (await request("workspace.addRoot", { path: secondRootPath, alias: "Other" })).result.root.id;
+    expect(await request("workspace.selectRoot", { rootId: secondRoot, includeTree: false }, rootId)).toMatchObject({ ok: true });
+    expect((await request("schedules.list", {}, secondRoot)).result.schedules).toEqual([]);
+    expect(await request("schedules.delete", { scheduleId: schedule.id }, secondRoot)).toMatchObject({ ok: false, error: { code: "FILE_NOT_FOUND" } });
+    await request("workspace.selectRoot", { rootId, includeTree: false }, secondRoot);
+    const timer = await request("timers.create", { provider: "codex", prompt: "Synthetic continuation", seconds: 86_400 }, rootId);
+    expect(timer).toMatchObject({ ok: true });
+    await request("workspace.selectRoot", { rootId: secondRoot, includeTree: false }, rootId);
+    expect((await request("timers.list", { rootScoped: true }, secondRoot)).result.timers).toEqual([]);
+    expect(await request("timers.cancel", { timerId: timer.result.timer.id, rootScoped: true }, secondRoot)).toMatchObject({ ok: false, error: { code: "FILE_NOT_FOUND" } });
+    await request("workspace.selectRoot", { rootId, includeTree: false }, secondRoot);
+    for (const payload of [{ seconds: 0 }, { seconds: 604_801 }, { seconds: 60, dueAt: scheduleInput.dueAt }, { dueAt: "invalid" }]) expect(await request("timers.create", { provider: "codex", prompt: "Synthetic", ...payload }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("timers.cancel", { timerId: timer.result.timer.id, rootScoped: "true" }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("timers.cancel", { timerId: timer.result.timer.id }, rootId)).toMatchObject({ ok: true, result: { cancelled: true } });
+    await request("schedules.delete", { scheduleId: schedule.id }, rootId);
+
+    expect((await request("git.summary", { limit: 1 }, rootId)).result).toMatchObject({ additions: 100, deletions: 100 });
+    expect(await request("git.summary", { limit: 501 }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect((await request("taskGit.summary", { limit: 5 }, rootId)).result.checkpoints).toEqual([]);
+    const cloudTask = (await request("tasks.create", { branch: "cloud-message-test" }, rootId)).result.task;
+    expect(await request("tasks.commitMessage.set", { taskId: cloudTask.id, message: "Draft for cloud" }, rootId)).toMatchObject({ ok: true, result: { message: "Draft for cloud" } });
+    expect(await request("tasks.commitMessage.get", { taskId: cloudTask.id }, rootId)).toMatchObject({ ok: true, result: { message: "Draft for cloud", head: expect.any(String) } });
+    expect(await request("tasks.commitMessage.update", { taskId: cloudTask.id, message: "Stale", expectedHead: "0".repeat(40) }, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    await request("workspace.selectRoot", { rootId: secondRoot, includeTree: false }, rootId);
+    expect(await request("tasks.commitMessage.get", { taskId: cloudTask.id }, secondRoot)).toMatchObject({ ok: false, error: { code: "FILE_NOT_FOUND" } });
+    await request("workspace.selectRoot", { rootId, includeTree: false }, secondRoot);
 
     expect(await request("filesystem.readFile", { path: "big.txt", maxBytes: 10 }, rootId)).toMatchObject({ ok: false, error: { code: "FILE_TOO_LARGE" } });
     expect(await request("filesystem.readFile", { path: "big.txt", maxBytes: 1000 }, rootId)).toMatchObject({ ok: true });
@@ -73,7 +110,7 @@ it("advertises capabilities and bounds file, diff and conversation reads", async
     socket?.close();
     if (server) await shutdownCore(server);
     vi.unstubAllEnvs();
-    await rm(directory, { recursive: true, force: true });
+    await rm(container, { recursive: true, force: true });
   }
 }, 20_000);
 

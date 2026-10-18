@@ -16,6 +16,7 @@
     "@hatopad/connector": "0.1.0",
     "@hatopad/protocol": "0.1.0",
     "chokidar": "^4.0.3",
+    "diff": "9.0.0",
     "dotenv": "^18.0.5",
     "fast-xml-parser": "^5.2.5",
     "node-pty": "^1.1.0",

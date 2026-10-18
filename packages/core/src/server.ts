@@ -941,6 +941,27 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (!(await agents.list(task ? tasks.taskPath(task.id) : rootWorkspace)).some((item) => item.scope === preset.scope && item.name === preset.name)) throw new CoreError("FILE_NOT_FOUND", "Agent preset does not exist in the selected task");
     }
   };
+  const assertAutomationOwner = (kind: "schedule" | "trigger", id: string) => {
+    const item = kind === "schedule" ? schedules.list().find(item => item.id === id) : triggers.list().find(item => item.id === id);
+    if (!item || item.rootId !== request.rootId) throw new CoreError("FILE_NOT_FOUND", "Automation no longer exists in this root");
+  };
+  const ownedTimers = async () => {
+    const workspaces = new Set([path.resolve(rootWorkspace), ...(await tasks.list()).tasks.map(task => path.resolve(tasks.taskPath(task.id)))]);
+    const workflowIds = new Set((await harnesses.summaries()).map(run => run.id));
+    return (await aiTimers.list()).filter(timer => workspaces.has(path.resolve(timer.workspace)) || (timer.workflowRunId !== undefined && workflowIds.has(timer.workflowRunId)));
+  };
+  const assertTimerOwner = async (id: string) => {
+    if (!(await ownedTimers()).some(timer => timer.id === id)) throw new CoreError("FILE_NOT_FOUND", "Timer no longer exists in this root");
+  };
+  const automationInput = (input: unknown, kind: "schedule" | "trigger") => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new CoreError("INVALID_REQUEST", "Automation input must be an object");
+    const keys = kind === "schedule" ? ["name", "dueAt", "intervalSeconds", "taskId", "action"] : ["name", "source", "taskId", "action", "debounceSeconds", "maxFiresPerHour"];
+    if (Object.keys(input).some(key => !keys.includes(key))) throw new CoreError("INVALID_REQUEST", "Unknown automation input field");
+  };
+  if (["timers.list", "timers.cancel", "timers.fire"].includes(request.type)) {
+    const scoped = (request.payload as { rootScoped?: unknown }).rootScoped;
+    if (scoped !== undefined && typeof scoped !== "boolean") throw new CoreError("INVALID_REQUEST", "rootScoped must be boolean");
+  }
   const { filesystem, search, git, workspaceState, workspacePath, checkpoints } = services;
   // Legacy java.* requests resolve the Java service through the registry; language.* is the generic path.
   const javaOf = () => services.languages.get("java") as JavaLanguageService;
@@ -994,30 +1015,59 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (request.payload.taskId && !task) throw new CoreError("FILE_NOT_FOUND", "Task no longer exists");
       return { agents: await agents.list(task ? tasks.taskPath(task.id) : rootWorkspace) };
     }
-    case "schedules.list": return { schedules: schedules.list() };
+    case "schedules.list": return { schedules: schedules.list(true).filter(item => item.rootId === request.rootId) };
     case "schedules.create": {
+      automationInput(request.payload, "schedule");
       validateSchedule(request.payload);
       await validateActionTarget(request.payload);
       return { schedule: await schedules.create(request.rootId!, request.payload) };
     }
-    case "schedules.enabled": return { schedule: await schedules.setEnabled(request.payload.scheduleId, request.payload.enabled) };
-    case "schedules.delete": return { deleted: await schedules.delete(request.payload.scheduleId) };
-    case "triggers.list": return { triggers: triggers.list() };
+    case "schedules.update": {
+      automationInput(request.payload.input, "schedule");
+      validateSchedule(request.payload.input); await validateActionTarget(request.payload.input);
+      return { schedule: await schedules.update(request.payload.scheduleId, request.rootId!, request.payload.input, request.payload.enabled, request.payload.expectedRevision) };
+    }
+    case "triggers.update": {
+      automationInput(request.payload.input, "trigger");
+      validateTrigger(request.payload.input); await validateActionTarget(request.payload.input);
+      assertAutomationOwner("trigger", request.payload.triggerId);
+      if (typeof request.payload.expectedRevision !== "string" || !request.payload.expectedRevision) throw new CoreError("INVALID_REQUEST", "Expected revision is required");
+      const input = request.payload.input;
+      return { trigger: await triggers.update(request.payload.triggerId, { ...input, source: { ...input.source, path: path.resolve(rootWorkspace, input.source.path) } }, request.payload.enabled, request.payload.expectedRevision, request.rootId!) };
+    }
+    case "schedules.enabled": { assertAutomationOwner("schedule", request.payload.scheduleId); return { schedule: await schedules.setEnabled(request.payload.scheduleId, request.payload.enabled) }; }
+    case "schedules.delete": { assertAutomationOwner("schedule", request.payload.scheduleId); return { deleted: await schedules.delete(request.payload.scheduleId) }; }
+    case "triggers.list": return { triggers: triggers.list(true).filter(item => item.rootId === request.rootId) };
     case "triggers.create": {
+      automationInput(request.payload, "trigger");
       validateTrigger(request.payload);
       await validateActionTarget(request.payload);
       const source = { ...request.payload.source, path: path.resolve(rootWorkspace, request.payload.source.path) };
       return { trigger: await triggers.create(request.rootId!, { ...request.payload, source }) };
     }
-    case "triggers.enabled": return { trigger: await triggers.setEnabled(request.payload.triggerId, request.payload.enabled) };
-    case "triggers.delete": return { deleted: await triggers.delete(request.payload.triggerId) };
-    case "triggers.fire": return { fired: await triggers.fire(request.payload.triggerId) };
-    case "schedules.fire": return { fired: await schedules.fire(request.payload.scheduleId, true) };
+    case "triggers.enabled": { assertAutomationOwner("trigger", request.payload.triggerId); return { trigger: await triggers.setEnabled(request.payload.triggerId, request.payload.enabled) }; }
+    case "triggers.delete": { assertAutomationOwner("trigger", request.payload.triggerId); return { deleted: await triggers.delete(request.payload.triggerId) }; }
+    case "triggers.fire": { assertAutomationOwner("trigger", request.payload.triggerId); return { fired: await triggers.fire(request.payload.triggerId) }; }
+    case "schedules.fire": { assertAutomationOwner("schedule", request.payload.scheduleId); return { fired: await schedules.fire(request.payload.scheduleId, true) }; }
     case "processes.list": return { processes: await listProjectApps(rootWorkspace, tasks) };
     case "processes.kill": return { killed: await killProjectApp(rootWorkspace, request.payload.processId) };
-    case "timers.list": return { timers: await aiTimers.list() };
-    case "timers.cancel": return { cancelled: await aiTimers.cancel(request.payload.timerId) };
-    case "timers.fire": return { fired: await aiTimers.fireById(request.payload.timerId) };
+    case "timers.create": {
+      const { provider, prompt, seconds, dueAt, taskId } = request.payload;
+      if (typeof provider !== "string" || !provider || typeof prompt !== "string" || !prompt.trim() || prompt.length > 64_000 || (seconds === undefined) === (dueAt === undefined)) throw new CoreError("INVALID_REQUEST", "Choose a provider, prompt and exactly one timer time");
+      acp.get(provider);
+      if (dueAt !== undefined && typeof dueAt !== "string") throw new CoreError("INVALID_REQUEST", "Timer time must be an ISO timestamp");
+      const due = seconds !== undefined ? Date.now() + seconds * 1000 : Date.parse(dueAt!);
+      if (seconds !== undefined && (!Number.isInteger(seconds) || seconds < 1 || seconds > 604_800)) throw new CoreError("INVALID_REQUEST", "Timer delay must be 1 second to 7 days");
+      if (!Number.isFinite(due) || due <= Date.now() || due > Date.now() + 604_800_000) throw new CoreError("INVALID_REQUEST", "Timer time must be in the next 7 days");
+      const target = await permissionTargetWorkspace(tasks, rootWorkspace, taskId);
+      return { timer: await aiTimers.scheduleAt(target, provider, prompt, new Date(due).toISOString()) };
+    }
+    case "timers.list": {
+      if (request.payload.rootScoped !== undefined && typeof request.payload.rootScoped !== "boolean") throw new CoreError("INVALID_REQUEST", "rootScoped must be boolean");
+      return { timers: request.payload.rootScoped ? await ownedTimers() : await aiTimers.list() };
+    }
+    case "timers.cancel": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { cancelled: await aiTimers.cancel(request.payload.timerId) }; }
+    case "timers.fire": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { fired: await aiTimers.fireById(request.payload.timerId) }; }
     case "timers.cancelAll": {
       let pausedSchedules = 0;
       for (const schedule of schedules.list()) if (schedule.enabled) { await schedules.setEnabled(schedule.id, false); pausedSchedules += 1; }
@@ -1327,6 +1377,19 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       runConfigs.onTerminalClosed(workspacePath, request.payload.terminalId);
       terminalHost.close(workspacePath, request.payload.terminalId);
       return {};
+    }
+    case "git.summary": return git.summary(request.payload.limit, request.payload.offset);
+    case "taskGit.summary": return checkpoints.summary(request.payload.limit, request.payload.offset);
+    case "tasks.commitMessage.get": return tasks.getCommitMessage(request.payload.taskId);
+    case "tasks.commitMessage.set": {
+      await tasks.getCommitMessage(request.payload.taskId);
+      const result = await tasks.setCommitMessage(tasks.taskPath(request.payload.taskId), request.payload.message);
+      await new AppEventBridge(bridgeWorkspace).emit({ type: "commit-message.changed", workspace: tasks.taskPath(request.payload.taskId), message: result.message });
+      return { message: result.message };
+    }
+    case "tasks.commitMessage.update": {
+      if (typeof request.payload.expectedHead !== "string" || !/^[0-9a-f]{40,64}$/.test(request.payload.expectedHead)) throw new CoreError("INVALID_REQUEST", "Expected task HEAD is required");
+      return tasks.updateGitCommitMessage(request.payload.taskId, request.payload.message, request.payload.expectedHead);
     }
     case "git.status": return git.status();
     case "git.diff": {
