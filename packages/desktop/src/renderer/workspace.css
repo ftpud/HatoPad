@@ -11,8 +11,8 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .ide-shell::before {
   content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
   background: var(--text-heading); opacity: .12;
-  -webkit-mask: url("../../assets/branding.png") center / 130vmax 130vmax no-repeat;
-  mask: url("../../assets/branding.png") center / 130vmax 130vmax no-repeat;
+  -webkit-mask: url("../../assets/branding.png") center / 105vmax 105vmax no-repeat;
+  mask: url("../../assets/branding.png") center / 105vmax 105vmax no-repeat;
 }
 :root[data-theme="light"] .ide-shell::before { opacity: .09; }
 .branding-mark {
@@ -140,7 +140,6 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .workbench { min-width: 0; border-radius: var(--radius-panel); overflow: hidden; background: transparent; }
 .workbench:has(.tab) { border: 1px solid var(--border-subtle); background: var(--editor-background); }
 .editor-area, .detached-editor, .find-preview-editor, .conflict-code-editor { background: var(--editor-background); }
-.workbench:not(:has(.tab)) .editor-area { background: transparent; }
 .tabs { height: var(--panel-title-height); min-height: var(--panel-title-height); flex-basis: var(--panel-title-height); gap: 3px; padding: 4px 5px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-panel); }
 .tab { height: 37px; min-width: 100px; max-width: 220px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px 7px 0 0; color: var(--text-muted); background: transparent; box-shadow: none; }
 .tab.active { background: var(--editor-background); color: var(--text-heading); border-color: var(--border-subtle); border-bottom-color: var(--editor-background); box-shadow: none; }
