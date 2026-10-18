@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -166,6 +166,11 @@ export type WorkspaceWorkflowDocument = { runId: string; blockId: string; positi
 export type WorkspaceTerminalOptions = { tabs: { displayName: string; terminalId?: string }[]; activeTabIndex?: number; panelOpen: boolean };
 export type TerminalSessionSnapshot = { terminalId: string; status: "running" | "exited"; output: string; exitCode?: number; displayName?: string };
 /** Resolution is always against the currently selected workspace. A stale ID means Core no longer owns that process. */
+/** Content-free terminal metadata for watchers; `outputBytes` is the size of Core's retained scrollback. */
+export type TerminalWatchSummary = { terminalId: string; status: "running" | "exited"; exitCode?: number; displayName?: string; outputBytes: number };
+/** Bounded replay: the newest `maxBytes` of retained output. `truncated` means older scrollback was omitted. */
+export type TerminalWatchSnapshot = TerminalWatchSummary & { output: string; truncated: boolean };
+export const terminalWatchLimits = { defaultBytes: 65_536, minBytes: 1_024, maxBytes: 262_144 } as const;
 export type TerminalAttachResult = { state: "available"; session: TerminalSessionSnapshot } | { state: "stale"; reason: "session-unavailable" };
 /** Stable address of one pending provider request; enough to resolve it without selecting the task. */
 export type AttentionTarget = { rootId: WorkspaceRootId; /** Absent for the root workspace itself. */ taskId?: string; provider: AiProvider; sessionId?: string; requestId: string };
@@ -598,6 +603,8 @@ export type ProtocolOperations = {
     payload: { cols: number; rows: number; displayName?: string };
     result: TerminalSessionSnapshot;
   };
+  "terminal.watch.list": { payload: Record<string, never>; result: { terminals: TerminalWatchSummary[] } };
+  "terminal.watch.attach": { payload: { terminalId: string; maxBytes?: number }; result: { state: "available"; terminal: TerminalWatchSnapshot } | { state: "stale"; reason: "session-unavailable" } };
   "terminal.attach": {
     payload: { terminalId: string };
     result: TerminalAttachResult;
@@ -1036,6 +1043,8 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "filesystem.replaceApply": true,
   "terminal.list": true,
   "terminal.create": true,
+  "terminal.watch.list": true,
+  "terminal.watch.attach": true,
   "terminal.attach": true,
   "terminal.input": true,
   "terminal.resize": true,

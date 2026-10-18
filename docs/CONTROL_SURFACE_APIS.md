@@ -35,6 +35,11 @@ changing one connection's selection does not change another connection.
 - `overview.counts` adds `counts` {tasks, finishedTasks, schedules, triggers, workflowsActive} to each
   `overview.summary` root: counts only, no names or content. Count changes alter `revision` but do not
   restart attention paging.
+- `terminal.watch` adds `terminal.watch.list` (metadata only: id, status, exit code, name, retained
+  output byte count) and `terminal.watch.attach` {terminalId, maxBytes 1024–262144, default 65536}. Attach
+  returns the newest bytes of retained scrollback (cut on a character boundary) with `truncated`, or a
+  `stale` result for an unknown id. Neither operation sends input, resizes or creates; live output keeps
+  using `terminal.output`/`terminal.exit` events, and relays apply their own per-channel buffering limits.
 - `tasks.commitMessage` gates get/set/update operations. Get takes taskId and
   returns the saved draft plus current head. Set takes taskId/message and saves
   a draft without committing. Update takes taskId/message/expectedHead and

@@ -19,7 +19,8 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type CoreCapability, coreCapabilities, overviewLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { watchSnapshot, watchSummary } from "./terminal-watch.js";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { TerminalSessionHost } from "./process-manager.js";
@@ -1368,6 +1369,15 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "terminal.list": return { terminals: terminalHost.list(workspacePath) };
     case "terminal.create": {
       return terminalHost.create(workspacePath, request.payload.cols, request.payload.rows, workspacePath, request.payload.displayName);
+    }
+    case "terminal.watch.list": return { terminals: terminalHost.list(workspacePath).map(watchSummary) };
+    case "terminal.watch.attach": {
+      const { terminalId, maxBytes } = request.payload;
+      if (typeof terminalId !== "string") throw new CoreError("INVALID_REQUEST", "terminalId must be a string");
+      if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < terminalWatchLimits.minBytes || maxBytes > terminalWatchLimits.maxBytes)) throw new CoreError("INVALID_REQUEST", `maxBytes must be an integer from ${terminalWatchLimits.minBytes} to ${terminalWatchLimits.maxBytes}`);
+      const session = terminalHost.attach(workspacePath, terminalId);
+      if (!session) return { state: "stale" as const, reason: "session-unavailable" as const };
+      return { state: "available" as const, terminal: watchSnapshot(session, maxBytes ?? terminalWatchLimits.defaultBytes) };
     }
     case "terminal.attach": {
       if (typeof request.payload.terminalId !== "string") throw new CoreError("INVALID_REQUEST", "terminalId must be a string");
