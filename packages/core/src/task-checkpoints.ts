@@ -1,3 +1,4 @@
+import { metadataPage } from "./metadata-page.js";
 import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
@@ -92,7 +93,8 @@ export class TaskCheckpointStore {
     const item = await this.read(id);
     const after = item.after ?? item.before;
     const files = direction === "revert" ? changes(after, item.before) : changes(item.before, after);
-    return { files: files.slice(offset, offset + limit), totalFiles: files.length, ...(offset + limit < files.length ? { nextOffset: offset + limit } : {}) };
+    const page = metadataPage(files, offset, limit);
+    return { files: page.rows, totalFiles: files.length, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) };
   }
 
   /** Reverse only the captured changes; unrelated live edits are reported as conflicts. */

@@ -17,3 +17,5 @@ export function workPage(targets: WorkTarget[], request: { limit?: unknown; curs
   return { targets: filtered.slice(offset, offset + limit), result: { revision, observedAt: new Date().toISOString(), rows: [] as OverviewWorkRow[], totalTargets: filtered.length, truncated, ...(restarted ? { restarted: true as const } : {}), ...(offset + limit < filtered.length ? { nextCursor: `${revision}.${offset + limit}` } : {}) } satisfies OverviewWorkPage };
 }
 export const workText = (value: string | undefined, limit = 180) => (value ?? '').replace(/\s+/g, ' ').trim().slice(0, limit);
+
+export function triggerIssueKind(error?: string, skipped?: string): "trigger-busy" | "trigger-capped" | "trigger-error" { return skipped ? "trigger-busy" : /^Disabled: fired \d+ times within an hour/.test(error ?? "") ? "trigger-capped" : "trigger-error"; }

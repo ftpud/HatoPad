@@ -1,3 +1,4 @@
+import { metadataPage } from "./metadata-page.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
@@ -55,7 +56,8 @@ export class GitService {
       return { ...entry, group: conflicted ? "conflicted" : entry.indexStatus === "?" ? "untracked" : entry.indexStatus !== " " ? "staged" : "working-tree", additions: unknown ? null : values.reduce((sum, value) => sum + (value.additions ?? 0), 0), deletions: unknown ? null : values.reduce((sum, value) => sum + (value.deletions ?? 0), 0) };
     });
     const revision = createHash("sha256").update(JSON.stringify({ ...status, entries })).digest("hex");
-    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, conflicts: entries.filter(entry => entry.group === "conflicted").length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: entries.slice(offset, offset + limit), ...(offset + limit < entries.length ? { nextOffset: offset + limit } : {}) };
+    const page = metadataPage(entries, offset, limit);
+    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, conflicts: entries.filter(entry => entry.group === "conflicted").length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: page.rows, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) };
   }
 
   private async upstreamStatus(): Promise<GitUpstreamStatus | undefined> {

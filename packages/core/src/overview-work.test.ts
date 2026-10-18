@@ -16,3 +16,5 @@ it('rejects malformed pages and clips activity into a bounded single line', () =
   expect(() => workPage([target('a')], { rootId: 'foreign' }, false)).toThrow('unavailable');
   expect(workText(' x\n\t y ')).toBe('x y'); expect(workText('a'.repeat(1000))).toHaveLength(180);
 });
+
+it("distinguishes trigger delivery errors from a proven hourly cap", async () => { const { triggerIssueKind } = await import("./overview-work.js"); expect(triggerIssueKind("Cannot watch this path")).toBe("trigger-error"); expect(triggerIssueKind("Disabled: fired 10 times within an hour (limit 10). Check for a feedback loop, then resume.")).toBe("trigger-capped"); expect(triggerIssueKind(undefined, "Task busy")).toBe("trigger-busy"); });

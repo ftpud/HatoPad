@@ -1,3 +1,5 @@
+import { boundedNote } from "./bounded-note.js";
+import { workflowTemplateCatalog } from "./workflow-templates.js";
 import { SupervisionFeed } from "./supervision-feed.js";
 import { inventoryPage, inventoryKinds } from "./inventory-page.js";
 import { stateHome } from "./state-home.js";
@@ -24,7 +26,7 @@ import { promisify } from "node:util";
 import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
 import { workflowOutputPage } from "./workflow-inspection.js";
 import { MetadataHintBatcher } from "./metadata-hints.js";
-import { workPage, workText, type WorkTarget } from "./overview-work.js";
+import { workPage, workText, triggerIssueKind, type WorkTarget } from "./overview-work.js";
 import { TerminalWatchers } from "./terminal-watchers.js";
 import { watchSnapshot, watchSummary } from "./terminal-watch.js";
 import { CoreError } from "./errors.js";
@@ -400,7 +402,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       const ownSchedules = allSchedules.filter(schedule => schedule.rootId === target.rootId && schedule.taskId === target.taskId); row.schedules = ownSchedules.filter(schedule => schedule.enabled).length;
       for (const schedule of ownSchedules.filter(schedule => schedule.lastError).slice(0, 10)) row.issues.push({ id: `schedule:${schedule.id}`, kind: "schedule-failed", title: workText(schedule.lastError), scheduleId: schedule.id, ...(schedule.lastRunAt ? { at: schedule.lastRunAt } : {}) });
       const ownTriggers = allTriggers.filter(trigger => trigger.rootId === target.rootId && trigger.taskId === target.taskId); row.triggers = ownTriggers.filter(trigger => trigger.enabled).length;
-      for (const trigger of ownTriggers.filter(trigger => trigger.lastError || trigger.lastSkipped).slice(0, 10)) row.issues.push({ id: `trigger:${trigger.id}`, kind: trigger.lastSkipped ? "trigger-busy" : "trigger-capped", title: workText(trigger.lastSkipped ?? trigger.lastError), triggerId: trigger.id, ...(trigger.lastFiredAt ? { at: trigger.lastFiredAt } : {}) });
+      for (const trigger of ownTriggers.filter(trigger => trigger.lastError || trigger.lastSkipped).slice(0, 10)) row.issues.push({ id: `trigger:${trigger.id}`, kind: triggerIssueKind(trigger.lastError, trigger.lastSkipped), title: workText(trigger.lastSkipped ?? trigger.lastError), triggerId: trigger.id, ...(trigger.lastFiredAt ? { at: trigger.lastFiredAt } : {}) });
       page.result.rows.push(row);
     }
     if (Buffer.byteLength(JSON.stringify(page.result)) > 900_000) throw new CoreError("INVALID_REQUEST", "Work overview exceeds the response budget; use a smaller page");
@@ -1128,11 +1130,12 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "tasks.page": {
       const registry = await tasks.list(), status = request.payload.status ?? "all";
+      if (request.payload.sort !== undefined && !["name", "branch"].includes(request.payload.sort)) throw new CoreError("INVALID_REQUEST", "Choose a task sort order");
       if (!["active", "finished", "archived", "all"].includes(status)) throw new CoreError("INVALID_REQUEST", "Choose a task state");
       inventoryPage(`${request.rootId}:${status}`, "tasks", [], request.payload);
       const query = (request.payload.query ?? "").toLowerCase();
       const filtered = registry.tasks.filter(task => (status === "all" || (status === "archived" ? task.archived : !task.archived && task.status === status)) && (!query || `${task.name} ${task.branch}`.toLowerCase().includes(query)));
-      const page = inventoryPage(`${request.rootId}:${status}`, "tasks", filtered.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch })), { ...request.payload, query: undefined });
+      const page = inventoryPage(`${request.rootId}:${status}`, "tasks", filtered.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch })), { ...request.payload, query: undefined, order: request.payload.sort === "branch" ? "detail" : "name" });
       const byId = new Map(filtered.map(task => [task.id, task]));
       return { tasks: page.rows.map(row => { const task = byId.get(row.id)!; return { ...task, name: task.name.slice(0, 180), branch: task.branch.slice(0, 4096), baseBranch: task.baseBranch.slice(0, 4096) }; }), total: page.total, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), ...(page.restarted ? { restarted: true } : {}) };
     }
@@ -1376,7 +1379,11 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       return { root: await summarize(rootWorkspace), tasks: Object.fromEntries(entries) };
     }
     case "useful.list": return { files: await usefulFiles.list() };
-    case "useful.read": return { content: await usefulFiles.read(request.payload.scope, request.payload.name) };
+    case "useful.read": {
+      if (request.payload.maxBytes !== undefined) boundedNote("", request.payload.maxBytes);
+      const content = await usefulFiles.read(request.payload.scope, request.payload.name);
+      return request.payload.maxBytes === undefined ? { content } : boundedNote(content, request.payload.maxBytes);
+    }
     case "useful.create": await usefulFiles.create(request.payload.scope, request.payload.name); return {};
     case "useful.write": await usefulFiles.write(request.payload.scope, request.payload.name, request.payload.content); return {};
     case "useful.rename": await usefulFiles.rename(request.payload.scope, request.payload.name, request.payload.newName); return {};
@@ -1397,6 +1404,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "agents.write": await agents.write(request.payload.scope, request.payload.name, request.payload.content, workspacePath); return {};
     case "agents.rename": return { name: await agents.rename(request.payload.scope, request.payload.name, request.payload.newName, workspacePath) };
     case "agents.delete": await agents.delete(request.payload.scope, request.payload.name, workspacePath); return {};
+    case "harnesses.templates": return { templates: workflowTemplateCatalog() };
     case "harnesses.list": return { harnesses: await harnesses.list(), diagnostics: await harnesses.diagnostics() };
     case "harnesses.read": return { harness: await harnesses.read(request.payload.id) };
     case "harnesses.create": return { harness: await harnesses.create(request.payload.name, request.payload.template) };

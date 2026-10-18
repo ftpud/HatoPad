@@ -77,3 +77,11 @@ function gitReviewCommitTemplate(): Pick<HarnessDefinition, "blocks" | "edges"> 
     ]
   };
 }
+
+/** Template metadata only; creating a definition remains a separate authoring action. */
+export function workflowTemplateCatalog() {
+  return [
+    { id: "five-minute-check-in" as const, name: "Five-minute check-in", description: "Recurring workspace monitoring with explicit user decisions." },
+    { id: "git-review-commit" as const, name: "Git review and commit", description: "Review changes and coordinate an explicit commit workflow." }
+  ].map(item => ({ ...item, blocks: workflowTemplate(item.id).blocks.length }));
+}

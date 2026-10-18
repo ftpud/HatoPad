@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -408,7 +408,7 @@ export type ProtocolOperations = {
     result: Record<string, never>;
   };
   "inventory.page": { payload: { kind: InventoryKind; limit?: number; cursor?: string; query?: string; state?: string }; result: { rows: InventoryRow[]; total: number; revision: string; truncated: boolean; nextCursor?: string; restarted?: boolean } };
-  "tasks.page": { payload: { limit?: number; cursor?: string; query?: string; status?: 'active' | 'finished' | 'archived' | 'all' }; result: { tasks: WorkspaceTask[]; total: number; nextCursor?: string; restarted?: boolean } };
+  "tasks.page": { payload: { sort?: "name" | "branch"; limit?: number; cursor?: string; query?: string; status?: 'active' | 'finished' | 'archived' | 'all' }; result: { tasks: WorkspaceTask[]; total: number; nextCursor?: string; restarted?: boolean } };
   "tasks.read": { payload: { taskId: string }; result: { task: WorkspaceTask } };
   "tasks.list": { payload: Record<string, never>; result: { tasks: WorkspaceTask[]; selectedTaskId?: string } };
   "tasks.create": { payload: { branch: string; existing?: boolean; remote?: boolean }; result: { task: WorkspaceTask } };
@@ -489,7 +489,7 @@ export type ProtocolOperations = {
   "overview.summary": { payload: { limit?: number; cursor?: string }; result: { revision: string; roots: OverviewRoot[]; items: AttentionItem[]; /** Newest conversations (max `overviewLimits.maxActivity`), included in every page and in `revision`. */ activity: ActivityItem[]; nextCursor?: string; restarted?: boolean; /** True when more than `overviewLimits.maxRoots` roots or `maxTasksPerRoot` tasks per root existed. */ truncated: boolean } };
   "ai.statuses": { payload: Record<string, never>; result: { root: AiTaskSummary; tasks: Record<string, AiTaskSummary> } };
   "useful.list": { payload: Record<string, never>; result: { files: UsefulFile[] } };
-  "useful.read": { payload: { scope: UsefulFileScope; name: string }; result: { content: string } };
+  "useful.read": { payload: { scope: UsefulFileScope; name: string; maxBytes?: number }; result: { content: string; truncated?: boolean } };
   "useful.create": { payload: { scope: UsefulFileScope; name: string }; result: Record<string, never> };
   "useful.write": { payload: { scope: UsefulFileScope; name: string; content: string }; result: Record<string, never> };
   "useful.rename": { payload: { scope: UsefulFileScope; name: string; newName: string }; result: Record<string, never> };
@@ -510,6 +510,7 @@ export type ProtocolOperations = {
   "agents.write": { payload: { scope: AgentFileScope; name: string; content: string }; result: Record<string, never> };
   "agents.rename": { payload: { scope: Exclude<AgentFileScope, "workspace">; name: string; newName: string }; result: { name: string } };
   "agents.delete": { payload: { scope: Exclude<AgentFileScope, "workspace">; name: string }; result: Record<string, never> };
+  "harnesses.templates": { payload: Record<string, never>; result: { templates: { id: string; name: string; description: string; blocks: number }[] } };
   "harnesses.list": { payload: Record<string, never>; result: { harnesses: HarnessDefinition[]; diagnostics: HarnessStateDiagnostic[] } };
   "harnesses.read": { payload: { id: string }; result: { harness: HarnessDefinition } };
   "harnesses.create": { payload: { name: string; template?: "five-minute-check-in" | "git-review-commit" }; result: { harness: HarnessDefinition } };
@@ -1032,6 +1033,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "agents.write": true,
   "agents.rename": true,
   "agents.delete": true,
+  "harnesses.templates": true,
   "harnesses.list": true,
   "harnesses.read": true,
   "harnesses.create": true,
@@ -1220,6 +1222,6 @@ export { isServerEvent, serverEventTypes } from "./server-events.js";
 export type GitSummary = { branch: string; upstream?: GitUpstreamStatus; clean: boolean; totalFiles: number; conflicts: number; additions: number; deletions: number; unknownCounts: number; revision: string; nextOffset?: number; entries: (GitStatusEntry & { additions: number | null; deletions: number | null; group: "conflicted" | "untracked" | "staged" | "working-tree" })[] };
 export type TaskCheckpointSummary = Pick<TaskCheckpoint, "id" | "promptId" | "provider" | "sessionId" | "startedAt" | "completedAt" | "status"> & { fileCount: number; additions: number; deletions: number; unknownCounts: number };
 
-export type OverviewWorkIssue = { kind: "task-error" | "quota" | "provider-setup" | "merge-conflict" | "workflow-failed" | "trigger-capped" | "trigger-busy" | "schedule-failed" | "timer-overdue"; id: string; title: string; at?: string; provider?: string; runId?: string; triggerId?: string; scheduleId?: string; timerId?: string };
+export type OverviewWorkIssue = { kind: "task-error" | "quota" | "provider-setup" | "merge-conflict" | "workflow-failed" | "trigger-capped" | "trigger-error" | "trigger-busy" | "schedule-failed" | "timer-overdue"; id: string; title: string; at?: string; provider?: string; runId?: string; triggerId?: string; scheduleId?: string; timerId?: string };
 export type OverviewWorkRow = { rootId: WorkspaceRootId; rootAlias: string; taskId?: string; name: string; branch?: string; status: "root" | "active" | "finished"; archived: boolean; sessions: { provider: AiProvider; sessionId?: string; status: AiStatus; preview: string; updatedAt?: string; pendingQuestion: boolean; pendingPermission: boolean; failure?: AiFailure }[]; git?: { additions: number; deletions: number; unknownCounts: number; totalFiles: number; conflicts: number; branch: string; upstream?: GitUpstreamStatus }; gitUnavailable?: boolean; terminals: number; workflowsActive: number; workflowRunIds: string[]; schedules: number; triggers: number; timers: { id: string; provider: AiProvider; dueAt: string; workflowRunId?: string; workflowBlockId?: string }[]; timerCount: number; issues: OverviewWorkIssue[] };
 export type OverviewWorkPage = { revision: string; observedAt: string; rows: OverviewWorkRow[]; totalTargets: number; truncated: boolean; nextCursor?: string; restarted?: boolean };
