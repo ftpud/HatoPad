@@ -137,7 +137,7 @@ it("closes services that finish initialization after an outbound failure", async
   try {
     await mkdir(workspace);
     await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
-    server = await createServer("127.0.0.1", 0, workspace, { outbound: { maxBufferedBytes: 1024 } });
+    server = await createServer("127.0.0.1", 0, workspace, { outbound: { maxBufferedBytes: 8192 } });
     if (!server.address()) await once(server, "listening");
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing port");
@@ -151,7 +151,7 @@ it("closes services that finish initialization after an outbound failure", async
     socket.send(JSON.stringify({ id: "handshake", type: "protocol.handshake", payload: { compatibility: protocolCompatibility } }));
     await started;
     const peer = [...server.clients][0]!;
-    Object.defineProperty(peer, "bufferedAmount", { configurable: true, get: () => 2048 });
+    Object.defineProperty(peer, "bufferedAmount", { configurable: true, get: () => 16_384 });
     socket.send(JSON.stringify({ id: "probe", type: "protocol.keepAlive", payload: {} }));
     await closed;
     release();
