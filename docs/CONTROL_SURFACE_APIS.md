@@ -32,6 +32,9 @@ changing one connection's selection does not change another connection.
   line counts, with unknownCounts for binary, oversized or expensive comparisons.
   Prompt text, provenance and file bodies are excluded. Existing checkpoint
   review/restore operations retain their conflict checks.
+- `overview.counts` adds `counts` {tasks, finishedTasks, schedules, triggers, workflowsActive} to each
+  `overview.summary` root: counts only, no names or content. Count changes alter `revision` but do not
+  restart attention paging.
 - `tasks.commitMessage` gates get/set/update operations. Get takes taskId and
   returns the saved draft plus current head. Set takes taskId/message and saves
   a draft without committing. Update takes taskId/message/expectedHead and

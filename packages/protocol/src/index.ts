@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -172,7 +172,9 @@ export type AttentionTarget = { rootId: WorkspaceRootId; /** Absent for the root
 /** Workflow items also carry the block address; resolve them with `harnesses.permission.resolve` / `harnesses.answer`, never `ai.*`. For a workflow question, `target.requestId` is the pause id. */
 export type AttentionWorkflow = { runId: string; blockId: string; pauseId: string };
 export type AttentionItem = { kind: "permission" | "question" | "workflow-permission" | "workflow-question"; target: AttentionTarget; workflow?: AttentionWorkflow; title: string; preview: string; status: AiStatus };
-export type OverviewRoot = { id: WorkspaceRootId; alias: string; running: number; attention: number };
+/** Inventory counts for one root; counts only, never names or content. Present when the Core advertises `overview.counts`. */
+export type OverviewRootCounts = { tasks: number; finishedTasks: number; schedules: number; triggers: number; workflowsActive: number };
+export type OverviewRoot = { id: WorkspaceRootId; alias: string; running: number; attention: number; counts?: OverviewRootCounts };
 /** Limits applied by `overview.summary`. */
 /** Most recent conversation per root/task/provider, newest first. Ephemeral; clipped like attention items. */
 export type ActivityItem = { target: Omit<AttentionTarget, "requestId">; updatedAt: string; status: AiStatus; preview: string };

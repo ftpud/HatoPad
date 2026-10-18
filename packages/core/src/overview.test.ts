@@ -28,6 +28,17 @@ describe("overview summary", () => {
     expect(snapshot.items[1]!.title).toHaveLength(180);
   });
 
+  it("attaches inventory counts without letting count changes restart attention paging", () => {
+    const counts = (tasks: number) => new Map([["root-a", { tasks, finishedTasks: 1, schedules: 2, triggers: 3, workflowsActive: 4 }]]);
+    const before = buildOverview(sources(5), false, [], counts(3));
+    expect(before.roots[0]!.counts).toEqual({ tasks: 3, finishedTasks: 1, schedules: 2, triggers: 3, workflowsActive: 4 });
+    const first = pageOverview(before, { limit: 2 });
+    const after = buildOverview(sources(5), false, [], counts(4));
+    const second = pageOverview(after, { limit: 2, cursor: first.nextCursor });
+    expect(second.restarted).toBeUndefined();
+    expect(second.revision).not.toBe(first.revision);
+  });
+
   it("pages deterministically and restarts when the revision changes", () => {
     const snapshot = buildOverview(sources(5), false);
     const first = pageOverview(snapshot, { limit: 2 });

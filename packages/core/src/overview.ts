@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { overviewLimits, type ActivityItem, type HarnessRun, type AiProvider, type AiSession, type AttentionItem, type OverviewRoot } from "@hatopad/protocol";
+import { overviewLimits, type ActivityItem, type HarnessRun, type AiProvider, type AiSession, type AttentionItem, type OverviewRoot, type OverviewRootCounts } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 export interface OverviewSource {
@@ -26,7 +26,7 @@ export interface OverviewSnapshot {
 const clip = (text: string) => text.replace(/\s+/g, " ").trim().slice(0, overviewLimits.maxTextLength);
 
 /** Pure aggregation over already-read sessions. Output order is deterministic so cursors stay valid until `revision` changes. */
-export function buildOverview(sources: OverviewSource[], truncated: boolean, workflows: WorkflowSource[] = []): OverviewSnapshot {
+export function buildOverview(sources: OverviewSource[], truncated: boolean, workflows: WorkflowSource[] = [], counts: ReadonlyMap<string, OverviewRootCounts> = new Map()): OverviewSnapshot {
   const roots = new Map<string, OverviewRoot>();
   const items: AttentionItem[] = [];
   const activity: ActivityItem[] = [];
@@ -72,12 +72,15 @@ export function buildOverview(sources: OverviewSource[], truncated: boolean, wor
   const order = (item: AttentionItem) => [item.target.rootId, item.target.taskId ?? "", item.target.provider, item.target.requestId, item.kind, item.workflow?.runId ?? "", item.workflow?.blockId ?? ""].join("\u0000");
   items.sort((left, right) => order(left).localeCompare(order(right)));
   activity.sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || `${left.target.rootId}\0${left.target.taskId ?? ""}\0${left.target.provider}`.localeCompare(`${right.target.rootId}\0${right.target.taskId ?? ""}\0${right.target.provider}`));
+  for (const root of roots.values()) { const rootCounts = counts.get(root.id); if (rootCounts) root.counts = rootCounts; }
   return { roots: [...roots.values()], items, activity: activity.slice(0, overviewLimits.maxActivity), truncated };
 }
 
 export function overviewRevision(snapshot: OverviewSnapshot, withActivity = true): string {
   const digest = createHash("sha256");
-  digest.update(JSON.stringify([snapshot.truncated, snapshot.roots, withActivity ? snapshot.activity : null, snapshot.items.map((item) => [item.kind, item.target, item.workflow, item.status])]));
+  // Inventory counts change with ordinary activity; they must not restart attention paging.
+  const roots = withActivity ? snapshot.roots : snapshot.roots.map(({ counts: _counts, ...root }) => root);
+  digest.update(JSON.stringify([snapshot.truncated, roots, withActivity ? snapshot.activity : null, snapshot.items.map((item) => [item.kind, item.target, item.workflow, item.status])]));
   return digest.digest("hex").slice(0, 16);
 }
 

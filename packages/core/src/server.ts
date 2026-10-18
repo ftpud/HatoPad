@@ -65,7 +65,7 @@ import { MAX_FILE_SIZE } from "./filesystem.js";
 import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
 import { projectProgress } from "./harness-progress.js";
 import { boundPermission, boundQuestion, boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./ai/session-bounds.js";
-import type { ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
+import type { OverviewRootCounts, ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
 import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@hatopad/acp";
 
 const execFileAsync = promisify(execFile);
@@ -300,6 +300,18 @@ export async function createServer(host: string, port: number, workspacePath: st
       }
     }
     const workflows: WorkflowSource[] = [];
+    const counts = new Map<string, OverviewRootCounts>();
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const registry = await contextFor(root.id).tasks.list();
+      const summaries = await contextFor(root.id).harnesses.summaries();
+      counts.set(root.id, {
+        tasks: registry.tasks.filter((task) => task.status === "active" && !task.archived).length,
+        finishedTasks: registry.tasks.filter((task) => task.status === "finished" && !task.archived).length,
+        schedules: schedules.list().filter((item) => item.rootId === root.id && item.enabled).length,
+        triggers: triggers.list().filter((item) => item.rootId === root.id && item.enabled).length,
+        workflowsActive: summaries.filter((run) => !["succeeded", "failed", "cancelled", "blocked"].includes(run.status)).length
+      });
+    }
     for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
       const store = contextFor(root.id).harnesses;
       const waiting = (await store.summaries()).filter((run) => run.status === "awaiting_permission" || run.status === "awaiting_user_input").slice(0, overviewLimits.maxWorkflowRunsPerRoot);
@@ -311,7 +323,7 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (run) workflows.push({ rootId: root.id, alias: root.alias, run });
       }
     }
-    return pageOverview(buildOverview(sources, truncated, workflows), payload);
+    return pageOverview(buildOverview(sources, truncated, workflows, counts), payload);
   };
   const harnessRunners = new Map<string, HarnessRunner>();
   const storage = new ServerStorage({
