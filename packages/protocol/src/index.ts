@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -511,6 +511,9 @@ export type ProtocolOperations = {
   "harnesses.validate": { payload: { harness: HarnessDefinition }; result: { valid: boolean; issues: HarnessValidationIssue[]; order: string[] } };
   "harnesses.runs": { payload: { harnessId?: string; runId?: string; summary?: boolean }; result: { runs: HarnessRun[] } };
   /** Bounded, read-only progress for one run: per-block status and the newest `logLimit` (1..100, default 20) log entries, each message clipped to 500 characters. Never returns definitions, chat transcripts or outputs. */
+  "harnesses.messages": { payload: { runId: string; blockId: string; before?: string; limit?: number; maxTextLength?: number }; result: { available: boolean; sessionId?: string; status: AiStatus; messages: AiMessage[]; clipped: string[]; nextBefore?: string } };
+  "harnesses.output": { payload: { runId: string; blockId: string; offset?: number; maxChars?: number }; result: { blockId: string; title: string; type: HarnessBlock["type"]; status: HarnessBlockStatus; content: string; totalChars: number; nextOffset?: number } };
+  "harnesses.invoke": { payload: { runId: string; callerBlockId: string; targetBlockId: string; input: string }; result: { output: string } };
   "harnesses.blockDetail": { payload: { runId: string; blockId: string; outputChars?: number; chatLimit?: number; chatBefore?: string }; result: { block: HarnessBlockDetail } };
   "harnesses.progress": { payload: { runId: string; logLimit?: number }; result: { run: HarnessProgress } };
   "harnesses.runs.delete": { payload: { runId: string }; result: Record<string, never> };
@@ -1027,6 +1030,9 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "harnesses.runs": true,
   "harnesses.runs.delete": true,
   "harnesses.blockDetail": true,
+  "harnesses.messages": true,
+  "harnesses.output": true,
+  "harnesses.invoke": true,
   "harnesses.progress": true,
   "harnesses.test": true,
   "harnesses.app.read": true,

@@ -20,6 +20,8 @@ import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { workflowOutputPage } from "./workflow-inspection.js";
+import { MetadataHintBatcher } from "./metadata-hints.js";
 import { workPage, workText, type WorkTarget } from "./overview-work.js";
 import { TerminalWatchers } from "./terminal-watchers.js";
 import { watchSnapshot, watchSummary } from "./terminal-watch.js";
@@ -220,6 +222,11 @@ export async function createServer(host: string, port: number, workspacePath: st
   const rootWatchSubscriptionsForServer = new Map<string, Set<SwitchedWatch>>();
   const rootWatchOwnersForServer = new Map<SwitchedWatch, () => void>();
   const removingRoots = new Set<string>();
+  const metadataHints = new MetadataHintBatcher(event => {
+    const rootId = (event.payload as { rootId?: string }).rootId;
+    const encoded = JSON.stringify(event);
+    for (const socket of activeSessions) if (!rootId || liveRootSelections.selected(socket) === rootId) sendWebSocketData(socket, encoded);
+  });
   const terminalSubscriptions = new Map<WebSocket, { rootId: string; workspace: string; terminalIds: Set<string> }>();
   const terminalWatchers = new TerminalWatchers<WebSocket>((socket, event) => sendWebSocketData(socket, JSON.stringify(event)));
   const terminalOwners = new Map<string, { socket: WebSocket; rootId: string; workspace: string }>();
@@ -393,9 +400,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     let runner = harnessRunners.get(rootId);
     if (!runner) {
       runner = new HarnessRunner(contextFor(rootId).harnesses, (runId) => {
-        const harnessEvent = JSON.stringify({ type: "harness.changed", payload: { rootId, runId } } satisfies ServerEvent);
-        const tasksEvent = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent);
-        for (const socket of activeSessions) { sendWebSocketData(socket, harnessEvent); sendWebSocketData(socket, tasksEvent); }
+        metadataHints.enqueue({ type: "harness.changed", payload: { rootId, runId } });
+        metadataHints.enqueue({ type: "tasks.changed", payload: { rootId } });
       }, 4, undefined, (document) => {
         const event = JSON.stringify({ type: "workflow.document", payload: { rootId, ...document } } satisfies ServerEvent);
         for (const socket of activeSessions) sendWebSocketData(socket, event);
@@ -604,7 +610,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     await storage.drain();
     managedProcesses.off("changed", processesChanged);
     if (!managedProcesses.listenerCount("changed")) managedProcesses.close();
-    rootBatcher.dispose(); terminalHost.closeAll();
+    metadataHints.dispose(); rootBatcher.dispose(); terminalHost.closeAll();
     const results = await Promise.allSettled([schedules.close(), triggers.close(), remoteTransfers.close(), workflowApps.closeAll(), watcher.close(), gitIndexWatcher.close(), runConfigWatcher.close(), appEventWatcher.close(), appCommandWatcher.close()]);
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Core services could not be closed");
@@ -1327,6 +1333,39 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "harnesses.delete": await harnesses.delete(request.payload.id); return {};
     case "harnesses.validate": return validateHarness(request.payload.harness);
+    case "harnesses.messages": {
+      const empty = pageMessages({ messages: [] }, { limit: request.payload.limit, maxTextLength: request.payload.maxTextLength });
+      if (request.payload.before !== undefined && (typeof request.payload.before !== "string" || !request.payload.before || request.payload.before.length > 128)) throw new CoreError("INVALID_REQUEST", "before must be a message id");
+      if (typeof request.payload.runId !== "string" || !request.payload.runId || typeof request.payload.blockId !== "string" || !request.payload.blockId) throw new CoreError("INVALID_REQUEST", "Choose a workflow run and block");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      const block = run?.blocks.find(block => block.blockId === request.payload.blockId);
+      if (!run || !block) throw new CoreError("FILE_NOT_FOUND", "Workflow block is unavailable in this root");
+      if (!block.workspace || !block.provider) return { available: false, status: "idle", ...empty };
+      const binding = await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      if (await availableWorkflowWorkspace(block.workspace) !== await availableWorkflowWorkspace(binding.workspace)) throw new CoreError("INVALID_REQUEST", "Workflow session no longer belongs to its bound worktree");
+      const session = await acp.get(block.provider).get(block.workspace);
+      if (block.sessionId && block.sessionId !== session.id) return { available: false, status: "idle", ...empty };
+      const page = { available: true, ...(session.id ? { sessionId: session.id } : {}), status: session.status, ...pageMessages(session, request.payload) };
+      if (Buffer.byteLength(JSON.stringify(page)) > 900_000) throw new CoreError("INVALID_REQUEST", "Transcript page exceeds its byte budget; use a smaller page");
+      return page;
+    }
+    case "harnesses.output": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "Choose a workflow run");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run is unavailable in this root");
+      return workflowOutputPage(run, request.payload.blockId, request.payload);
+    }
+    case "harnesses.invoke": {
+      const { runId, callerBlockId, targetBlockId, input } = request.payload;
+      if ([runId, callerBlockId, targetBlockId].some(id => typeof id !== "string" || !id || id.length > 128) || typeof input !== "string" || !input.trim() || input.length > 64_000) throw new CoreError("INVALID_REQUEST", "Choose a connected AI block and input");
+      const run = await harnessRunner.readRun(runId), caller = run?.definition?.blocks.find(block => block.id === callerBlockId), target = run?.definition?.blocks.find(block => block.id === targetBlockId);
+      if (!run || !caller || !target) throw new CoreError("FILE_NOT_FOUND", "Workflow block is unavailable in this root");
+      await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      if (!["ai", "chatbox"].includes(caller.type) || !["ai", "chatbox"].includes(target.type) || !run.definition?.edges.some(edge => edge.from === callerBlockId && edge.to === targetBlockId && (edge.type === "use" || caller.type === "chatbox"))) throw new CoreError("INVALID_REQUEST", "Choose a directly connected AI Agent or Chatbox");
+      if (!harnessRunner.isActive(runId) || run.blocks.find(block => block.blockId === callerBlockId)?.status !== "running") throw new CoreError("INVALID_REQUEST", "Send a follow-up to activate this Chatbox before invoking a connected block");
+      const result = await harnessRunner.flowTool(runId, callerBlockId, "workflow_use_block", { block_id: targetBlockId, action: "start", input });
+      return { output: JSON.stringify(result).slice(0, 8000) };
+    }
     case "harnesses.blockDetail": {
       if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
       const run = await harnessRunner.readRun(request.payload.runId);
