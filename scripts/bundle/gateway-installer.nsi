@@ -1,4 +1,6 @@
 Unicode true
+Icon "..\..\packages\gateway\assets\app-icon.ico"
+UninstallIcon "..\..\packages\gateway\assets\app-icon.ico"
 Name "HatoPad Gateway"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\HatoPad Gateway"

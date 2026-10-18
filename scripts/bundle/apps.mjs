@@ -48,7 +48,7 @@ for (const kind of ['desktop', 'gateway']) {
     await copyBundledApplication(desktopBundle, path.join(resourcesRoot, 'bundle/desktop'));
   }] : undefined;
   const name = kind === 'desktop' ? 'HatoPad' : 'HatoPad Gateway';
-  const icon = process.platform === 'darwin' ? await macApplicationIcon(path.join(appDirectory, 'assets/app-icon.png'), path.join(staging, 'icons')) : undefined;
+  const icon = process.platform === 'darwin' ? await macApplicationIcon(path.join(appDirectory, 'assets/app-icon.png'), path.join(staging, 'icons')) : path.join(appDirectory, 'assets/app-icon.ico');
   const [built] = await packager({ dir: appDirectory, out: path.join(output, 'apps'), name, icon, appBundleId: `com.hatopad.${kind}`, appVersion: version, win32metadata: { CompanyName: 'HatoPad', ProductName: name, FileDescription: name }, electronVersion, platform: process.platform, arch: process.arch, overwrite: true, prune: false, asar: false, extraResource: [resources], afterExtract: [({ buildPath }) => pruneElectronLocales(buildPath)], afterCopyExtraResources: embedDesktop, osxSign: process.platform === 'darwin' ? { identity: '-', identityValidation: false, optionsForFile: () => ({ entitlements: ['com.apple.security.cs.allow-jit', 'com.apple.security.cs.disable-library-validation'] }) } : undefined });
   if (process.platform === 'darwin') {
     const bundle = path.join(built, `${name}.app/Contents`);

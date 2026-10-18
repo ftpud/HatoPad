@@ -6,7 +6,22 @@ button:focus-visible, [tabindex]:focus-visible, input:focus-visible, textarea:fo
 input, select, textarea { accent-color: var(--accent); }
 input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
 * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
-.ide-shell { --workspace-title-height: 52px; --panel-title-height: 42px; padding: 0 8px 7px; background: var(--shell-background); color: var(--text-primary); }
+.ide-shell { --workspace-title-height: 52px; --panel-title-height: 42px; padding: 0 8px 7px; background: var(--shell-background); color: var(--text-primary); position: relative; isolation: isolate; overflow: hidden; }
+/* One oversized pigeon behind the whole workspace. Opaque panels cover it. */
+.ide-shell::before {
+  content: ""; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: var(--text-heading); opacity: .12;
+  -webkit-mask: url("../../assets/branding.png") center / 130vmax 130vmax no-repeat;
+  mask: url("../../assets/branding.png") center / 130vmax 130vmax no-repeat;
+}
+:root[data-theme="light"] .ide-shell::before { opacity: .09; }
+.branding-mark {
+  display: inline-block; flex-shrink: 0; background: currentColor;
+  -webkit-mask: url("../../assets/branding.png") center / contain no-repeat;
+  mask: url("../../assets/branding.png") center / contain no-repeat;
+}
+.workspace-identity > .titlebar-branding { width: 25px; height: 25px; color: var(--text-heading); }
+.workspace-welcome > .welcome-branding { width: 80px; height: 80px; color: var(--text-heading); }
 .titlebar-actions { height: var(--workspace-title-height); min-height: var(--workspace-title-height); flex-basis: var(--workspace-title-height); padding: 0 8px; gap: 10px; justify-content: flex-start; flex-wrap: nowrap; border: 0; background: transparent; -webkit-app-region: drag; }
 .titlebar-actions :is(button, input, select, .settings-anchor, .branch-picker, .connection-menu, .top-java-run, .storage-overlay) { -webkit-app-region: no-drag; }
 :root[data-native-window="true"][data-platform="mac"] .titlebar-actions { padding-left: 84px; }
@@ -125,6 +140,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 .workbench { min-width: 0; border-radius: var(--radius-panel); overflow: hidden; background: transparent; }
 .workbench:has(.tab) { border: 1px solid var(--border-subtle); background: var(--editor-background); }
 .editor-area, .detached-editor, .find-preview-editor, .conflict-code-editor { background: var(--editor-background); }
+.workbench:not(:has(.tab)) .editor-area { background: transparent; }
 .tabs { height: var(--panel-title-height); min-height: var(--panel-title-height); flex-basis: var(--panel-title-height); gap: 3px; padding: 4px 5px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-panel); }
 .tab { height: 37px; min-width: 100px; max-width: 220px; padding: 0 10px; border: 1px solid transparent; border-radius: 7px 7px 0 0; color: var(--text-muted); background: transparent; box-shadow: none; }
 .tab.active { background: var(--editor-background); color: var(--text-heading); border-color: var(--border-subtle); border-bottom-color: var(--editor-background); box-shadow: none; }
@@ -260,7 +276,7 @@ input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1
 :root[data-native-window="true"] :is(.connection-screen, .detached-editor, .detached-error)::before { content: "HatoPad"; position: absolute; top: 0; left: 0; right: 0; height: 48px; padding: 17px 155px 0 92px; color: var(--text-muted); font-size: 12px; -webkit-app-region: drag; }
 @media (max-width: 1100px) { .titlebar-actions { gap: 7px; } .branch-picker, .branch-picker-trigger { max-width: 170px; } .titlebar-actions .top-java-run select { width: 200px; max-width: 22vw; } }
 @media (max-width: 850px) { .workspace-settings-button > span { display: none; } .titlebar-actions .workspace-settings-button { padding: 0 7px; } .connection-menu-trigger > span:nth-child(2) { display: none; } .titlebar-actions .top-java-run select { width: 160px; min-width: 100px; max-width: 20vw; } .titlebar-actions > .workspace-identity { max-width: 120px; } .branch-picker, .branch-picker-trigger { max-width: 130px; } }
-@media (max-height: 600px) { .workspace-welcome { gap: 8px; } .workspace-welcome > svg { width: 52px; height: 52px; padding: 13px; } .workspace-welcome h1 { margin-top: 0; } .workspace-welcome p { margin-bottom: 0; } }
+@media (max-height: 600px) { .workspace-welcome { gap: 8px; } .workspace-welcome > svg { width: 52px; height: 52px; padding: 13px; } .workspace-welcome > .welcome-branding { width: 52px; height: 52px; } .workspace-welcome h1 { margin-top: 0; } .workspace-welcome p { margin-bottom: 0; } }
 /* Shared button variants; native browser bevels are never part of the UI. */
 button { appearance: none; -webkit-appearance: none; border-style: solid; border-width: 1px; border-color: var(--border-subtle); background-color: var(--surface-panel); color: var(--text-secondary); box-shadow: none; }
 button:hover:not(:disabled) { border-color: var(--border-strong); }
