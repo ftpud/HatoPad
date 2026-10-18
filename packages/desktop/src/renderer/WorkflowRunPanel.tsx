@@ -1,6 +1,6 @@
 import { WorkflowError } from "./WorkflowError";
 import { forwardRef, useImperativeHandle, useEffect, useId, useMemo, useRef, useState } from "react";
-import { ArrowLeftRight, ArrowUpDown, Play, Square, Workflow, RotateCcw, ChevronDown, ChevronUp, Maximize2, PanelTop, Minimize2 } from "lucide-react";
+import { ArrowLeftRight, ArrowUpDown, Play, CirclePlay, Square, Workflow, RotateCcw, ChevronDown, ChevronUp, Maximize2, PanelTop, Minimize2 } from "lucide-react";
 import type { HarnessAppState, HarnessBlock, HarnessDefinition, HarnessRun } from "@hatopad/protocol";
 import { BlockRunDetails, PauseResolution, WorkflowMessage, type HarnessPanelProps } from "./HarnessPanel";
 import { transferDashStyle, useWorkflowTraces } from "./workflow-tracing";
@@ -35,6 +35,7 @@ function WorkflowCard({ workflow, expanded, hidden, onToggleExpanded, ...props }
   const [inputs, setInputs] = useState<Record<string, string>>({});
   const [starting, setStarting] = useState(false);
   const [stoppingRunIds, setStoppingRunIds] = useState<string[]>([]);
+  const [quickStartId, setQuickStartId] = useState<string>();
   const [showStarts, setShowStarts] = useState(false);
   const [selectedBlockId, setSelectedBlockId] = useState<string>();
   const [error, setError] = useState("");
@@ -68,7 +69,7 @@ function WorkflowCard({ workflow, expanded, hidden, onToggleExpanded, ...props }
         if (!result.valid) throw new Error(result.issues.map((issue) => issue.message).join("; "));
       }
       const next = await props.onRun(workflow.id, input, block?.id, snapshot?.id);
-      setStartedRun(next); setSelectedRunId(next.id); setShowStarts(false); setSelectedBlockId(undefined);
+      setStartedRun(next); setSelectedRunId(next.id); setShowStarts(false); setQuickStartId(undefined); setSelectedBlockId(undefined);
     });
     setStarting(false);
   };
@@ -94,11 +95,15 @@ function WorkflowCard({ workflow, expanded, hidden, onToggleExpanded, ...props }
   </>;
   return <article className={`workflow-card${run && activeStatuses.has(run.status) ? " live" : ""}${collapsed ? " collapsed" : ""}${expanded ? " expanded" : ""}`} aria-label={workflow.name} hidden={hidden}>
     <header><Workflow size={16} aria-hidden="true" /><strong title={workflow.name}>{workflow.name}</strong><span className={`workflow-overall-status ${run?.status ?? "idle"}`} role="status" aria-label={statusLabel(run?.status ?? "Ready")} title={statusLabel(run?.status ?? "Ready")}><i className={`harness-status ${run?.status ?? "idle"}`} /></span><div className="workflow-view-controls">
+      {collapsed && starts.map((block) => <button key={block.id} type="button" title={block.label} aria-label={`Quick start ${block.label}`} aria-expanded={block.type === "start_input" ? quickStartId === block.id : undefined} disabled={starting || (block.type === "start_button" && !block.prompt.trim())} onClick={() => { if (block.type === "start_input") setQuickStartId((current) => current === block.id ? undefined : block.id); else void start(block); }}>{block.type === "start_input" ? <CirclePlay size={15} aria-hidden="true" /> : <Play size={15} aria-hidden="true" />}</button>)}
       {props.onOpenWorkflow && <button type="button" aria-label={`Open ${workflow.name} in editor tab`} title="Open workflow in editor tab" onClick={() => props.onOpenWorkflow?.(workflow)}><PanelTop size={15} aria-hidden="true" /></button>}
       {!props.editorView && <><button type="button" aria-label={`${collapsed ? "Show" : "Collapse"} ${workflow.name}`} title={collapsed ? "Show workflow content" : "Collapse workflow"} aria-expanded={!collapsed} aria-controls={bodyId} onClick={() => { setCollapsed((current) => !current); if (expanded) onToggleExpanded(); }}>{collapsed ? <ChevronDown size={15} aria-hidden="true" /> : <ChevronUp size={15} aria-hidden="true" />}</button>
       <button type="button" aria-label={`${expanded ? "Restore" : "Expand"} ${workflow.name}`} title={expanded ? "Restore item size" : "Expand to panel"} aria-pressed={expanded} onClick={() => { setCollapsed(false); onToggleExpanded(); }}>{expanded ? <Minimize2 size={15} aria-hidden="true" /> : <Maximize2 size={15} aria-hidden="true" />}</button>
       </>}
     </div></header>
+    {collapsed && activeRuns.length > 0 && <CompactWorkflowPreview narrow definition={activeRuns[0]!.definition ?? workflow} run={activeRuns[0]} pollApps={!hidden} onReadApp={props.onReadApp} onSelect={(id) => { setSelectedRunId(activeRuns[0]!.id); setSelectedBlockId(id); setCollapsed(false); }} />}
+    {collapsed && quickStartId && <div className="workflow-quick-start">{renderStart(starts.find((block) => block.id === quickStartId))}</div>}
+    {collapsed && error && <WorkflowError message={error} />}
     <div id={bodyId} className="workflow-card-body" hidden={collapsed}>
     <div className="workflow-card-context">
     {run?.summary ? <div><p role={loadingError ? "alert" : "status"}>{loadingError || "Loading run details…"}</p>{loadingError && <button onClick={() => { setLoadingError(""); void props.onReadRun?.(run.id).catch((cause) => setLoadingError(String(cause))); }}>Retry</button>}</div> : run ? <>
@@ -127,7 +132,7 @@ function WorkflowCard({ workflow, expanded, hidden, onToggleExpanded, ...props }
 
 type WorkflowPreviewHandle = { fit(axis: "horizontal" | "vertical"): void };
 
-const CompactWorkflowPreview = forwardRef<WorkflowPreviewHandle, { definition: HarnessDefinition; run?: HarnessRun; selectedBlockId?: string; onSelect(id: string): void; onReadApp?: Props["onReadApp"]; pollApps: boolean }>(function CompactWorkflowPreview({ definition, run, selectedBlockId, onSelect, onReadApp, pollApps }, ref) {
+const CompactWorkflowPreview = forwardRef<WorkflowPreviewHandle, { definition: HarnessDefinition; run?: HarnessRun; selectedBlockId?: string; onSelect(id: string): void; onReadApp?: Props["onReadApp"]; pollApps: boolean; narrow?: boolean }>(function CompactWorkflowPreview({ definition, run, selectedBlockId, onSelect, onReadApp, pollApps, narrow }, ref) {
   const [appStatuses, setAppStatuses] = useState<Record<string, HarnessAppState["status"]>>({});
   const appBlockIds = JSON.stringify(definition.blocks.filter((block) => block.type === "run_app" && block.app).map((block) => block.id));
   useEffect(() => {
@@ -204,7 +209,7 @@ const CompactWorkflowPreview = forwardRef<WorkflowPreviewHandle, { definition: H
   const byId = new Map(blocks.map((block) => [block.id, block]));
   const width = Math.max(280, ...blocks.map((block) => block.position.x + 132));
   const height = Math.max(70, ...blocks.map((block) => block.position.y + 36));
-  return <div ref={viewportRef} style={{ height: fitHeight ? 220 : undefined }} className="workflow-compact-preview" aria-label="Live workflow tree"><svg style={{ minWidth: 0 }} width={width * scale} height={height * scale} viewBox={`0 0 ${width} ${height}`}>
+  return <div ref={viewportRef} style={{ height: fitHeight ? 220 : undefined }} className={`workflow-compact-preview${narrow ? " workflow-narrow-preview" : ""}`} aria-label="Live workflow tree"><svg style={{ minWidth: 0 }} width={narrow ? "100%" : width * scale} height={narrow ? 34 : height * scale} viewBox={`0 0 ${width} ${height}`}>
     {definition.edges.map((edge) => {
       const from = byId.get(edge.from), to = byId.get(edge.to);
       if (!from || !to) return null;

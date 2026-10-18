@@ -1,4 +1,4 @@
-import type { HarnessBlock, HarnessBlockRun, HarnessMeetingMessage } from "@hatopad/protocol";
+import type { HarnessBlock, HarnessBlockRun, HarnessMeetingMessage, HarnessRun } from "@hatopad/protocol";
 
 /** Event-driven subscriptions; registering is synchronous to avoid lost updates. */
 export class MeetingUpdates {
@@ -63,4 +63,39 @@ export function useMeeting(state: HarnessBlockRun, caller: HarnessBlock, args: R
   meeting.cursors = { ...meeting.cursors, [caller.id]: Math.max(savedCursor, next) };
   state.meeting = meeting;
   return { messages, cursor: next, latestSequence: meeting.sequence, hasMore: next < meeting.sequence, historyTruncated: action === "diff" && cursor < (meeting.messages[0]?.sequence ?? 1) - 1 };
+}
+
+/** Append one notice per participant transition, shared by every connected room. */
+export function publishMeetingStatusChanges(run: HarnessRun, previous: Map<string, string>): string[] {
+  const definition = run.definition;
+  if (!definition) return [];
+  const changedRooms = new Set<string>();
+  const descriptions: Record<string, string> = {
+    running: "started activity", succeeded: "is idle", waiting_timer: "is waiting for a timer",
+    failed: "stopped with an error", cancelled: "was stopped", blocked: "is blocked",
+    awaiting_permission: "is waiting for permission", awaiting_user_input: "is waiting for input",
+    retry_scheduled: "is waiting to retry", waiting: "is waiting", queued: "is queued",
+  };
+  for (const participant of definition.blocks) {
+    if (participant.type !== "ai" && participant.type !== "chatbox") continue;
+    const state = run.blocks.find((block) => block.blockId === participant.id);
+    if (!state) continue;
+    const before = previous.get(participant.id);
+    previous.set(participant.id, state.status);
+    if (before === state.status || (before === undefined && state.status !== "running")) continue;
+    const description = descriptions[state.status];
+    if (!description) continue;
+    const roomIds = new Set(definition.edges.filter((edge) => edge.from === participant.id && (edge.type === "use" || participant.type === "chatbox")).map((edge) => edge.to));
+    for (const room of definition.blocks) {
+      if (room.type !== "meeting" || !roomIds.has(room.id)) continue;
+      const meetingState = run.blocks.find((block) => block.blockId === room.id);
+      if (!meetingState) continue;
+      useMeeting(meetingState, { ...participant, provider: state.provider ?? state.chatSettings?.provider ?? participant.provider, model: state.chatSettings?.model ?? participant.model }, {
+        action: "publish", message: `[Status] ${participant.label.slice(0, 200)} ${description}.`,
+      });
+      meetingState.output = meetingState.meeting!.messages.map((message) => `[${message.sequence}] ${message.author}: ${message.text}`).join("\n\n").slice(-200000);
+      changedRooms.add(room.id);
+    }
+  }
+  return [...changedRooms];
 }

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { MeetingUpdates, useMeeting } from "./workflow-meeting.js";
+import { MeetingUpdates, useMeeting, publishMeetingStatusChanges } from "./workflow-meeting.js";
 import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@hatopad/protocol";
 import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@hatopad/acp";
 import { CoreError } from "./errors.js";
@@ -26,6 +26,7 @@ export type HarnessRecoveryInspector = {
 };
 
 export class HarnessRunner {
+  private readonly meetingParticipantStatuses = new WeakMap<HarnessRun, Map<string, string>>();
   private readonly meetingUpdates = new MeetingUpdates();
   private readonly flowInvocations = new Map<string, (id: string, input: string, ancestors?: string[]) => Promise<string>>();
   private readonly appToolCalls = new Map<string, Promise<unknown>>();
@@ -422,19 +423,19 @@ export class HarnessRunner {
     const execution = this.executions.get(runId);
     const state = execution?.run.blocks.find((item) => item.blockId === blockId);
     if (!execution || !this.isActive(runId) || execution.blocks.find((item) => item.id === blockId)?.type !== "chatbox"
-      || state?.status !== "running" || !state.workspace || !state.provider || !sessionId || state.sessionId !== sessionId) {
+      || !state || !["running", "waiting_timer"].includes(state.status) || !state.workspace || !state.provider || !sessionId || state.sessionId !== sessionId) {
       throw new CoreError("INVALID_REQUEST", "Chatbox session is no longer running");
     }
     await execution.scheduler.control(blockId, async () => {
       this.assertActive(runId);
-      if (state.status !== "running" || state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
+      if (!["running", "waiting_timer"].includes(state.status) || state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
       // Publish the input while provider acknowledgement is still pending.
       this.appendChatSteering(state, value);
       this.log(state, "prompt", `User steering: ${value}`);
       await this.update(execution.run);
       const startedAt = state.startedAt; const provider = state.provider!; const workspace = state.workspace!;
       const delivery = (this.chatSteeringDeliveries.get(state) ?? Promise.resolve()).then(async () => {
-        if (!this.isActive(runId) || state.sessionId !== sessionId || state.startedAt !== startedAt || state.status !== "running") throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
+        if (!this.isActive(runId) || state.sessionId !== sessionId || state.startedAt !== startedAt || !["running", "waiting_timer"].includes(state.status)) throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
         await steer(provider, workspace, value);
       }).catch(async (error) => {
         this.log(state, "error", `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -898,11 +899,11 @@ export class HarnessRunner {
         const input = `Shake from ${caller.label} in Meeting "${target.label}" (${target.id}):\n${message}`;
         const child = execution.run.blocks.find((item) => item.blockId === peer.id)!;
         const key = `${runId}:${peer.id}`;
-        if (child.status === "running" || execution.flowBusy?.has(peer.id) || this.agentStarts.has(key)) {
+        if (["running", "waiting_timer"].includes(child.status) || execution.flowBusy?.has(peer.id) || this.agentStarts.has(key)) {
           if (!child.workspace || !child.provider || !this.steerAgent) throw new Error("Peer is starting or cannot receive live messages; check status and retry once ready");
           await execution.scheduler.control(peer.id, async () => {
             this.assertActive(runId);
-            if (child.status !== "running") throw new Error("Peer turn ended; check status and shake again");
+            if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Peer turn ended; check status and shake again");
             this.chargeContext(execution.run, child, input.length);
             if (peer.type === "chatbox") this.appendChatSteering(child, input);
             this.log(child, "prompt", input);
@@ -968,11 +969,11 @@ export class HarnessRunner {
       if (args.action === "status" || args.action === "tail") return this.flowBlockMessages(execution.run, target.id, args.action === "status" ? 0 : (args.lines as number | undefined) ?? 6);
       if (args.action === "steer") {
         const child = execution.run.blocks.find((item) => item.blockId === target.id)!;
-        if (!textInput.trim() || child.status !== "running" || !child.workspace || !child.provider || !this.steerAgent) throw new Error("Steering requires a running connected AI session and nonempty input");
+        if (!textInput.trim() || !["running", "waiting_timer"].includes(child.status) || !child.workspace || !child.provider || !this.steerAgent) throw new Error("Steering requires a running connected AI session and nonempty input");
         const steeringInput = contextPreview(textInput, WORKFLOW_CONTEXT_CHARS);
         await execution.scheduler.control(target.id, async () => {
           this.assertActive(runId);
-          if (child.status !== "running") throw new Error("Connected AI session is no longer running");
+          if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Connected AI session is no longer running");
           this.chargeContext(execution.run, child, steeringInput.length);
           if (target.type === "chatbox") {
             this.appendChatSteering(child, steeringInput);
@@ -1430,10 +1431,16 @@ export class HarnessRunner {
 
   private async update(run: HarnessRun): Promise<void> {
     if (this.suspended) return;
+    let statuses = this.meetingParticipantStatuses.get(run);
+    if (!statuses) { statuses = new Map(); this.meetingParticipantStatuses.set(run, statuses); }
+    const changedRooms = publishMeetingStatusChanges(run, statuses);
+    const execution = this.executions.get(run.id);
+    for (const roomId of changedRooms) execution?.outputs.set(roomId, run.blocks.find((block) => block.blockId === roomId)!.output!);
     const limit = run.definition?.settings?.logLimitEntries ?? 500;
     for (const block of run.blocks) if (block.log && block.log.length > limit) block.log = block.log.slice(-limit);
     const snapshot = structuredClone(run); const next = this.updateQueue.then(async () => { await this.store.saveRun(snapshot); this.changed(run.id); });
     this.updateQueue = next.catch(() => undefined); await next;
+    for (const roomId of changedRooms) this.meetingUpdates.publish(run.id, roomId);
   }
 
   private activeExecution(runId: string): ActiveExecution {

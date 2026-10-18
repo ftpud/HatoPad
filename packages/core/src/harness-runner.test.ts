@@ -669,6 +669,33 @@ describe("HarnessRunner", () => {
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ id: "worker" }), "follow-up", expect.objectContaining({ workspace: "/sessions/worker" }));
   });
 
+  it("steers a Chatbox while waiting for a timer", async () => {
+    const store = new HarnessStore("/workspace", await mkdtemp(path.join(os.tmpdir(), "timer-steer-")));
+    const created = await store.create("Timer");
+    const definition = await store.update({ ...created, blocks: [{ id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } }, { id: "room", type: "meeting", label: "Room", prompt: "", position: { x: 200, y: 0 } }], edges: [{ id: "chat-room", from: "chat", to: "room", type: "use" }] });
+    const runner = new HarnessRunner(store, () => {});
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
+      await runtime.started("/workflow/chat");
+      await runtime.activity({ ...session("owned"), status: "in_progress" }, "2099-01-01T00:00:00.000Z");
+      await waiting;
+      return session("owned");
+    }, "test");
+    const steer = vi.fn(async () => session("owned"));
+    try {
+      await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("waiting_timer"));
+      await expect(runner.steerChat(run.id, "chat", "stale", "Wake up", steer)).rejects.toThrow();
+      await runner.steerChat(run.id, "chat", "owned", "Wake up", steer);
+      await vi.waitFor(() => expect(steer).toHaveBeenCalledWith("test", "/workflow/chat", "Wake up"));
+    } finally { release(); }
+    await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("succeeded"));
+    const messages = (await runner.readRun(run.id))!.blocks.find((block) => block.blockId === "room")!.meeting!.messages;
+    expect(messages.map((message) => message.text)).toEqual([
+      "[Status] Chat started activity.", "[Status] Chat is waiting for a timer.", "[Status] Chat is idle.",
+    ]);
+  });
+
   it("changes Autopilot only for the owned Chatbox session and resumes a pending permission", async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "workflow-autopilot-"));
     const store = new HarnessStore("/workspace", directory);

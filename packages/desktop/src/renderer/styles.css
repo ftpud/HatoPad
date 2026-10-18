@@ -1961,3 +1961,6 @@ button:disabled { cursor: default; }
 .task-filters { flex-wrap: wrap; }
 .task-filters .quick-filter { flex-basis: 120px; }
 .task-filters select { flex: 1 1 80px; }
+
+.workflow-narrow-preview { height: 34px; padding: 0; margin-top: 4px; overflow: hidden; border: 0; }
+.workflow-quick-start { margin-top: 8px; }

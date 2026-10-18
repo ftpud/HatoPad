@@ -838,7 +838,7 @@ function WorkflowChatbox({ providers = [], defaultProvider, onLoadModels, block,
   const connected = (graph?.edges ?? []).filter((edge) => edge.from === block.id).map((edge) => graph?.blocks.find((item) => item.id === edge.to)?.label).filter(Boolean);
   const { onScroll: onTranscriptScroll, followLatest } = useWorkflowTranscript(transcript, `${run?.id ?? "draft"}:${block.id}:${state?.sessionId ?? ""}`, `${messages.length}:${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.text ?? ""}:${busy}`);
   const send = async () => {
-    const action = busy ? (state?.status === "running" ? onSteer : undefined) : onSend;
+    const action = busy ? (["running", "waiting_timer"].includes(state?.status ?? "") ? onSteer : undefined) : onSend;
     if (!action || sending || !message.trim()) return;
     const input = message;
     const revision = messageRevision.current;
@@ -875,7 +875,7 @@ function WorkflowChatbox({ providers = [], defaultProvider, onLoadModels, block,
     <WorkflowChatActivity block={block} run={run} state={state} busy={busy} />
     <form className="workflow-chat-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       <textarea aria-label={`Message ${block.label}`} placeholder={busy ? "Steer this Chatbox while it works…" : "Message this Chatbox…"} rows={3} value={message} disabled={!onSend && !onSteer} onChange={(event) => { messageRevision.current++; setMessage(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-      <div><span role="status">{busy ? "Working with your workflow…" : "Enter to send · Shift+Enter for a new line"}</span>{busy && onStop ? <button type="button" aria-label="Stop chat response" onClick={() => { setError(""); void onStop().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not stop response")); }}><Square size={13} aria-hidden="true" /> Stop</button> : null}<button type="submit" aria-label={busy ? "Steer chat response" : "Send chat message"} disabled={sending || !message.trim() || (busy ? !onSteer || state?.status !== "running" : !onSend)}><Send size={14} aria-hidden="true" /> {busy ? "Steer" : "Send"}</button></div>
+      <div><span role="status">{busy ? "Working with your workflow…" : "Enter to send · Shift+Enter for a new line"}</span>{busy && onStop ? <button type="button" aria-label="Stop chat response" onClick={() => { setError(""); void onStop().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not stop response")); }}><Square size={13} aria-hidden="true" /> Stop</button> : null}<button type="submit" aria-label={busy ? "Steer chat response" : "Send chat message"} disabled={sending || !message.trim() || (busy ? !onSteer || !["running", "waiting_timer"].includes(state?.status ?? "") : !onSend)}><Send size={14} aria-hidden="true" /> {busy ? "Steer" : "Send"}</button></div>
       {error && <WorkflowError message={error} />}
     </form>
   </section>;

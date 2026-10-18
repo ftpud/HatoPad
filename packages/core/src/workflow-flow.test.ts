@@ -33,6 +33,7 @@ describe("typed workflows", () => {
     await runner.start(definition.id, "Discuss", async (current, input, runtime) => {
       const use = (args: Record<string, unknown>) => runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", ...args });
       if (current.id === "lead") {
+        expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ text: "[Status] lead started activity." }] } });
         await use({ action: "publish", message: "Plan" });
         expect(await use({ action: "status" })).toMatchObject({ meeting: { peers: [
           { blockId: "lead", self: true, online: true, block_status: "running" },
@@ -42,7 +43,13 @@ describe("typed workflows", () => {
         for (const peer_block_id of ["outsider", "lead", "note", "missing"]) await expect(use({ action: "shake", peer_block_id })).rejects.toThrow("another AI Agent or Chatbox connected");
         await expect(use({ action: "shake", peer_block_id: "peer", message: " " })).rejects.toThrow("1 to 10000");
         expect(await use({ action: "shake", peer_block_id: "peer", message: "Please review" })).toMatchObject({ meeting: { shake: { blockId: "peer", delivery: "started" } } });
-        expect(await use({ action: "wait", timeout_seconds: 2 })).toMatchObject({ meeting: { messages: [{ author: "peer", text: "Awake" }] } });
+        let messages: { text: string }[] = [];
+        while (!messages.some((message) => message.text === "Awake")) {
+          const result = await use({ action: "wait", timeout_seconds: 2 }) as { meeting: { messages: { text: string }[] } };
+          expect(result.meeting.messages.length).toBeGreaterThan(0);
+          messages.push(...result.meeting.messages);
+        }
+        expect(messages).toEqual(expect.arrayContaining([expect.objectContaining({ text: "[Status] peer started activity." }), expect.objectContaining({ text: "Awake" })]));
       } else {
         prompts.push(input);
         await use({ action: "publish", message: "Awake" });
@@ -75,7 +82,7 @@ describe("typed workflows", () => {
           expect(await use({ action: "status" })).toMatchObject({ meeting: { peers: [{ blockId: "lead" }, { blockId: "peer", online: true, hasSession: true }] } });
           expect(await use({ action: "shake", peer_block_id: "peer", message: "Check in" })).toMatchObject({ meeting: { shake: { delivery: "steered" } } });
           expect(steer).toHaveBeenCalledWith("test", "/sessions/peer", 'Shake from lead in Meeting "room" (room):\nCheck in');
-          expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [] } });
+          expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ text: "[Status] lead started activity." }, { text: "[Status] peer started activity." }] } });
           release();
           await vi.waitFor(async () => expect(await use({ action: "status" })).toMatchObject({ meeting: { peers: [{ blockId: "lead" }, { blockId: "peer", online: false, hasSession: true }] } }));
           expect(await use({ action: "shake", peer_block_id: "peer" })).toMatchObject({ meeting: { shake: { delivery: "started" } } });
@@ -94,6 +101,7 @@ describe("typed workflows", () => {
     const started = new Promise<void>((resolve) => { ready = resolve; });
     const run = await runner.start(definition.id, "Listen", async (current, _input, runtime) => {
       const use = (args: Record<string, unknown>) => runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", ...args });
+      await use({ action: "diff" }); // Consume our initial activity notice before waiting.
       const first = use({ action: "wait", timeout_seconds: 2, lines: 5 });
       const second = use({ action: "wait", timeout_seconds: 2 });
       ready();
@@ -120,7 +128,7 @@ describe("typed workflows", () => {
     const run = await runner.start(definition.id, "go", async (current, _input, runtime) => {
       const use = (id: string, args: Record<string, unknown> = {}) => runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: id, action: "fetch", ...args });
       await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", action: "publish", message: "Hello" });
-      expect(await use("room")).toMatchObject({ meeting: { messages: [{ text: "Hello" }] } });
+      expect(await use("room")).toMatchObject({ meeting: { messages: [{ text: "[Status] chat started activity." }, { text: "Hello" }] } });
       expect(await use("room")).toMatchObject({ meeting: { messages: [] } });
       await expect(use("note", { lines: 3 })).rejects.toThrow("fetch accepts only");
       await expect(use("note", { input: "x" })).rejects.toThrow("fetch accepts only");
@@ -141,11 +149,22 @@ describe("typed workflows", () => {
         await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "reader", action: "start", input: "Listen" });
         await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "publisher", input: "Speak" });
       } else if (current.id === "reader") {
-        const pending = use({ action: "wait", timeout_seconds: 2 });
+        await use({ action: "diff" });
+        let pending = use({ action: "wait", timeout_seconds: 2 });
         waiting = true;
-        expect(await pending).toMatchObject({ meeting: { status: "updated", messages: [{ sequence: 1, text: "Hello" }], cursor: 1 } });
-        expect(await use({ action: "wait", after: 0, timeout_seconds: 0.01 })).toMatchObject({ meeting: { status: "updated", messages: [{ sequence: 1 }] } });
-        expect(await use({ action: "wait", timeout_seconds: 0.01 })).toMatchObject({ meeting: { status: "timed_out", messages: [], cursor: 1 } });
+        let received: { sequence: number; text: string }[] = [];
+        while (!received.some((message) => message.text === "Hello")) {
+          const result = await pending as { meeting: { messages: { sequence: number; text: string }[] } };
+          expect(result.meeting.messages.length).toBeGreaterThan(0);
+          received.push(...result.meeting.messages);
+          if (!received.some((message) => message.text === "Hello")) pending = use({ action: "wait", timeout_seconds: 2 });
+        }
+        expect(await use({ action: "wait", after: 0, timeout_seconds: 0.01 })).toMatchObject({ meeting: { status: "updated", messages: expect.arrayContaining([expect.objectContaining({ sequence: 1, text: "[Status] reader started activity." })]) } });
+        await use({ action: "diff" });
+        // A publisher becoming idle is also a real room update; drain it before checking timeout.
+        let result = await use({ action: "wait", timeout_seconds: 0.01 }) as { meeting: { status: string; messages: unknown[] } };
+        if (result.meeting.messages.length) result = await use({ action: "wait", timeout_seconds: 0.01 }) as typeof result;
+        expect(result).toMatchObject({ meeting: { status: "timed_out", messages: [] } });
         await expect(use({ action: "wait", timeout_seconds: 0 })).rejects.toThrow("timeout_seconds");
       } else {
         expect(waiting).toBe(true);
@@ -185,7 +204,7 @@ describe("typed workflows", () => {
     const run = await runner.start(definition.id, "Discuss", async (current, _input, runtime) => {
       const use = (args: Record<string, unknown>) => runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", ...args });
       if (current.id === "chat") {
-        expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ sequence: 1, author: "agent", text: "Proposal" }] } });
+        expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ sequence: 1, text: "[Status] agent started activity." }, { sequence: 2, author: "agent", text: "Proposal" }, { sequence: 3, text: "[Status] chat started activity." }] } });
         await use({ action: "publish", message: "Feedback" });
         return session("Reviewed");
       }
@@ -194,9 +213,9 @@ describe("typed workflows", () => {
       await use({ action: "publish", input: "Proposal" });
       await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "chat", input: "Review" });
       expect(await use({ action: "diff", lines: 1 })).toMatchObject({ meeting: { messages: [{ sequence: 1 }], hasMore: true } });
-      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ sequence: 2, author: "chat", text: "Feedback" }], hasMore: false } });
-      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [], cursor: 2 } });
-      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [], cursor: 2 } });
+      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [{ sequence: 2, text: "Proposal" }, { sequence: 3, text: "[Status] chat started activity." }, { sequence: 4, author: "chat", text: "Feedback" }, { sequence: 5, text: "[Status] chat is idle." }], hasMore: false } });
+      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [], cursor: 5 } });
+      expect(await use({ action: "diff" })).toMatchObject({ meeting: { messages: [], cursor: 5 } });
       await Promise.all([use({ action: "publish", message: "One" }), use({ action: "publish", message: "Two" })]);
       return session("Done");
     }, "test", undefined, "agent");
@@ -204,9 +223,9 @@ describe("typed workflows", () => {
     expect(result.error).toBeUndefined();
     expect(result.status).toBe("succeeded");
     const saved = (await new HarnessStore("/workspace", directory).runs()).find((item) => item.id === run.id)!;
-    expect(saved.blocks.find((item) => item.blockId === "room")?.meeting).toMatchObject({ sequence: 4, cursors: { agent: 2, chat: 1 }, messages: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }, { sequence: 4 }] });
+    expect(saved.blocks.find((item) => item.blockId === "room")?.meeting).toMatchObject({ sequence: 8, cursors: { agent: 5, chat: 3 }, messages: [{ sequence: 1 }, { sequence: 2 }, { sequence: 3 }, { sequence: 4 }, { sequence: 5 }, { sequence: 6 }, { sequence: 7 }, { sequence: 8 }] });
     await runner.start(definition.id, "New discussion", async (current, _input, runtime) => {
-      expect(await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", action: "diff" })).toMatchObject({ meeting: { messages: [], latestSequence: 0 } });
+      expect(await runner.flowTool(runtime.runId, current.id, "workflow_use_block", { block_id: "room", action: "diff" })).toMatchObject({ meeting: { messages: [{ text: "[Status] agent started activity." }], latestSequence: 1 } });
       return session("Empty new meeting");
     }, "test", undefined, "agent");
     expect((await finished()).status).toBe("succeeded");
