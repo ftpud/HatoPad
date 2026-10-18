@@ -16,8 +16,8 @@ processes, and durable state; Electron clients own interaction. Read and change
 | Gateway/remote launch | `packages/gateway/src/{renderer,electron}` | Gateway deploys Core and ships Desktop artifacts; it does not import other workspaces. |
 | Runtime/tooling | `scripts/`, then package-local `packages/{desktop,gateway}/scripts/` | Reuse existing launch/install helpers. |
 
-Dependency direction is `acp -> protocol -> core/desktop`; Core and Desktop may
-also use ACP directly. Runtime traffic is Desktop -> typed WebSocket protocol ->
+Dependency direction is `acp -> protocol -> client/core/desktop`; Desktop also
+uses the shared client and the standalone relay package owns connector contracts. Core and Desktop may also use ACP directly. Runtime traffic is Desktop -> typed WebSocket protocol ->
 Core services. Do not put provider-ID branches in shared protocol or UI when
 provider descriptor metadata can express the behavior.
 

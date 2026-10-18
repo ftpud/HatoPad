@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@remote-ide/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@remote-ide/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { TerminalSessionHost } from "./process-manager.js";
@@ -59,6 +59,11 @@ import { AppToolService, appToolServer, withAppTools } from "./app-tools.js";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 import { RemoteTransferService } from "./remote-transfer.js";
 import { WorkspaceRootRegistry } from "./workspace-roots.js";
+import { pageMessages } from "./ai/message-page.js";
+import { MAX_FILE_SIZE } from "./filesystem.js";
+import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
+import { projectProgress } from "./harness-progress.js";
+import { boundPermission, boundQuestion, boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./ai/session-bounds.js";
 import type { ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@remote-ide/protocol";
 import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@remote-ide/acp";
 
@@ -138,11 +143,11 @@ export class WorkspaceWatchBatcher {
   private schedule(): void { if (!this.timer) this.timer = setTimeout(() => this.flush(), this.delay); }
 }
 
-export function protocolHandshake(compatibility: { minimum: number; maximum: number }): { compatibility: typeof coreProtocolCompatibility; compatible: boolean; message?: string } {
+export function protocolHandshake(compatibility: { minimum: number; maximum: number }): { compatibility: typeof coreProtocolCompatibility; compatible: boolean; message?: string; capabilities?: CoreCapability[] } {
   const valid = Number.isInteger(compatibility.minimum) && Number.isInteger(compatibility.maximum) && compatibility.minimum > 0 && compatibility.minimum <= compatibility.maximum;
   const compatible = valid && compatibility.minimum <= coreProtocolCompatibility.maximum && coreProtocolCompatibility.minimum <= compatibility.maximum;
   return compatible
-    ? { compatible, compatibility: coreProtocolCompatibility }
+    ? { compatible, compatibility: coreProtocolCompatibility, capabilities: [...coreCapabilities] }
     : { compatible, compatibility: coreProtocolCompatibility, message: `Core supports protocol ${coreProtocolCompatibility.minimum}-${coreProtocolCompatibility.maximum}; this Desktop supports ${compatibility.minimum}-${compatibility.maximum}` };
 }
 
@@ -276,6 +281,37 @@ export async function createServer(host: string, port: number, workspacePath: st
     begin: async (target, provider, prompt, sessionId, provenance) => { const id = await checkpointStore(target).begin(provider as AiProvider, prompt, sessionId, undefined, provenance); taskGitChanged(target); return id; },
     complete: async (target, ids, status, provenance) => { await Promise.all(ids.map((id) => checkpointStore(target).complete(id, status, provenance))); taskGitChanged(target); }
   }, async (target) => { const rootId = await ownerRootId(target); return rootId ? roots.get(rootId).path : rootWorkspace; }, rootWorkspace, plugins.providers);
+  // Read-only across every root: uses provider `get` on explicit workspace paths and never selects a root/task.
+  const overviewSummary = async (payload: { limit?: number; cursor?: string }) => {
+    const sources: OverviewSource[] = [];
+    let truncated = false;
+    const allRoots = roots.list();
+    if (allRoots.length > overviewLimits.maxRoots) truncated = true;
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const store = contextFor(root.id).tasks;
+      const registry = await store.list();
+      const visible = registry.tasks.filter((task) => task.status === "active" && !task.archived);
+      if (visible.length > overviewLimits.maxTasksPerRoot) truncated = true;
+      const targets = [{ taskId: undefined as string | undefined, workspace: root.path }, ...visible.slice(0, overviewLimits.maxTasksPerRoot).map((task) => ({ taskId: task.id as string | undefined, workspace: store.taskPath(task.id) }))];
+      for (const target of targets) {
+        const sessions = await Promise.all(acp.list().map(async (item) => ({ provider: item.id as AiProvider, session: await acp.get(item.id).get(target.workspace) })));
+        sources.push({ rootId: root.id, alias: root.alias, taskId: target.taskId, sessions });
+      }
+    }
+    const workflows: WorkflowSource[] = [];
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const store = contextFor(root.id).harnesses;
+      const waiting = (await store.summaries()).filter((run) => run.status === "awaiting_permission" || run.status === "awaiting_user_input").slice(0, overviewLimits.maxWorkflowRunsPerRoot);
+      if (!waiting.length) continue;
+      const stored = await store.runs();
+      for (const summary of waiting) {
+        // Prefer the live execution (newer than disk) but never create a runner just to look.
+        const run = (await harnessRunners.get(root.id)?.readRun(summary.id)) ?? stored.find((item) => item.id === summary.id);
+        if (run) workflows.push({ rootId: root.id, alias: root.alias, run });
+      }
+    }
+    return pageOverview(buildOverview(sources, truncated, workflows), payload);
+  };
   const harnessRunners = new Map<string, HarnessRunner>();
   const storage = new ServerStorage({
     roots: () => roots.list().map((root) => root.path),
@@ -549,6 +585,22 @@ export async function createServer(host: string, port: number, workspacePath: st
     socketMonitors.add(disposeMonitor);
     socket.once("close", () => socketMonitors.delete(disposeMonitor));
     let protocolAccepted = false;
+    let sessionMessageLimit: number | undefined;
+    // The durable registry selection is only the default for a new connection. Each connection pins its own
+    // task per root on first use so another client's switch can never change what this one reports or runs.
+    const taskPins = new Map<string, string | null>();
+    const effectiveTaskId = (rootId: string, registry: { tasks: { id: string }[]; selectedTaskId?: string }): string | undefined => {
+      if (!taskPins.has(rootId)) taskPins.set(rootId, registry.selectedTaskId ?? null);
+      const pinned = taskPins.get(rootId);
+      return pinned && registry.tasks.some((task) => task.id === pinned) ? pinned : undefined;
+    };
+    const withConnectionSelection = <T>(rootId: string, result: T): T => {
+      const record = result as unknown as { tasks?: { id: string }[]; selectedTaskId?: string };
+      if (!record || !Array.isArray(record.tasks)) return result;
+      const { selectedTaskId: _durable, ...rest } = record;
+      const taskId = effectiveTaskId(rootId, record as { tasks: { id: string }[]; selectedTaskId?: string });
+      return (taskId ? { ...rest, selectedTaskId: taskId } : rest) as T;
+    };
     let selectedRoot = roots.primary();
     liveRootSelections.connect(socket, selectedRoot.id);
     const makeServices = async (nextWorkspace: string, ownerRootId = selectedRoot.id): Promise<SessionServices> => {
@@ -632,7 +684,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     const initializeServices = async () => {
       const registry = await tasks.list();
       admission.assertOpen();
-      const selectedWorkspace = registry.selectedTaskId ? tasks.taskPath(registry.selectedTaskId) : rootWorkspace;
+      const pinnedTaskId = effectiveTaskId(selectedRoot.id, registry);
+      const selectedWorkspace = pinnedTaskId ? tasks.taskPath(pinnedTaskId) : rootWorkspace;
       terminalSubscriptions.set(socket, { rootId: selectedRoot.id, workspace: selectedWorkspace, terminalIds: new Set() });
       await commitSwitchedWatch(selectedRoot.id, await prepareSwitchedWatch(selectedWorkspace));
       return makeServices(selectedWorkspace);
@@ -655,12 +708,14 @@ export async function createServer(host: string, port: number, workspacePath: st
           if (protocolAccepted) throw new CoreError("INVALID_REQUEST", "Protocol handshake has already completed");
           try { access.authenticate(parsed.payload.token); }
           catch (error) { setTimeout(() => socket.close(1008, "Authentication failed"), 0); throw error; }
+          const limitRequested = validSessionMessageLimit(parsed.payload.sessionMessageLimit);
           const result = protocolHandshake(parsed.payload.compatibility);
           const compatible = result.compatible;
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result } satisfies Response));
           if (!compatible) setTimeout(() => socket.close(1008, "Incompatible protocol"), 0);
           else {
             protocolAccepted = true;
+            sessionMessageLimit = limitRequested;
             servicesPromise = initializeServices();
             void servicesPromise.catch(() => undefined);
           }
@@ -675,6 +730,10 @@ export async function createServer(host: string, port: number, workspacePath: st
         releaseAdmission = admission.acquire();
         if (parsed.type === "workspace.roots") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { roots: roots.list(), selectedRootId: selectedRoot.id } }));
+          return;
+        }
+        if (parsed.type === "overview.summary") {
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewSummary(parsed.payload) } satisfies Response<"overview.summary">));
           return;
         }
         if (parsed.type === "workspace.addRoot") {
@@ -707,14 +766,14 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (parsed.type === "filesystem.searchRoots") {
           const rootIds = [...new Set(parsed.payload.rootIds)]; if (!rootIds.length || rootIds.length > 16) throw new CoreError("INVALID_REQUEST", "Search must name between 1 and 16 registered roots");
           const results = await Promise.all(rootIds.map(async (rootId) => {
-            const root = roots.get(rootId); const context = contextFor(rootId); const taskRegistry = await context.tasks.list(); const target = taskRegistry.selectedTaskId ? context.tasks.taskPath(taskRegistry.selectedTaskId) : root.path;
+            const root = roots.get(rootId); const context = contextFor(rootId); const taskRegistry = await context.tasks.list(); const pinned = effectiveTaskId(rootId, taskRegistry); const target = pinned ? context.tasks.taskPath(pinned) : root.path;
             const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(target); const result = await new WorkspaceSearch(filesystem).search(parsed.payload.query, parsed.payload.path, parsed.payload.matchCase, { include: parsed.payload.include, exclude: parsed.payload.exclude });
             return { matches: result.matches.map((match) => ({ ...match, rootId })), truncated: result.truncated };
           }));
           const matches = results.flatMap((result) => result.matches).slice(0, 500); sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: { matches, truncated: results.some((result) => result.truncated) || results.reduce((count, result) => count + result.matches.length, 0) > matches.length } })); return;
         }
         if (parsed.type === "filesystem.readRootFile") {
-          const root = roots.get(parsed.payload.targetRootId); const context = contextFor(root.id); const taskRegistry = await context.tasks.list(); const target = taskRegistry.selectedTaskId ? context.tasks.taskPath(taskRegistry.selectedTaskId) : root.path;
+          const root = roots.get(parsed.payload.targetRootId); const context = contextFor(root.id); const taskRegistry = await context.tasks.list(); const pinned = effectiveTaskId(root.id, taskRegistry); const target = pinned ? context.tasks.taskPath(pinned) : root.path;
           const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(target); const file = await filesystem.read(parsed.payload.path); sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: { rootId: root.id, path: parsed.payload.path, ...file } })); return;
         }
         // Requests are handled concurrently, so anything that arrives while a task switch is
@@ -740,19 +799,20 @@ export async function createServer(host: string, port: number, workspacePath: st
             try { candidate = await transactionalRootSelection(async () => {
               const selectedTasks = parsed.payload.preserveTaskSelection ? await rootContext.tasks.list() : undefined;
               admission.assertOpen();
-              const nextWorkspace = selectedTasks?.selectedTaskId ? rootContext.tasks.taskPath(selectedTasks.selectedTaskId) : nextRoot.path;
+              const preservedTaskId = selectedTasks ? effectiveTaskId(nextRoot.id, selectedTasks) : undefined;
+              const nextWorkspace = preservedTaskId ? rootContext.tasks.taskPath(preservedTaskId) : nextRoot.path;
               const nextServices = await makeServices(nextWorkspace, nextRoot.id);
               let nextWatch: SwitchedWatch | undefined;
               try {
                 nextWatch = await prepareSwitchedWatch(nextServices.workspacePath, nextRoot.id);
-                const result = { root: nextRoot, workspace: nextServices.workspacePath, projectName: nextRoot.alias, tree: await nextServices.filesystem.listTree(parsed.payload.includeIgnored === true), options: await nextServices.workspaceState.load() };
+                const result = { root: nextRoot, workspace: nextServices.workspacePath, projectName: nextRoot.alias, tree: parsed.payload.includeTree === false ? [] : await nextServices.filesystem.listTree(parsed.payload.includeIgnored === true), options: await nextServices.workspaceState.load() };
                 return { nextServices, nextWatch, result };
               } catch (error) { await nextServices.languages.dispose(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch); throw error; }
             }, async ({ nextServices, nextWatch }) => {
               admission.assertOpen();
               await commitSwitchedWatch(nextRoot.id, nextWatch);
               admission.assertOpen();
-              if (!parsed.payload.preserveTaskSelection) await selectRootWorkspace(rootContext.tasks);
+              if (!parsed.payload.preserveTaskSelection) { await selectRootWorkspace(rootContext.tasks); taskPins.set(nextRoot.id, null); }
               admission.assertOpen();
               selectedRoot = nextRoot; liveRootSelections.select(socket, nextRoot.id);
               servicesPromise = Promise.resolve(nextServices);
@@ -762,9 +822,10 @@ export async function createServer(host: string, port: number, workspacePath: st
               await nextServices.languages.dispose(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch);
             }); } catch (error) { liveRootSelections.cancelSelection(socket); throw error; }
             services = candidate.nextServices; rootSelectionResult = candidate.result;
-          } else if (parsed.type === "tasks.switch" || (parsed.type === "tasks.delete" && (await rootContext.tasks.list()).selectedTaskId === parsed.payload.taskId)) {
+          } else if (parsed.type === "tasks.switch" || (parsed.type === "tasks.delete" && effectiveTaskId(requestRoot.id, await rootContext.tasks.list()) === parsed.payload.taskId)) {
             admission.assertOpen();
             const selected = await rootContext.tasks.select(parsed.type === "tasks.switch" ? parsed.payload.taskId : undefined);
+            taskPins.set(requestRoot.id, parsed.type === "tasks.switch" ? parsed.payload.taskId ?? null : null);
             trackCleanup(services.languages.dispose());
             servicesPromise = makeServices(selected.workspace);
             services = await servicesPromise!;
@@ -773,12 +834,13 @@ export async function createServer(host: string, port: number, workspacePath: st
           }
         } finally { release?.(); }
         admission.assertOpen();
-        const result = parsed.type === "workspace.selectRoot"
+        let result = parsed.type === "workspace.selectRoot"
           ? rootSelectionResult!
           : parsed.type === "storage.scan" ? storage.scan()
           : parsed.type === "storage.status" ? storage.status()
           : parsed.type === "storage.cleanup" ? storage.cleanup(parsed.payload)
           : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
+        if (parsed.type === "tasks.list" || parsed.type === "tasks.switch" || parsed.type === "tasks.delete") result = withConnectionSelection(requestRoot.id, result);
         if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
         const terminalSubscription = terminalSubscriptions.get(socket);
         if (terminalSubscription && parsed.type === "terminal.create") { const terminalId = (result as { terminalId: string }).terminalId; terminalSubscription.terminalIds.add(terminalId); terminalOwners.set(terminalId, { socket, rootId: parsed.rootId, workspace: services.workspacePath }); }
@@ -788,7 +850,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           const terminalId = (result as { config: { terminalId?: string } }).config.terminalId; if (terminalId) terminalSubscription.terminalIds.add(terminalId);
         }
         if (parsed.type === "workspace.open") activeSessions.add(socket);
-        sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result }));
+        sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: boundSessionsInResult(result, sessionMessageLimit) }));
       } catch (error) {
         const coreError = error instanceof CoreError ? error : new CoreError("INVALID_REQUEST", error instanceof Error ? error.message : "Invalid request");
         console.error(`[core] error ${id}: ${coreError.code} ${coreError.message}`);
@@ -833,8 +895,15 @@ function parseRequest(data: RawData): Request {
   return value as Request;
 }
 
+/** Optional per-request cap for phone-sized reads; never exceeds the Core-wide file limit. */
+function optionalByteLimit(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > MAX_FILE_SIZE) throw new CoreError("INVALID_REQUEST", `maxBytes must be an integer from 1 to ${MAX_FILE_SIZE}`);
+  return value;
+}
+
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
-  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot") return;
+  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }
@@ -888,7 +957,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
   }
   switch (request.type) {
     case "workspace.open": {
-      const tree = await filesystem.open(workspacePath, request.payload.includeIgnored === true);
+      const tree = request.payload.includeTree === false ? (await filesystem.initialize(workspacePath), [] as FileTreeNode[]) : await filesystem.open(workspacePath, request.payload.includeIgnored === true);
       return { workspace: filesystem.getWorkspace(), projectName: path.basename(path.resolve(rootWorkspace)), tree, options: await workspaceState.load() };
     }
     case "workspace.saveOptions": {
@@ -973,7 +1042,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "tasks.switch": {
       const registry = await tasks.list();
-      return { workspace: workspacePath, projectName: path.basename(path.resolve(rootWorkspace)), tree: await filesystem.listTree(request.payload.includeIgnored === true), options: await workspaceState.load(), ...registry };
+      return { workspace: workspacePath, projectName: path.basename(path.resolve(rootWorkspace)), tree: request.payload.includeTree === false ? [] : await filesystem.listTree(request.payload.includeIgnored === true), options: await workspaceState.load(), ...registry };
     }
     case "skills.list": return new SkillsStore(undefined, rootWorkspace).list(workspacePath);
     case "skills.read": return { content: await new SkillsStore(undefined, rootWorkspace).readResource(request.payload.id, workspacePath, request.payload.path) };
@@ -1000,7 +1069,15 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (request.payload.credentials !== "environment" && request.payload.credentials !== "login") throw new CoreError("INVALID_REQUEST", "Credentials must be environment or login");
       return { installation: await acp.get(request.payload.provider).setCredentials(request.payload.credentials) };
     }
-    case "ai.get": return { session: await acp.get(request.payload.provider).get(workspacePath) };
+    case "ai.get": {
+      if (request.payload.summary !== undefined && typeof request.payload.summary !== "boolean") throw new CoreError("INVALID_REQUEST", "summary must be a boolean");
+      const session = await acp.get(request.payload.provider).get(workspacePath);
+      return { session: request.payload.summary === true ? limitSessionMessages(session, 0) : session };
+    }
+    case "ai.messages": {
+      const session = await acp.get(request.payload.provider).get(workspacePath);
+      return { ...(session.id ? { sessionId: session.id } : {}), status: session.status, ...(session.pendingPermission ? { pendingPermission: boundPermission(session.pendingPermission) } : {}), ...(session.pendingQuestion ? { pendingQuestion: boundQuestion(session.pendingQuestion) } : {}), ...pageMessages(session, request.payload) };
+    }
     case "ai.auth.get": return { authentication: await acp.get(request.payload.provider).authentication(workspacePath, request.payload.discover) };
     case "ai.auth.start": return { authentication: await acp.get(request.payload.provider).authenticate(workspacePath, request.payload.methodId) };
     case "ai.auth.input": return { authentication: await acp.get(request.payload.provider).authenticationInput(workspacePath, request.payload) };
@@ -1045,7 +1122,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       await assertSessionChangeAllowed(aiTimers, workspacePath, provider.descriptor.id);
       return { session: await provider.clear(workspacePath) };
     }
-    case "ai.sessions": return { sessions: await acp.get(request.payload.provider).sessions(workspacePath) };
+    case "ai.sessions": return pageSessions(await acp.get(request.payload.provider).sessions(workspacePath), request.payload);
     case "ai.restore": {
       const provider = acp.get(request.payload.provider);
       await assertSessionChangeAllowed(aiTimers, workspacePath, provider.descriptor.id);
@@ -1099,6 +1176,12 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "harnesses.delete": await harnesses.delete(request.payload.id); return {};
     case "harnesses.validate": return validateHarness(request.payload.harness);
+    case "harnesses.progress": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      return { run: projectProgress(run, request.payload.logLimit) };
+    }
     case "harnesses.runs": {
       const selectedRun = request.payload.runId ? await harnessRunner.readRun(request.payload.runId) : undefined;
       const runs = request.payload.runId
@@ -1160,9 +1243,16 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "http.execute": return executeHttpRequest(request.payload.method, request.payload.url, request.payload.headers, request.payload.body);
     case "filesystem.listTree": return { tree: await filesystem.listTree(request.payload.includeIgnored === true) };
     case "filesystem.snapshot": return { entries: await filesystem.snapshot(request.payload.paths) };
+    case "filesystem.listDirectory": {
+      const { path: directoryPath = "", limit = 50, cursor } = request.payload;
+      if (typeof directoryPath !== "string" || directoryPath.length > 4096 || directoryPath.includes("\0")) throw new CoreError("INVALID_REQUEST", "path must be a workspace-relative string");
+      if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new CoreError("INVALID_REQUEST", "limit must be an integer from 1 to 100");
+      if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 1024)) throw new CoreError("INVALID_REQUEST", "cursor must be a short string");
+      return filesystem.listDirectory(directoryPath, limit, cursor);
+    }
     case "filesystem.readFile": {
       if (typeof request.payload.path !== "string") throw new CoreError("INVALID_REQUEST", "path must be a string");
-      const file = await filesystem.read(request.payload.path);
+      const file = await filesystem.read(request.payload.path, optionalByteLimit(request.payload.maxBytes));
       return { path: request.payload.path, ...file };
     }
     case "filesystem.writeFile": {
@@ -1240,7 +1330,10 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "git.status": return git.status();
     case "git.diff": {
       if (typeof request.payload.path !== "string") throw new CoreError("INVALID_REQUEST", "path must be a string");
-      return git.diff(request.payload.path, filesystem);
+      const limit = optionalByteLimit(request.payload.maxBytes);
+      const diff = await git.diff(request.payload.path, filesystem);
+      if (limit !== undefined && Buffer.byteLength(diff.originalContent) + Buffer.byteLength(diff.modifiedContent) > limit) return { path: diff.path, originalContent: "", modifiedContent: "", hunks: [], tooLarge: true };
+      return diff;
     }
     case "git.stage": await git.stage(request.payload.path, request.payload.hunk); return {};
     case "git.unstage": await git.unstage(request.payload.path, request.payload.hunk); return {};

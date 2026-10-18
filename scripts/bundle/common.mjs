@@ -24,7 +24,7 @@ export function run(command, args, cwd = root, env = process.env) {
 export async function stageWorkspace(destination, workspace) {
   await mkdir(destination, { recursive: true });
   for (const file of ['package.json', 'package-lock.json', 'LICENSE.md']) await cp(path.join(root, file), path.join(destination, file));
-  for (const name of ['acp', 'protocol', 'core', 'desktop', 'gateway']) {
+  for (const name of ['acp', 'protocol', 'client', 'relay', 'connector', 'test-fixtures', 'core', 'desktop', 'gateway']) {
     const target = path.join(destination, 'packages', name);
     await mkdir(target, { recursive: true });
     await cp(path.join(root, 'packages', name, 'package.json'), path.join(target, 'package.json'));

@@ -13,6 +13,8 @@ const execFileAsync = promisify(execFile);
 
 export const MAX_FILE_SIZE = 2 * 1024 * 1024;
 const TRASH_DIRECTORY = ".vibe-trash";
+/** Directory entries examined per `listDirectory` call; larger directories report `truncated`. */
+const MAX_DIRECTORY_SCAN = 20_000;
 
 export interface WorkspaceTreeLimits {
   maxNodes: number;
@@ -114,12 +116,12 @@ export class WorkspaceFileSystem {
     }));
   }
 
-  async read(relativePath: string): Promise<{ content: string; revision: FileRevision }> {
+  async read(relativePath: string, limit = MAX_FILE_SIZE): Promise<{ content: string; revision: FileRevision }> {
     const target = await this.resolveExisting(relativePath);
     try {
       const info = await stat(target);
       if (!info.isFile()) throw new CoreError("READ_FAILED", "Path is not a file");
-      if (info.size > MAX_FILE_SIZE) throw new CoreError("FILE_TOO_LARGE", `File exceeds ${MAX_FILE_SIZE} byte limit`);
+      if (info.size > Math.min(limit, MAX_FILE_SIZE)) throw new CoreError("FILE_TOO_LARGE", `File exceeds ${Math.min(limit, MAX_FILE_SIZE)} byte limit`);
       const buffer = await readFile(target);
       if (buffer.includes(0)) throw new CoreError("BINARY_FILE", "Binary files cannot be opened");
       const content = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
@@ -358,6 +360,39 @@ export class WorkspaceFileSystem {
       throw new CoreError("PATH_OUTSIDE_WORKSPACE", "Path escapes the workspace");
     }
     return resolved;
+  }
+
+  /**
+   * One non-recursive directory page for phone-sized browsing. Directories sort first, then names in
+   * code-unit order; the cursor is the last returned sort key, so pages stay stable while the directory
+   * changes. Entries that are links escaping the workspace, the Git directory and Core's trash are hidden.
+   */
+  async listDirectory(relativePath: string, limit: number, cursor?: string): Promise<{ entries: { name: string; path: string; type: "file" | "directory" }[]; nextCursor?: string; truncated?: boolean }> {
+    const workspace = this.getWorkspace();
+    const directory = relativePath === "" ? await realpath(workspace) : await this.resolveExisting(relativePath);
+    if (!(await stat(directory)).isDirectory()) throw new CoreError("READ_FAILED", "Path is not a directory");
+    const names = await readdir(directory, { withFileTypes: true });
+    const scanned = names.slice(0, MAX_DIRECTORY_SCAN);
+    const visible: { name: string; path: string; type: "file" | "directory"; key: string }[] = [];
+    for (const entry of scanned) {
+      if (entry.name === ".git" || entry.name === TRASH_DIRECTORY) continue;
+      let type: "file" | "directory";
+      if (entry.isSymbolicLink()) {
+        try { type = (await stat(await this.resolveExisting(path.posix.join(relativePath, entry.name)))).isDirectory() ? "directory" : "file"; } catch { continue; }
+      } else if (entry.isDirectory()) type = "directory";
+      else if (entry.isFile()) type = "file";
+      else continue;
+      visible.push({ name: entry.name, path: path.posix.join(relativePath, entry.name), type, key: `${type === "directory" ? "0" : "1"}${entry.name}` });
+    }
+    visible.sort((left, right) => left.key < right.key ? -1 : left.key > right.key ? 1 : 0);
+    const after = cursor === undefined ? undefined : Buffer.from(cursor, "base64url").toString("utf8");
+    const remaining = after === undefined ? visible : visible.filter((entry) => entry.key > after);
+    const page = remaining.slice(0, limit);
+    return {
+      entries: page.map(({ key: _key, ...entry }) => entry),
+      ...(remaining.length > page.length ? { nextCursor: Buffer.from(page.at(-1)!.key, "utf8").toString("base64url") } : {}),
+      ...(names.length > scanned.length ? { truncated: true } : {})
+    };
   }
 
   async resolveExisting(relativePath: string): Promise<string> {

@@ -11,8 +11,8 @@ const release = `${commit}-node${process.versions.modules}-bundle-${process.env.
 const staging = path.join(output, 'staging', `core-${target}`);
 await rm(staging, { recursive: true, force: true });
 await stageWorkspace(staging, 'core');
-for (const name of ['acp', 'protocol', 'core']) await cp(path.join(root, 'packages', name, 'dist'), path.join(staging, 'packages', name, 'dist'), { recursive: true, filter: source => !/\.(test|integration\.test)\.(js|d\.ts)$/.test(source) });
-for (const name of ['desktop', 'gateway']) await rm(path.join(staging, 'packages', name), { recursive: true, force: true });
+for (const name of ['acp', 'protocol', 'relay', 'connector', 'core']) await cp(path.join(root, 'packages', name, 'dist'), path.join(staging, 'packages', name, 'dist'), { recursive: true, filter: source => !/\.(test|integration\.test)\.(js|d\.ts)$/.test(source) });
+for (const name of ['desktop', 'gateway', 'client', 'test-fixtures']) await rm(path.join(staging, 'packages', name), { recursive: true, force: true });
 // Provider ACP agents are installed on the Core host from Settings -> AI providers, not shipped.
 const dependencies = Object.keys((await json(path.join(root, 'packages/core/package.json'))).dependencies);
 await pruneRuntimeDependencies(staging, dependencies);

@@ -1,6 +1,7 @@
 import { loadCoreSessionToken } from "./access-policy.js";
 import { installSignalShutdown } from "./signal-shutdown.js";
 import { createServer, shutdownCore } from "./server.js";
+import { parseHubOptions, runHubPairing, startHubConnector } from "./hub-connection.js";
 
 function option(name: string, fallback: string): string {
   const index = process.argv.indexOf(`--${name}`);
@@ -14,6 +15,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) {
   console.error("Port must be an integer between 1 and 65535");
   process.exit(1);
 }
+const hub = (() => { try { return parseHubOptions(process.argv.slice(2)); } catch (error) { console.error(error instanceof Error ? error.message : String(error)); process.exit(1); } })();
+if (hub.pairOrigin) process.exit((await runHubPairing(hub)) ? 0 : 1);
 if (!workspace) {
   console.error("A workspace is required. Pass --workspace /absolute/path/to/workspace");
   process.exit(1);
@@ -24,7 +27,8 @@ try {
   if (access.file) console.log(`[core] session token file: ${access.file}`);
   const allowedOrigins = process.env.REMOTE_IDE_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
   const server = await createServer(host, port, workspace, { access: { token: access.token, allowedOrigins } });
-  installSignalShutdown(() => shutdownCore(server));
+  const stopHub = hub.connect ? await startHubConnector(hub, port, access.token) : undefined;
+  installSignalShutdown(async () => { await stopHub?.(); await shutdownCore(server); });
 } catch (error) {
   console.error(`[core] failed to open workspace: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
