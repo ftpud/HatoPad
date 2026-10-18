@@ -1,3 +1,4 @@
+import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
 import { legacyUserDataPath } from "./legacy-user-data.js";
@@ -431,12 +432,12 @@ async function startClient(workspaceId: string): Promise<void> {
   const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
   const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `hatopad-${workspace.id}-${commit}.tar.gz`);
   const buildMarker = path.join(clientRoot, ".gateway-client-built");
-  const expectedMarker = `artifact-v2:${commit}`;
+  const expectedMarker = `${clientArtifactVersion}:${commit}`;
   let clientBuilt = false;
   try {
     const marker = (await readFile(buildMarker, "utf8")).trim();
-    clientBuilt = marker === expectedMarker || marker === commit;
-    await access(path.join(clientRoot, "package.json")); await access(path.join(clientRoot, "compatibility.json")); await access(path.join(clientRoot, "dist-electron", "main.js")); await access(path.join(clientRoot, "dist-renderer", "index.html")); await access(path.join(clientRoot, "node_modules", "ws", "package.json"));
+    clientBuilt = marker === expectedMarker;
+    await access(path.join(clientRoot, "package.json")); await access(path.join(clientRoot, "compatibility.json")); await access(path.join(clientRoot, "dist-electron", "main.js")); await access(path.join(clientRoot, "dist-renderer", "index.html")); await validateClientRuntime(clientRoot);
     const compatibility = readCompatibility(JSON.parse(await readFile(path.join(clientRoot, "compatibility.json"), "utf8")));
     clientBuilt = clientBuilt && !!compatibility && compatibleClient(compatibility, remoteCompatibility);
     if (clientBuilt && marker !== expectedMarker) await writeFile(buildMarker, `${expectedMarker}\n`, "utf8");
@@ -449,8 +450,8 @@ async function startClient(workspaceId: string): Promise<void> {
       try {
         const marker = (await readFile(path.join(candidate, ".gateway-client-built"), "utf8")).trim();
         const compatibility = readCompatibility(JSON.parse(await readFile(path.join(candidate, "compatibility.json"), "utf8")));
-        await access(path.join(candidate, "dist-electron", "main.js")); await access(path.join(candidate, "dist-renderer", "index.html")); await access(path.join(candidate, "node_modules", "ws", "package.json"));
-        return marker.startsWith("artifact-v2:") && compatibility && compatibleClient(compatibility, remoteCompatibility) ? candidate : undefined;
+        await access(path.join(candidate, "dist-electron", "main.js")); await access(path.join(candidate, "dist-renderer", "index.html")); await validateClientRuntime(candidate);
+        return marker.startsWith(`${clientArtifactVersion}:`) && compatibility && compatibleClient(compatibility, remoteCompatibility) ? candidate : undefined;
       } catch { return undefined; }
     }))).find(Boolean);
     if (rollback) {
@@ -462,7 +463,7 @@ async function startClient(workspaceId: string): Promise<void> {
   if (!clientBuilt) {
   try {
     const remoteArchive = `/tmp/hatopad-${workspace.id}-${id()}.tar.gz`;
-    const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; files="package.json compatibility.json dist-electron dist-renderer"; if [ -d assets ]; then files="$files assets"; fi; tar -czf ${remoteArchive} $files -C ../.. node_modules/ws; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
+    const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; remote_archive=${shell(remoteArchive)}; ${clientArchiveCommand()}; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
     await mkdir(path.dirname(archive), { recursive: true }); await download(client, remoteArchive, archive);
     const actual = createHash("sha256").update(await readFile(archive)).digest("hex");
     if (actual !== checksum) throw new Error("Downloaded Desktop artifacts failed checksum verification");
@@ -471,6 +472,7 @@ async function startClient(workspaceId: string): Promise<void> {
     await mkdir(clientRoot, { recursive: true });
     runtime(workspaceId, "working", "Installing remote-built client artifacts...");
     await runLocal("tar", ["-xzf", archive, "-C", clientRoot], clientRoot); await rm(archive, { force: true });
+    await validateClientRuntime(clientRoot);
     const downloadedCompatibility = readCompatibility(JSON.parse(await readFile(path.join(clientRoot, "compatibility.json"), "utf8")));
     if (!downloadedCompatibility || !compatibleClient(downloadedCompatibility, remoteCompatibility)) throw new Error("Downloaded Desktop is not compatible with the remote Core");
     await writeFile(buildMarker, `${expectedMarker}\n`, "utf8");
