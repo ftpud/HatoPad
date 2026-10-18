@@ -244,10 +244,11 @@ export async function createServer(host: string, port: number, workspacePath: st
   const rootWatchOwnersForServer = new Map<SwitchedWatch, () => void>();
   const removingRoots = new Set<string>();
   const metadataHints = new MetadataHintBatcher(event => {
+    if (draining) return;
     if (event.type === "tasks.changed" && event.payload.rootId) recordTaskChanges(event.payload.rootId);
-    if (event.type === "harness.changed") void harnessRunner(event.payload.rootId).readRun(event.payload.runId).then(run => {
+    if (event.type === "harness.changed") { const runner = harnessRunners.get(event.payload.rootId); if (runner) void runner.readRun(event.payload.runId).then(run => {
       if (run && ["succeeded", "failed", "blocked"].includes(run.status)) feed.push(run.status === "succeeded" ? "workflow-completed" : "workflow-failed", event.payload.rootId, { runId: run.id, ...(run.binding?.taskId ? { taskId: run.binding.taskId } : {}) }, `${event.payload.rootId}:${run.id}:${run.status}:${run.completedAt ?? ""}`);
-    }).catch(() => undefined);
+    }).catch(() => undefined); }
     const rootId = (event.payload as { rootId?: string }).rootId;
     const encoded = JSON.stringify(event);
     for (const socket of activeSessions) if (!rootId || liveRootSelections.selected(socket) === rootId) sendWebSocketData(socket, encoded);
@@ -647,7 +648,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   server.on("close", () => { void cleanupServices().catch((error) => console.error("[core] Service cleanup failed", error)); });
   let shutdownPromise: Promise<void> | undefined;
   shutdownHandlers.set(server, () => shutdownPromise ??= (async () => {
-    draining = true;
+    draining = true; metadataHints.dispose();
     const schedulesStopped = schedules.close(); const triggersStopped = triggers.close(); const timersStopped = aiTimers.suspend();
     void schedulesStopped.catch(() => undefined);
     void triggersStopped.catch(() => undefined);
