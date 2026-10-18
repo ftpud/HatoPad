@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -190,6 +190,9 @@ export type { AiAuthentication, AiAuthMethod, AiAuthInput, AiProviderInstallatio
 import type { AiFailure, AiAuthentication, AiAuthInput, AiProviderInstallation, AiProviderOrigin, AiProtocolVersion, AiCredentialSource, AiAgent, AiAgentPreset, AiConfiguration, AiQuestionAction, AiQuestionAnswer, AiQuestionRequest, AiMessage, AiContentBlock, AiMcpServer, AiModel, AiPermissionRequest, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiTokenUsage, AiUsage } from "@hatopad/acp";
 /** Optional tool downloaded to the Core host on demand (Settings → Tools). */
 export type ToolInstallation = { id: string; name: string; description: string; status: "installed" | "not_installed" | "installing" | "removing"; version?: string; /** The version this Core installs. */ availableVersion: string; requires?: string[]; location?: string; /** Download progress, 0-100, while installing. */ progress?: number; error?: string };
+export type SupervisionEvent = { id: string; sequence: number; rootId: WorkspaceRootId; kind: 'task-created' | 'task-finished' | 'task-reopened' | 'task-archived' | 'task-deleted' | 'workflow-completed' | 'workflow-failed' | 'commit-made' | 'timer-fired' | 'trigger-fired'; at: string; taskId?: string; runId?: string };
+export type InventoryKind = 'tasks' | 'workflows' | 'runs' | 'timers' | 'schedules' | 'triggers' | 'terminals' | 'runConfigs' | 'useful' | 'agents' | 'skills';
+export type InventoryRow = { harnessId?: string; createdAt?: string; startedAt?: string; completedAt?: string; id: string; name: string; state?: string; detail?: string; taskId?: string; runId?: string; terminalId?: string };
 export type UsefulFileScope = "global" | "local";
 export type UsefulFile = { scope: UsefulFileScope; name: string };
 export type RunConfigScope = "global" | "local";
@@ -221,7 +224,7 @@ export type ScheduledAction =
   | { type: "prompt"; provider: AiProvider; prompt: string; agent?: AgentFileReference; /** Start a context-empty session instead of continuing the current one; agent, model and reasoning only apply then. */ newSession?: boolean; /** Overrides the session's model for this prompt. */ model?: string; /** Overrides the session's reasoning effort for this prompt. */ reasoning?: string }
   | { type: "workflow"; provider: AiProvider; harnessId: string; input: string; startBlockId?: string };
 export type ScheduleInput = { name: string; dueAt: string; intervalSeconds?: number; taskId?: string; action: ScheduledAction };
-export type WorkspaceSchedule = ScheduleInput & { revision?: string; id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string };
+export type WorkspaceSchedule = ScheduleInput & { launching?: boolean; revision?: string; id: string; rootId: WorkspaceRootId; createdAt: string; enabled: boolean; lastRunAt?: string; lastError?: string; lastWorkflowRunId?: string };
 export type TriggerFileEvent = "created" | "changed" | "deleted";
 /** What a trigger watches: a file/directory (polled for changes) or a named pipe (FIFO) whose incoming data fires it. */
 export type TriggerSource = { type: "file"; path: string; events: TriggerFileEvent[] } | { type: "fifo"; path: string };
@@ -232,7 +235,7 @@ export type WorkspaceTrigger = TriggerInput & { recentFires?: number; capResetsA
 export type ManagedWorkflowApp = { kind: "workflow-app"; id: string; name: string; pid: number; launcherPid?: number; command: string; status: "running" | "descendants-running"; processCount: number; workspace: string; rootWorkspace: string; taskId?: string; taskName?: string; workflowRunId?: string; workflowBlockId?: string };
 export type ManagedProcess = { id: string; pid: number; command: string; status: "running"; workspace: string; rootWorkspace: string; taskId?: string; taskName?: string; workflowRunId?: string; workflowBlockId?: string; provider?: string; sessionId?: string; kind: "agent" | "command" | "workflow-app"; appName?: string; parentPid?: number };
 
-export type AiContinuationTimer = { id: string; workspace: string; provider: AiProvider; prompt: string; dueAt: string; createdAt: string; workflowRunId?: string; workflowBlockId?: string; workflowFlow?: boolean };
+export type AiContinuationTimer = { taskId?: string; id: string; workspace: string; provider: AiProvider; prompt: string; dueAt: string; createdAt: string; workflowRunId?: string; workflowBlockId?: string; workflowFlow?: boolean };
 
 /** Named long-lived shell apps are owned by Core and scoped to the execution workspace. */
 export type HarnessAppAction = "start" | "status" | "kill" | "tail";
@@ -278,7 +281,7 @@ export type HarnessProgressBlock = { blockId: string; status: HarnessBlockStatus
 /** Bounded read of one block of one run: newest output characters and a newest-first page of chat messages. */
 export const harnessBlockDetailLimits = { defaultOutput: 16_000, maxOutput: 64_000, defaultChat: 20, maxChat: 50, maxChatText: 4_000 } as const;
 export type HarnessBlockDetail = { blockId: string; status: HarnessBlockStatus; output: string; outputChars: number; outputTruncated: boolean; iterations: number; chatMessages: { id: string; role: "user" | "assistant"; text: string; timestamp: string; clipped?: true }[]; chatNextBefore?: string };
-export type HarnessProgress = { paused?: boolean; id: string; harnessId: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; error?: string; blocks: HarnessProgressBlock[] };
+export type HarnessProgress = { taskIds?: string[]; paused?: boolean; id: string; harnessId: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; error?: string; blocks: HarnessProgressBlock[] };
 export type HarnessRun = { paused?: boolean; summary?: true; binding?: HarnessWorkspaceBinding; workspace?: string; connectionTraces?: HarnessConnectionTrace[]; id: string; harnessId: string; harnessVersion: number; definition?: HarnessDefinition; executionPlan?: HarnessExecutionPlan; operations?: HarnessOperation[]; children?: HarnessChildTask[]; features?: HarnessFeature[]; corrections?: HarnessCorrectionCycle[]; input: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; blocks: HarnessBlockRun[]; error?: string; cleanupErrors?: string[] };
 export type HttpResponse = { status: number; statusText: string; headers: Record<string, string>; body: string; durationMs: number };
 
@@ -404,6 +407,9 @@ export type ProtocolOperations = {
     payload: { options: WorkspaceOptions };
     result: Record<string, never>;
   };
+  "inventory.page": { payload: { kind: InventoryKind; limit?: number; cursor?: string; query?: string; state?: string }; result: { rows: InventoryRow[]; total: number; revision: string; truncated: boolean; nextCursor?: string; restarted?: boolean } };
+  "tasks.page": { payload: { limit?: number; cursor?: string; query?: string; status?: 'active' | 'finished' | 'archived' | 'all' }; result: { tasks: WorkspaceTask[]; total: number; nextCursor?: string; restarted?: boolean } };
+  "tasks.read": { payload: { taskId: string }; result: { task: WorkspaceTask } };
   "tasks.list": { payload: Record<string, never>; result: { tasks: WorkspaceTask[]; selectedTaskId?: string } };
   "tasks.create": { payload: { branch: string; existing?: boolean; remote?: boolean }; result: { task: WorkspaceTask } };
   "tasks.createFromPrompt": { payload: { provider?: AiProvider; prompt: string; content?: AiContentBlock[]; configuration: AiConfiguration; mcpServers?: AiMcpServer[]; agent?: AiAgent; agentPreset?: AiAgentPreset; skillIds?: string[] }; result: { task: WorkspaceTask } };
@@ -478,6 +484,7 @@ export type ProtocolOperations = {
   /** Bounded newest-first page of the selected task's conversation. `before` is a message id from `nextBefore`; text is clipped to `maxTextLength` (default 4000, max 20000), clipped message ids are listed in `clipped`, and attached `content` blocks are omitted. */
   "ai.messages": { payload: { provider?: AiProvider; before?: string; limit?: number /* 1..100, default 30 */; maxTextLength?: number }; result: { sessionId?: string; status: AiStatus; pendingPermission?: AiPermissionRequest; pendingQuestion?: AiQuestionRequest; messages: AiMessage[]; clipped: string[]; nextBefore?: string } };
   /** Read-only, root-agnostic attention summary: never selects a root/task or restores a session. Page with `nextCursor`; a cursor from an older `revision` restarts at the first page (`restarted`). */
+  "overview.events": { payload: { limit?: number; cursor?: string; rootId?: WorkspaceRootId }; result: { events: SupervisionEvent[]; startedAt: string; truncated: boolean; nextCursor?: string; restarted?: boolean } };
   "overview.work": { payload: { limit?: number; cursor?: string; rootId?: WorkspaceRootId }; result: OverviewWorkPage };
   "overview.summary": { payload: { limit?: number; cursor?: string }; result: { revision: string; roots: OverviewRoot[]; items: AttentionItem[]; /** Newest conversations (max `overviewLimits.maxActivity`), included in every page and in `revision`. */ activity: ActivityItem[]; nextCursor?: string; restarted?: boolean; /** True when more than `overviewLimits.maxRoots` roots or `maxTasksPerRoot` tasks per root existed. */ truncated: boolean } };
   "ai.statuses": { payload: Record<string, never>; result: { root: AiTaskSummary; tasks: Record<string, AiTaskSummary> } };
@@ -832,7 +839,7 @@ export type RequestType = keyof ProtocolOperations;
 
 /** All nested relative paths and opaque root-owned references inherit this envelope root. */
 export type Request<T extends RequestType = RequestType> = T extends RequestType
-  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" ? { rootId?: never } : { rootId: WorkspaceRootId })
+  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
   : never;
 
 export type ErrorCode =
@@ -862,7 +869,7 @@ export type ErrorCode =
 export type ProtocolError = { code: ErrorCode; message: string };
 
 export type Response<T extends RequestType = RequestType> =
-  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" ? { rootId?: never } : { rootId: WorkspaceRootId }))
+  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
   | { id: string; ok: false; error: ProtocolError };
 
 export type FilesystemChangedEvent = {
@@ -922,6 +929,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "protocol.keepAlive": true,
   "workspace.roots": true,
   "overview.summary": true,
+  "overview.events": true,
   "overview.work": true,
   "ai.messages": true,
   "workspace.addRoot": true,
@@ -929,6 +937,9 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "workspace.removeRoot": true,
   "workspace.open": true,
   "workspace.saveOptions": true,
+  "inventory.page": true,
+  "tasks.page": true,
+  "tasks.read": true,
   "tasks.list": true,
   "tasks.create": true,
   "tasks.createFromPrompt": true,

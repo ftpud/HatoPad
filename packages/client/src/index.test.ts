@@ -67,3 +67,13 @@ it('restores a saved root without the tree when the Core advertises the capabili
   expect(socket.sent.find(request => request.type === 'workspace.selectRoot')!.payload).toMatchObject({ rootId: 'saved', includeTree: false });
   client.disconnect();
 });
+
+it('keeps all overview reads unscoped even when another root is selected', async () => {
+  vi.stubGlobal('WebSocket', Socket); const client = new CoreClient();
+  const connecting = client.connect({ url: 'wss://core.example/socket' }); const socket = Socket.instances[0]!; socket.open(); await connecting;
+  try {
+    client.setRoot('other'); await client.request('overview.work', { limit: 1 }); await client.request('overview.events', { limit: 1 });
+    for (const request of socket.sent.filter(request => ['overview.work', 'overview.events'].includes(request.type))) expect(request).not.toHaveProperty('rootId');
+    expect(client.getRoot()).toBe('other');
+  } finally { client.disconnect(); }
+});

@@ -142,6 +142,7 @@ describe("durable user schedules", () => {
     const schedule = await service.create("root-a", input({ intervalSeconds: 60 }));
     const firing = service.fire(schedule.id, true);
     await vi.waitFor(() => expect(service.list()[0]!.lastRunAt).toBeTruthy());
+    expect(service.list()[0]!.launching).toBe(true);
     expect(await service.fire(schedule.id, true)).toBe(false);
     await service.delete(schedule.id); release(); await firing;
     expect(sent).not.toHaveBeenCalled();

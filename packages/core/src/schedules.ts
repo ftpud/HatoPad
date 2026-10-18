@@ -38,7 +38,7 @@ function withoutLaunch(schedule: StoredSchedule): WorkspaceSchedule { const { pe
 function interrupted(schedule: StoredSchedule): WorkspaceSchedule { return { ...withoutLaunch(schedule), enabled: false, lastError: UNKNOWN_LAUNCH }; }
 function publicSchedule(schedule: StoredSchedule): WorkspaceSchedule {
   if (schedule.pendingLaunch?.host !== undefined && schedule.pendingLaunch.host !== os.hostname()) return { ...withoutLaunch(schedule), enabled: false, lastError: "A scheduled launch is owned by another host. Inspect its outcome before retrying." };
-  return schedule.pendingLaunch && abandoned(schedule.pendingLaunch) ? interrupted(schedule) : withoutLaunch(schedule);
+  return schedule.pendingLaunch && abandoned(schedule.pendingLaunch) ? interrupted(schedule) : { ...withoutLaunch(schedule), ...(schedule.pendingLaunch ? { launching: true } : {}) };
 }
 
 

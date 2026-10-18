@@ -157,7 +157,7 @@ export class AiTimerService {
   private readonly timerCancellationEpochs = new Map<string, number>();
   private readonly cancellationEpochs = new Map<string, number>();
 
-  constructor(private readonly store: AiTimerStore, private readonly acp: AcpRegistry, private readonly rootWorkspace: string, private readonly onChanged: (workspace: string) => void, private readonly workflowOperation?: <T>(timer: AiContinuationTimer, effect: () => Promise<T>, reconcile: () => Promise<T | null | undefined>) => Promise<T>) {}
+  constructor(private readonly store: AiTimerStore, private readonly acp: AcpRegistry, private readonly rootWorkspace: string, private readonly onChanged: (workspace: string) => void, private readonly workflowOperation?: <T>(timer: AiContinuationTimer, effect: () => Promise<T>, reconcile: () => Promise<T | null | undefined>) => Promise<T>, private readonly onDelivered?: (timer: AiContinuationTimer) => void) {}
 
   async start(): Promise<void> { for (const timer of await this.store.list()) this.arm(timer); }
 
@@ -281,6 +281,7 @@ export class AiTimerService {
       if (cancelled()) return { delivered: true };
       if (session.status === "in_progress" || session.status === "user_prompt") await manager.steer(timer.workspace, timer.prompt);
       else await manager.send(timer.workspace, { prompt: timer.prompt, configuration: session.configuration ?? { model: session.model, reasoning: session.reasoning }, mcpServers: [appToolServer(this.rootWorkspace, timer.workspace, timer.provider, this.rootWorkspace, timer.workflowRunId && timer.workflowBlockId ? { runId: timer.workflowRunId, blockId: timer.workflowBlockId, flow: timer.workflowFlow } : undefined)] });
+      this.onDelivered?.(timer);
       if (cancelled()) { await manager.interrupt(timer.workspace); return { delivered: true }; }
       return { delivered: true };
     } finally { this.delivering.delete(timer.id); this.onChanged(timer.workspace); }

@@ -1,3 +1,5 @@
+import { SupervisionFeed } from "./supervision-feed.js";
+import { inventoryPage, inventoryKinds } from "./inventory-page.js";
 import { stateHome } from "./state-home.js";
 import { runLanguageInTerminal, hasLanguageTerminalRun, stopLanguageTerminalRun } from "./language/terminal.js";
 import { validateRequestPayload } from "./request-validation.js";
@@ -184,6 +186,23 @@ export async function createServer(host: string, port: number, workspacePath: st
     if (!context) { const root = roots.get(rootId); context = { tasks: new WorkspaceTaskStore(root.path), usefulFiles: new UsefulFilesStore(root.path), agents: new AgentsStore(root.path), harnesses: new HarnessStore(root.path) }; rootContexts.set(rootId, context); }
     return context;
   };
+  const feed = new SupervisionFeed();
+  const taskStates = new Map<string, Map<string, import("@hatopad/protocol").WorkspaceTask>>();
+  for (const root of roots.list()) taskStates.set(root.id, new Map((await contextFor(root.id).tasks.list()).tasks.map(task => [task.id, task])));
+  const taskScans = new Map<string, Promise<void>>();
+  const recordTaskChanges = (rootId: string) => {
+    const scan = (taskScans.get(rootId) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      const next = new Map((await contextFor(rootId).tasks.list()).tasks.map(task => [task.id, task])), previous = taskStates.get(rootId); taskStates.set(rootId, next);
+      if (!previous) return;
+      for (const [id, task] of next) {
+        const prior = previous.get(id);
+        if (!prior) feed.push("task-created", rootId, { taskId: id });
+        else if (task.status !== prior.status) feed.push(task.status === "finished" ? "task-finished" : "task-reopened", rootId, { taskId: id });
+        else if (task.archived && !prior.archived) feed.push("task-archived", rootId, { taskId: id });
+      }
+      for (const id of previous.keys()) if (!next.has(id)) feed.push("task-deleted", rootId, { taskId: id });
+    }); taskScans.set(rootId, scan); void scan.catch(() => undefined);
+  };
   const savedTasks = await tasks.list();
   const workspaceOwners = new Map<string, string>([[path.resolve(rootWorkspace), roots.primary().id], ...savedTasks.tasks.map((task) => [path.resolve(tasks.taskPath(task.id)), roots.primary().id] as const)]);
   const ownerRootId = async (target: string): Promise<string | undefined> => {
@@ -223,6 +242,10 @@ export async function createServer(host: string, port: number, workspacePath: st
   const rootWatchOwnersForServer = new Map<SwitchedWatch, () => void>();
   const removingRoots = new Set<string>();
   const metadataHints = new MetadataHintBatcher(event => {
+    if (event.type === "tasks.changed" && event.payload.rootId) recordTaskChanges(event.payload.rootId);
+    if (event.type === "harness.changed") void harnessRunner(event.payload.rootId).readRun(event.payload.runId).then(run => {
+      if (run && ["succeeded", "failed", "blocked"].includes(run.status)) feed.push(run.status === "succeeded" ? "workflow-completed" : "workflow-failed", event.payload.rootId, { runId: run.id, ...(run.binding?.taskId ? { taskId: run.binding.taskId } : {}) }, `${event.payload.rootId}:${run.id}:${run.status}:${run.completedAt ?? ""}`);
+    }).catch(() => undefined);
     const rootId = (event.payload as { rootId?: string }).rootId;
     const encoded = JSON.stringify(event);
     for (const socket of activeSessions) if (!rootId || liveRootSelections.selected(socket) === rootId) sendWebSocketData(socket, encoded);
@@ -275,6 +298,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     void appEvents.consume(file).then(async (event) => {
       if (!event) return;
       const rootId = event.type === "tasks.changed" ? roots.primary().id : await ownerRootId(event.workspace) ?? roots.primary().id;
+      if (event.type === "tasks.changed") recordTaskChanges(rootId);
       const message: ServerEvent = event.type === "tasks.changed" ? { type: "tasks.changed", payload: { rootId } }
         : event.type === "ai.changed" ? { type: "ai.changed", payload: { rootId } }
         : { type: "commit-message.changed", payload: { rootId, workspace: event.workspace, message: event.message } };
@@ -425,6 +449,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     const boundRoot = roots.get(owner.rootId).path;
     await validateWorkflowTarget(owner.run, timer.workspace, { tasks: contextFor(owner.rootId).tasks, rootWorkspace: boundRoot, workspacePath: boundRoot });
     return harnessRunner(owner.rootId).runTimerOperation(timer.workflowRunId, timer.workflowBlockId, `timer-fire:${timer.workflowOperationKey ?? timer.id}`, { timerId: timer.id, dueAt: timer.dueAt }, effect, reconcile);
+  }, timer => {
+    void (async () => { const rootId = await ownerRootId(timer.workspace); if (!rootId) return; const context = contextFor(rootId); const task = (await context.tasks.list()).tasks.find(task => context.tasks.taskPath(task.id) === timer.workspace); feed.push("timer-fired", rootId, { ...(task ? { taskId: task.id } : {}), ...(timer.workflowRunId ? { runId: timer.workflowRunId } : {}) }); })().catch(() => undefined);
   });
   const recoveryBridgeWorkspace = rootWorkspace;
   for (const recoveryRoot of roots.list()) {
@@ -517,7 +543,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   });
   const triggers = new TriggerService(rootWorkspace, async (trigger, event, active) => {
     const note = `\n\n[Started by trigger "${trigger.name}": ${event.description}]${event.data ? `\n\`\`\`\n${event.data}\n\`\`\`` : ""}`;
-    try { return await deliverAction(trigger, active, "trigger skipped", note); }
+    try { const result = await deliverAction(trigger, active, "trigger skipped", note); if (active()) feed.push("trigger-fired", trigger.rootId, { ...(trigger.taskId ? { taskId: trigger.taskId } : {}), ...(result.workflowRunId ? { runId: result.workflowRunId } : {}) }); return result; }
     catch (error) { if (error instanceof DeliveryBusy) return { skipped: error.message }; throw error; }
   }, () => {
     const encoded = JSON.stringify({ type: "timers.changed", payload: {} } satisfies ServerEvent);
@@ -525,6 +551,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   });
   await aiTimers.start();
   const onTasksChanged = async () => {
+    recordTaskChanges(roots.primary().id);
     const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: roots.primary().id } } satisfies ServerEvent);
     for (const socket of activeSessions) sendWebSocketData(socket, encoded);
   };
@@ -540,7 +567,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       const currentWorkspace = command.currentWorkspace ?? rootWorkspace;
       const workflowRootId = command.workflowRunId ? [...harnessRunners].find(([, runner]) => runner.isActive(command.workflowRunId!))?.[0] : undefined;
       const rootId = workflowRootId ?? await ownerRootId(currentWorkspace) ?? roots.primary().id; const root = roots.get(rootId); const context = contextFor(rootId);
-      const changed = async () => { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
+      const changed = async () => { recordTaskChanges(rootId); const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
       if (command.workflowRunId && command.workflowBlockId && ["workflow_connections", "workflow_use_block", "workflow_block_output", "workflow_block_messages", "workflow_choose_path"].includes(command.name)) return harnessRunner(rootId).flowTool(command.workflowRunId, command.workflowBlockId, command.name, command.args);
       const workflow = command.workflowRunId && command.workflowBlockId ? { runId: command.workflowRunId, blockId: command.workflowBlockId, resumeFailed: () => harnessRunner(rootId).resumeFailed(command.workflowRunId!, command.workflowBlockId!), runStack: (inputs: string[], path?: string) => harnessRunner(rootId).runStack(command.workflowRunId!, command.workflowBlockId!, inputs, path) } : undefined;
       const ownedWorkflow = workflow ? {
@@ -801,6 +828,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { roots: roots.list(), selectedRootId: selectedRoot.id } }));
           return;
         }
+        if (parsed.type === "overview.events") { if (parsed.payload.rootId) roots.get(parsed.payload.rootId); sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: feed.page(parsed.payload) } satisfies Response<"overview.events">)); return; }
         if (parsed.type === "overview.work") { sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewWork(parsed.payload) } satisfies Response<"overview.work">)); return; }
         if (parsed.type === "overview.summary") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewSummary(parsed.payload) } satisfies Response<"overview.summary">));
@@ -924,7 +952,8 @@ export async function createServer(host: string, port: number, workspacePath: st
           result = { ...(result as object), watchId };
         }
         if (parsed.type === "tasks.list" || parsed.type === "tasks.switch" || parsed.type === "tasks.delete") result = withConnectionSelection(requestRoot.id, result);
-        if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
+        if (parsed.type === "git.commit") feed.push("commit-made", selectedRoot.id);
+        if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { recordTaskChanges(selectedRoot.id); const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
         const terminalSubscription = terminalSubscriptions.get(socket);
         if (terminalSubscription && parsed.type === "terminal.create") { const terminalId = (result as { terminalId: string }).terminalId; terminalSubscription.terminalIds.add(terminalId); terminalOwners.set(terminalId, { socket, rootId: parsed.rootId, workspace: services.workspacePath }); }
         if (terminalSubscription && parsed.type === "terminal.attach" && (result as { state: string }).state === "available") { terminalSubscription.terminalIds.add(parsed.payload.terminalId); terminalOwners.set(parsed.payload.terminalId, { socket, rootId: parsed.rootId, workspace: services.workspacePath }); }
@@ -987,7 +1016,7 @@ function optionalByteLimit(value: unknown): number | undefined {
 }
 
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
-  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work") return;
+  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }
@@ -1069,6 +1098,49 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       await workspaceState.save(request.payload.options);
       return {};
     }
+    case "inventory.page": {
+      const { kind } = request.payload;
+      if (!inventoryKinds.includes(kind)) throw new CoreError("INVALID_REQUEST", "Choose an inventory kind");
+      inventoryPage(request.rootId!, kind, [], request.payload);
+      let rows: import("@hatopad/protocol").InventoryRow[] = [], truncated = false;
+      const registry = await tasks.list();
+      const targets = [{ workspace: rootWorkspace, taskId: undefined as string | undefined }, ...registry.tasks.slice(0, 500).map(task => ({ workspace: tasks.taskPath(task.id), taskId: task.id }))];
+      switch (kind) {
+        case "tasks": rows = registry.tasks.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch, taskId: task.id })); break;
+        case "workflows": {
+          const [definitions, runs] = await Promise.all([harnesses.list(), harnesses.summaries()]); const latest = new Map<string, string>();
+          for (const run of [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) if (!latest.has(run.harnessId)) latest.set(run.harnessId, run.status);
+          rows = definitions.map(item => ({ id: item.id, name: item.name, detail: `${item.blocks.length} blocks`, ...(latest.has(item.id) ? { state: latest.get(item.id) } : {}) })); break;
+        }
+        case "runs": { const names = new Map((await harnesses.list()).map(item => [item.id, item.name])); rows = (await harnesses.summaries()).map(item => ({ id: item.id, runId: item.id, harnessId: item.harnessId, name: names.get(item.harnessId) ?? item.harnessId, state: item.status, detail: item.createdAt, createdAt: item.createdAt, startedAt: item.startedAt, completedAt: item.completedAt, ...(item.binding?.taskId ? { taskId: item.binding.taskId } : {}) })); break; }
+        case "schedules": rows = schedules.list().filter(item => item.rootId === request.rootId).map(item => ({ id: item.id, name: item.name, state: item.enabled ? "enabled" : "disabled", detail: item.dueAt, ...(item.taskId ? { taskId: item.taskId } : {}) })); break;
+        case "triggers": rows = triggers.list().filter(item => item.rootId === request.rootId).map(item => ({ id: item.id, name: item.name, state: item.firing ? "firing" : item.enabled ? "armed" : "disabled", detail: item.lastError ?? item.lastSkipped ?? `${item.fireCount} fires`, ...(item.taskId ? { taskId: item.taskId } : {}) })); break;
+        case "timers": rows = (await ownedTimers()).map(item => ({ id: item.id, name: item.provider, detail: item.dueAt, ...(item.workflowRunId ? { runId: item.workflowRunId } : {}), ...(targets.find(target => target.workspace === item.workspace)?.taskId ? { taskId: targets.find(target => target.workspace === item.workspace)!.taskId } : {}) })); break;
+        case "terminals":
+          truncated = registry.tasks.length > 500;
+          rows = targets.flatMap(target => terminalHost.list(target.workspace).map(terminal => { const item = watchSummary(terminal); return { id: item.terminalId, terminalId: item.terminalId, name: item.displayName ?? "Terminal", state: item.status, ...(target.taskId ? { taskId: target.taskId } : {}) }; })); break;
+        case "runConfigs": rows = (await runConfigs.list(workspacePath)).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, state: item.status, detail: item.scope, ...(item.terminalId ? { terminalId: item.terminalId } : {}) })); break;
+        case "useful": rows = (await usefulFiles.list()).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, detail: item.scope })); break;
+        case "agents": rows = (await agents.list(workspacePath)).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, detail: `${item.scope}${item.agent.mcpServers?.length ? ` · MCP: ${item.agent.mcpServers.join(", ").slice(0, 300)}` : ""}` })); break;
+        case "skills": { const catalog = await new SkillsStore(undefined, rootWorkspace).list(workspacePath); rows = catalog.skills.map(item => ({ id: item.id, name: item.title || item.name, state: catalog.policy.allowed.includes(item.id) ? "allowed" : "disabled", detail: item.description })); break; }
+      }
+      return inventoryPage(request.rootId!, kind, rows, request.payload, truncated);
+    }
+    case "tasks.page": {
+      const registry = await tasks.list(), status = request.payload.status ?? "all";
+      if (!["active", "finished", "archived", "all"].includes(status)) throw new CoreError("INVALID_REQUEST", "Choose a task state");
+      inventoryPage(`${request.rootId}:${status}`, "tasks", [], request.payload);
+      const query = (request.payload.query ?? "").toLowerCase();
+      const filtered = registry.tasks.filter(task => (status === "all" || (status === "archived" ? task.archived : !task.archived && task.status === status)) && (!query || `${task.name} ${task.branch}`.toLowerCase().includes(query)));
+      const page = inventoryPage(`${request.rootId}:${status}`, "tasks", filtered.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch })), { ...request.payload, query: undefined });
+      const byId = new Map(filtered.map(task => [task.id, task]));
+      return { tasks: page.rows.map(row => { const task = byId.get(row.id)!; return { ...task, name: task.name.slice(0, 180), branch: task.branch.slice(0, 4096), baseBranch: task.baseBranch.slice(0, 4096) }; }), total: page.total, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), ...(page.restarted ? { restarted: true } : {}) };
+    }
+    case "tasks.read": {
+      if (typeof request.payload.taskId !== "string" || !request.payload.taskId || request.payload.taskId.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a task");
+      const task = (await tasks.list()).tasks.find(task => task.id === request.payload.taskId);
+      if (!task) throw new CoreError("FILE_NOT_FOUND", "Task is unavailable in this root"); return { task };
+    }
     case "tasks.list": return tasks.list();
     case "tasks.create": return { task: await tasks.create(request.payload.branch, request.payload.existing, request.payload.remote) };
     case "tasks.createFromPrompt": {
@@ -1148,7 +1220,9 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "timers.list": {
       if (request.payload.rootScoped !== undefined && typeof request.payload.rootScoped !== "boolean") throw new CoreError("INVALID_REQUEST", "rootScoped must be boolean");
-      return { timers: request.payload.rootScoped ? await ownedTimers() : await aiTimers.list() };
+      if (!request.payload.rootScoped) return { timers: await aiTimers.list() };
+      const registry = await tasks.list(), timerTargets = new Map(registry.tasks.map(task => [tasks.taskPath(task.id), task.id]));
+      return { timers: (await ownedTimers()).map(timer => ({ ...timer, ...(timerTargets.get(timer.workspace) ? { taskId: timerTargets.get(timer.workspace) } : {}) })) };
     }
     case "timers.cancel": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { cancelled: await aiTimers.cancel(request.payload.timerId) }; }
     case "timers.fire": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { fired: await aiTimers.fireById(request.payload.timerId) }; }
