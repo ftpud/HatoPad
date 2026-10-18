@@ -127,6 +127,10 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   const initialRelease = path.join(home, ".hatopad-deploy", "releases", initialResult[1]!);
   await writeFile(path.join(initialRelease, "preserve-me"), "known-good\n");
   const npmLogBeforeReuse = await readFile(npmLog, "utf8");
+  assert.deepEqual(npmLogBeforeReuse.trim().split("\n"), [
+    "ci",
+    ...["acp", "protocol", "client", "relay", "connector", "test-fixtures", "core", "desktop"].map((name) => `run build -w @hatopad/${name}`),
+  ]);
   const reuse = runProvision(false);
   assert.equal(reuse.status, 0, reuse.stderr);
   assert.match(reuse.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:${initialResult[1]}`));
