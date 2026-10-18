@@ -117,3 +117,20 @@ provider, optional task/session and requestId to read a bounded permission or
 question. A stale session/request returns resolved. Revalidate before resolution,
 then use the existing targeted answer/permission operations. Truncated requests
 require full review elsewhere; bounded details do not authorize blind approval.
+
+## Explicit run scheduling control
+
+`harnesses.control` advertises `harnesses.control.pause` (runId, paused boolean)
+and `harnesses.control.retryFailed` (runId). Responses are lean run summaries;
+read bounded progress/detail separately. Run/progress summaries expose paused.
+Pause stops new scheduling, including watchdog recovery; in-flight calls may
+finish. Resume releases the gate. Pause state is durable, while the existing
+wall-clock run-duration limit still applies. Cancellation remains explicit.
+
+Retry-failed preserves the run ID, frozen definition, successful outputs, sessions,
+children and operation journal. Failed AI stages continue their previous session;
+completed stages are not replayed. It rejects active provider sessions, invalid
+frozen plans, interrupted script/process stages and unresolved mutation records.
+A run still finalizing must be refreshed before retry. Concurrent retry admission
+is serialized, including a store check that the persisted run is still failed.
+This operation is a user decision after inspection, never a transport retry.

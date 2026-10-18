@@ -10,7 +10,7 @@ export function projectProgress(run: HarnessRun, logLimit: unknown): HarnessProg
   if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > progressLimits.maxLog) throw new CoreError("INVALID_REQUEST", `logLimit must be an integer from 1 to ${progressLimits.maxLog}`);
   if (run.blocks.length > progressLimits.maxBlocks) throw new CoreError("INVALID_REQUEST", `Workflow has more than ${progressLimits.maxBlocks} blocks; review it in Desktop`);
   const progress: HarnessProgress = {
-    id: run.id, harnessId: run.harnessId, status: run.status, createdAt: run.createdAt,
+    ...(run.paused ? { paused: true } : {}), id: run.id, harnessId: run.harnessId, status: run.status, createdAt: run.createdAt,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}), ...(run.completedAt ? { completedAt: run.completedAt } : {}),
     ...(run.error ? { error: run.error.slice(0, progressLimits.maxError) } : {}),
     blocks: run.blocks.map((block) => {

@@ -8,6 +8,6 @@ describe("fixtures", () => {
     const definition = fixtureProviderDefinition("custom");
     expect(definition).toMatchObject({ id: "custom", command: process.execPath, args: [fakeAgentPath] });
     expect(definition.options.map((option) => option.id)).toContain("askQuestions");
-    expect(Object.values(fixturePrompts)).toEqual(["PERMISSION", "QUESTION", "EDIT", "SLOW"]);
+    expect(Object.values(fixturePrompts)).toEqual(["PERMISSION", "QUESTION", "EDIT", "SLOW", "FAIL_ONCE"]);
   });
 });

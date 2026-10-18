@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 export const fakeAgentPath = fileURLToPath(new URL("../agent/fake-agent.mjs", import.meta.url));
 
 /** Prompt keywords understood by the fixture agent. */
-export const fixturePrompts = { permission: "PERMISSION", question: "QUESTION", edit: "EDIT", slow: "SLOW" } as const;
+export const fixturePrompts = { permission: "PERMISSION", question: "QUESTION", edit: "EDIT", slow: "SLOW", failureOnce: "FAIL_ONCE" } as const;
 
 export interface FixtureProviderDefinition {
   id: string;

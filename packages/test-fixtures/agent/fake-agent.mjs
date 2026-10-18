@@ -4,6 +4,7 @@
 //   QUESTION    asks a form question ("Which branch?"), then reports the answer
 //   EDIT        writes fixture-edit.txt in the session directory, then reports it
 //   SLOW        streams until the turn is cancelled
+//   FAIL_ONCE   fails once per workspace, then succeeds (marker file is synthetic test state)
 //   anything else  streams a short reply that echoes the end of the prompt (providers may prepend context)
 import { writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -35,7 +36,16 @@ readline.createInterface({ input: process.stdin }).on("line", async (line) => {
       const id = message.params.sessionId;
       const prompt = message.params.prompt.map((block) => block.text ?? "").join("");
       live = id; cancelled = false;
-      if (prompt.includes("SLOW")) {
+      if (prompt.includes("FAIL_ONCE")) {
+        try {
+          await writeFile(path.join(cwd, ".hatopad-fixture-fail-once"), "Synthetic fixture failure marker\n", { flag: "wx" });
+          send({ jsonrpc: "2.0", id: message.id, error: { code: -32000, message: "Synthetic one-time provider failure" } });
+          return;
+        } catch (error) {
+          if (error.code !== "EEXIST") throw error;
+          text(id, "recovered fixture failure");
+        }
+      } else if (prompt.includes("SLOW")) {
         text(id, "working");
         for (let i = 0; i < 200 && !cancelled; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
       } else if (prompt.includes("PERMISSION")) {

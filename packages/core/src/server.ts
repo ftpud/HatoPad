@@ -1396,6 +1396,21 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "harnesses.pause.resume": return { run: await harnessRunner.resumeTimer(request.payload.runId, request.payload.blockId, request.payload.pauseId, (provider, target) => aiTimers.fireNext(target, provider)) };
     case "harnesses.pause.retry": return { run: await harnessRunner.retryPause(request.payload.runId, request.payload.blockId, request.payload.pauseId) };
     case "harnesses.pause.cancel": return { run: await harnessRunner.cancelPause(request.payload.runId, request.payload.blockId, request.payload.pauseId, async (provider, runtime) => { const target = runtime.workspace ?? await workflowSessionWorkspace(await workflowRunWorkspace(await harnessRunner.readRun(runtime.runId), rootWorkspace), runtime.runId, runtime.blockId); await aiTimers.cancelWorkspace(target); await acp.get(provider).interrupt(target); }) };
+    case "harnesses.control.pause": {
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      return { run: summarizeHarnessRun(await harnessRunner.setPaused(request.payload.runId, request.payload.paused)) };
+    }
+    case "harnesses.control.retryFailed": {
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      for (const block of run.blocks.filter(block => block.workspace && ["failed", "retry_scheduled", "blocked", "cancelled"].includes(block.status))) {
+        const session = await acp.get(block.provider).get(block.workspace!);
+        if (session.status === "in_progress" || session.status === "user_prompt") throw new CoreError("INVALID_REQUEST", "A workflow session is still active; inspect it before retrying");
+      }
+      return { run: summarizeHarnessRun(await startWorkflow({ harnessId: run.harnessId, input: run.input, retryRunId: run.id }, { acp, tasks, agents, harnessRunner, workflowApps, aiTimers, rootWorkspace, bridgeWorkspace, workspacePath })) };
+    }
     case "harnesses.cancel": return { run: await harnessRunner.cancel(request.payload.runId, async (provider, runtime) => { const target = runtime.workspace ?? await workflowSessionWorkspace(await workflowRunWorkspace(await harnessRunner.readRun(runtime.runId), rootWorkspace), runtime.runId, runtime.blockId); await aiTimers.cancelWorkspace(target); await acp.get(provider).interrupt(target); }) };
     case "http.execute": return executeHttpRequest(request.payload.method, request.payload.url, request.payload.headers, request.payload.body);
     case "filesystem.listTree": return { tree: await filesystem.listTree(request.payload.includeIgnored === true) };
@@ -1701,12 +1716,12 @@ async function resolveWorkflowCommit(workspace: string, reference: string): Prom
 
 function boundedWorkflowOutput(value: string, limit = 200_000): string { return value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by Core`; }
 
-export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { chatRunId?: string; chatSettings?: import("@hatopad/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
+export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { retryRunId?: string; chatRunId?: string; chatSettings?: import("@hatopad/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
   acp: AcpRegistry; tasks: WorkspaceTaskStore; agents: AgentsStore; harnessRunner: HarnessRunner; workflowApps: WorkflowAppService;
   aiTimers: AiTimerService; rootWorkspace: string; bridgeWorkspace: string; workspacePath: string;
 }): Promise<import("@hatopad/protocol").HarnessRun> {
   const { acp, tasks, agents, harnessRunner, workflowApps, aiTimers, rootWorkspace, bridgeWorkspace } = context;
-  const previousRunId = input.chatRunId ?? input.rerunRunId;
+  const previousRunId = input.retryRunId ?? input.chatRunId ?? input.rerunRunId;
   const previousRun = previousRunId ? await harnessRunner.readRun(previousRunId) : undefined;
   if (previousRunId && !previousRun) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
   const binding = await resolveWorkflowBinding(previousRun, input.target, context);
@@ -1774,6 +1789,7 @@ export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["
       if (!harnessRunner.isActive(runtime.runId)) throw new Error("Workflow is no longer active");
       return settleWorkflowSession(provider, runtime.workspace, aiTimers, block.watchdog ? runtime : undefined, () => harnessRunner.isActive(runtime.runId), runtime.activity);
     });
+  if (input.retryRunId) return harnessRunner.retryFailedRun(input.retryRunId, dispatch, input.provider ?? acp.defaultId, append);
   return input.chatRunId
     ? harnessRunner.continueChat(input.chatRunId, input.startBlockId!, input.input, dispatch, input.provider ?? acp.defaultId, append, binding, input.chatSettings)
     : harnessRunner.start(input.harnessId, input.input, dispatch, input.provider ?? acp.defaultId, append, input.startBlockId, input.rerunRunId, input.testDefinition, workspacePath, (definition) => prepareWorkflowSkills(definition, new SkillsStore(undefined, rootWorkspace), workspacePath), binding, input.chatSettings && input.startBlockId ? { blockId: input.startBlockId, settings: input.chatSettings } : undefined);

@@ -26,7 +26,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -278,8 +278,8 @@ export type HarnessProgressBlock = { blockId: string; status: HarnessBlockStatus
 /** Bounded read of one block of one run: newest output characters and a newest-first page of chat messages. */
 export const harnessBlockDetailLimits = { defaultOutput: 16_000, maxOutput: 64_000, defaultChat: 20, maxChat: 50, maxChatText: 4_000 } as const;
 export type HarnessBlockDetail = { blockId: string; status: HarnessBlockStatus; output: string; outputChars: number; outputTruncated: boolean; iterations: number; chatMessages: { id: string; role: "user" | "assistant"; text: string; timestamp: string; clipped?: true }[]; chatNextBefore?: string };
-export type HarnessProgress = { id: string; harnessId: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; error?: string; blocks: HarnessProgressBlock[] };
-export type HarnessRun = { summary?: true; binding?: HarnessWorkspaceBinding; workspace?: string; connectionTraces?: HarnessConnectionTrace[]; id: string; harnessId: string; harnessVersion: number; definition?: HarnessDefinition; executionPlan?: HarnessExecutionPlan; operations?: HarnessOperation[]; children?: HarnessChildTask[]; features?: HarnessFeature[]; corrections?: HarnessCorrectionCycle[]; input: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; blocks: HarnessBlockRun[]; error?: string; cleanupErrors?: string[] };
+export type HarnessProgress = { paused?: boolean; id: string; harnessId: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; error?: string; blocks: HarnessProgressBlock[] };
+export type HarnessRun = { paused?: boolean; summary?: true; binding?: HarnessWorkspaceBinding; workspace?: string; connectionTraces?: HarnessConnectionTrace[]; id: string; harnessId: string; harnessVersion: number; definition?: HarnessDefinition; executionPlan?: HarnessExecutionPlan; operations?: HarnessOperation[]; children?: HarnessChildTask[]; features?: HarnessFeature[]; corrections?: HarnessCorrectionCycle[]; input: string; status: HarnessRunStatus; createdAt: string; startedAt?: string; completedAt?: string; blocks: HarnessBlockRun[]; error?: string; cleanupErrors?: string[] };
 export type HttpResponse = { status: number; statusText: string; headers: Record<string, string>; body: string; durationMs: number };
 
 export type JavaProjectOptions = {
@@ -528,6 +528,8 @@ export type ProtocolOperations = {
   "harnesses.pause.resume": { payload: { runId: string; blockId: string; pauseId: string }; result: { run: HarnessRun } };
   "harnesses.pause.retry": { payload: { runId: string; blockId: string; pauseId: string }; result: { run: HarnessRun } };
   "harnesses.pause.cancel": { payload: { runId: string; blockId: string; pauseId: string }; result: { run: HarnessRun } };
+  "harnesses.control.pause": { payload: { runId: string; paused: boolean }; result: { run: HarnessRun } };
+  "harnesses.control.retryFailed": { payload: { runId: string }; result: { run: HarnessRun } };
   "harnesses.cancel": { payload: { runId: string }; result: { run: HarnessRun } };
   "http.execute": { payload: { method: string; url: string; headers: Record<string, string>; body?: string }; result: HttpResponse };
   "filesystem.listTree": {
@@ -1041,6 +1043,8 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "harnesses.pause.retry": true,
   "harnesses.pause.cancel": true,
   "harnesses.cancel": true,
+  "harnesses.control.pause": true,
+  "harnesses.control.retryFailed": true,
   "http.execute": true,
   "filesystem.listTree": true,
   "filesystem.snapshot": true,
