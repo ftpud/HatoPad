@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { projectProgress } from "./harness-progress.js";
+import { projectBlockDetail, projectProgress } from "./harness-progress.js";
 
 const run = {
   id: "r", harnessId: "h", harnessVersion: 1, input: "SECRET INPUT", status: "running", createdAt: "t", definition: { huge: true }, error: "e".repeat(900),
@@ -37,5 +37,35 @@ describe("projectProgress", () => {
   it("rejects out-of-range log limits", () => {
     for (const limit of [0, 101, 2.5, "5"]) expect(() => projectProgress(run, limit)).toThrow();
     expect(projectProgress(run, undefined).blocks[0]!.log).toHaveLength(20);
+  });
+});
+
+describe("projectBlockDetail", () => {
+  const detailRun = { id: "r", harnessId: "h", status: "running", createdAt: "t", definition: { huge: true }, input: "SECRET INPUT", blocks: [
+    { blockId: "chat", status: "running", prompt: "PROMPT", output: "0123456789".repeat(10), iterations: [{}, {}],
+      chatMessages: Array.from({ length: 5 }, (_, index) => ({ id: `m${index}`, role: index % 2 ? "assistant" : "user", text: index === 4 ? "x".repeat(5000) : `text${index}`, timestamp: "t" })) }
+  ] } as never;
+
+  it("returns the newest output characters and a newest-first chat page without prompts or the definition", () => {
+    const detail = projectBlockDetail(detailRun, "chat", { outputChars: 25, chatLimit: 2 });
+    expect(detail.output).toBe("0123456789".repeat(10).slice(-25));
+    expect(detail).toMatchObject({ outputChars: 100, outputTruncated: true, iterations: 2, chatNextBefore: "m3" });
+    expect(detail.chatMessages.map((message) => message.id)).toEqual(["m3", "m4"]);
+    expect(detail.chatMessages[1]).toMatchObject({ clipped: true });
+    expect(detail.chatMessages[1]!.text).toHaveLength(4000);
+    const text = JSON.stringify(detail);
+    for (const leaked of ["SECRET INPUT", "PROMPT", "huge"]) expect(text).not.toContain(leaked);
+  });
+
+  it("pages backwards and validates every input", () => {
+    const older = projectBlockDetail(detailRun, "chat", { chatLimit: 2, chatBefore: "m3" });
+    expect(older.chatMessages.map((message) => message.id)).toEqual(["m1", "m2"]);
+    expect(older.chatNextBefore).toBe("m1");
+    expect(projectBlockDetail(detailRun, "chat", { chatBefore: "m1" }).chatNextBefore).toBeUndefined();
+    expect(() => projectBlockDetail(detailRun, "missing", {})).toThrow(/does not exist/);
+    expect(() => projectBlockDetail(detailRun, "chat", { outputChars: 70_000 })).toThrow(/outputChars/);
+    expect(() => projectBlockDetail(detailRun, "chat", { chatLimit: 0 })).toThrow(/chatLimit/);
+    expect(() => projectBlockDetail(detailRun, "chat", { chatBefore: "nope" })).toThrow(/chatBefore/);
+    expect(() => projectBlockDetail(detailRun, 5, {})).toThrow(/blockId/);
   });
 });

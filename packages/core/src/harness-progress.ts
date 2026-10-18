@@ -1,6 +1,6 @@
 import { CoreError } from "./errors.js";
 import { boundPermission } from "./ai/session-bounds.js";
-import type { HarnessProgress, HarnessRun } from "@hatopad/protocol";
+import { harnessBlockDetailLimits, type HarnessBlockDetail, type HarnessProgress, type HarnessRun } from "@hatopad/protocol";
 
 export const progressLimits = { defaultLog: 20, maxLog: 100, maxMessage: 500, maxError: 500, maxBlocks: 200, maxBytes: 900_000 } as const;
 
@@ -28,4 +28,30 @@ export function projectProgress(run: HarnessRun, logLimit: unknown): HarnessProg
   };
   if (Buffer.byteLength(JSON.stringify(progress)) > progressLimits.maxBytes) throw new CoreError("INVALID_REQUEST", "Workflow progress is too large to show here; lower logLimit or review it in Desktop");
   return progress;
+}
+
+const integer = (value: unknown, fallback: number, min: number, max: number, name: string) => {
+  const chosen = value ?? fallback;
+  if (typeof chosen !== "number" || !Number.isSafeInteger(chosen) || chosen < min || chosen > max) throw new CoreError("INVALID_REQUEST", `${name} must be an integer from ${min} to ${max}`);
+  return chosen;
+};
+
+/** Bounded detail for one block: never the definition, prompts or the full transcript. */
+export function projectBlockDetail(run: HarnessRun, blockId: unknown, options: { outputChars?: unknown; chatLimit?: unknown; chatBefore?: unknown }): HarnessBlockDetail {
+  if (typeof blockId !== "string" || !blockId) throw new CoreError("INVALID_REQUEST", "blockId must be a non-empty string");
+  const block = run.blocks.find((item) => item.blockId === blockId);
+  if (!block) throw new CoreError("FILE_NOT_FOUND", "Workflow block does not exist in this run");
+  const outputLimit = integer(options.outputChars, harnessBlockDetailLimits.defaultOutput, 1, harnessBlockDetailLimits.maxOutput, "outputChars");
+  const chatLimit = integer(options.chatLimit, harnessBlockDetailLimits.defaultChat, 1, harnessBlockDetailLimits.maxChat, "chatLimit");
+  if (options.chatBefore !== undefined && (typeof options.chatBefore !== "string" || options.chatBefore.length > 128)) throw new CoreError("INVALID_REQUEST", "chatBefore must be a short message id");
+  const output = block.output ?? "";
+  const chat = block.chatMessages ?? [];
+  let end = chat.length;
+  if (options.chatBefore !== undefined) { end = chat.findIndex((message) => message.id === options.chatBefore); if (end < 0) throw new CoreError("INVALID_REQUEST", "chatBefore does not match a message in this block"); }
+  const start = Math.max(0, end - chatLimit);
+  const page = chat.slice(start, end).map((message) => ({ id: message.id, role: message.role, text: message.text.slice(0, harnessBlockDetailLimits.maxChatText), timestamp: message.timestamp, ...(message.text.length > harnessBlockDetailLimits.maxChatText ? { clipped: true as const } : {}) }));
+  return {
+    blockId, status: block.status, output: output.slice(-outputLimit), outputChars: output.length, outputTruncated: output.length > outputLimit,
+    iterations: block.iterations?.length ?? 0, chatMessages: page, ...(start > 0 ? { chatNextBefore: chat[start]!.id } : {})
+  };
 }

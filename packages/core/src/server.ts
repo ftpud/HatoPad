@@ -64,7 +64,7 @@ import { WorkspaceRootRegistry } from "./workspace-roots.js";
 import { pageMessages } from "./ai/message-page.js";
 import { MAX_FILE_SIZE } from "./filesystem.js";
 import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
-import { projectProgress } from "./harness-progress.js";
+import { projectBlockDetail, projectProgress } from "./harness-progress.js";
 import { boundPermission, boundQuestion, boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./ai/session-bounds.js";
 import type { OverviewRootCounts, ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
 import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@hatopad/acp";
@@ -1240,6 +1240,12 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "harnesses.delete": await harnesses.delete(request.payload.id); return {};
     case "harnesses.validate": return validateHarness(request.payload.harness);
+    case "harnesses.blockDetail": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      return { block: projectBlockDetail(run, request.payload.blockId, request.payload) };
+    }
     case "harnesses.progress": {
       if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
       const run = await harnessRunner.readRun(request.payload.runId);

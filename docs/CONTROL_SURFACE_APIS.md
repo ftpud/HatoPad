@@ -40,6 +40,9 @@ changing one connection's selection does not change another connection.
   returns the newest bytes of retained scrollback (cut on a character boundary) with `truncated`, or a
   `stale` result for an unknown id. Neither operation sends input, resizes or creates; live output keeps
   using `terminal.output`/`terminal.exit` events, and relays apply their own per-channel buffering limits.
+- `harnesses.blockDetail` {runId, blockId, outputChars 1–64000 (default 16000), chatLimit 1–50 (default 20),
+  chatBefore} returns the newest output characters, counts, and a newest-first Chatbox page (text clipped to
+  4000 characters, `chatNextBefore` to continue). It excludes prompts, the definition and run input.
 - `tasks.commitMessage` gates get/set/update operations. Get takes taskId and
   returns the saved draft plus current head. Set takes taskId/message and saves
   a draft without committing. Update takes taskId/message/expectedHead and
