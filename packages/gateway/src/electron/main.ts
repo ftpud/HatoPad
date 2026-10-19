@@ -3,6 +3,7 @@ import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
 import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
+import { stopOrphanedLocalCore } from "./local-core-process.js";
 import { applyCloudCoreUpdate, CloudUpdateUncertainError, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
@@ -217,6 +218,8 @@ async function startLocalServer(workspaceId: string, expectedCommit?: string, re
   await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall HatoPad Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
   await prepareLocalWorkspaceDirectory(workspace.directory);
   await stopLocalServer(workspaceId);
+  runtime(workspaceId, "working", "Stopping any previous local Core on this port...");
+  await stopOrphanedLocalCore(workspace.remotePort, workspace.directory);
   runtime(workspaceId, "working", "Starting local Core...");
   const logDirectory = path.join(app.getPath("userData"), "logs");
   const logPath = path.join(logDirectory, `local-core-${workspace.id}.log`);
