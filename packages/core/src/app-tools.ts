@@ -1,6 +1,7 @@
 import "./legacy-env-bootstrap.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import crypto from "node:crypto";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import { findAutopilotOption, type AiAgent, type AiConfiguration, type AiMcpServer, type AiModel, type AiOption, type AiProvider, type AiQuotaWindow, type AiSession, type AiUsage } from "@hatopad/acp";
 import type { AgentFileReference } from "@hatopad/protocol";
@@ -716,9 +717,11 @@ export function appToolServer(rootWorkspace: string, currentWorkspace: string, c
   const compiled = fileURLToPath(new URL("app-tools.js", import.meta.url));
   const source = fileURLToPath(new URL("app-tools.ts", import.meta.url));
   const runningFromSource = import.meta.url.endsWith("/src/app-tools.ts");
+  // Providers may filter inherited environment variables when spawning MCP servers.
+  const stateDirectory = path.resolve(path.dirname(new AppEventBridge(bridgeWorkspace).directory));
   return runningFromSource
-    ? { transport: "stdio", name: "hatopad", command: process.execPath, args: ["--import", "tsx", source], env: { HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } }
-    : { transport: "stdio", name: "hatopad", command: process.execPath, args: [compiled], env: { HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } };
+    ? { transport: "stdio", name: "hatopad", command: process.execPath, args: ["--import", "tsx", source], env: { HATOPAD_STATE_DIR: stateDirectory, HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } }
+    : { transport: "stdio", name: "hatopad", command: process.execPath, args: [compiled], env: { HATOPAD_STATE_DIR: stateDirectory, HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } };
 }
 
 function workflowOperationKind(name: string): "timer_create" | "task_create" | "prompt_delivery" | "merge" | undefined {

@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, watch } from "node:fs/promises";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { AppEventBridge, appBridgeInstanceId } from "./app-events.js";
 import { skillToolServer } from "./app-tools.js";
 import { SkillsStore } from "./skills.js";
@@ -46,9 +46,12 @@ it("loads selected skills over MCP and exposes only skill_load, using the owning
   const entries = await store.available(root, ["local/review"]);
   const session = { model: "test", reasoning: "", status: "in_progress" as const, messages: [], threadId: "thread", skillCatalogue: { threadId: "thread", entries } };
   const owner = new AppEventBridge(bridgeRoot, state, appBridgeInstanceId); await owner.ready();
-  const server = skillToolServer(root, root, "codex", bridgeRoot);
+  let server: ReturnType<typeof skillToolServer>;
+  vi.stubEnv("HATOPAD_STATE_DIR", state);
+  try { server = skillToolServer(root, root, "codex", bridgeRoot); }
+  finally { vi.unstubAllEnvs(); }
   if (!("command" in server)) throw new Error("Expected stdio server");
-  const child = spawn(server.command, server.args ?? [], { env: { ...process.env, ...server.env, HATOPAD_STATE_DIR: state }, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(server.command, server.args ?? [], { env: { ...process.env, ...server.env }, stdio: ["pipe", "pipe", "pipe"] });
   let output = "", stderr = "";
   child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { stderr += chunk; });
   let childClosed = false;
