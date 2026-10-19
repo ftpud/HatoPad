@@ -1,3 +1,4 @@
+import { configureCloudSignInWindow, selectCloudPasskey } from "./cloud-signin.js";
 import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
@@ -7,7 +8,7 @@ import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 import { remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, webContents, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -531,7 +532,7 @@ async function saveCloudOrigin(input: string): Promise<string> {
   const previous = (await cloudSettings.read()).origin;
   if (previous && previous !== origin) {
     closeCloudBridges();
-    for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
+    for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
     await cloudSession().clearStorageData();
   }
   await cloudSettings.update((value) => { value.origin = origin; });
@@ -541,7 +542,24 @@ handleIpc("gateway:cloudSaveOrigin", async (_event, input: string) => {
   if (cloudConnecting) throw new Error("Close cloud sign-in before changing its URL.");
   return saveCloudOrigin(input);
 });
-function cloudSession() { return session.fromPartition("persist:hatopad-cloud"); }
+let cloudSessionConfigured = false;
+function cloudSession() {
+  const current = session.fromPartition("persist:hatopad-cloud");
+  if (!cloudSessionConfigured) {
+    cloudSessionConfigured = true;
+    current.on("select-webauthn-account", (_event, details, callback) => {
+      const contents = details.frame ? webContents.fromFrame(details.frame) : undefined;
+      if (!contents || contents.session !== current) { callback(); return; }
+      const owner = BrowserWindow.fromWebContents(contents);
+      void selectCloudPasskey(details.accounts, async (labels) => {
+        const options = { type: "question" as const, title: "Choose a passkey", message: `Sign in to ${details.relyingPartyId}`, detail: "Choose the account to use for this sign-in.", buttons: [...labels, "Cancel"], cancelId: labels.length, defaultId: 0, noLink: true };
+        const choice = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
+        return choice.response;
+      }, callback).catch(() => undefined);
+    });
+  }
+  return current;
+}
 async function cloudClient(): Promise<CloudClient> {
   const { origin } = await cloudSettings.read();
   if (!origin) throw new Error("Connect to cloud first.");
@@ -549,7 +567,7 @@ async function cloudClient(): Promise<CloudClient> {
 }
 function cloudWindow(url: string): BrowserWindow {
   const window = new BrowserWindow({ width: 1100, height: 800, title: "HatoPad Cloud", webPreferences: { partition: "persist:hatopad-cloud", nodeIntegration: false, contextIsolation: true, sandbox: true } });
-  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  configureCloudSignInWindow(window);
   void window.loadURL(url).catch(() => undefined);
   return window;
 }
@@ -584,7 +602,7 @@ handleIpc("gateway:cloudConnect", async (_event, input: string) => {
 });
 handleIpc("gateway:cloudDisconnect", async () => {
   closeCloudBridges();
-  for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
   await cloudSession().clearStorageData();
 });
 handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));

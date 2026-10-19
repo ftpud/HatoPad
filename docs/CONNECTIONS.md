@@ -140,3 +140,10 @@ restarts after pairing and reconnects to Hub on subsequent Gateway starts. This
 restarts that workspace's Core connection. Already paired servers must have their
 pairing managed before being registered again; Gateway does not overwrite an
 existing pairing.
+
+Cloud sign-in permits HTTPS provider popups (and HTTP on loopback), keeps them in
+Gateway's isolated cloud session, and closes child windows when sign-in closes.
+When a passkey authenticator returns several accounts, Gateway displays an
+account chooser instead of letting Electron cancel the request. Existing
+macOS iCloud-synced passkeys are not supported by the embedded Electron 44
+window; use another sign-in method for that case.
