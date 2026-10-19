@@ -22,7 +22,7 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
   });
 }
 
-function requestCloud(socket: WebSocket, type: string, payload: unknown): Promise<any> {
+function requestCloud(socket: WebSocket, type: string, payload: unknown, timeoutMs = 15_000): Promise<any> {
   return new Promise<any>((resolve, reject) => {
     const id = randomBytes(16).toString("hex");
     const finish = (error?: Error, value?: unknown) => {
@@ -37,11 +37,35 @@ function requestCloud(socket: WebSocket, type: string, payload: unknown): Promis
         reply.ok ? finish(undefined, reply.result) : finish(new Error(`${reply.error?.code ?? "ERROR"}: ${reply.error?.message ?? "Cloud Core request failed."} [${type}]`));
       } catch { finish(new Error("Invalid cloud Core response.")); }
     };
-    const timer = setTimeout(() => finish(new Error("Cloud Core request timed out.")), 15_000);
+    const timer = setTimeout(() => finish(new Error("Cloud Core request timed out.")), timeoutMs);
     socket.on("message", receive); socket.once("close", closed); socket.once("error", closed);
     if (socket.readyState !== WebSocket.OPEN) { closed(); return; }
     socket.send(JSON.stringify({ id, type, payload }));
   });
+}
+
+export class CloudUpdateUncertainError extends Error {}
+/**
+ * Asks the Core itself, through Hub, to stage and switch to a release. Only the final
+ * apply is a mutation: failures before it mean Hub-directed updates are unavailable
+ * (callers may fall back to SSH); a failure of the apply is uncertain and never retried.
+ */
+export async function applyCloudCoreUpdate(target: CloudRelayTarget, compatibility: Compatibility, branch: string, expectedLatest: string): Promise<"started" | "unavailable"> {
+  let socket: WebSocket; let status;
+  try {
+    socket = await openCloudRelay(target);
+  } catch { return "unavailable"; }
+  try {
+    try {
+      const maintenance = await requestCloud(socket, "protocol.maintenance", { compatibility, clientVersion: "0.1.0" });
+      if (maintenance?.maintenance !== true || !Array.isArray(maintenance.capabilities) || !maintenance.capabilities.includes("core.gitUpdate")) return "unavailable";
+      status = await requestCloud(socket, "core.update.check", { branch }, 60_000);
+    } catch { return "unavailable"; }
+    if (!status?.canUpdate || status.latest !== expectedLatest || !/^[a-f0-9]{40}$/.test(String(status.current))) return "unavailable";
+    try { await requestCloud(socket, "core.update.apply", { branch, expectedCurrent: status.current, expectedLatest }, 60_000); }
+    catch { throw new CloudUpdateUncertainError("The Core update outcome is uncertain. Refresh the Core's status before trying again."); }
+    return "started";
+  } finally { socket.close(); }
 }
 
 /** Read-only preflight never starts workspace services on an older/incompatible Core. */

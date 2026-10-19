@@ -75,7 +75,7 @@ previous=$(cat "$selection" 2>/dev/null || true)
 if [ -n "$previous" ] && ! [[ "$previous" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]]; then echo 'Stored release reference is invalid; inspect the release sidecar before retrying' >&2; exit 1; fi
 ${serverStopFunctions(workspaceId, workspace)}
 start_server() {
-  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_HUB_PAIRING_FILE="$HOME/.hatopad/cloud-pairings/${workspaceId}.json"; export HATOPAD_HUB_PAIRING_FILE; hub_flag=""; if [ -f "$HATOPAD_HUB_PAIRING_FILE" ]; then hub_flag="--hub-connect"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" nohup node packages/core/dist/index.js $hub_flag --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
+  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_HUB_PAIRING_FILE="$HOME/.hatopad/cloud-pairings/${workspaceId}.json"; export HATOPAD_HUB_PAIRING_FILE; hub_flag=""; if [ -f "$HATOPAD_HUB_PAIRING_FILE" ]; then hub_flag="--hub-connect"; fi; entry="packages/core/dist/index.js"; if [ -f scripts/core-release-service.mjs ] && grep -q HATOPAD_CORE_RELEASE_MODE packages/core/dist/index.js 2>/dev/null; then entry="scripts/core-release-service.mjs"; HATOPAD_CORE_RELEASE_ROOT="$base"; HATOPAD_CORE_RELEASE_SELECTION="$selection"; export HATOPAD_CORE_RELEASE_ROOT HATOPAD_CORE_RELEASE_SELECTION; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" nohup node "$entry" $hub_flag --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
 }
 health() { (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${probe}); }
 candidate="$base/releases/${release}"
@@ -179,8 +179,8 @@ stop_server() {
       command=$(ps -p "$pid" -o args= 2>/dev/null || true)
       expected_workspace=${shell(workspace)}
       case "$command" in
-        *'packages/core/dist/index.js'*'--gateway-workspace-id ${workspaceId} '*) ;;
-        *'packages/core/dist/index.js'*"--workspace $expected_workspace") ;;
+        *'packages/core/dist/index.js'*'--gateway-workspace-id ${workspaceId} '*|*'scripts/core-release-service.mjs'*'--gateway-workspace-id ${workspaceId} '*) ;;
+        *'packages/core/dist/index.js'*"--workspace $expected_workspace"|*'scripts/core-release-service.mjs'*"--workspace $expected_workspace") ;;
         *) echo "Refusing to stop PID $pid: it is not this workspace's Core process" >&2; return 1;;
       esac
     fi

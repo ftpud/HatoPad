@@ -12,21 +12,23 @@ export function updateTarget(value: unknown, apply = false): UpdateTarget {
 }
 /** Installation Git only. Never executes a browser command or touches a workspace repository. */
 export class CoreUpdates {
-  private busy = false;
-  constructor(private readonly options?: { repository: string; runningCommit: string; restart(target: UpdateTarget): Promise<void>; failure?: boolean }) {}
+  private busy = false; private aborted = false;
+  constructor(private readonly options?: { repository: string; runningCommit: string; restart(target: UpdateTarget): Promise<void>; failure?: boolean; release?: boolean }) {}
   private async git(...args: string[]) { return (await exec('git', args, { cwd: this.options!.repository, timeout: 30_000, maxBuffer: 64_000, env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } })).stdout.trim(); }
   async check(value: unknown, applying = false, compatibility: ProtocolCompatibility = protocolCompatibility): Promise<CoreUpdateStatus> {
     const { branch } = updateTarget(value); const base = { branch, available: false, updateAvailable: false, canUpdate: false, phase: this.busy ? 'restarting' as const : 'idle' as const };
     if (!this.options || !sha.test(this.options.runningCommit)) return { ...base, reason: 'This installation is not managed by the Git Core launcher.' };
     if (this.busy && !applying) return { ...base, available: true };
     try {
-      const current = await this.git('rev-parse', 'HEAD'); const localBranch = await this.git('symbolic-ref', '--short', 'HEAD');
+      // Release installations are immutable detached clones: the supervisor stages a new release instead of merging in place.
+      const release = this.options.release === true;
+      const current = await this.git('rev-parse', 'HEAD'); const localBranch = release ? branch : await this.git('symbolic-ref', '--short', 'HEAD');
       await this.git('fetch', '--tags', 'origin', `${branch}:refs/remotes/origin/${branch}`);
       const tags = (await this.git('tag', '--merged', `refs/remotes/origin/${branch}`, '--list', 'core-protocol-*-v*')).split('\n');
       const tag = compatibleCoreTags(tags, compatibility)[0]; if (!tag) return { ...base, available: true, reason: 'No compatible tagged Core release is available on this branch.' };
       const latest = await this.git('rev-parse', `refs/tags/${tag}^{commit}`);
-      const dirty = await this.git('status', '--porcelain', '--untracked-files=normal');
-      let reason = this.options.failure ? 'The previous update failed; the previous Core was restarted.' : undefined;
+      const dirty = release ? '' : await this.git('status', '--porcelain', '--untracked-files=normal');
+      let reason = this.options.failure ? 'The previous update failed; the previous Core was restarted.' : this.aborted ? 'The last update could not be prepared; this Core was kept running.' : undefined;
       if (localBranch !== branch) reason = `This installation uses ${localBranch}; start it from ${branch} to update here.`;
       else if (current !== this.options.runningCommit) reason = 'Installation changed since Core started. Restart it through the launcher.';
       else if (dirty) reason = 'The installation has local changes. Commit or remove them before updating.';
@@ -37,12 +39,12 @@ export class CoreUpdates {
   }
   async apply(value: unknown, compatibility: ProtocolCompatibility = protocolCompatibility): Promise<{ accepted: true }> {
     const target = updateTarget(value, true); if (this.busy) throw new CoreError('CONFLICT', 'A Core update is already in progress');
-    this.busy = true;
+    this.busy = true; this.aborted = false;
     try {
       const status = await this.check({ branch: target.branch }, true, compatibility);
       if (!status.canUpdate || status.current !== target.expectedCurrent || status.latest !== target.expectedLatest) throw new CoreError('CONFLICT', 'Core update changed or is blocked. Refresh before trying again.');
       // The response is queued before graceful shutdown; a lost response must never be retried automatically.
-      setTimeout(() => { void this.options!.restart({ ...target, compatibility }).catch(() => { this.busy = false; }); }, 100).unref();
+      setTimeout(() => { void this.options!.restart({ ...target, compatibility }).catch(() => { this.busy = false; this.aborted = true; }); }, 100).unref();
       return { accepted: true };
     } catch (error) { this.busy = false; throw error; }
   }

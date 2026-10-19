@@ -33,4 +33,24 @@ describe('installation updates', () => {
       expect(git(local,'rev-parse','HEAD')).toBe(first);
     } finally { await rm(root,{recursive:true,force:true}); }
   });
+  it('updates immutable release clones from a detached HEAD despite build artifacts', async () => {
+    const root = await mkdtemp(join(tmpdir(),'core-release-update-'));
+    const git = (cwd:string,...args:string[]) => execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+    try {
+      const origin=join(root,'origin'), release=join(root,'release');
+      git(root,'init','-b','dev',origin); git(origin,'config','user.email','fixture@example.com'); git(origin,'config','user.name','Fixture');
+      await writeFile(join(origin,'source'),'first'); git(origin,'add','.'); git(origin,'commit','-m','first'); const first=git(origin,'rev-parse','HEAD');
+      git(root,'clone',origin,release); git(release,'checkout','--detach',first); await writeFile(join(release,'.hatopad-build'),'marker');
+      await writeFile(join(origin,'source'),'second'); git(origin,'commit','-am','second'); const second=git(origin,'rev-parse','HEAD'); git(origin,'tag','core-protocol-19-v0.1.2');
+      const restarts:unknown[]=[];
+      const releaseService = new CoreUpdates({repository:release,runningCommit:first,release:true,restart:async target=>{restarts.push(target)}});
+      expect(await releaseService.check({branch:'dev'})).toMatchObject({latest:second,canUpdate:true});
+      expect(await new CoreUpdates({repository:release,runningCommit:first,restart:async()=>{}}).check({branch:'dev'})).toMatchObject({canUpdate:false});
+      expect(await releaseService.check({branch:'dev'},false,{minimum:20,maximum:20})).toMatchObject({canUpdate:false});
+      git(release,'checkout','--detach',second);
+      expect(await releaseService.check({branch:'dev'})).toMatchObject({canUpdate:false,reason:expect.stringContaining('Installation changed')});
+      git(release,'checkout','--detach',first);
+      expect(await releaseService.apply({branch:'dev',expectedCurrent:first,expectedLatest:second})).toEqual({accepted:true});
+    } finally { await rm(root,{recursive:true,force:true}); }
+  });
 });

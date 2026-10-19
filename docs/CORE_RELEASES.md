@@ -130,3 +130,35 @@ Restart a source Gateway from the updated checkout with `npm run gateway` to loa
 Electron changes. Hub must also serve the new protocol metadata. These checks use
 fixtures: the reported Mac/WSL hosts have not been updated or restarted, and no
 Gateway bundle was published as part of this change.
+
+## Supervised cloud Core releases
+
+Gateway-deployed SSH cloud Cores previously ran `node packages/core/dist/index.js`
+directly, so Hub reported "This installation is not managed by the Git Core launcher".
+Activation now starts releases that contain `scripts/core-release-service.mjs` (and a
+Core built with `HATOPAD_CORE_RELEASE_MODE`) under that supervisor; older releases
+still start directly. The supervisor only manages releases located at
+`~/.hatopad-deploy/releases/<commit>-node<ABI>`, otherwise Core runs unmanaged.
+Non-cloud checkouts keep using `scripts/core-service.mjs` unchanged.
+
+A Hub owner update (or Gateway's update action, which asks the Core through Hub first)
+works like this: Core keeps serving while the supervisor takes the provision and
+activation locks, verifies the pinned tag, clones the current release, installs,
+builds, smoke-tests and publishes a new immutable release. Only then does Core stop.
+The supervisor writes `.release.previous` and the selection file, starts the new Core
+and waits for its ready message (`HATOPAD_CORE_READY_TIMEOUT_MS`, default 180 s). A
+Core that exits or never reports ready is stopped, the previous selection restored
+and the previous release restarted. A staging failure aborts before any stop, so a
+failed build costs no downtime. The supervisor keeps the PID recorded by Gateway,
+and Gateway's stop check recognizes it.
+
+Gateway uses SSH only when the Core cannot take a Hub-directed update (unmanaged,
+older, offline). That deployment starts the supervised launcher, so one SSH update
+converts an old Core. A failure of the Hub apply request is uncertain and is never
+retried over SSH. Gateway still needs its saved management connection to identify the
+workspace and confirm the selected release.
+
+Verified with fixtures: supervisor success, build-failure and unready-rollback
+scenarios, unmanaged layout fallback, release-mode Core update checks, Gateway
+activation/stop under the supervisor, and the Hub-first/SSH-fallback update flow. No
+real cloud host has been updated.

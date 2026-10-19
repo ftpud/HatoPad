@@ -141,3 +141,33 @@ test('a stopped local Core retains its saved immutable Git selection',async()=>{
   assert.equal((await service.info('origin','core')).updateNeeded,false);
   assert.equal((await service.update('origin','core',commit)).currentRelease,commit);
 });
+function hubFixture(hub: "started" | "unavailable" | Error, switchTo?: string) {
+  const commit = "d".repeat(40); let current: ManagedCloudCore = { workspaceId: "saved-server", target: "linux-x64", release: `${"a".repeat(40)}-node137` };
+  const calls: string[] = [];
+  const service = new CloudCoreUpdates({
+    resolve: async () => current, deploy: async () => { throw Error("Must not use the bundle"); },
+    git: { check: async () => ({ commit, tag: "core-protocol-19-v0.1.2", branch: "dev" }), deploy: async () => { calls.push("ssh"); current = { ...current, release: `${commit}-node137` }; } },
+    hub: async (_origin, _core, branch, requested) => { calls.push(`hub:${branch}:${requested === commit}`); if (hub instanceof Error) throw hub; if (hub === "started" && switchTo) current = { ...current, release: switchTo.replace("COMMIT", commit) }; return hub; },
+    poll: { intervalMs: 1, timeoutMs: 50 },
+    run: async (_id, action) => action()
+  });
+  return { service, calls, commit };
+}
+test("Hub-directed updates let the Core switch itself and are confirmed from the selected release", async () => {
+  const f = hubFixture("started", "COMMIT-node137");
+  const after = await f.service.update("https://hub.example", "core-1", f.commit);
+  assert.deepEqual(f.calls, ["hub:dev:true"]); assert.equal(after.updateNeeded, false);
+});
+test("unmanaged Cores fall back to SSH deployment, which starts the supervised launcher", async () => {
+  const f = hubFixture("unavailable");
+  await f.service.update("https://hub.example", "core-1", f.commit);
+  assert.deepEqual(f.calls, ["hub:dev:true", "ssh"]);
+});
+test("an uncertain Hub update is never replayed over SSH and an unconfirmed switch is reported", async () => {
+  const uncertain = hubFixture(new Error("uncertain"));
+  await assert.rejects(uncertain.service.update("https://hub.example", "core-1", uncertain.commit), /uncertain/);
+  assert.deepEqual(uncertain.calls, ["hub:dev:true"]);
+  const stalled = hubFixture("started");
+  await assert.rejects(stalled.service.update("https://hub.example", "core-1", stalled.commit), /not confirmed/);
+  assert.deepEqual(stalled.calls, ["hub:dev:true"]);
+});

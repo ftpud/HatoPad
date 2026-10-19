@@ -3,7 +3,7 @@ import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
 import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
-import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
+import { applyCloudCoreUpdate, CloudUpdateUncertainError, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, bundleCoreCompatible, loadBundle, coreTarget, verifiedCoreArchive, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
@@ -671,6 +671,10 @@ const cloudCoreUpdates = new CloudCoreUpdates({ bundle, resolve: managedCloudCor
         ? startLocalServer(workspaceId, commit, settings, false, compatibility)
         : startServer(workspaceId, false, commit, settings, compatibility);
     }
+  },
+  hub: async (origin, coreId, branch, commit) => {
+    const { compatibility } = await cloudReleaseSettings(origin);
+    return applyCloudCoreUpdate(await cloudTarget(coreId), compatibility, branch, commit).catch(error => { if (error instanceof CloudUpdateUncertainError) throw error; return "unavailable" as const; });
   },
   deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId, undefined, undefined, true) : startServer(workspaceId),
   run: (workspaceId, action) => workspaceOperations.run(workspaceId, "cloud-core-update", action)

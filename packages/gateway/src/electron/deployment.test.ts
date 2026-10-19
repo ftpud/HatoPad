@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { createHash } from "node:crypto";
-import { activateRelease, activatedReleaseVerificationCommand, WorkspaceOperations, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, workspaceReleaseDirectory } from "./deployment.js";
+import { activateRelease, activatedReleaseVerificationCommand, WorkspaceOperations, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory } from "./deployment.js";
 
 const exec = promisify(execFile);
 const oldRelease = `${"a".repeat(40)}-node137`;
@@ -130,6 +130,29 @@ for (const healthy of [true, false]) {
     }
   });
 }
+
+test("activation starts update-capable releases under the release supervisor and can stop it", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "hatopad-supervised-activation-"));
+  const pidfile = path.join(home, ".hatopad-server-test.pid");
+  const bin = path.join(home, "bin");
+  try {
+    const release = path.join(home, ".hatopad-deploy/releases", candidateRelease);
+    await mkdir(path.join(release, "packages/core/dist"), { recursive: true }); await mkdir(path.join(release, "scripts"));
+    await writeFile(path.join(release, "packages/core/dist/index.js"), "// HATOPAD_CORE_RELEASE_MODE\n"); await writeFile(path.join(release, "scripts/core-release-service.mjs"), "");
+    await mkdir(bin);
+    await writeFile(path.join(bin, "node"), `#!/bin/bash\nif [ "$1" = 'scripts/core-release-service.mjs' ]; then printf '%s\\n%s' "$HATOPAD_CORE_RELEASE_ROOT" "$HATOPAD_CORE_RELEASE_SELECTION" > "$HOME/supervisor-env"; exec -a "node scripts/core-release-service.mjs --gateway-workspace-id test --workspace /workspace" sleep 60; fi\nif [ "$1" = '--input-type=commonjs' ]; then exit 0; fi\nexit 99\n`, { mode: 0o755 });
+    await writeFile(path.join(home, ".hatopad-server-test.token"), "c".repeat(64), { mode: 0o600 });
+    const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` };
+    await exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], { env, timeout: 15_000 });
+    assert.equal(await readFile(path.join(home, "supervisor-env"), "utf8"), `${path.join(home, ".hatopad-deploy")}\n${path.join(home, ".hatopad-server-test.release")}`);
+    const pid = Number(await readFile(pidfile, "utf8"));
+    await exec("bash", ["-c", serverStopCommand("test", "/workspace", "true")], { env, timeout: 15_000 });
+    assert.throws(() => process.kill(pid, 0));
+  } finally {
+    try { process.kill(Number(await readFile(pidfile, "utf8")), "SIGKILL"); } catch { /* No surviving server. */ }
+    await rm(home, { recursive: true, force: true });
+  }
+});
 
 test("rejects malformed or out-of-range activation credentials before launching Core", async () => {
   const home = await mkdtemp(path.join(os.tmpdir(), "hatopad-invalid-activation-token-"));
