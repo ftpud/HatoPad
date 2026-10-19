@@ -27,7 +27,7 @@ export type FileRevision = { identity: string; version: string };
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 export { protocolCompatibility, serverProtocolVersion } from "./protocol-versions.js";
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging", "core.gitUpdate", "ports.tunnel"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging", "core.gitUpdate", "ports.tunnel", "client.presence"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -181,6 +181,8 @@ export type AttentionItem = { kind: "permission" | "question" | "workflow-permis
 /** Inventory counts for one root; counts only, never names or content. Present when the Core advertises `overview.counts`. */
 export type OverviewRootCounts = { tasks: number; finishedTasks: number; schedules: number; triggers: number; workflowsActive: number };
 export type OverviewRoot = { id: WorkspaceRootId; alias: string; running: number; attention: number; counts?: OverviewRootCounts };
+/** How long one `client.presence` report keeps a client counted as present. Clients report well within this. */
+export const presenceLeaseMs = 60_000;
 /** Limits applied by `overview.summary`. */
 /** Most recent conversation per root/task/provider, newest first. Ephemeral; clipped like attention items. */
 export type ActivityItem = { target: Omit<AttentionTarget, "requestId">; updatedAt: string; status: AiStatus; preview: string };
@@ -411,6 +413,8 @@ export type ProtocolOperations = {
   "storage.status": { payload: Record<string, never>; result: StorageSnapshot };
   "storage.cleanup": { payload: StorageCleanup; result: StorageSnapshot };
   "protocol.keepAlive": { payload: Record<string, never>; result: Record<string, never> };
+  /** An interactive client reports whether its window is visible. Feeds `overview.summary` presence; never persisted. */
+  "client.presence": { payload: { visible: boolean }; result: Record<string, never> };
   "protocol.maintenance": ProtocolOperations["protocol.handshake"];
   "protocol.handshake": { /** `sessionMessageLimit` (0..100) bounds messages in every AiSession returned on this connection (capability `session.responseLimit`); omitted messages are counted in `omittedMessages`. */ payload: { compatibility: ProtocolCompatibility; clientVersion?: string; token?: string; sessionMessageLimit?: number }; result: { maintenance?: boolean; compatible: boolean; compatibility: ProtocolCompatibility; message?: string; capabilities?: CoreCapability[] } };
   "workspace.roots": { payload: Record<string, never>; result: { roots: WorkspaceRoot[]; selectedRootId: WorkspaceRootId } };
@@ -509,7 +513,7 @@ export type ProtocolOperations = {
   /** Read-only, root-agnostic attention summary: never selects a root/task or restores a session. Page with `nextCursor`; a cursor from an older `revision` restarts at the first page (`restarted`). */
   "overview.events": { payload: { limit?: number; cursor?: string; rootId?: WorkspaceRootId }; result: { events: SupervisionEvent[]; startedAt: string; truncated: boolean; nextCursor?: string; restarted?: boolean } };
   "overview.work": { payload: { limit?: number; cursor?: string; rootId?: WorkspaceRootId }; result: OverviewWorkPage };
-  "overview.summary": { payload: { limit?: number; cursor?: string }; result: { revision: string; roots: OverviewRoot[]; items: AttentionItem[]; /** Newest conversations (max `overviewLimits.maxActivity`), included in every page and in `revision`. */ activity: ActivityItem[]; nextCursor?: string; restarted?: boolean; /** True when more than `overviewLimits.maxRoots` roots or `maxTasksPerRoot` tasks per root existed. */ truncated: boolean } };
+  "overview.summary": { payload: { limit?: number; cursor?: string }; result: { revision: string; roots: OverviewRoot[]; items: AttentionItem[]; /** Newest conversations (max `overviewLimits.maxActivity`), included in every page and in `revision`. */ activity: ActivityItem[]; nextCursor?: string; restarted?: boolean; /** True when more than `overviewLimits.maxRoots` roots or `maxTasksPerRoot` tasks per root existed. */ truncated: boolean; /** With `client.presence`: whether an interactive client window reported being visible within `presenceLeaseMs`. */ presence?: { active: boolean } } };
   "ai.statuses": { payload: Record<string, never>; result: { root: AiTaskSummary; tasks: Record<string, AiTaskSummary> } };
   "useful.list": { payload: Record<string, never>; result: { files: UsefulFile[] } };
   "useful.read": { payload: { scope: UsefulFileScope; name: string; maxBytes?: number }; result: { content: string; truncated?: boolean } };
@@ -863,7 +867,7 @@ export type RequestType = keyof ProtocolOperations;
 
 /** All nested relative paths and opaque root-owned references inherit this envelope root. */
 export type Request<T extends RequestType = RequestType> = T extends RequestType
-  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
+  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "client.presence" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
   : never;
 
 export type ErrorCode =
@@ -893,7 +897,7 @@ export type ErrorCode =
 export type ProtocolError = { code: ErrorCode; message: string };
 
 export type Response<T extends RequestType = RequestType> =
-  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
+  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "client.presence" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
   | { id: string; ok: false; error: ProtocolError };
 
 export type FilesystemChangedEvent = {
@@ -952,6 +956,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "protocol.maintenance": true,
   "protocol.handshake": true,
   "protocol.keepAlive": true,
+  "client.presence": true,
   "portTunnel.open": true,
   "portTunnel.read": true,
   "portTunnel.write": true,

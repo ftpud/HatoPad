@@ -44,8 +44,24 @@ it("serves overview.summary without a rootId and without changing selection", as
     expect(await request("overview.summary", { limit: 0 })).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
     expect(await request("overview.summary", { cursor: "bogus" })).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
 
+    expect(summary.result.presence).toEqual({ active: false });
+    expect(await request("client.presence", { visible: "yes" })).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    expect(await request("client.presence", { visible: true })).toMatchObject({ ok: true, result: {} });
+    expect((await request("overview.summary", {})).result.presence).toEqual({ active: true });
+    expect(await request("client.presence", { visible: false })).toMatchObject({ ok: true });
+    expect((await request("overview.summary", {})).result.presence).toEqual({ active: false });
+    await request("client.presence", { visible: true });
+
     expect((await request("workspace.roots", {})).result.selectedRootId).toBe(rootId);
     expect((await request("tasks.list", {}, rootId)).result).toEqual(tasksBefore.result);
+    // A closed client no longer counts as present.
+    const observer = new WebSocket(`ws://127.0.0.1:${(server.address() as { port: number }).port}`); await once(observer, "open");
+    socket.close(); await once(socket, "close");
+    const reply = new Promise<Record<string, any>>((resolve) => observer.on("message", (data) => { const value = JSON.parse(data.toString()); if (value.id === "s") resolve(value); }));
+    observer.send(JSON.stringify({ id: "h", type: "protocol.handshake", payload: { compatibility: protocolCompatibility } }));
+    observer.send(JSON.stringify({ id: "s", type: "overview.summary", payload: {} }));
+    expect((await reply).result.presence).toEqual({ active: false });
+    observer.close();
   } finally {
     socket?.close();
     if (server) await shutdownCore(server);

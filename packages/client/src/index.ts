@@ -165,7 +165,7 @@ export class CoreClient {
     const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
     const id = crypto.randomUUID();
     const socket = this.socket;
-    const unscoped = type === "protocol.maintenance" || type === "core.update.check" || type === "core.update.apply" || type === "protocol.handshake" || type === "protocol.keepAlive" || type === "workspace.roots" || type === "workspace.addRoot" || type === "overview.summary" || type === "overview.work" || type === "overview.events";
+    const unscoped = type === "protocol.maintenance" || type === "core.update.check" || type === "core.update.apply" || type === "protocol.handshake" || type === "protocol.keepAlive" || type === "client.presence" || type === "workspace.roots" || type === "workspace.addRoot" || type === "overview.summary" || type === "overview.work" || type === "overview.events";
     if (!unscoped && !this.rootId) return Promise.reject(new Error(`No workspace root selected for ${type}`));
     const request = { id, type, payload, ...(!unscoped ? { rootId: this.rootId } : {}) } as Request<T>;
     return new Promise((resolve, reject) => {

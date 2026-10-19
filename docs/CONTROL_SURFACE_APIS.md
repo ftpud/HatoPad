@@ -35,6 +35,11 @@ changing one connection's selection does not change another connection.
 - `overview.counts` adds `counts` {tasks, finishedTasks, schedules, triggers, workflowsActive} to each
   `overview.summary` root: counts only, no names or content. Count changes alter `revision` but do not
   restart attention paging.
+- `client.presence` adds `client.presence` {visible: boolean} (unscoped, no rootId) and `presence`
+  {active} to every `overview.summary` result. A visible report keeps that connection present for
+  `presenceLeaseMs` (60 s); `visible: false` or closing the connection clears it. Desktop reports on
+  visibility change and every 20 s while visible. Presence is in memory only, carries no user, window
+  or workspace detail, and does not alter `revision`. Hub uses it to hold back "work finished" pushes.
 - `terminal.watch` adds `terminal.watch.list` (metadata only: id, status, exit code, name, retained
   output byte count) and `terminal.watch.attach` {terminalId, maxBytes 1024–262144, default 65536}. Attach
   returns the newest bytes of retained scrollback (cut on a character boundary) with `truncated`, or a

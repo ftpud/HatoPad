@@ -19,6 +19,7 @@ import remarkGfm from "remark-gfm";
 import { mergeWorkflowHistory, workflowRunsForContext } from "./workflow-context";
 import { InvalidationRefreshes } from "./invalidation-refreshes";
 import { CoalescedAsyncAction, CoreClient } from "./client";
+import { startPresenceReporting } from "./presence";
 import { ConnectionRecovery, recoveryFailureFeedback, reconnectWorkspace, restoreTerminal, type RecoverySelection } from "./connection-recovery";
 import { recoverEditorGroups, workspaceRestorationGuard } from "./workspace-recovery";
 import { remoteUploadDestination, treeContainsPath } from "./remote-transfer";
@@ -378,6 +379,7 @@ export function App() {
   const [externalConflict, setExternalConflict] = useState<{ tabId: string; path: string; externalContent: string; externalRevision: FileRevision; error?: string }>();
   const [pendingNavigation, setPendingNavigation] = useState<{ result: SearchResult; matchLength: number }>();
   const clientRef = useRef<CoreClient>();
+  useEffect(() => startPresenceReporting(() => clientRef.current), []);
   const recoveryRef = useRef<ConnectionRecovery>();
   const invalidationRefreshes = useRef<InvalidationRefreshes>();
   const [managedProcessList, setManagedProcessList] = useState<ManagedWorkflowApp[]>([]);

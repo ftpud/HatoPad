@@ -18,6 +18,9 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       optionalBoolean(record, "discardChanges", "Discard changes flag must be a boolean");
       if (typeof record.category !== "string" || typeof record.age !== "string" || !["tasks", "sessions", "workflows", "checkpoints", "logs", "provider", "runtime", "other"].includes(record.category) || !["finished", "week", "older", "inactive", "versions"].includes(record.age)) invalid("Invalid storage cleanup selection");
       return;
+    case "client.presence":
+      if (typeof record.visible !== "boolean") invalid("Presence visibility must be a boolean");
+      return;
     case "protocol.maintenance":
     case "protocol.handshake": {
       const compatibility = requireRecord(record.compatibility, "Handshake compatibility must be an object");

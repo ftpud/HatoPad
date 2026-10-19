@@ -25,7 +25,7 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, serverProtocolVersion, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, presenceLeaseMs, terminalWatchLimits, serverProtocolVersion, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
 import { workflowOutputPage } from "./workflow-inspection.js";
 import { MetadataHintBatcher } from "./metadata-hints.js";
 import { workPage, workText, triggerIssueKind, type WorkTarget } from "./overview-work.js";
@@ -258,6 +258,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     const encoded = JSON.stringify(event);
     for (const socket of activeSessions) if (!rootId || liveRootSelections.selected(socket) === rootId) sendWebSocketData(socket, encoded);
   });
+  /** Socket -> lease expiry of its last visible `client.presence` report. */
+  const presence = new Map<WebSocket, number>();
   const terminalSubscriptions = new Map<WebSocket, { rootId: string; workspace: string; terminalIds: Set<string> }>();
   const terminalWatchers = new TerminalWatchers<WebSocket>((socket, event) => sendWebSocketData(socket, JSON.stringify(event)));
   const terminalOwners = new Map<string, { socket: WebSocket; rootId: string; workspace: string }>();
@@ -368,7 +370,8 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (run) workflows.push({ rootId: root.id, alias: root.alias, run });
       }
     }
-    return pageOverview(buildOverview(sources, truncated, workflows, counts), payload);
+    const now = Date.now();
+    return { ...pageOverview(buildOverview(sources, truncated, workflows, counts), payload), presence: { active: [...presence.values()].some((until) => until > now) } };
   };
   const overviewWork = async (payload: ProtocolOperations["overview.work"]["payload"]): Promise<ProtocolOperations["overview.work"]["result"]> => {
     const allRoots = roots.list(); const targets: WorkTarget[] = []; let truncated = allRoots.length > overviewLimits.maxRoots;
@@ -857,6 +860,11 @@ export async function createServer(host: string, port: number, workspacePath: st
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: {} } satisfies Response<"protocol.keepAlive">));
           return;
         }
+        if (parsed.type === "client.presence") {
+          if (parsed.payload.visible) presence.set(socket, Date.now() + presenceLeaseMs); else presence.delete(socket);
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: {} } satisfies Response<"client.presence">));
+          return;
+        }
         releaseAdmission = admission.acquire();
         if (parsed.type === "workspace.roots") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { roots: roots.list(), selectedRootId: selectedRoot.id } }));
@@ -1007,6 +1015,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       }
     });
     socket.on("close", () => {
+      presence.delete(socket);
       activeSessions.delete(socket);
       liveRootSelections.disconnect(socket);
       terminalWatchers.disconnect(socket);
@@ -1051,7 +1060,7 @@ function optionalByteLimit(value: unknown): number | undefined {
 
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
   if (request.type.startsWith("portTunnel.")) return;
-  if (request.type === "protocol.maintenance" || request.type === "core.update.check" || request.type === "core.update.apply" || request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
+  if (request.type === "protocol.maintenance" || request.type === "core.update.check" || request.type === "core.update.apply" || request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "client.presence" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }
