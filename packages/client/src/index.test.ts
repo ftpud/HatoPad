@@ -77,3 +77,19 @@ it('keeps all overview reads unscoped even when another root is selected', async
     expect(client.getRoot()).toBe('other');
   } finally { client.disconnect(); }
 });
+it('identifies the exact rejected operation for out-of-order error responses', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const client = new CoreClient();
+  try {
+    const connecting = client.connect({ url: 'wss://cloud.example/relay' });
+    const socket = Socket.instances[0]!; socket.open(); await connecting;
+    const requests: { id: string; type: string }[] = [];
+    socket.send = (text: string) => { requests.push(JSON.parse(text)); };
+    const first = client.request('workspace.open', {});
+    const second = client.request('tasks.list', {});
+    const firstCheck = expect(first).rejects.toMatchObject({ code: 'INVALID_REQUEST', requestType: 'workspace.open', message: 'INVALID_REQUEST: This operation is not available through HatoHub [workspace.open]' });
+    const secondCheck = expect(second).rejects.toMatchObject({ code: 'INVALID_REQUEST', requestType: 'tasks.list', message: 'INVALID_REQUEST: This operation is not available through HatoHub [tasks.list]' });
+    for (const request of [...requests].reverse()) socket.onmessage?.({ data: JSON.stringify({ id: request.id, ok: false, error: { code: 'INVALID_REQUEST', message: 'This operation is not available through HatoHub' } }) });
+    await Promise.all([firstCheck, secondCheck]);
+  } finally { client.disconnect(); }
+});

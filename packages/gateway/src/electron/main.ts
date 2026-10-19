@@ -599,7 +599,7 @@ handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) =>
   let bridge = cloudBridges.get(key);
   if (!bridge) { bridge = await createCloudBridge(target); cloudBridges.set(key, bridge); }
   const desktop = desktopCommand(desktopMain);
-  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(bridge.port), "--root-id", rootId], {
+  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(bridge.port), "--root-id", rootId, "--cloud-origin", target.origin], {
     cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: bridge.token, HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore"
   });
   await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });

@@ -1,6 +1,6 @@
 import { isServerEvent, type CoreCapability, protocolCompatibility, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent } from "@hatopad/protocol";
 
-type Pending = { socket: WebSocket; rootId?: string; timer: ReturnType<typeof setTimeout>; resolve(value: unknown): void; reject(error: Error): void };
+type Pending = { type: RequestType; socket: WebSocket; rootId?: string; timer: ReturnType<typeof setTimeout>; resolve(value: unknown): void; reject(error: Error): void };
 
 export type LivenessOptions = { intervalMs?: number; timeoutMs?: number };
 
@@ -163,7 +163,7 @@ export class CoreClient {
         this.pending.delete(id);
         reject(new Error(`Request ${type} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, { socket, rootId: unscoped ? undefined : this.rootId, timer, resolve: resolve as (value: unknown) => void, reject });
+      this.pending.set(id, { type, socket, rootId: unscoped ? undefined : this.rootId, timer, resolve: resolve as (value: unknown) => void, reject });
       try { socket.send(JSON.stringify(request)); }
       catch (error) {
         clearTimeout(timer);
@@ -214,7 +214,7 @@ export class CoreClient {
     this.pending.delete(response.id);
     if (response.ok && pending.rootId && response.rootId && response.rootId !== pending.rootId) pending.reject(new Error(`Stale cross-root response: expected ${pending.rootId}, received ${response.rootId}`));
     else if (response.ok) pending.resolve(response.result);
-    else pending.reject(Object.assign(new Error(`${response.error.code}: ${response.error.message}`), { code: response.error.code }));
+    else pending.reject(Object.assign(new Error(`${response.error.code}: ${response.error.message} [${pending.type}]`), { code: response.error.code, requestType: pending.type }));
   }
 }
 

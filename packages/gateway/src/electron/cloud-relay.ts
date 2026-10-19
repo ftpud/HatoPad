@@ -37,7 +37,7 @@ export async function listCloudRoots(target: CloudRelayTarget, compatibility: Co
         try {
           const reply = JSON.parse(data.toString());
           if (reply.id !== id) return;
-          reply.ok ? finish(undefined, reply.result) : finish(new Error(reply.error?.message ?? "Cloud Core request failed."));
+          reply.ok ? finish(undefined, reply.result) : finish(new Error(`${reply.error?.code ?? "ERROR"}: ${reply.error?.message ?? "Cloud Core request failed."} [${type}]`));
         } catch { finish(new Error("Invalid cloud Core response.")); }
       };
       const timer = setTimeout(() => finish(new Error("Cloud Core request timed out.")), 15_000);

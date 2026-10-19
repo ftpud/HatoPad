@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
 import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 
-async function fixture() {
+async function fixture(rejectedType?: string) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
   const address = server.address();
@@ -18,6 +18,10 @@ async function fixture() {
     socket.on("error", () => undefined);
     socket.on("message", (data) => {
       const message = JSON.parse(data.toString()); requests.push(message);
+      if (message.type === rejectedType) {
+        socket.send(JSON.stringify({ id: message.id, ok: false, error: { code: "INVALID_REQUEST", message: "This operation is not available through HatoHub" } }));
+        return;
+      }
       const result = message.type === "protocol.handshake" ? { compatible: true } : { roots, selectedRootId: "root-1" };
       socket.send(JSON.stringify({ id: message.id, ok: true, result }));
     });
@@ -90,4 +94,11 @@ test("relay failures surface to Desktop and leave no hanging loopback connection
     local.send(JSON.stringify({ id: "hello", type: "protocol.handshake", payload: { token: bridge.token } }));
     await closed;
   } finally { bridge.close(); }
+});
+
+test("Core discovery names the exact operation rejected by HatoHub", async () => {
+  const hub = await fixture("workspace.roots");
+  try {
+    await assert.rejects(listCloudRoots(hub.target, { minimum: 19, maximum: 19 }), { message: "INVALID_REQUEST: This operation is not available through HatoHub [workspace.roots]" });
+  } finally { await hub.close(); }
 });

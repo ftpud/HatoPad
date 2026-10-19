@@ -27,7 +27,8 @@ function launchOption(name: string): string | undefined {
 const launchConfig = {
   host: launchOption("host"),
   port: launchOption("port"),
-  rootId: launchOption("root-id")
+  rootId: launchOption("root-id"),
+  cloudOrigin: launchOption("cloud-origin")
 };
 
 if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));

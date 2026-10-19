@@ -1,7 +1,7 @@
-import { ChevronDown, LogOut, Server } from "lucide-react";
+import { ChevronDown, Cloud, LogOut, Server } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
-export function ConnectionMenu({ host, port, connected, onDisconnect }: { host: string; port: string; connected: boolean; onDisconnect(): void }) {
+export function ConnectionMenu({ host, port, connected, cloudOrigin, onDisconnect }: { host: string; port: string; connected: boolean; cloudOrigin?: string; onDisconnect(): void }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -14,7 +14,7 @@ export function ConnectionMenu({ host, port, connected, onDisconnect }: { host: 
     return () => { document.removeEventListener("pointerdown", outside); document.removeEventListener("keydown", escape); };
   }, [open]);
   return <div className="connection-menu" ref={root}>
-    <button ref={trigger} className="connection-menu-trigger" aria-label="Core connection" aria-expanded={open} onClick={() => setOpen(!open)} title={`${connected ? "Connected to" : "Disconnected from"} ${host}:${port}`}><span className={`connection-indicator ${connected ? "connected" : ""}`} /><span>{connected ? local ? "Local Core" : "Remote Core" : "Offline"}</span><ChevronDown size={12} /></button>
-    {open && <section className="connection-popover" role="dialog" aria-label="Connection details"><header><Server size={18} /><div><strong>{local ? "Local workspace" : "Remote workspace"}</strong><small role="status">{connected ? "Connected" : "Disconnected"}</small></div></header><dl><dt>Core address</dt><dd>{host}:{port}</dd></dl><button className="connection-disconnect" onClick={onDisconnect}><LogOut size={15} />Disconnect</button></section>}
+    <button ref={trigger} className="connection-menu-trigger" aria-label="Core connection" aria-expanded={open} onClick={() => setOpen(!open)} title={`${connected ? "Connected to" : "Disconnected from"} ${cloudOrigin ?? `${host}:${port}`}`}><span className={`connection-indicator ${connected ? "connected" : ""}`} />{cloudOrigin && <Cloud size={14} aria-hidden="true" />}<span>{connected ? cloudOrigin ? "Cloud" : local ? "Local Core" : "Remote Core" : "Offline"}</span><ChevronDown size={12} /></button>
+    {open && <section className="connection-popover" role="dialog" aria-label="Connection details"><header>{cloudOrigin ? <Cloud size={18} /> : <Server size={18} />}<div><strong>{cloudOrigin ? "Cloud workspace" : local ? "Local workspace" : "Remote workspace"}</strong><small role="status">{connected ? "Connected" : "Disconnected"}</small></div></header><dl><dt>{cloudOrigin ? "Cloud server" : "Core address"}</dt><dd>{cloudOrigin ?? `${host}:${port}`}</dd></dl><button className="connection-disconnect" onClick={onDisconnect}><LogOut size={15} />Disconnect</button></section>}
   </div>;
 }
