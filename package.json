@@ -21,7 +21,7 @@
     "dev:gateway": "npm run dev -w @hatopad/gateway --",
     "build": "npm run build -w @hatopad/acp && npm run build -w @hatopad/protocol && npm run build -w @hatopad/client && npm run build -w @hatopad/relay && npm run build -w @hatopad/connector && npm run build -w @hatopad/test-fixtures && npm run build -w @hatopad/core && npm run build -w @hatopad/desktop && npm run build -w @hatopad/gateway",
     "typecheck": "npm run build -w @hatopad/acp && npm run build -w @hatopad/protocol && npm run build -w @hatopad/client && npm run typecheck -w @hatopad/client && npm run typecheck -w @hatopad/relay && npm run build -w @hatopad/connector && npm run typecheck -w @hatopad/connector && npm run build -w @hatopad/test-fixtures && npm run typecheck -w @hatopad/core && npm run typecheck -w @hatopad/desktop",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test scripts/core-service.test.mjs scripts/protocol-tags.test.mjs",
     "test:release-soak": "node scripts/release-soak.mjs",
     "test:bundle": "node --test scripts/bundle/*.test.mjs",
     "bundle:core": "node scripts/bundle/core.mjs",

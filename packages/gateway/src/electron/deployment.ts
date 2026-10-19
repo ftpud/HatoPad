@@ -1,3 +1,4 @@
+import { protocolCompatibility } from "./protocol-versions.js";
 export type ProvisionedRelease = { commit: string; rebuilt: boolean; release: string };
 const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
 function shell(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
@@ -13,7 +14,7 @@ export function coreHealthProbe(port: number, timeoutMs = 180_000): string {
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000) throw new Error("Invalid Core health timeout");
   return `const {WebSocket}=require('ws');
 (async()=>{
- const {protocolCompatibility}=await import('./packages/protocol/dist/index.js');
+ const protocolCompatibility=${JSON.stringify(protocolCompatibility)};
  const deadline=Date.now()+${timeoutMs};
  const probe=()=>new Promise(resolve=>{
   const socket=new WebSocket('ws://127.0.0.1:${port}');

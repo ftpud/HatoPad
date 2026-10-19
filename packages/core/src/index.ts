@@ -1,3 +1,4 @@
+import { CoreUpdates } from './core-update.js';
 import "./legacy-env-bootstrap.js";
 import { loadCoreSessionToken } from "./access-policy.js";
 import { installSignalShutdown } from "./signal-shutdown.js";
@@ -30,8 +31,14 @@ try {
   const access = await loadCoreSessionToken(port);
   if (access.file) console.log(`[core] session token file: ${access.file}`);
   const allowedOrigins = process.env.HATOPAD_ALLOWED_ORIGINS?.split(",").map((origin) => origin.trim()).filter(Boolean);
-  const server = await createServer(host, port, workspace, { access: { token: access.token, allowedOrigins } });
-  const stopHub = hub.connect ? await startHubConnector(hub, port, access.token) : undefined;
+  let stopHub: (() => Promise<void>) | undefined;
+  let server: Awaited<ReturnType<typeof createServer>>;
+  const updates = process.send && process.env.HATOPAD_CORE_UPDATE_MANAGED === '1' ? new CoreUpdates({ repository: process.env.HATOPAD_CORE_UPDATE_REPOSITORY!, runningCommit: process.env.HATOPAD_CORE_RUNNING_COMMIT!, failure: process.env.HATOPAD_CORE_UPDATE_FAILED === '1', restart: async target => {
+    await new Promise<void>((resolve, reject) => process.send!({ type: 'hatopad-core-update', ...target }, error => error ? reject(error) : resolve()));
+    await stopHub?.(); await shutdownCore(server); process.exit(75);
+  } }) : new CoreUpdates();
+  server = await createServer(host, port, workspace, { updates, access: { token: access.token, allowedOrigins } });
+  stopHub = hub.connect ? await startHubConnector(hub, port, access.token) : undefined;
   installSignalShutdown(async () => { await stopHub?.(); await shutdownCore(server); });
 } catch (error) {
   console.error(`[core] failed to open workspace: ${error instanceof Error ? error.message : String(error)}`);

@@ -1,10 +1,11 @@
+import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
 import { CloudCoreUpdates, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
 import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
-import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
+import { EDITOR_FLAG, bundleCoreCompatible, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
 import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
@@ -33,7 +34,7 @@ type Connection = { id: string; name: string; host: string; port: number; userna
 type Workspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
 type PortTunnel = { id: string; connectionId: string; port: number };
 type StoredConnection = { id: string; kind?: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod?: AuthenticationMethod; password: string; privateKeyPath?: string; passphrase?: string; hostKeyFingerprint?: string };
-type State = { connections: StoredConnection[]; workspaces: Workspace[]; portTunnels: PortTunnel[]; repository: RepositorySettings };
+type State = { connections: StoredConnection[]; workspaces: Workspace[]; portTunnels: PortTunnel[]; repository: RepositorySettings; coreReleases?: Record<string, string> };
 type PublicState = { connections: { id: string; kind: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod: AuthenticationMethod; privateKeyPath?: string; hostKeyFingerprint?: string }[]; workspaces: Workspace[]; portTunnels: PortTunnel[] };
 type Runtime = { status: "idle" | "working" | "server" | "client" | "error"; message: string; updatedAt: string; stage: string; logs?: string[]; retryable?: boolean; repairable?: boolean };
 type TunnelRuntime = { status: "idle" | "working" | "running" | "error"; message: string; updatedAt: string; stage: string };
@@ -92,7 +93,7 @@ function decodeState(text: string): State {
   if (state.connections !== undefined && !Array.isArray(state.connections)) throw new Error("Gateway connections must be an array");
   if (state.workspaces !== undefined && !Array.isArray(state.workspaces)) throw new Error("Gateway workspaces must be an array");
   if (state.portTunnels !== undefined && !Array.isArray(state.portTunnels)) throw new Error("Gateway port tunnels must be an array");
-  return { connections: (state.connections ?? []).map(normalizeStoredAuthentication), workspaces: state.workspaces ?? [], portTunnels: state.portTunnels ?? [], repository: repositorySettingsOrDefault(state.repository) };
+  return { connections: (state.connections ?? []).map(normalizeStoredAuthentication), workspaces: state.workspaces ?? [], portTunnels: state.portTunnels ?? [], repository: repositorySettingsOrDefault(state.repository), coreReleases: state.coreReleases && typeof state.coreReleases === "object" && !Array.isArray(state.coreReleases) ? Object.fromEntries(Object.entries(state.coreReleases).filter(([id,commit])=>/^[A-Za-z0-9_-]{1,200}$/.test(id) && typeof commit === "string" && /^[a-f0-9]{40}$/.test(commit))) : {} };
 }
 const stateStore = new JsonStateStore<State>(stateFile(), () => ({ connections: [], workspaces: [], portTunnels: [], repository: defaultRepositorySettings }), decodeState);
 async function readState(): Promise<State> { return stateStore.read(); }
@@ -169,11 +170,11 @@ async function workspaceAndStoredConnection(workspaceId: string): Promise<{ work
   if (!connection) throw new Error("Connection was not found");
   return { workspace, connection };
 }
-async function localArtifactPaths(): Promise<{ coreMain: string; desktopRoot: string; node: string; env: NodeJS.ProcessEnv }> {
+async function localArtifactPaths(toolchainOnly = false): Promise<{ coreMain: string; desktopRoot: string; node: string; env: NodeJS.ProcessEnv }> {
   if (bundle) {
     const target = coreTarget(process.platform, process.arch);
     const shippedCore = bundle.cores[target];
-    if (!shippedCore) throw new Error(`This bundle does not include Core for ${target}.`);
+    if (!shippedCore || !toolchainOnly && !bundleCoreCompatible(shippedCore)) throw new Error(`This bundle does not include a protocol-compatible Core for ${target}. Install a compatible Gateway release.`);
     const root = await prepareBundledCore(process.resourcesPath, path.join(app.getPath("userData"), "cores"), shippedCore, (archive, destination) => runLocal("tar", ["-xzf", archive, "-C", destination], destination));
     return { coreMain: path.join(root, "packages/core/dist/index.js"), desktopRoot: bundledDesktop!, node: path.join(root, "bin/node"), env: { ...process.env, PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH ?? ""}` } };
   }
@@ -191,9 +192,16 @@ async function stopLocalServer(workspaceId: string): Promise<void> {
   }
   if (localServers.get(workspaceId) === previous) localServers.delete(workspaceId);
 }
-async function startLocalServer(workspaceId: string): Promise<{ remotePort: number }> {
+async function startLocalServer(workspaceId: string, expectedCommit?: string, repository?: RepositorySettings): Promise<{ remotePort: number }> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
-  const { coreMain, node, env } = await localArtifactPaths();
+  const savedCommit = (await readState()).coreReleases?.[workspaceId];
+  let { coreMain, node, env } = await localArtifactPaths(Boolean(expectedCommit || savedCommit));
+  if (expectedCommit) {
+    const npm = bundle ? path.resolve(path.dirname(coreMain), "../../../lib/node_modules/npm/bin/npm-cli.js") : process.env.npm_execpath;
+    if (!npm) throw Error("Start Gateway through npm to build a compatible Core.");
+    const release = await localCoreReleases.prepare(repository ?? (await readState()).repository, expectedCommit, {node,npm,env});
+    coreMain = path.join(release,"packages/core/dist/index.js");
+  } else if (savedCommit) coreMain = path.join(await localCoreReleases.installed(savedCommit,node,env),"packages/core/dist/index.js");
   await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall HatoPad Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
   await prepareLocalWorkspaceDirectory(workspace.directory);
   await stopLocalServer(workspaceId);
@@ -233,6 +241,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   }
   if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Local Core exited during startup. Inspect ${logPath}`);
   runtime(workspaceId, "server", `Server listening locally on ${workspace.remotePort} (log: ${logPath})`);
+  if (expectedCommit) await updateState(state => { state.coreReleases = { ...state.coreReleases, [workspaceId]: expectedCommit }; });
   child.unref();
   return { remotePort: workspace.remotePort };
 }
@@ -278,8 +287,8 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
     } finally { client?.end(); }
   }));
 }
-async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false): Promise<ProvisionedRelease> {
-  if (bundle) {
+async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false, expectedCommit?: string): Promise<ProvisionedRelease> {
+  if (bundle && !expectedCommit && Object.values(bundle.cores).every(bundleCoreCompatible)) {
     runtime(workspaceId, "working", "Uploading bundled Core…", { stage: "bundle-upload" });
     const platform = (await execute(client, "uname -s; uname -m")).trim().split(/\s+/);
     const target = coreTarget(platform[0]!, platform[1]!);
@@ -298,7 +307,7 @@ async function provision(workspaceId: string, client: Client, settings: Reposito
     } finally { await execute(client, `rm -rf "$HOME/${upload}"`).catch(() => undefined); }
   }
   const preferredRelease = (await execute(client, `bash -lc ${shell(`${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release"`)}`)).trim();
-  const command = provisionCommand(settings, remoteNodeEnvironment, repair, preferredRelease || undefined);
+  const command = provisionCommand(settings, remoteNodeEnvironment, repair, preferredRelease || undefined, expectedCommit ? { expectedCommit } : undefined);
   const logs: string[] = [];
   const output = await execute(client, `bash -lc ${shell(command)}`, (line) => {
     logs.push(line);
@@ -308,12 +317,12 @@ async function provision(workspaceId: string, client: Client, settings: Reposito
   if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
   return parseProvisionedRelease(output);
 }
-async function startServer(workspaceId: string, repair = false): Promise<{ remotePort: number }> {
+async function startServer(workspaceId: string, repair = false, expectedCommit?: string, repository?: RepositorySettings): Promise<{ remotePort: number }> {
   const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", bundle ? "Deploying bundled Core…" : "Updating and building remote server...");
   const client = await connect(connection); provisioningClients.set(workspaceId, client); cancelledProvisioning.delete(workspaceId);
   try {
-    const build = await provision(workspaceId, client, (await readState()).repository, repair);
-    const environment = bundle ? bundledEnvironment(build.release) : remoteNodeEnvironment;
+    const build = await provision(workspaceId, client, repository ?? (await readState()).repository, repair, expectedCommit);
+    const environment = build.release.includes("-bundle-") ? bundledEnvironment(build.release) : remoteNodeEnvironment;
     runtime(workspaceId, "working", "Preparing workspace directory and Git repository…", { stage: "workspace" });
     await execute(client, workspaceValidationCommand(workspace.directory));
     const portScript = `const net=require("net");const preferred=${workspace.remotePort};let fallback=false;const open=port=>{const server=net.createServer();server.unref();server.once("error",error=>{if(error.code==="EADDRINUSE"&&!fallback){fallback=true;open(0);return}throw error});server.listen(port,"127.0.0.1",()=>{console.log(server.address().port);server.close()})};open(preferred)`;
@@ -594,7 +603,9 @@ async function managedCloudCore(origin: string, coreId: string): Promise<Managed
         if (!matches(pairing)) continue;
         const coreMain = localServers.get(workspace.id)?.spawnargs[1];
         if (!coreMain) continue;
-        const release = coreMain ? path.basename(path.resolve(path.dirname(coreMain), "../../../..")) : undefined;
+        const root = path.resolve(path.dirname(coreMain), "../../..");
+        const candidates = [path.basename(root), path.basename(path.dirname(root))];
+        const release = candidates.find(value => /^[a-f0-9]{40}-node[0-9]+(?:-bundle-[a-zA-Z0-9-]+)?$/.test(value));
         return { workspaceId: workspace.id, target: coreTarget(process.platform, process.arch), ...(release ? { release } : {}) };
       } catch { /* This local workspace has no matching accessible pairing. */ }
     }
@@ -626,13 +637,34 @@ fi`;
   }));
   return results.find((result): result is PromiseFulfilledResult<ManagedCloudCore> => result.status === "fulfilled" && Boolean(result.value))?.value;
 }
+async function cloudRepository(origin: string): Promise<RepositorySettings> {
+  const settings = (await readState()).repository;
+  const hostname = new URL(origin).hostname;
+  return { ...settings, branch: hostname === "hub-dev.hatopad.dev" ? "dev" : hostname === "hub-test.hatopad.dev" ? "main" : settings.branch };
+}
+const localCoreReleases = new LocalCoreReleases(path.join(app.getPath("userData"), "core-releases"));
 const cloudCoreUpdates = new CloudCoreUpdates({ bundle, resolve: managedCloudCore,
+  git: {
+    check: async (core, origin) => {
+      const { connection } = await workspaceAndStoredConnection(core.workspaceId);
+      const settings = await cloudRepository(origin);
+      if (connection.kind === "local") return localCoreReleases.check(settings);
+      const ssh = await connect((await withWorkspace(core.workspaceId)).connection);
+      try {
+        const output = await execute(ssh, `bash -lc ${shell(provisionCommand(settings, remoteNodeEnvironment, false, undefined, { checkOnly: true }))}`);
+        const match = /^HATOPAD_UPDATE:(core-protocol-\d+-v\d+\.\d+\.\d+):([a-f0-9]{40})$/m.exec(output);
+        if (!match) throw Error("No compatible Core release could be verified.");
+        return { tag: match[1]!, commit: match[2]!, branch: settings.branch };
+      } finally { ssh.end(); }
+    },
+    deploy: async (workspaceId, commit, origin) => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId, commit, await cloudRepository(origin)) : startServer(workspaceId, false, commit, await cloudRepository(origin))
+  },
   deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId) : startServer(workspaceId),
   run: (workspaceId, action) => workspaceOperations.run(workspaceId, "cloud-core-update", action)
 });
 async function authorizedCloudCore(coreId: string): Promise<string> {
   const client = await cloudClient();
-  if (!(await client.account()).cores.some(item => item.id === coreId)) throw new Error("Cloud Core is unavailable.");
+  if (!(await client.account()).cores.some(item => item.id === coreId && item.access === "owner")) throw new Error("Cloud Core is unavailable.");
   return client.origin;
 }
 handleIpc("gateway:cloudCoreUpdateInfo", async (_event, coreId: string) => cloudCoreUpdates.info(await authorizedCloudCore(coreId), coreId));

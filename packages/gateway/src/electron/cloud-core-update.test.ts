@@ -5,7 +5,7 @@ import { CloudCoreUpdates, type ManagedCloudCore } from "./cloud-core-update.js"
 
 const release = "b".repeat(40) + "-node137-bundle-test";
 const bundle: BundleManifest = { schema: 1, channel: "early-access", version: "0.2.0", commit: "b".repeat(40), desktopApp: "desktop", cores: {
-  "linux-x64": { target: "linux-x64", commit: "b".repeat(40), release, archive: "core-linux-x64.tar.gz", sha256: "c".repeat(64) }
+  "linux-x64": { target: "linux-x64", protocol: 19, commit: "b".repeat(40), release, archive: "core-linux-x64.tar.gz", sha256: "c".repeat(64) }
 } };
 function fixture(initial: ManagedCloudCore | undefined = { workspaceId: "saved-server", target: "linux-x64", release: "old-release" }) {
   let current = initial;
@@ -59,4 +59,21 @@ test("failed or unverifiable deployments are not automatically replayed", async 
     await assert.rejects(service.update("https://hub.example", "core-1", release), fail ? /rolled back/ : /could not be verified/);
     assert.equal(attempts, 1);
   }
+});
+
+test('unknown and incompatible bundles are never proposed', async () => {
+  for (const protocol of [undefined, 20, 18]) {
+    const incompatible = structuredClone(bundle); incompatible.cores['linux-x64']!.protocol = protocol;
+    const service = new CloudCoreUpdates({bundle:incompatible,resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),deploy:async()=>{throw Error('must not deploy');},run:async(_id,action)=>action()});
+    assert.equal((await service.info('origin','core')).available,false);
+    await assert.rejects(service.update('origin','core',release),/protocol/);
+  }
+});
+test('downloads the latest compatible Git release once and refuses a changed selection', async () => {
+  let commit='d'.repeat(40), current='old', calls=0;
+  const service = new CloudCoreUpdates({bundle,resolve:async()=>({workspaceId:'ssh',target:'linux-x64',release:current}),deploy:async()=>{throw Error('must not use bundle');},run:async(_id,action)=>action(),git:{check:async()=>({commit,tag:'core-protocol-19-v0.1.42',branch:'main'}),deploy:async(_id,expected)=>{calls++;current=`${expected}-node137`;}}});
+  assert.equal((await service.info('origin','core')).source,'git');
+  await assert.rejects(service.update('origin','core','stale'),/release changed/); assert.equal(calls,0);
+  assert.equal((await service.update('origin','core',commit)).updateNeeded,false); assert.equal(calls,1);
+  await service.update('origin','core',commit); assert.equal(calls,1);
 });

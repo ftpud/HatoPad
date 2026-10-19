@@ -1,3 +1,4 @@
+export { compatibleCoreTags } from './core-releases.js';
 export type StorageAge = "today" | "week" | "older";
 export type StorageCategory = "tasks" | "sessions" | "workflows" | "checkpoints" | "logs" | "provider" | "runtime" | "other";
 export type StorageUsage = { id: StorageCategory; label: string; description: string; bytes: number; count: number; segments: { id: string; label: string; bytes: number }[]; entries?: { path: string; label: string; bytes: number; state: string }[]; cleanable: { finished: number; week: number; older: number; inactive?: number; versions?: number } };
@@ -24,9 +25,9 @@ export type FileRevision = { identity: string; version: string };
  * Desktop can prove it is safe to talk to a newly deployed Core.
  */
 export type ProtocolCompatibility = { minimum: number; maximum: number };
-export const protocolCompatibility: ProtocolCompatibility = { minimum: 19, maximum: 19 };
+export { protocolCompatibility, serverProtocolVersion } from "./protocol-versions.js";
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging"] as const;
+export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging", "core.gitUpdate"] as const;
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
@@ -397,7 +398,10 @@ export type SearchReplacePreviewFile = { path: string; revision: FileRevision; o
 export type SearchReplacePreview = { id: string; files: SearchReplacePreviewFile[]; truncated: boolean };
 export type SearchReplaceApplyResult = { applied: { path: string; revision: FileRevision }[]; failures: { path: string; code: string; message: string }[] };
 
+export type CoreUpdateStatus = { branch: 'dev' | 'main'; available: boolean; updateAvailable: boolean; canUpdate: boolean; phase: 'idle' | 'restarting'; current?: string; latest?: string; tag?: string; reason?: string };
 export type ProtocolOperations = {
+  "core.update.check": { payload: { branch: 'dev' | 'main' }; result: CoreUpdateStatus };
+  "core.update.apply": { payload: { branch: 'dev' | 'main'; expectedCurrent: string; expectedLatest: string }; result: { accepted: true } };
   "storage.scan": { payload: Record<string, never>; result: StorageSnapshot };
   "storage.status": { payload: Record<string, never>; result: StorageSnapshot };
   "storage.cleanup": { payload: StorageCleanup; result: StorageSnapshot };
@@ -941,6 +945,8 @@ export type ServerEvent = AutomationChangedEvent | TerminalWatchOutputEvent | Te
 const requestTypeRegistry: Record<RequestType, true> = {
   "protocol.handshake": true,
   "protocol.keepAlive": true,
+  "core.update.check": true,
+  "core.update.apply": true,
   "workspace.roots": true,
   "overview.summary": true,
   "overview.events": true,

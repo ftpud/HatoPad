@@ -1,4 +1,4 @@
-type GatewayCloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string };
+type GatewayCloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string; source?: "git" | "bundle"; tag?: string; branch?: string };
 type GatewayCloudRoot = { id: string; alias: string; path: string; primary: boolean };
 type GatewayCloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
 type GatewayCloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: GatewayCloudCore[] };

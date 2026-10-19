@@ -1,14 +1,18 @@
+import { protocolCompatibility } from "./protocol-versions.js";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { access, readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { quoteWorkspaceShellArgument as shell } from "./workspace-path.js";
 
-export type CoreBundle = { target: string; commit: string; release: string; archive: string; sha256: string };
+export type CoreBundle = { target: string; commit: string; release: string; archive: string; sha256: string; protocol?: number };
 /** Gateway argument that runs the bundled Editor on Gateway's own Electron runtime. */
 export const EDITOR_FLAG = "--hatopad";
 /** `desktopApp` is the Editor's Electron app directory (package.json, dist-electron, dist-renderer, node_modules), relative to `bundle/`. */
 export type BundleManifest = { schema: 1; channel: "early-access"; version: string; commit: string; desktopApp: string; cores: Record<string, CoreBundle> };
+export function bundleCoreCompatible(core: CoreBundle): boolean {
+  return Number.isSafeInteger(core.protocol) && core.protocol! >= protocolCompatibility.minimum && core.protocol! <= protocolCompatibility.maximum;
+}
 export async function loadBundle(resources: string): Promise<BundleManifest> {
   const manifest = JSON.parse(await readFile(path.join(resources, "bundle/manifest.json"), "utf8")) as BundleManifest;
   if (manifest.schema !== 1 || manifest.channel !== "early-access" || !/^[0-9a-f]{40,64}$/.test(manifest.commit)) throw new Error("Invalid Early Access bundle manifest");

@@ -1,3 +1,4 @@
+import { CoreUpdates } from './core-update.js';
 import { boundedNote } from "./bounded-note.js";
 import { workflowTemplateCatalog } from "./workflow-templates.js";
 import { SupervisionFeed } from "./supervision-feed.js";
@@ -23,7 +24,7 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, serverProtocolVersion, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
 import { workflowOutputPage } from "./workflow-inspection.js";
 import { MetadataHintBatcher } from "./metadata-hints.js";
 import { workPage, workText, triggerIssueKind, type WorkTarget } from "./overview-work.js";
@@ -116,7 +117,7 @@ export async function transactionalRootSelection<T>(prepare: () => Promise<T>, c
   catch (error) { if (candidate !== undefined) await dispose(candidate); throw error; }
 }
 
-const coreProtocolCompatibility = protocolCompatibility;
+const coreProtocolCompatibility = { minimum: serverProtocolVersion, maximum: serverProtocolVersion };
 
 /** Collapses noisy watcher streams into a bounded, state-reconciliation signal. */
 export class WorkspaceWatchBatcher {
@@ -168,9 +169,10 @@ export function shutdownCore(server: WebSocketServer): Promise<void> {
   return shutdown ? shutdown() : new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 
-export type CoreConnectionOptions = WebSocketLivenessOptions & { outbound?: WebSocketOutboundOptions; admission?: RequestAdmissionOptions; access?: CoreAccessOptions };
+export type CoreConnectionOptions = WebSocketLivenessOptions & { updates?: CoreUpdates; outbound?: WebSocketOutboundOptions; admission?: RequestAdmissionOptions; access?: CoreAccessOptions };
 
 export async function createServer(host: string, port: number, workspacePath: string, options: CoreConnectionOptions = {}): Promise<WebSocketServer> {
+  const updates = options.updates ?? new CoreUpdates();
   const access = coreAccessPolicy(host, options.access);
   const liveness = websocketLivenessThresholds(options);
   const outbound = websocketOutboundLimits(options.outbound);
@@ -950,7 +952,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           : parsed.type === "storage.scan" ? storage.scan()
           : parsed.type === "storage.status" ? storage.status()
           : parsed.type === "storage.cleanup" ? storage.cleanup(parsed.payload)
-          : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
+          : parsed.type === "core.update.check" ? await updates.check(parsed.payload) : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload) : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
         if (parsed.type === "terminal.watch.attach" && parsed.payload.follow === true && (result as { state: string }).state === "available") {
           const watchId = terminalWatchers.attach(socket, { rootId: requestRoot.id, workspace: services.workspacePath }, parsed.payload.terminalId);
           result = { ...(result as object), watchId };

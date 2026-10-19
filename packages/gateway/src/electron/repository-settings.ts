@@ -1,3 +1,4 @@
+import { compatibleCoreTags, protocolCompatibility } from "./protocol-versions.js";
 export type RepositorySettings = { repository: string; branch: string; autoUpdate: boolean };
 
 export const defaultRepositorySettings: RepositorySettings = {
@@ -25,9 +26,11 @@ export function repositorySettingsOrDefault(value: Partial<RepositorySettings> |
   catch { return defaultRepositorySettings; }
 }
 
-export function provisionCommand(settings: RepositorySettings, remoteNodeEnvironment: string, repair = false, preferredRelease?: string): string {
+export function provisionCommand(settings: RepositorySettings, remoteNodeEnvironment: string, repair = false, preferredRelease?: string, update?: { checkOnly?: boolean; expectedCommit?: string }): string {
   const { repository, branch, autoUpdate } = normalizeRepositorySettings(settings);
   if (preferredRelease && !/^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/.test(preferredRelease)) throw new Error("Invalid preferred release identity");
+  if (update?.expectedCommit && !/^[a-f0-9]{40}$/.test(update.expectedCommit)) throw Error("Invalid expected Core commit");
+  const selectTag = `const compatibleCoreTags = ${compatibleCoreTags.toString()}; let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>{const tag=compatibleCoreTags(input.trim().split(/\\s+/),${JSON.stringify(protocolCompatibility)})[0]; if(!tag) process.exit(1); process.stdout.write(tag);});`;
   const lines = [
     "set -eu",
     "umask 077",
@@ -35,7 +38,7 @@ export function provisionCommand(settings: RepositorySettings, remoteNodeEnviron
     remoteNodeEnvironment,
     `REPOSITORY=${shell(repository)}`,
     `BRANCH=${shell(branch)}`,
-    `AUTO_UPDATE=${autoUpdate ? "1" : "0"}`,
+    `AUTO_UPDATE=${update ? "1" : autoUpdate ? "1" : "0"}`,
     `REPAIR=${repair ? "1" : "0"}`,
     `PREFERRED_RELEASE=${shell(preferredRelease ?? "")}`,
     'ROOT="$HOME/.hatopad-deploy"',
@@ -85,14 +88,18 @@ export function provisionCommand(settings: RepositorySettings, remoteNodeEnviron
     'SELECTED_UPDATE=0',
     'if [ "$AUTO_UPDATE" = 1 ] || [ ! -f "$SOURCE_CACHE/selected" ]; then',
     '  echo \'HATOPAD_STAGE:fetch\'',
-    '  git -C "$SOURCE_CACHE" fetch --no-tags origin "$BRANCH:refs/remotes/origin/$BRANCH"',
-    '  COMMIT=$(git -C "$SOURCE_CACHE" rev-parse --verify "refs/remotes/origin/$BRANCH^{commit}")',
+    '  git -C "$SOURCE_CACHE" fetch --tags origin "$BRANCH:refs/remotes/origin/$BRANCH"',
+    `  TAG=$(git -C "$SOURCE_CACHE" tag --merged "refs/remotes/origin/$BRANCH" --list 'core-protocol-*-v*' | node -e ${shell(selectTag)}) || { echo 'No compatible tagged Core release is available on this branch.' >&2; exit 1; }`,
+    '  COMMIT=$(git -C "$SOURCE_CACHE" rev-parse --verify "refs/tags/$TAG^{commit}")',
     '  SELECTED_UPDATE=1',
     'else',
     '  COMMIT=$(cat "$SOURCE_CACHE/selected")',
     '  git -C "$SOURCE_CACHE" cat-file -e "$COMMIT^{commit}"',
+    `  git -C "$SOURCE_CACHE" tag --points-at "$COMMIT" --list 'core-protocol-*-v*' | node -e ${shell(selectTag)} >/dev/null || { echo 'Pinned Core protocol is incompatible. Enable auto-update to select a compatible release.' >&2; exit 1; }`,
     'fi',
     'case "$COMMIT" in \'\'|*[!a-f0-9]*) echo "Resolved source revision is not a hexadecimal Git commit." >&2; exit 1 ;; esac',
+    ...(update?.expectedCommit ? [`[ "$COMMIT" = ${shell(update.expectedCommit)} ] || { echo 'Core release changed. Refresh before updating.' >&2; exit 1; }`] : []),
+    ...(update?.checkOnly ? ['printf \'HATOPAD_UPDATE:%s:%s\\n\' "$TAG" "$COMMIT"', 'exit 0'] : []),
     'git -C "$SOURCE_CACHE" update-ref refs/heads/hatopad-selected "$COMMIT"',
     'NODE_ABI=$(node -p "process.versions.modules")',
     'PLATFORM=$(node -p "process.platform")',

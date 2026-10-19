@@ -34,7 +34,7 @@ test("provisioning is valid shell and stages a commit-keyed immutable release", 
   const command = provisionCommand({ repository: "git@github.com:team/editor.git", branch: "release/v1", autoUpdate: true }, "export PATH=/bin");
   const syntax = spawnSync("bash", ["-n"], { input: command, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
-  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --no-tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
+  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
   assert.match(command, /git -C "\$STAGING" checkout --detach "\$COMMIT"/);
   assert.match(command, /RELEASE_KEY="\$COMMIT-node\$NODE_ABI"/);
   assert.match(command, /npm ci/);
@@ -52,7 +52,7 @@ test("disabled auto-update uses the source cache without fetching except on firs
   const command = provisionCommand({ repository: "https://example.com/editor.git", branch: "main", autoUpdate: false }, "export PATH=/bin");
   assert.match(command, /AUTO_UPDATE=0/);
   assert.match(command, /\[ "\$AUTO_UPDATE" = 1 \] \|\| \[ ! -f "\$SOURCE_CACHE\/selected" \]/);
-  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --no-tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
+  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
   assert.match(command, /COMMIT=\$\(cat "\$SOURCE_CACHE\/selected"\)/);
 });
 
@@ -85,6 +85,7 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   execFileSync("git", ["-C", repository, "add", "."]);
   execFileSync("git", ["-C", repository, "branch", "-M", "main"]);
   execFileSync("git", ["-C", repository, "commit", "-m", "fixture"]);
+  execFileSync("git", ["-C", repository, "tag", "core-protocol-19-v0.1.1"]);
   const commit = execFileSync("git", ["-C", repository, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const fakeNpm = path.join(fakeBin, "npm");
   await writeFile(fakeNpm, [
@@ -161,6 +162,11 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   execFileSync("git", ["-C", repository, "commit", "-m", "updated fixture"]);
   const updatedCommit = execFileSync("git", ["-C", repository, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   assert.notEqual(updatedCommit, commit);
+  execFileSync("git", ["-C", repository, "tag", "core-protocol-20-v99.0.0"]);
+  const incompatible = runProvision(true);
+  assert.equal(incompatible.status, 0, incompatible.stderr);
+  assert.match(incompatible.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:`));
+  execFileSync("git", ["-C", repository, "tag", "core-protocol-19-v0.1.2"]);
   const failedUpdate = runProvision(true, false, true);
   assert.notEqual(failedUpdate.status, 0);
   assert.match(failedUpdate.stderr, /simulated npm ci failure/);

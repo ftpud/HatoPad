@@ -84,7 +84,7 @@ test("health probe performs a real WebSocket protocol handshake", async () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as net.AddressInfo;
     await exec(process.execPath, ["--input-type=commonjs", "-e", coreHealthProbe(address.port)], { cwd: root, timeout: 10_000, env: { ...process.env, HATOPAD_SESSION_TOKEN: token } });
-    assert.deepEqual(handshake, { id: "gateway-health", type: "protocol.handshake", payload: { compatibility: { minimum: 15, maximum: 15 }, token } });
+    assert.deepEqual(handshake, { id: "gateway-health", type: "protocol.handshake", payload: { compatibility: { minimum: 19, maximum: 19 }, token } });
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));

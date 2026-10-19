@@ -40,7 +40,8 @@ await symlink('../lib/node_modules/npm/bin/npm-cli.js', path.join(staging, 'bin/
 await symlink('../lib/node_modules/npm/bin/npx-cli.js', path.join(staging, 'bin/npx'));
 // The Java runtime and language server are downloaded on demand from Settings -> Tools.
 await run(path.join(staging, 'bin/npm'), ['--version'], staging, { ...process.env, PATH: `${path.join(staging, 'bin')}${path.delimiter}${process.env.PATH ?? ''}` });
-const manifest = { schema: 1, target, commit, release, nodeVersion: process.versions.node, version: (await json(path.join(root, 'package.json'))).version };
+const { server: protocol } = await json(path.join(root, "protocol-versions.json"));
+const manifest = { schema: 1, target, commit, release, protocol, nodeVersion: process.versions.node, version: (await json(path.join(root, 'package.json'))).version };
 await writeJson(path.join(staging, 'bundle.json'), manifest);
 await run(path.join(staging, 'bin/node'), ['--input-type=module', '-e', "import {createRequire} from 'node:module'; const require=createRequire(import.meta.url); require('node-pty'); await import('./packages/core/dist/server.js');"], staging);
 await mkdir(path.join(output, 'cores'), { recursive: true });

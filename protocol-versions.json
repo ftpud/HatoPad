@@ -1,0 +1,4 @@
+{
+  "server": 19,
+  "client": { "minimum": 19, "maximum": 19 }
+}
