@@ -225,7 +225,7 @@ describe("Gateway cloud", () => {
   function bridge(cloud?: GatewayCloudAccount) {
     window.gateway = {
       get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
-      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudCancelSignIn: vi.fn().mockResolvedValue(undefined), cloudGet: vi.fn().mockResolvedValue(cloud), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudCancelSignIn: vi.fn().mockResolvedValue(undefined), cloudGet: vi.fn().mockResolvedValue(cloud), cloudCoreUpdateInfo: vi.fn().mockResolvedValue({ available: false, updateNeeded: false, reason: "No saved management connection" }), cloudUpdateCore: vi.fn(), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
       onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
     } as unknown as Window["gateway"];
   }
@@ -259,6 +259,31 @@ describe("Gateway cloud", () => {
     await waitFor(() => expect(window.gateway.cloudCancelSignIn).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("updates a cloud Core to the selected Gateway bundle using the compact action", async () => {
+    bridge(account); vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
+    const release = "b".repeat(40) + "-node137-bundle-test";
+    const info = { available: true, updateNeeded: true, bundledVersion: "0.2.0", bundledRelease: release, currentRelease: "old-release" };
+    vi.mocked(window.gateway.cloudCoreUpdateInfo).mockResolvedValue(info);
+    vi.mocked(window.gateway.cloudUpdateCore).mockImplementation(async () => {
+      vi.mocked(window.gateway.cloudCoreUpdateInfo).mockResolvedValue({ ...info, updateNeeded: false, currentRelease: release });
+      return { ...info, updateNeeded: false, currentRelease: release };
+    });
+    render(<App />); fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    const update = await screen.findByRole("button", { name: "Update cloud Core" });
+    await waitFor(() => expect(update.hasAttribute("disabled")).toBe(false));
+    expect(update.textContent).toBe(""); expect(update.title).toContain("0.2.0");
+    fireEvent.click(update);
+    await waitFor(() => expect(window.gateway.cloudUpdateCore).toHaveBeenCalledWith("remote-core", release));
+    await waitFor(() => expect(update.hasAttribute("disabled")).toBe(true));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("Core will restart"));
+  });
+  it("explains when a cloud Core cannot be updated from this Gateway", async () => {
+    bridge(account); render(<App />); fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    const update = await screen.findByRole("button", { name: "Update cloud Core" });
+    await waitFor(() => expect(update.title).toBe("No saved management connection"));
+    expect(update.hasAttribute("disabled")).toBe(true);
+    expect(window.gateway.cloudUpdateCore).not.toHaveBeenCalled();
   });
   it("keeps cloud actions icon-only and exposes tooltips and accessible names", async () => {
     bridge(account); render(<App />);

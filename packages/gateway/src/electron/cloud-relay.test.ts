@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
-import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
+import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 
 async function fixture(rejectedType?: string) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
@@ -29,17 +29,6 @@ async function fixture(rejectedType?: string) {
   const target: CloudRelayTarget = { origin, coreId: "core-1", cookie: async () => "hub-session=PRIVATE-SESSION" };
   return { target, requests, upgrades, roots, async close() { for (const socket of server.clients) socket.terminate(); await new Promise<void>(resolve => server.close(() => resolve())); } };
 }
-async function connect(port: number) {
-  const socket = new WebSocket(`ws://127.0.0.1:${port}`);
-  socket.on("error", () => undefined);
-  await once(socket, "open");
-  return socket;
-}
-async function request(socket: WebSocket, message: unknown) {
-  const reply = once(socket, "message"); socket.send(JSON.stringify(message));
-  return JSON.parse((await reply)[0].toString());
-}
-
 test("discovers cloud roots through a compatible authenticated relay connection", async () => {
   const hub = await fixture();
   try {
@@ -50,50 +39,6 @@ test("discovers cloud roots through a compatible authenticated relay connection"
     assert.equal(hub.upgrades[0]?.cookie, "hub-session=PRIVATE-SESSION");
     assert.equal(hub.upgrades[0]?.url, "/relay/browser?coreId=core-1");
   } finally { await hub.close(); }
-});
-
-test("Desktop bridge authenticates locally, removes its token, and reconnects with current cookies", async () => {
-  const hub = await fixture();
-  let cookie = "hub-session=FIRST";
-  const bridge = await createCloudBridge({ ...hub.target, cookie: async () => cookie });
-  try {
-    const first = await connect(bridge.port);
-    const handshake = { id: "hello", type: "protocol.handshake", payload: { compatibility: { minimum: 19, maximum: 19 }, token: bridge.token } };
-    assert.equal((await request(first, handshake)).result.compatible, true);
-    assert.equal(hub.requests[0].payload.token, undefined);
-    assert.equal(hub.upgrades[0]?.cookie, "hub-session=FIRST");
-    assert.deepEqual((await request(first, { id: "roots", type: "workspace.roots", payload: {} })).result.roots, hub.roots);
-    first.close(); await once(first, "close");
-    cookie = "hub-session=SECOND";
-    const second = await connect(bridge.port);
-    assert.equal((await request(second, handshake)).ok, true);
-    assert.equal(hub.upgrades[1]?.cookie, "hub-session=SECOND");
-    const closed = once(second, "close"); bridge.close(); await closed;
-  } finally { bridge.close(); await hub.close(); }
-});
-
-test("bridge rejects clients without its token before opening any cloud channel", async () => {
-  const hub = await fixture();
-  const bridge = await createCloudBridge(hub.target);
-  try {
-    const local = await connect(bridge.port);
-    const closed = once(local, "close");
-    local.send(JSON.stringify({ id: "guess", type: "protocol.handshake", payload: { token: "wrong-token" } }));
-    await closed;
-    assert.equal(hub.upgrades.length, 0);
-  } finally { bridge.close(); await hub.close(); }
-});
-
-test("relay failures surface to Desktop and leave no hanging loopback connection", async () => {
-  const hub = await fixture();
-  await hub.close();
-  const bridge = await createCloudBridge(hub.target);
-  try {
-    const local = await connect(bridge.port);
-    const closed = once(local, "close");
-    local.send(JSON.stringify({ id: "hello", type: "protocol.handshake", payload: { token: bridge.token } }));
-    await closed;
-  } finally { bridge.close(); }
 });
 
 test("Core discovery names the exact operation rejected by HatoHub", async () => {

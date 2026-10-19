@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { Cable, Cloud, CloudUpload, LogOut, PlugZap, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
+import { ArrowUpCircle, Cable, Cloud, CloudUpload, LogOut, PlugZap, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
 
 const emptyState: GatewayState = { connections: [], workspaces: [], portTunnels: [] };
 
@@ -207,6 +207,16 @@ function CloudServerView({ core, cloudBusy, onRefresh, onFailure }: { core: Gate
   const [failure, setFailure] = useState("");
   const [revision, setRevision] = useState(0);
   const [connecting, setConnecting] = useState<string>();
+  const [updateInfo, setUpdateInfo] = useState<GatewayCloudCoreUpdateInfo>();
+  const [updating, setUpdating] = useState(false);
+  const [updateDone, setUpdateDone] = useState(false);
+  useEffect(() => {
+    let active = true; setUpdateInfo(undefined);
+    void window.gateway.cloudCoreUpdateInfo(core.id).then(value => { if (active) setUpdateInfo(value); }).catch(reason => {
+      if (active) setUpdateInfo({ available: false, updateNeeded: false, reason: gatewayErrorMessage(reason) });
+    });
+    return () => { active = false; };
+  }, [core.id, revision]);
   useEffect(() => {
     let active = true;
     setRoots([]); setFailure("");
@@ -220,7 +230,17 @@ function CloudServerView({ core, cloudBusy, onRefresh, onFailure }: { core: Gate
     try { await window.gateway.cloudOpen(core.id, root.id); }
     catch (reason) { onFailure(reason); } finally { setConnecting(undefined); }
   };
-  return <section className="workspace-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{core.name}</h1><p>{core.status} · {core.access}</p></div><div className="connection-actions"><button title="Refresh cloud Cores" aria-label="Refresh cloud Cores" disabled={cloudBusy || loading} onClick={() => { void onRefresh(); setRevision((value) => value + 1); }}><RefreshCw size={14} /></button></div></header><section className="workspace-collection cloud-core-collection"><header className="section-heading"><div><h2>Cores</h2><span>{roots.length} available</span></div></header><div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>{loading ? <div className="workspace-empty" role="status">Loading Cores…</div> : failure ? <div className="workspace-empty" role="alert">{failure}</div> : core.status !== "online" ? <div className="workspace-empty">Server is {core.status}. Reconnect the server and refresh to see its Cores.</div> : roots.length === 0 ? <div className="workspace-empty">No Cores available on this server.</div> : roots.map((root) => <article key={root.id}><div className="workspace-info"><HardDrive size={17} /><div><h2>{root.alias}</h2><code>{root.path}</code></div><button className="icon-button cloud-core-connect" title={`Connect to ${root.alias}`} aria-label={`Connect to ${root.alias}`} disabled={Boolean(connecting)} onClick={() => void connect(root)}><PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} /></button></div></article>)}</div></section></section>;
+  const update = async () => {
+    if (!updateInfo?.available || !updateInfo.updateNeeded || !updateInfo.bundledRelease) return;
+    if (!confirm(`Replace this server's Core with Gateway's bundled version ${updateInfo.bundledVersion} (${updateInfo.bundledRelease.slice(0, 12)})? Core will restart and active clients will reconnect.`)) return;
+    setUpdating(true); setUpdateDone(false);
+    try {
+      setUpdateInfo(await window.gateway.cloudUpdateCore(core.id, updateInfo.bundledRelease));
+      setUpdateDone(true); await onRefresh(); setRevision(value => value + 1);
+    } catch (reason) { onFailure(reason); } finally { setUpdating(false); }
+  };
+  const updateTitle = !updateInfo ? "Checking bundled Core update…" : updateInfo.reason ?? `Update Core to Gateway bundle ${updateInfo.bundledVersion} (${updateInfo.bundledRelease?.slice(0, 12)})`;
+  return <section className="workspace-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{core.name}</h1><p>{core.status} · {core.access}</p></div><div className="connection-actions"><button title={updating ? "Installing Gateway’s bundled Core…" : updateTitle} aria-label="Update cloud Core" disabled={cloudBusy || updating || Boolean(connecting) || !updateInfo?.available || !updateInfo.updateNeeded} onClick={() => void update()}><ArrowUpCircle size={14} className={updating ? "cloud-spinning" : undefined} /></button><button title="Refresh cloud Cores" aria-label="Refresh cloud Cores" disabled={cloudBusy || loading || updating} onClick={() => { void onRefresh(); setRevision((value) => value + 1); }}><RefreshCw size={14} /></button></div></header><section className="workspace-collection cloud-core-collection"><header className="section-heading"><div><h2>Cores</h2><span>{updating ? "Installing bundled Core…" : updateDone ? "Core updated" : `${roots.length} available`}</span></div></header><div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>{loading ? <div className="workspace-empty" role="status">Loading Cores…</div> : failure ? <div className="workspace-empty" role="alert">{failure}</div> : core.status !== "online" ? <div className="workspace-empty">Server is {core.status}. Reconnect the server and refresh to see its Cores.</div> : roots.length === 0 ? <div className="workspace-empty">No Cores available on this server.</div> : roots.map((root) => <article key={root.id}><div className="workspace-info"><HardDrive size={17} /><div><h2>{root.alias}</h2><code>{root.path}</code></div><button className="icon-button cloud-core-connect" title={`Connect to ${root.alias}`} aria-label={`Connect to ${root.alias}`} disabled={Boolean(connecting) || updating} onClick={() => void connect(root)}><PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} /></button></div></article>)}</div></section></section>;
 }
 
 function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): void }) {

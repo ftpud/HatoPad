@@ -128,8 +128,9 @@ after disconnecting or restarting Gateway, even if sign-in is cancelled.
 **Refresh cloud** updates the list. Selecting a cloud server loads its available
 workspace roots under **Cores**; each row has a **Connect** icon that opens Desktop
 on that root through the cloud relay. Cloud account controls use compact icons
-with tooltips. Gateway must remain running to maintain Desktop's relay bridge.
-Cloud cookies remain in Gateway; the local bridge requires a private launch token. **Disconnect** clears Gateway's cloud session without
+with tooltips. Desktop owns its cloud relay bridge and SSH connection tunnels,
+so closing Gateway does not disconnect an open Desktop. Cloud cookies stay in
+Desktop's main process; the local bridge requires a private launch token. **Disconnect** clears Gateway's cloud session without
 removing saved connections or unpairing servers.
 
 To register an existing server, start its workspace server, then choose **Add to
@@ -151,3 +152,41 @@ that support before opening the browser and reports when Hub needs an update.
 The optional macOS `npm run gateway -- --finder` launcher remains available for
 app-attributed privacy prompts, but browser-based sign-in uses your browser's
 passkey UI and does not depend on the embedded Electron passkey implementation.
+
+
+### Updating cloud Cores
+
+The cloud server view has a compact **Update cloud Core** icon. A packaged
+Gateway compares its bundled release with the matched server's selected release;
+the tooltip shows the bundled version and commit. Confirming the update deploys
+that exact bundle, restarts Core and verifies activation with the existing
+Gateway deployment/rollback checks. Cloud pairing credentials remain on the host.
+Clients reconnect after the restart. A different bundle may be older or newer;
+this action installs Gateway's bundle rather than choosing an online latest release.
+
+Updates require this Gateway's saved local/SSH management connection and a
+matching cloud pairing on that host. Local Cores must be managed by the current
+Gateway session. Cloud account access alone does not provide deployment access.
+The icon explains when management access or a platform bundle is unavailable,
+and is disabled when the selected release already matches. Source Gateways do
+not provide this bundled-Core action. Cloud discovery can fail due to protocol
+incompatibility while the SSH update action remains available.
+
+
+### Desktop connection ownership
+
+Gateway launches Desktop with a private, expiring, one-use connection handoff.
+Desktop consumes and deletes that file before opening its own SSH tunnel or
+cloud relay bridge. Credentials are not passed in command-line arguments or
+renderer URLs. SSH connections retain the verified host-key fingerprint and
+reconnect on transport loss or OS resume. Cloud connections retain their Hub
+session independently of Gateway. Quitting Desktop releases its connection.
+Gateway's separate port-forwarding panel still owns the explicit tunnels created
+there. Locally launched Core processes continue running when Gateway closes;
+use **Stop server** to shut down a Core managed by the current Gateway session.
+
+Desktop artifacts must support connection handoff version 1. Source Gateways
+prefer their locally built Desktop when it is protocol-compatible, otherwise
+use a compatible downloaded artifact with that support. Packaged Gateways use
+their bundled Desktop. Rebuild/update Desktop if an older artifact cannot accept
+the new launch format.

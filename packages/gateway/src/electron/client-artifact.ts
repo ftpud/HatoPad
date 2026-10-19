@@ -1,8 +1,8 @@
 import { access } from "node:fs/promises";
 import path from "node:path";
 
-export const clientArtifactVersion = "artifact-v3";
-const runtimePackages = ["ws", "@hatopad/protocol", "@hatopad/acp"];
+export const clientArtifactVersion = "artifact-v4";
+const runtimePackages = ["ws", "ssh2", "asn1", "bcrypt-pbkdf", "tweetnacl", "safer-buffer", "@hatopad/protocol", "@hatopad/acp"];
 
 export async function validateClientRuntime(root: string): Promise<void> {
   for (const name of runtimePackages) {

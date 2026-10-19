@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { startManagedConnection, type ManagedDesktopConnection } from "./managed-connection.js";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SettingsStore } from "./settings-store.js";
@@ -18,6 +19,8 @@ const appIcon = path.join(directory, "../assets/app-icon.png");
 const rendererFilePath = path.resolve(directory, "../dist-renderer/index.html");
 let hasDirtyTabs = false;
 let allowClose = false;
+let managedConnection: ManagedDesktopConnection | undefined;
+app.on("will-quit", () => managedConnection?.stop());
 
 function launchOption(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -59,7 +62,7 @@ function isTrustedIpcEvent(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   return isTrustedIpcFrame(frame ? { url: frame.url, isMainFrame: frame.parent === null } : null, Boolean(BrowserWindow.fromWebContents(event.sender)), rendererFilePath, process.env.VITE_DEV_SERVER_URL);
 }
 registerProjectTransferIpc(assertTrustedIpcSender);
-handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) => connectionToken(host, port, launchConfig));
+handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) => managedConnection && host === managedConnection.host && String(port) === managedConnection.port ? managedConnection.token : connectionToken(host, port, launchConfig));
 onIpc("desktop:settings-load", (event) => { event.returnValue = settings.all(); });
 onIpc("desktop:settings-write", (_event, key: unknown, value: unknown) => settings.set(key, value));
 app.on("before-quit", () => settings.flush());
@@ -164,10 +167,17 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
   void load.catch((error: unknown) => console.error("[desktop] page load failed", error));
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  powerMonitor.on("resume", () => managedConnection?.reconnect?.());
+  const handoff = launchOption("connection-file");
+  if (handoff) {
+    managedConnection = await startManagedConnection(handoff);
+    launchConfig.host = managedConnection.host; launchConfig.port = managedConnection.port;
+    launchConfig.rootId = managedConnection.rootId; launchConfig.cloudOrigin = managedConnection.cloudOrigin;
+  }
   app.setName("HatoPad"); process.title = "HatoPad";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   createWindow();
-});
+}).catch((error: unknown) => { dialog.showErrorBox("Could not connect Desktop", error instanceof Error ? error.message : "Desktop connection failed."); app.quit(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

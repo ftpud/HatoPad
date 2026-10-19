@@ -1,3 +1,4 @@
+type GatewayCloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string };
 type GatewayCloudRoot = { id: string; alias: string; path: string; primary: boolean };
 type GatewayCloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
 type GatewayCloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: GatewayCloudCore[] };
@@ -17,6 +18,8 @@ interface Window {
     cloudCancelSignIn(): Promise<void>;
     cloudConnect(origin: string): Promise<GatewayCloudAccount>;
     cloudDisconnect(): Promise<void>;
+    cloudCoreUpdateInfo(id: string): Promise<GatewayCloudCoreUpdateInfo>;
+    cloudUpdateCore(id: string, release: string): Promise<GatewayCloudCoreUpdateInfo>;
     cloudListCores(id: string): Promise<GatewayCloudRoot[]>;
     cloudOpen(id: string, rootId: string): Promise<void>;
     cloudAddServer(workspaceId: string): Promise<GatewayCloudAccount>;

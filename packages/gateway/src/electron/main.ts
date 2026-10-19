@@ -1,5 +1,7 @@
+import { writeDesktopHandoff } from "./desktop-handoff.js";
+import { CloudCoreUpdates, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
-import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
+import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
@@ -27,7 +29,7 @@ import { activateRelease, activatedReleaseVerificationCommand, coreHealthProbe, 
 import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js";
 import { JsonStateStore } from "./state-store.js";
 
-type Connection = { id: string; name: string; host: string; port: number; username: string } & ConnectionAuth;
+type Connection = { id: string; name: string; host: string; port: number; username: string; hostKeyFingerprint?: string } & ConnectionAuth;
 type Workspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
 type PortTunnel = { id: string; connectionId: string; port: number };
 type StoredConnection = { id: string; kind?: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod?: AuthenticationMethod; password: string; privateKeyPath?: string; passphrase?: string; hostKeyFingerprint?: string };
@@ -51,7 +53,6 @@ const directory = path.dirname(fileURLToPath(import.meta.url));
 const rendererFilePath = path.join(directory, "../dist-renderer/index.html");
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const runtimes = new Map<string, Runtime>();
-const tunnels = new Map<string, SshTunnel>();
 const portTunnelRuntimes = new Map<string, TunnelRuntime>();
 const portTunnels = new Map<string, SshTunnel>();
 const connectionRuntimes = new Map<string, ConnectionRuntimeSnapshot>();
@@ -204,7 +205,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspaceId}.json`);
   const paired = await access(pairingFile).then(() => true, () => false);
   const child = spawn(node, [coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
-    cwd: workspace.directory,
+    cwd: workspace.directory, detached: true,
     env: { ...env, HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
     // macOS child processes such as Git and node-pty need valid inherited descriptors.
     // Keep stdin attached to /dev/null and retain Core output in a durable diagnostic log.
@@ -232,6 +233,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   }
   if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Local Core exited during startup. Inspect ${logPath}`);
   runtime(workspaceId, "server", `Server listening locally on ${workspace.remotePort} (log: ${logPath})`);
+  child.unref();
   return { remotePort: workspace.remotePort };
 }
 async function startLocalClient(workspaceId: string): Promise<void> {
@@ -348,7 +350,6 @@ async function startServer(workspaceId: string, repair = false): Promise<{ remot
 }
 async function stopServer(workspaceId: string): Promise<void> {
   const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", "Stopping remote server...");
-  tunnels.get(workspaceId)?.stop(); tunnels.delete(workspaceId);
   const client = await connect(connection);
   try { await execute(client, `bash -lc ${shell(serverStopCommand(workspace.id, workspace.directory, bundle ? "" : remoteNodeEnvironment))}`); }
   finally { client.end(); }
@@ -364,21 +365,6 @@ function runLocal(command: string, args: string[], cwd: string, env = process.en
     const child = spawn(executable, args, { cwd, env, stdio: "inherit", shell: false });
     child.on("error", reject); child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${executable} exited with ${code}`)));
   });
-}
-async function createTunnel(workspaceId: string, connection: Connection, remotePort: number): Promise<number> {
-  tunnels.get(workspaceId)?.stop();
-  const tunnel = new SshTunnel({
-    localPort: 0,
-    remotePort,
-    connect: () => connect(connection),
-    onStatus: (status, localPort) => {
-      if (status === "reconnecting") runtime(workspaceId, "working", `SSH tunnel reconnecting on local port ${localPort}...`);
-      else if (status === "running" && localPort) runtime(workspaceId, "client", `Client connected through local port ${localPort}`);
-    },
-  });
-  const localPort = await tunnel.start();
-  tunnels.set(workspaceId, tunnel);
-  return localPort;
 }
 async function startPortTunnel(tunnelId: string): Promise<void> {
   const state = await readState();
@@ -413,7 +399,9 @@ function stopPortTunnel(tunnelId: string, notify = true): void {
 }
 async function startClient(workspaceId: string): Promise<void> {
   const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", "Checking remote client build...");
-  const client = await connect(connection);
+  let observedHostKey = connection.hostKeyFingerprint;
+  const client = await connectWithConfig(await connectionConfig(connection, readFile, fingerprint => { observedHostKey = fingerprint; }));
+  connection.hostKeyFingerprint = observedHostKey;
   try {
   const releaseDirectory = (await execute(client, `bash -lc ${shell(`set -e; ${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release_directory"`)}`)).trim();
   if (!path.posix.isAbsolute(releaseDirectory) || /[\r\n\0]/.test(releaseDirectory)) { client.end(); throw new Error("Invalid deployed release directory"); }
@@ -434,6 +422,15 @@ async function startClient(workspaceId: string): Promise<void> {
   const remoteCompatibilityOutput = await execute(client, `bash -lc ${shell(`${remoteNodeEnvironment}; cd ${shell(releaseDirectory)}; node --input-type=module -e ${shell("import { protocolCompatibility } from './packages/protocol/dist/index.js'; console.log(JSON.stringify(protocolCompatibility))")}`)}`);
   const remoteCompatibility = JSON.parse(remoteCompatibilityOutput) as Compatibility;
   if (!compatibleClient(remoteCompatibility, remoteCompatibility)) { client.end(); throw new Error("Remote Core reported an invalid protocol compatibility range"); }
+  const localDesktop = cloudDesktopRoot();
+  let localDesktopCompatible = false;
+  try {
+    const localManifest = JSON.parse(await readFile(path.join(localDesktop, "compatibility.json"), "utf8"));
+    const compatibility = readCompatibility(localManifest);
+    await access(path.join(localDesktop, "dist-electron/main.js"));
+    localDesktopCompatible = localManifest.connectionHandoff === 1 && Boolean(compatibility && compatibleClient(compatibility, remoteCompatibility));
+  } catch { /* A compatible downloaded Desktop can still be selected below. */ }
+  if (localDesktopCompatible) { await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken); return; }
   const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
   const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `hatopad-${workspace.id}-${commit}.tar.gz`);
   const buildMarker = path.join(clientRoot, ".gateway-client-built");
@@ -492,26 +489,31 @@ async function launchClient(workspaceId: string, workspace: Workspace, connectio
     try { await access(path.join(clientRoot, "assets", "app-icon.png")); }
     catch { await copyFile(localIcon, path.join(clientRoot, "assets", "app-icon.png")); }
   }
-  const localPort = await createTunnel(workspaceId, connection, workspace.remotePort);
-  const desktopMain = path.join(clientRoot, "dist-electron", "main.js");
+  await launchManagedDesktop(clientRoot, { ...connection, kind: "ssh", remotePort: workspace.remotePort,
+    ...(sessionToken ? { sessionToken } : {}), ...(connection.authenticationMethod === "agent" ? { agentSocket: process.env.SSH_AUTH_SOCK } : {}) });
+  runtime(workspaceId, "client", `Desktop launched (Gateway can be closed)${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
+}
+async function launchManagedDesktop(desktopRoot: string, connection: Record<string, unknown>): Promise<void> {
+  const manifest = JSON.parse(await readFile(path.join(desktopRoot, "compatibility.json"), "utf8"));
+  if (manifest.connectionHandoff !== 1) throw new Error("This Desktop version cannot own its connection. Update/rebuild Desktop before connecting.");
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
+  await access(desktopMain);
+  const file = await writeDesktopHandoff(path.join(app.getPath("userData"), "connection-launches"), connection);
   const desktop = desktopCommand(desktopMain);
-  const desktopExecutable = desktop.command;
-  const child = spawn(desktopExecutable, [...desktop.args, "--host", "127.0.0.1", "--port", String(localPort)], { cwd: clientRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: sessionToken ?? "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore" });
+  const child = spawn(desktop.command, [...desktop.args, "--connection-file", file], {
+    cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore"
+  });
   try {
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", resolve);
-      child.once("error", (error) => reject(new Error(`Could not launch HatoPad using ${desktopExecutable}: ${error.message}`)));
-    });
-  } catch (error) {
-    tunnels.get(workspaceId)?.stop(); tunnels.delete(workspaceId);
-    throw error;
-  }
-  child.unref(); runtime(workspaceId, "client", `Client connected through local port ${localPort}${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
+    await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+    const deadline = Date.now() + 15_000;
+    while (await access(file).then(() => true, () => false)) {
+      if (child.exitCode !== null || child.signalCode !== null || Date.now() >= deadline) throw new Error("Desktop did not accept its connection handoff. Rebuild or update Desktop and try again.");
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    child.unref();
+  } catch (error) { child.kill(); await rm(file, { force: true }); throw error; }
 }
 
-const cloudBridges = new Map<string, Awaited<ReturnType<typeof createCloudBridge>>>();
-function closeCloudBridges(): void { for (const bridge of cloudBridges.values()) bridge.close(); cloudBridges.clear(); }
-app.on("will-quit", closeCloudBridges);
 function cloudDesktopRoot(): string { return bundledDesktop ?? path.resolve(directory, "../../desktop"); }
 async function cloudTarget(coreId: string): Promise<CloudRelayTarget> {
   const client = await cloudClient();
@@ -531,7 +533,6 @@ async function saveCloudOrigin(input: string): Promise<string> {
   const origin = cloudOrigin(input.trim());
   const previous = (await cloudSettings.read()).origin;
   if (previous && previous !== origin) {
-    closeCloudBridges();
     for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
     await cloudSession().clearStorageData();
   }
@@ -574,10 +575,68 @@ handleIpc("gateway:cloudConnect", async (_event, input: string) => {
   } finally { cloudConnecting = false; cloudLoginAbort = undefined; }
 });
 handleIpc("gateway:cloudDisconnect", async () => {
-  closeCloudBridges();
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
   await cloudSession().clearStorageData();
 });
+async function managedCloudCore(origin: string, coreId: string): Promise<ManagedCloudCore | undefined> {
+  const state = await readState();
+  const workspaces = state.workspaces.filter(item => /^[A-Za-z0-9_-]{1,200}$/.test(item.id));
+  const matches = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    const pairing = value as { hubUrl?: string; coreId?: string };
+    try { return pairing.coreId === coreId && typeof pairing.hubUrl === "string" && cloudOrigin(pairing.hubUrl) === origin; } catch { return false; }
+  };
+  // Pairing files contain private credentials: only compare their public identity here.
+  for (const connection of state.connections.filter(item => item.kind === "local")) {
+    for (const workspace of workspaces.filter(item => item.connectionId === connection.id)) {
+      try {
+        const pairing = JSON.parse(await readFile(path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`), "utf8"));
+        if (!matches(pairing)) continue;
+        const coreMain = localServers.get(workspace.id)?.spawnargs[1];
+        if (!coreMain) continue;
+        const release = coreMain ? path.basename(path.resolve(path.dirname(coreMain), "../../../..")) : undefined;
+        return { workspaceId: workspace.id, target: coreTarget(process.platform, process.arch), ...(release ? { release } : {}) };
+      } catch { /* This local workspace has no matching accessible pairing. */ }
+    }
+  }
+  const results = await Promise.allSettled(state.connections.filter(item => item.kind !== "local").map(async connection => {
+    const ids = workspaces.filter(item => item.connectionId === connection.id).map(item => item.id);
+    if (!ids.length) return undefined;
+    const ssh = await connect(await credentials(connection.id, state));
+    try {
+      const script = `const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const entries=[];for(const id of ${JSON.stringify(ids)}){try{const pairing=JSON.parse(fs.readFileSync(path.join(os.homedir(),'.hatopad/cloud-pairings',id+'.json'),'utf8'));let release;try{release=fs.readFileSync(path.join(os.homedir(),'.hatopad-server-'+id+'.release'),'utf8').trim()}catch{}entries.push({id,hubUrl:pairing.hubUrl,coreId:pairing.coreId,release})}catch{}}console.log('HATOPAD_CLOUD_MANAGED:'+JSON.stringify({os:os.platform(),arch:os.arch(),entries}))`;
+      // Packaged hosts need no system Node/npm: prefer an installed release's runtime.
+      const environment = `export PATH="$HOME/.local/bin:$HOME/.volta/bin:$PATH:/usr/local/bin"
+for workspace_id in ${ids.map(shell).join(" ")}; do
+  selected=$(cat "$HOME/.hatopad-server-$workspace_id.release" 2>/dev/null || true)
+  if [[ "$selected" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]] && [ -x "$HOME/.hatopad-deploy/releases/$selected/bin/node" ]; then
+    export PATH="$HOME/.hatopad-deploy/releases/$selected/bin:$PATH"; break
+  fi
+done
+if ! command -v node >/dev/null 2>&1; then
+${remoteNodeEnvironment}
+fi`;
+      const output = await execute(ssh, `bash -lc ${shell(`${environment}; node -e ${shell(script)}`)}`);
+      const line = output.split(/\r?\n/).find(item => item.startsWith("HATOPAD_CLOUD_MANAGED:"));
+      if (!line) return undefined;
+      const metadata = JSON.parse(line.slice("HATOPAD_CLOUD_MANAGED:".length)) as { os: string; arch: string; entries: { id: string; hubUrl?: string; coreId?: string; release?: string }[] };
+      const entry = metadata.entries.find(item => ids.includes(item.id) && matches(item));
+      return entry ? { workspaceId: entry.id, target: coreTarget(metadata.os, metadata.arch), ...(entry.release ? { release: entry.release } : {}) } : undefined;
+    } finally { ssh.end(); }
+  }));
+  return results.find((result): result is PromiseFulfilledResult<ManagedCloudCore> => result.status === "fulfilled" && Boolean(result.value))?.value;
+}
+const cloudCoreUpdates = new CloudCoreUpdates({ bundle, resolve: managedCloudCore,
+  deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId) : startServer(workspaceId),
+  run: (workspaceId, action) => workspaceOperations.run(workspaceId, "cloud-core-update", action)
+});
+async function authorizedCloudCore(coreId: string): Promise<string> {
+  const client = await cloudClient();
+  if (!(await client.account()).cores.some(item => item.id === coreId)) throw new Error("Cloud Core is unavailable.");
+  return client.origin;
+}
+handleIpc("gateway:cloudCoreUpdateInfo", async (_event, coreId: string) => cloudCoreUpdates.info(await authorizedCloudCore(coreId), coreId));
+handleIpc("gateway:cloudUpdateCore", async (_event, coreId: string, expectedRelease: string) => cloudCoreUpdates.update(await authorizedCloudCore(coreId), coreId, expectedRelease));
 handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));
 handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) => {
   const target = await cloudTarget(coreId);
@@ -586,15 +645,7 @@ handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) =>
   const desktopRoot = cloudDesktopRoot();
   const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
   await access(desktopMain).catch(() => { throw new Error("Desktop is missing. Build or reinstall Gateway before connecting to cloud."); });
-  const key = `${target.origin}/${coreId}`;
-  let bridge = cloudBridges.get(key);
-  if (!bridge) { bridge = await createCloudBridge(target); cloudBridges.set(key, bridge); }
-  const desktop = desktopCommand(desktopMain);
-  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(bridge.port), "--root-id", rootId, "--cloud-origin", target.origin], {
-    cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: bridge.token, HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore"
-  });
-  await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
-  child.unref();
+  await launchManagedDesktop(desktopRoot, { kind: "cloud", origin: target.origin, coreId, rootId, cookie: await target.cookie() });
 });
 handleIpc("gateway:cloudAddServer", async (_event, workspaceId: string) => workspaceOperations.run(workspaceId, "add-to-cloud", async () => {
   const cloud = await cloudClient();
@@ -815,10 +866,9 @@ if (ownsInstance) app.whenReady().then(() => {
   app.setName("HatoPad Gateway"); process.title = "HatoPad Gateway";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   powerMonitor.on("resume", () => {
-    for (const tunnel of tunnels.values()) tunnel.reconnect();
     for (const tunnel of portTunnels.values()) tunnel.reconnect();
   });
   createWindow();
 });
-app.on("window-all-closed", () => { for (const tunnel of tunnels.values()) tunnel.stop(); for (const tunnel of portTunnels.values()) tunnel.stop(); for (const server of localServers.values()) server.kill(); localServers.clear(); if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => { for (const tunnel of portTunnels.values()) tunnel.stop(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });
