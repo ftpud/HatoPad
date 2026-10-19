@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { createHash } from "node:crypto";
-import { activateRelease, activatedReleaseVerificationCommand, WorkspaceOperations, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory } from "./deployment.js";
+import { activateRelease, activatedReleaseVerificationCommand, keptGitReleaseCommand, parseKeptGitRelease, WorkspaceOperations, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory } from "./deployment.js";
 
 const exec = promisify(execFile);
 const oldRelease = `${"a".repeat(40)}-node137`;
@@ -212,4 +212,16 @@ test("accepts a normal successful activation without reconnecting", async () => 
   let verifications = 0;
   await activateRelease(candidateRelease, async (output) => { output(`HATOPAD_ACTIVATED:${candidateRelease}`); }, async () => { verifications++; });
   assert.equal(verifications, 0);
+});
+
+test("a bundled Gateway keeps only compatible, non-bundle Git releases", () => {
+  const output = (range: object) => `noise\nHATOPAD_KEPT:${JSON.stringify(range)}\n`;
+  const gateway = { minimum: 19, maximum: 19 };
+  assert.deepEqual(parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), oldRelease, gateway), { commit: oldRelease.split("-node")[0], rebuilt: false, release: oldRelease });
+  assert.equal(parseKeptGitRelease(output({ minimum: 20, maximum: 20 }), oldRelease, gateway), undefined);
+  assert.equal(parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), `${"a".repeat(40)}-node137-bundle-test`, gateway), undefined);
+  assert.equal(parseKeptGitRelease("", oldRelease, gateway), undefined);
+  assert.equal(parseKeptGitRelease("HATOPAD_KEPT:not json", oldRelease, gateway), undefined);
+  assert.throws(() => keptGitReleaseCommand(`${"a".repeat(40)}-node137-bundle-test`, "true"));
+  assert.match(keptGitReleaseCommand(oldRelease, "true"), /\.git/);
 });

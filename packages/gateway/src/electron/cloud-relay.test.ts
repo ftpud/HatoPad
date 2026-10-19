@@ -22,7 +22,7 @@ async function fixture(rejectedType?: string, incompatible = false, replyBytes =
         socket.send(JSON.stringify({ id: message.id, ok: false, error: { code: "INVALID_REQUEST", message: "This operation is not available through HatoHub" } }));
         return;
       }
-      const result = message.type === "protocol.maintenance" ? {maintenance:true,compatible:!incompatible} : message.type === "protocol.handshake" ? { compatible: !incompatible } : { roots, selectedRootId: "root-1", ...(replyBytes ? { padding: "x".repeat(replyBytes) } : {}) };
+      const result = message.type === "protocol.maintenance" ? {maintenance:true,compatible:!incompatible,...(incompatible?{compatibility:{minimum:Number(process.env.FIXTURE_CORE_MIN ?? 18),maximum:Number(process.env.FIXTURE_CORE_MIN ?? 18)}}:{})} : message.type === "protocol.handshake" ? { compatible: !incompatible } : { roots, selectedRootId: "root-1", ...(replyBytes ? { padding: "x".repeat(replyBytes) } : {}) };
       socket.send(JSON.stringify({ id: message.id, ok: true, result }));
     });
   });
@@ -55,6 +55,17 @@ for (const legacy of [false,true]) test(`${legacy ? 'older' : 'incompatible'} Co
   finally {await hub.close();}
 });
 
+test("a Core newer than this Gateway's Desktop says to update Gateway, not the Core",async()=>{
+  process.env.FIXTURE_CORE_MIN='20';
+  const hub=await fixture(undefined,true);
+  try {await assert.rejects(listCloudRoots(hub.target,{minimum:19,maximum:19}),/Update HatoPad Gateway/);assert.deepEqual(hub.requests.map(request=>request.type),['protocol.maintenance']);}
+  finally {delete process.env.FIXTURE_CORE_MIN;await hub.close();}
+});
+test("an older Core still points at the Core update",async()=>{
+  const hub=await fixture(undefined,true);
+  try {await assert.rejects(listCloudRoots(hub.target,{minimum:19,maximum:19}),/compatible update/);}
+  finally {await hub.close();}
+});
 
 test("Gateway accepts discovery replies larger than the previous 8 MiB limit", async () => {
   const hub = await fixture(undefined, false, 12 * 1024 * 1024);

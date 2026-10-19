@@ -1,4 +1,5 @@
 import { protocolCompatibility } from "./protocol-versions.js";
+import type { Compatibility } from "./client-compatibility.js";
 export type ProvisionedRelease = { commit: string; rebuilt: boolean; release: string };
 const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
 function shell(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
@@ -221,4 +222,25 @@ export class WorkspaceOperations {
     this.pending.set(workspaceId, { action, promise });
     return promise;
   }
+}
+
+/** A bundled Gateway must not replace a compatible Git release (for example a Hub-updated, supervised Core) with its bundle. */
+export function keptGitReleaseCommand(release: string, environment: string): string {
+  if (!releasePattern.test(release) || release.includes("-bundle-")) throw new Error("Invalid kept release identity");
+  return `set -eu
+${environment}
+release_directory="$HOME/.hatopad-deploy/releases/${release}"
+[ -d "$release_directory/.git" ] && [ -f "$release_directory/packages/core/dist/index.js" ] || exit 0
+cd "$release_directory"
+node --input-type=module -e ${shell("import { protocolCompatibility } from './packages/protocol/dist/index.js'; console.log('HATOPAD_KEPT:' + JSON.stringify(protocolCompatibility))")}`;
+}
+export function parseKeptGitRelease(output: string, release: string, gateway: Compatibility): ProvisionedRelease | undefined {
+  const line = output.split(/\r?\n/).find(item => item.startsWith("HATOPAD_KEPT:"));
+  if (!line || !releasePattern.test(release) || release.includes("-bundle-")) return undefined;
+  try {
+    const range = JSON.parse(line.slice("HATOPAD_KEPT:".length)) as Compatibility;
+    const valid = Number.isSafeInteger(range.minimum) && Number.isSafeInteger(range.maximum) && range.minimum >= 1 && range.minimum <= range.maximum;
+    if (!valid || range.minimum > gateway.maximum || gateway.minimum > range.maximum) return undefined;
+    return { commit: release.slice(0, release.indexOf("-node")), rebuilt: false, release };
+  } catch { return undefined; }
 }

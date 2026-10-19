@@ -75,6 +75,8 @@ export async function checkCloudCompatibility(target: CloudRelayTarget, compatib
     let result;
     try { result = await requestCloud(socket, "protocol.maintenance", { compatibility, clientVersion: "0.1.0" }); }
     catch { throw Error("Core compatibility could not be verified. Check this server's update status before loading its workspaces."); }
+    const core = result?.compatibility;
+    if (result?.maintenance === true && result.compatible === false && Number.isSafeInteger(core?.minimum) && core.minimum > compatibility.maximum) throw Error("This Gateway's Desktop is older than the Core. Update HatoPad Gateway; updating the Core cannot fix this.");
     if (!result || typeof result !== "object" || result.maintenance !== true || result.compatible !== true) throw Error("Core needs a compatible update before its workspaces can be loaded. Use its saved local/SSH management connection to update it.");
   } finally { socket.close(); }
 }

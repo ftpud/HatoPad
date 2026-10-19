@@ -24,10 +24,11 @@ import { connectionConfig, normalizeStoredAuthentication, sshConnectionError, te
 import { defaultRepositorySettings, normalizeRepositorySettings, provisionCommand, repositorySettingsOrDefault, type RepositorySettings } from "./repository-settings.js";
 import { legacyRemoteMigrationCommand, parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
 import { compatibleClient, readCompatibility, type Compatibility } from "./client-compatibility.js";
+import { protocolCompatibility } from "./protocol-versions.js";
 import { boundedProvisioningLog, classifyProvisioningFailure } from "./provisioning.js";
 import { buildConnectionDiagnostics } from "./diagnostics.js";
 import { SshTunnel } from "./ssh-tunnel.js";
-import { activateRelease, activatedReleaseVerificationCommand, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory, type ProvisionedRelease, WorkspaceOperations } from "./deployment.js";
+import { activateRelease, activatedReleaseVerificationCommand, coreHealthProbe, keptGitReleaseCommand, parseKeptGitRelease, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory, type ProvisionedRelease, WorkspaceOperations } from "./deployment.js";
 import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js";
 import { JsonStateStore } from "./state-store.js";
 
@@ -307,6 +308,14 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
 }
 async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false, expectedCommit?: string, compatibility?: Compatibility): Promise<ProvisionedRelease> {
   if (bundle && !expectedCommit) {
+    if (!repair) {
+      // Starting never downgrades a compatible Git release (managed Cores update themselves through Hub).
+      const selected = (await execute(client, `bash -lc ${shell(`${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release"`)}`)).trim();
+      if (/^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+)?$/.test(selected)) {
+        const kept = parseKeptGitRelease(await execute(client, `bash -lc ${shell(keptGitReleaseCommand(selected, installedNodeEnvironment(selected)))}`).catch(() => ""), selected, protocolCompatibility);
+        if (kept) return kept;
+      }
+    }
     const platform = (await execute(client, "uname -s; uname -m")).trim().split(/\s+/);
     const target = coreTarget(platform[0]!, platform[1]!);
     const shippedCore = bundle.cores[target];
@@ -441,9 +450,8 @@ async function startClient(workspaceId: string): Promise<void> {
       const expected = path.posix.join(remoteHome, ".hatopad-deploy/releases", core.release);
       return releaseDirectory === expected || (releaseDirectory.startsWith(expected) && /^-repair-[a-f0-9]{32}$/.test(releaseDirectory.slice(expected.length)));
     });
-    if (!matchesBundle) throw new Error("Start the bundled Core before opening Desktop");
-    await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken);
-    return;
+    // Any other release (for example a Hub-updated Git release) takes the compatibility check below.
+    if (matchesBundle) { await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken); return; }
   }
   const commit = (await execute(client, `git -C ${shell(releaseDirectory)} rev-parse HEAD`)).trim();
   if (!/^[0-9a-f]{40,64}$/.test(commit)) { client.end(); throw new Error("Remote HatoPad checkout was not found. Start the server first."); }
@@ -473,6 +481,7 @@ async function startClient(workspaceId: string): Promise<void> {
     if (clientBuilt && marker !== expectedMarker) await writeFile(buildMarker, `${expectedMarker}\n`, "utf8");
   }
   catch { clientBuilt = false; }
+  let downloadApproved = false;
   if (!clientBuilt) {
     const cached = await readdir(clientsDirectory, { withFileTypes: true }).catch(() => []);
     const rollback = (await Promise.all(cached.filter((entry) => entry.isDirectory() && entry.name !== commit).map(async (entry) => {
@@ -488,9 +497,12 @@ async function startClient(workspaceId: string): Promise<void> {
       const choice = await dialog.showMessageBox({ type: "warning", buttons: ["Download update", "Use last known-good client", "Cancel"], defaultId: 0, cancelId: 2, title: "Desktop update available", message: "The cached Desktop cannot be used with this Core.", detail: "Choose a verified update or keep using the last compatible client." });
       if (choice.response === 1) { client.end(); await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken); return; }
       if (choice.response === 2) { client.end(); throw new Error("Desktop update was cancelled"); }
+      downloadApproved = true;
     }
   }
   if (!clientBuilt) {
+    const approved = downloadApproved ? { response: 0 } : await dialog.showMessageBox({ type: "warning", buttons: ["Download and run", "Cancel"], defaultId: 1, cancelId: 1, title: "Run Desktop from this Core?", message: `This Gateway's Desktop cannot be used with the Core on ${connection.host ?? "this host"}.`, detail: "Gateway can download the Desktop built with that Core release and run it on this computer. Only continue if you control that server." });
+    if (approved.response !== 0) { client.end(); throw new Error("Desktop download was cancelled"); }
   try {
     const remoteArchive = `/tmp/hatopad-${workspace.id}-${id()}.tar.gz`;
     const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; remote_archive=${shell(remoteArchive)}; ${clientArchiveCommand()}; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
