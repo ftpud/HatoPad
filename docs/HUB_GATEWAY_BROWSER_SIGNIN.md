@@ -1,0 +1,92 @@
+# Hub support needed for Gateway browser sign-in
+
+Implement the following contract in HatoHub. Gateway will open the user's normal
+browser so Google passkeys, phone prompts and browser password managers can run
+outside Electron. This is a new account sign-in handoff, separate from Core
+pairing. Keep existing sign-in, Core credentials and relay authorization intact.
+
+## HTTP contract (version 1)
+
+### GET /api/desktop/capabilities
+
+Anonymous, no-store JSON: `200 {"version":1}`. Gateway checks this before opening
+the browser. Older Hubs should continue to return their normal 404/401; Gateway
+will explain that the Hub update is required.
+
+### GET /auth/desktop
+
+Accept exactly these query parameters, once each:
+
+- `redirect_uri`: `http://127.0.0.1:<ephemeral-port>/callback`. Require a literal
+  loopback IP, a port >=1024, this exact path, and no credentials/query/fragment.
+  Never accept external redirects, `localhost`, custom schemes or other paths.
+- `state`: 32–128 base64url characters; opaque to Hub. Echo it unchanged only to
+  the validated loopback callback.
+- `code_challenge`: exactly 43 base64url characters, S256 PKCE. Gateway retains
+  the random verifier; it never goes into a browser URL.
+
+If the browser is signed out, use the existing Google/OIDC login and preserve
+this validated authorization request through its existing state/nonce/PKCE flow.
+After `/auth/callback`, resume `/auth/desktop`, rather than dropping the user on
+Hub's home page. Return destinations must be restricted to a valid same-origin
+`/auth/desktop` request; do not add an arbitrary `returnTo` redirect.
+
+Once signed in, show a confirmation page naming the signed-in account and asking
+whether to connect HatoPad Gateway on this device. Require an explicit
+**Connect Gateway** action. Keep HTML escaped, no-store, no-referrer and protected
+against framing. Do not automatically grant account access on a GET.
+
+### POST /auth/desktop/approve
+
+Suggested browser form endpoint for the confirmation action. Require the current
+Hub session, correct Origin and CSRF token. Revalidate all authorization fields;
+do not trust hidden form values. Use the normal Hub input size limits.
+
+Create a cryptographically random 32-byte base64url code (43 characters), store
+only its hash, and bind it to the approving user/session, the S256 challenge,
+exact redirect URI and an expiry of at most 60 seconds. Reject disabled users.
+
+Return a 303 redirect to the validated callback, with `code` and `state` query
+parameters. The code must be redeemable only once. A cancellation may redirect
+to the same callback with `error=access_denied` and `state`, without issuing a code.
+
+### POST /api/desktop/exchange
+
+Machine endpoint, no browser Origin header. Require `application/json` and exactly:
+
+```json
+{"code":"<43 base64url characters>","verifier":"<43–128 base64url characters>","redirect_uri":"http://127.0.0.1:<port>/callback"}
+```
+
+Validate the code hash, expiry, approving user's active status, originating
+session validity, exact redirect URI, and
+`BASE64URL(SHA256(verifier)) == stored code_challenge` using a constant-time
+comparison. Atomically consume the code and issue a NEW independent Hub session.
+Do not copy, rotate or disclose the browser's existing session.
+
+Return `200 {"ok":true}` with the standard Hub session `Set-Cookie` header
+(HttpOnly, Secure on HTTPS, normal SameSite/path/expiry rules). Gateway redeems via
+its isolated Electron session's fetch with `credentials: include`; that session
+stores the cookie for subsequent `/api/session`, `/api/cores` and relay requests.
+Never put session tokens or credentials in the redirect, HTML or JSON body.
+Invalid/expired/replayed requests must not create a session; do not automatically
+replay a lost exchange response.
+
+## Boundaries and tests
+
+- Preserve invite-only access and all existing owner/operator authorization.
+- Bound and rate-limit authorization/approval/exchange requests. Expire old codes.
+- Browser approval requires Origin+CSRF; exchange must reject browser Origin.
+- Test external/credentialed redirects, duplicate/malformed parameters, CSRF,
+  signed-out and disabled users, wrong verifier and redirect, expired codes,
+  expired/revoked approving sessions, one-use replay and concurrent exchanges.
+- Verify Google/OIDC callback resumes the validated desktop request and ordinary
+  web login still returns to Hub normally.
+- Verify the issued app cookie authenticates `/api/session` as the approving
+  account, and contains no reusable credential in the callback or JSON body.
+- Never log codes, verifiers, cookies, OIDC tokens or full authorization URLs.
+
+Implement database migrations and boundary tests according to Hub's repository
+rules. Run Hub build, typecheck and tests, and document the handoff in its docs
+and TODO. Deploying the updated Hub is required before Gateway's browser sign-in
+can work; do not claim live passkey verification from fixture tests alone.

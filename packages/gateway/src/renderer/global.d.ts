@@ -14,6 +14,7 @@ interface Window {
   gateway: {
     cloudSaveOrigin(origin: string): Promise<string>;
     cloudGet(): Promise<GatewayCloudAccount | undefined>;
+    cloudCancelSignIn(): Promise<void>;
     cloudConnect(origin: string): Promise<GatewayCloudAccount>;
     cloudDisconnect(): Promise<void>;
     cloudListCores(id: string): Promise<GatewayCloudRoot[]>;

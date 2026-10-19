@@ -225,7 +225,7 @@ describe("Gateway cloud", () => {
   function bridge(cloud?: GatewayCloudAccount) {
     window.gateway = {
       get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
-      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudGet: vi.fn().mockResolvedValue(cloud), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudCancelSignIn: vi.fn().mockResolvedValue(undefined), cloudGet: vi.fn().mockResolvedValue(cloud), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
       onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
     } as unknown as Window["gateway"];
   }
@@ -244,6 +244,21 @@ describe("Gateway cloud", () => {
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
     expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
+  });
+  it("can cancel while waiting for browser sign-in", async () => {
+    bridge();
+    let cancel!: () => void;
+    vi.mocked(window.gateway.cloudConnect).mockImplementation(() => new Promise((_resolve, reject) => { cancel = () => reject(new Error("Cloud sign-in was cancelled.")); }));
+    vi.mocked(window.gateway.cloudCancelSignIn).mockImplementation(async () => { cancel(); });
+    render(<App />);
+    fireEvent.click(screen.getByRole("button", { name: "Connect to cloud" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://hub.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    await screen.findByRole("button", { name: "Waiting in your browser…" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(window.gateway.cloudCancelSignIn).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
   it("keeps cloud actions icon-only and exposes tooltips and accessible names", async () => {
     bridge(account); render(<App />);

@@ -26,6 +26,7 @@ export function App() {
   const [cloudDialog, setCloudDialog] = useState(false);
   const [cloudUrl, setCloudUrl] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudSigningIn, setCloudSigningIn] = useState(false);
   const [addingToCloud, setAddingToCloud] = useState<string>();
   const [state, setState] = useState(emptyState);
   const [selected, setSelected] = useState<string>();
@@ -102,7 +103,10 @@ export function App() {
     catch (reason) { showError(reason); }
   };
 
-  const closeCloudDialog = useCallback(() => { if (!cloudBusy) setCloudDialog(false); }, [cloudBusy]);
+  const closeCloudDialog = useCallback(() => {
+    if (cloudSigningIn) { void window.gateway.cloudCancelSignIn().catch(showError); setCloudDialog(false); }
+    else if (!cloudBusy) setCloudDialog(false);
+  }, [cloudBusy, cloudSigningIn, showError]);
   const saveCloudUrl = async () => {
     clearError(); setCloudBusy(true);
     try {
@@ -118,9 +122,10 @@ export function App() {
       const origin = await window.gateway.cloudSaveOrigin(cloudUrl);
       setCloudUrl(origin);
       if (cloud && cloud.origin !== origin) { setCloud(undefined); if (selected?.startsWith("cloud:")) setSelected(state.connections[0]?.id); }
+      setCloudSigningIn(true);
       const account = await window.gateway.cloudConnect(origin); setCloud(account); setCloudDialog(false);
     }
-    catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+    catch (reason) { if (gatewayErrorMessage(reason) !== "Cloud sign-in was cancelled.") showError(reason); } finally { setCloudSigningIn(false); setCloudBusy(false); }
   };
   const refreshCloud = async () => {
     setCloudBusy(true); clearError();
@@ -165,7 +170,7 @@ export function App() {
         </div></div>
       </section>}
     </main>
-    {bridgeReady && cloudDialog && <CloudDialog onClose={closeCloudDialog}><form className="dialog" onSubmit={(event) => void connectCloud(event)}><header><strong>Connect to cloud</strong><button type="button" disabled={cloudBusy} onClick={() => setCloudDialog(false)} aria-label="Close cloud connection"><X size={15} /></button></header><p className="dialog-help">Set your cloud domain. Gateway remembers this URL on this device, including after disconnecting.</p><label>Cloud URL<input type="url" required placeholder="https://your-hub.example" value={cloudUrl} disabled={cloudBusy} onChange={(event) => setCloudUrl(event.target.value)} /></label><footer><button type="button" disabled={cloudBusy} onClick={() => setCloudDialog(false)}>Cancel</button><button type="button" disabled={cloudBusy || !cloudUrl.trim()} onClick={() => void saveCloudUrl()}>Save URL</button><button className="primary" disabled={cloudBusy}>{cloudBusy ? "Waiting for sign-in…" : "Sign in"}</button></footer></form></CloudDialog>}
+    {bridgeReady && cloudDialog && <CloudDialog onClose={closeCloudDialog}><form className="dialog" onSubmit={(event) => void connectCloud(event)}><header><strong>Connect to cloud</strong><button type="button" disabled={cloudBusy && !cloudSigningIn} onClick={closeCloudDialog} aria-label="Close cloud connection"><X size={15} /></button></header><p className="dialog-help">Sign-in opens your default browser. Gateway remembers this cloud URL on this device.</p><label>Cloud URL<input type="url" required placeholder="https://your-hub.example" value={cloudUrl} disabled={cloudBusy} onChange={(event) => setCloudUrl(event.target.value)} /></label><footer><button type="button" disabled={cloudBusy && !cloudSigningIn} onClick={closeCloudDialog}>Cancel</button><button type="button" disabled={cloudBusy || !cloudUrl.trim()} onClick={() => void saveCloudUrl()}>Save URL</button><button className="primary" disabled={cloudBusy}>{cloudBusy ? "Waiting in your browser…" : "Sign in"}</button></footer></form></CloudDialog>}
     {bridgeReady && connectionDialog && <ConnectionDialog allowLocal={distribution !== "bundled" || window.gateway.platform !== "win32"} value={connectionDialog} onClose={() => setConnectionDialog(undefined)} onFailure={showError} onSave={async (value) => { const next = await window.gateway.saveConnection(value); setState(next); setSelected(value.id ?? next.connections.at(-1)?.id); setConnectionDialog(undefined); clearError(); }} />}
     {bridgeReady && workspaceDialog && connection && <WorkspaceDialog value={workspaceDialog} connectionId={connection.id} local={connection.kind === "local"} discoverOnOpen={discoverWorkspaceOnOpen} configuredDirectories={workspaces.map((item) => item.directory)} onClose={() => setWorkspaceDialog(undefined)} onFailure={showError} onSave={async (value) => { setState(await window.gateway.saveWorkspace(value)); setWorkspaceDialog(undefined); clearError(); }} />}
     {bridgeReady && distribution === "source" && repositoryDialog && <RepositoryDialog value={repositoryDialog} onClose={() => setRepositoryDialog(undefined)} onFailure={showError} onSave={async (value) => { const saved = await window.gateway.saveRepository(value); setRepository(saved); setRepositoryDialog(undefined); clearError(); }} />}

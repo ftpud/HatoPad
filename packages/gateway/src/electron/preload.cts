@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld("gateway", {
   },
   cloudSaveOrigin: (origin: string) => ipcRenderer.invoke("gateway:cloudSaveOrigin", origin),
   cloudGet: () => ipcRenderer.invoke("gateway:cloudGet"),
+  cloudCancelSignIn: () => ipcRenderer.invoke("gateway:cloudCancelSignIn"),
   cloudConnect: (origin: string) => ipcRenderer.invoke("gateway:cloudConnect", origin),
   cloudDisconnect: () => ipcRenderer.invoke("gateway:cloudDisconnect"),
   cloudListCores: (id: string) => ipcRenderer.invoke("gateway:cloudListCores", id),

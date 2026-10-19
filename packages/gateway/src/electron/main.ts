@@ -1,4 +1,4 @@
-import { configureCloudSignInWindow, selectCloudPasskey } from "./cloud-signin.js";
+import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
 import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
@@ -8,7 +8,7 @@ import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 import { remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, webContents, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, shell as electronShell, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -542,36 +542,16 @@ handleIpc("gateway:cloudSaveOrigin", async (_event, input: string) => {
   if (cloudConnecting) throw new Error("Close cloud sign-in before changing its URL.");
   return saveCloudOrigin(input);
 });
-let cloudSessionConfigured = false;
-function cloudSession() {
-  const current = session.fromPartition("persist:hatopad-cloud");
-  if (!cloudSessionConfigured) {
-    cloudSessionConfigured = true;
-    current.on("select-webauthn-account", (_event, details, callback) => {
-      const contents = details.frame ? webContents.fromFrame(details.frame) : undefined;
-      if (!contents || contents.session !== current) { callback(); return; }
-      const owner = BrowserWindow.fromWebContents(contents);
-      void selectCloudPasskey(details.accounts, async (labels) => {
-        const options = { type: "question" as const, title: "Choose a passkey", message: `Sign in to ${details.relyingPartyId}`, detail: "Choose the account to use for this sign-in.", buttons: [...labels, "Cancel"], cancelId: labels.length, defaultId: 0, noLink: true };
-        const choice = owner ? await dialog.showMessageBox(owner, options) : await dialog.showMessageBox(options);
-        return choice.response;
-      }, callback).catch(() => undefined);
-    });
-  }
-  return current;
-}
+function cloudSession() { return session.fromPartition("persist:hatopad-cloud"); }
 async function cloudClient(): Promise<CloudClient> {
   const { origin } = await cloudSettings.read();
   if (!origin) throw new Error("Connect to cloud first.");
   return new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
 }
-function cloudWindow(url: string): BrowserWindow {
-  const window = new BrowserWindow({ width: 1100, height: 800, title: "HatoPad Cloud", webPreferences: { partition: "persist:hatopad-cloud", nodeIntegration: false, contextIsolation: true, sandbox: true } });
-  configureCloudSignInWindow(window);
-  void window.loadURL(url).catch(() => undefined);
-  return window;
-}
 let cloudConnecting = false;
+let cloudLoginAbort: AbortController | undefined;
+app.on("will-quit", () => cloudLoginAbort?.abort());
+handleIpc("gateway:cloudCancelSignIn", () => cloudLoginAbort?.abort());
 handleIpc("gateway:cloudGet", async () => {
   if (!(await cloudSettings.read()).origin) return undefined;
   try { return await (await cloudClient()).account(); }
@@ -580,25 +560,18 @@ handleIpc("gateway:cloudGet", async () => {
 handleIpc("gateway:cloudConnect", async (_event, input: string) => {
   if (cloudConnecting) throw new Error("Cloud sign-in is already open.");
   cloudConnecting = true;
+  cloudLoginAbort = new AbortController();
   try {
     const origin = await saveCloudOrigin(input);
     const client = new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
     let account;
     try { account = await client.account(); } catch { /* Sign in through the Hub's OIDC flow. */ }
     if (!account) {
-      const login = cloudWindow(`${origin}/auth/login`);
-      account = await new Promise<Awaited<ReturnType<CloudClient["account"]>>>((resolve, reject) => {
-        let checking = false;
-        const timer = setInterval(() => {
-          if (checking) return; checking = true;
-          void client.account().then((value) => { clearInterval(timer); clearTimeout(timeout); resolve(value); login.close(); }).catch(() => undefined).finally(() => { checking = false; });
-        }, 2000);
-        const timeout = setTimeout(() => { clearInterval(timer); reject(new Error("Cloud sign-in timed out.")); login.close(); }, 300_000);
-        login.once("closed", () => { clearInterval(timer); clearTimeout(timeout); reject(new Error("Cloud sign-in was cancelled.")); });
-      });
+      await signInCloudWithBrowser({ origin, fetch: (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init), openExternal: (url) => electronShell.openExternal(url), signal: cloudLoginAbort.signal });
+      account = await client.account();
     }
     return account;
-  } finally { cloudConnecting = false; }
+  } finally { cloudConnecting = false; cloudLoginAbort = undefined; }
 });
 handleIpc("gateway:cloudDisconnect", async () => {
   closeCloudBridges();

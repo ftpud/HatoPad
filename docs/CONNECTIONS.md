@@ -120,7 +120,7 @@ Implementation and regression tests are colocated with `core/src/server.ts`,
 ## Gateway cloud accounts
 
 Choose **Connect to cloud** in Gateway, enter your Hub HTTPS origin, and sign in
-in the cloud window. Gateway keeps the account session in a separate persistent
+in your default browser. Approve **Connect Gateway** there, then return to Gateway. Gateway keeps the account session in a separate persistent
 Electron session and lists the account's cloud servers alongside local/SSH
 connections. Use **Save URL** to persist the domain without signing in, or
 **Cloud settings** to change it while signed in. The URL remains saved locally
@@ -141,18 +141,13 @@ restarts that workspace's Core connection. Already paired servers must have thei
 pairing managed before being registered again; Gateway does not overwrite an
 existing pairing.
 
-Cloud sign-in permits HTTPS provider popups (and HTTP on loopback), keeps them in
-Gateway's isolated cloud session, and closes child windows when sign-in closes.
-When a passkey authenticator returns several accounts, Gateway displays an
-account chooser instead of letting Electron cancel the request. Existing
-macOS iCloud-synced passkeys are not supported by the embedded Electron 44
-window; use another sign-in method for that case.
+Cloud sign-in uses a temporary loopback callback and a single-use authorization
+code bound to Gateway with S256 PKCE. Your browser retains its own account
+session; Hub issues an independent session to Gateway. You can cancel sign-in
+from the Gateway dialog. This requires the Hub endpoints described in
+[Hub browser sign-in contract](HUB_GATEWAY_BROWSER_SIGNIN.md). Gateway checks for
+that support before opening the browser and reports when Hub needs an update.
 
-On macOS, phone/Bluetooth passkeys can be unavailable when Gateway is launched
-as a child of a terminal or editor. Chromium checks the *responsible app's*
-Bluetooth privacy metadata, which may be that parent rather than Gateway.
-Quit Gateway, then run `npm run gateway -- --finder` to build it and open it via
-macOS LaunchServices. Allow Gateway's Bluetooth access if macOS prompts. This
-launch returns control to the terminal; close Gateway from its window when done.
-Installed Gateway apps can be opened directly from Finder. This fixes the
-Bluetooth launch restriction, independently of iCloud-synced passkey support.
+The optional macOS `npm run gateway -- --finder` launcher remains available for
+app-attributed privacy prompts, but browser-based sign-in uses your browser's
+passkey UI and does not depend on the embedded Electron passkey implementation.
