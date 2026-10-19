@@ -90,3 +90,19 @@ Implement database migrations and boundary tests according to Hub's repository
 rules. Run Hub build, typecheck and tests, and document the handoff in its docs
 and TODO. Deploying the updated Hub is required before Gateway's browser sign-in
 can work; do not claim live passkey verification from fixture tests alone.
+
+## Gateway callback page presentation
+
+Gateway's loopback callback now renders a standalone account-connection result
+panel consistent with its login palette, including light/dark OS themes and
+phone-safe spacing. Success displays “Signed in”, a connection indicator and
+instructions to close the tab and return to Gateway. Cancellation, rejected
+responses and failed exchanges have separate explanatory states in the same
+layout. The page has no scripts or external asset requests; its embedded CSS is
+permitted by an exact SHA-256 CSP source while default resource loading, framing,
+forms and base URLs remain blocked. No credentials are rendered in page content.
+
+Verified: Gateway build/typecheck, 31 renderer tests and 101 Electron tests;
+Chromium desktop/phone light/dark styling and overflow checks. Live Google,
+passkey and isolated Electron-session verification still require the updated
+Hub deployment and a separate end-to-end check.

@@ -1,3 +1,4 @@
+import { browserSignInPage as page, browserSignInPagePolicy } from "./cloud-browser-signin-page.js";
 import { createServer } from "node:http";
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 
@@ -8,7 +9,7 @@ type BrowserSignInOptions = {
   signal?: AbortSignal;
   timeoutMs?: number;
 };
-const page = (message: string) => `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HatoPad Gateway</title><body><h1>HatoPad Gateway</h1><p>${message}</p></body></html>`;
+
 
 /** External-browser authorization, with a one-use code bound to this process by PKCE. */
 export async function signInCloudWithBrowser(options: BrowserSignInOptions): Promise<void> {
@@ -31,9 +32,9 @@ export async function signInCloudWithBrowser(options: BrowserSignInOptions): Pro
     response.setHeader("Cache-Control", "no-store");
     response.setHeader("Referrer-Policy", "no-referrer");
     response.setHeader("X-Content-Type-Options", "nosniff");
-    response.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'; base-uri 'none'");
+    response.setHeader("Content-Security-Policy", browserSignInPagePolicy);
     response.setHeader("Content-Type", "text/html; charset=utf-8");
-    const reject = (status: number) => { response.writeHead(status); response.end(page("This sign-in response was not accepted. Return to Gateway and try again.")); };
+    const reject = (status: number) => { response.writeHead(status); response.end(page("rejected")); };
     if (request.method !== "GET") { reject(405); return; }
     if (!redirectUri || request.headers.host !== new URL(redirectUri).host) { reject(403); return; }
     const callback = new URL(request.url ?? "/", redirectUri);
@@ -42,7 +43,7 @@ export async function signInCloudWithBrowser(options: BrowserSignInOptions): Pro
     if (callback.searchParams.getAll("state").length !== 1 || Buffer.byteLength(supplied) !== Buffer.byteLength(state) || !timingSafeEqual(Buffer.from(supplied), Buffer.from(state))) { reject(400); return; }
     if (processing) { reject(409); return; }
     if (callback.searchParams.get("error") === "access_denied") {
-      response.end(page("Sign-in was cancelled. You can return to Gateway.")); fail(new Error("Cloud sign-in was cancelled.")); return;
+      response.end(page("cancelled")); fail(new Error("Cloud sign-in was cancelled.")); return;
     }
     const code = callback.searchParams.get("code");
     if (!code || !/^[A-Za-z0-9_-]{43}$/.test(code) || callback.searchParams.getAll("code").length !== 1) { reject(400); return; }
@@ -51,8 +52,8 @@ export async function signInCloudWithBrowser(options: BrowserSignInOptions): Pro
       method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ code, verifier, redirect_uri: redirectUri })
     }).then(async (result) => {
       if (!result.ok || (await result.json()).ok !== true) throw new Error("Could not complete cloud sign-in. Start sign-in again in Gateway.");
-      response.end(page("Signed in. You can close this tab and return to Gateway."), succeed);
-    }).catch((error: unknown) => { if (!response.destroyed && !response.writableEnded) { response.writeHead(502); response.end(page("Could not finish sign-in. Return to Gateway and try again.")); } fail(error instanceof Error ? error : new Error("Cloud sign-in failed.")); });
+      response.end(page("success"), succeed);
+    }).catch((error: unknown) => { if (!response.destroyed && !response.writableEnded) { response.writeHead(502); response.end(page("failed")); } fail(error instanceof Error ? error : new Error("Cloud sign-in failed.")); });
   });
   const abort = () => fail(new Error(options.signal?.aborted ? "Cloud sign-in was cancelled." : "Cloud sign-in timed out."));
   signal.addEventListener("abort", abort, { once: true });
