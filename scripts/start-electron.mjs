@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { electronExecutable } from "./electron-runtime.mjs";
+import { electronExecutable, macFinderLaunch } from "./electron-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const target = process.argv[2];
@@ -26,7 +26,12 @@ if (target === "gateway") {
     bundleId: "com.hatopad.desktop",
   });
 }
-const child = spawn(executable, [config.packageRoot, ...process.argv.slice(3)], {
+const launchArgs = process.argv.slice(3);
+const finder = launchArgs.includes('--finder');
+if (finder && (process.platform !== 'darwin' || target !== 'gateway')) throw new Error('--finder is available for Gateway on macOS');
+const launch = finder ? macFinderLaunch(executable, config.packageRoot, launchArgs.filter(arg => arg !== '--finder'), env) : { command: executable, args: [config.packageRoot, ...launchArgs] };
+if (finder) console.log('[startup] Opening Gateway through macOS LaunchServices for Bluetooth passkeys. Close Gateway from its window when finished.');
+const child = spawn(launch.command, launch.args, {
   cwd: config.packageRoot,
   stdio: "inherit",
   env,

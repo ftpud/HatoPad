@@ -26,7 +26,7 @@ for (const kind of ['desktop', 'gateway']) {
   await stageWorkspace(staging, kind);
   // Renderer imports are already compiled by Vite. Only Electron main-process
   // dependencies belong in the shipped node_modules.
-  const runtimeDependencies = kind === 'desktop' ? ['ws'] : ['ssh2'];
+  const runtimeDependencies = kind === 'desktop' ? ['ws'] : ['ssh2', 'ws'];
   await pruneRuntimeDependencies(staging, runtimeDependencies);
   const appDirectory = path.join(staging, 'packages', kind);
   for (const name of ['dist-electron', 'dist-renderer', 'assets']) await cp(path.join(root, 'packages', kind, name), path.join(appDirectory, name), { recursive: true, filter: source => !source.endsWith('.test.js') });

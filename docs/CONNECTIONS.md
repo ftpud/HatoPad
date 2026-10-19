@@ -147,3 +147,12 @@ When a passkey authenticator returns several accounts, Gateway displays an
 account chooser instead of letting Electron cancel the request. Existing
 macOS iCloud-synced passkeys are not supported by the embedded Electron 44
 window; use another sign-in method for that case.
+
+On macOS, phone/Bluetooth passkeys can be unavailable when Gateway is launched
+as a child of a terminal or editor. Chromium checks the *responsible app's*
+Bluetooth privacy metadata, which may be that parent rather than Gateway.
+Quit Gateway, then run `npm run gateway -- --finder` to build it and open it via
+macOS LaunchServices. Allow Gateway's Bluetooth access if macOS prompts. This
+launch returns control to the terminal; close Gateway from its window when done.
+Installed Gateway apps can be opened directly from Finder. This fixes the
+Bluetooth launch restriction, independently of iCloud-synced passkey support.
