@@ -27,7 +27,7 @@ test('local Git installer ignores incompatible HEAD, refuses stale approval, and
     const npm=path.join(root,'npm.mjs');await writeFile(npm,'process.exit(process.env.FIXTURE_BUILD_FAIL ? 23 : 0);');
     const tools={node:process.execPath,npm,env:process.env};
     await assert.rejects(releases.prepare(settings,'a'.repeat(40),tools),/release changed/);
-    const installed=await releases.prepare(settings,compatible,tools);assert.equal(await releases.installed(compatible,tools.node,tools.env),installed);assert.equal(await releases.prepare(settings,compatible,tools),installed);
+    const installed=await releases.prepare(settings,compatible,tools);assert.equal(await releases.installed(compatible,tools.node,tools.env),installed);assert.equal(await releases.prepare(settings,compatible,tools),installed);assert.equal(git(installed,'config','--get','remote.origin.url'),settings.repository);git(installed,'remote','set-url','origin',path.join(root,'cache'));await releases.pointOriginAtRepository(installed,settings);assert.equal(git(installed,'config','--get','remote.origin.url'),settings.repository);
     await writeFile(path.join(origin,'source'),'new compatible');git(origin,'add','.');git(origin,'commit','-m','new compatible');git(origin,'tag','core-protocol-19-v0.1.2');const newer=git(origin,'rev-parse','HEAD');
     await assert.rejects(releases.prepare(settings,newer,{...tools,env:{...process.env,FIXTURE_BUILD_FAIL:'1'}}),/previous Core remains/);
     assert.equal((await readdir(path.join(root,'cache'))).some(name=>name.includes('.staging-')),false);

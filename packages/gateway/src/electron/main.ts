@@ -232,6 +232,7 @@ async function startLocalServer(workspaceId: string, expectedCommit?: string, re
   const supervisor = path.join(releaseRoot, "scripts/core-release-service.mjs");
   const supervised = path.dirname(releaseRoot) === coreReleasesDirectory() && localReleaseName.test(path.basename(releaseRoot)) &&
     await access(supervisor).then(() => true, () => false) && (await readFile(coreMain, "utf8").catch(() => "")).includes("HATOPAD_CORE_RELEASE_MODE");
+  if (supervised) await localCoreReleases.pointOriginAtRepository(releaseRoot, repository ?? (await readState()).repository).catch(() => undefined);
   const child = spawn(node, [supervised ? supervisor : coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
     cwd: workspace.directory, detached: true,
     env: { ...env, ...(supervised ? { HATOPAD_CORE_RELEASE_ROOT: coreReleasesDirectory(), HATOPAD_CORE_RELEASES_DIR: coreReleasesDirectory(), HATOPAD_CORE_RELEASE_SELECTION: localSelectionFile(workspaceId) } : {}), HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },

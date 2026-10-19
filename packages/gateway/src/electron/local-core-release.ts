@@ -28,6 +28,12 @@ export class LocalCoreReleases {
     return {directory,tag,branch,commit:await this.git(directory,'rev-parse',`refs/tags/${tag}^{commit}`)};
   }
   async check(settings: RepositorySettings, compatibility = protocolCompatibility) { const {directory:_,...release}=await this.source(settings, compatibility);return release; }
+  /** Releases prepared before origin was corrected still point at the cache; repair them in place before the Core checks for updates. */
+  async pointOriginAtRepository(release: string, settings: RepositorySettings): Promise<void> {
+    const repository=normalizeRepositorySettings(settings).repository;
+    const current=await this.git(release,'config','--get','remote.origin.url').catch(()=>undefined);
+    if(current!==repository) await this.git(release,'remote','set-url','origin',repository);
+  }
   async installed(commit: string, node: string, env: NodeJS.ProcessEnv): Promise<string> {
     if(!/^[a-f0-9]{40}$/.test(commit)) throw Error('Invalid Core revision');
     const abi=(await exec(node,['-p','process.versions.modules'],{env})).stdout.trim();
@@ -49,6 +55,8 @@ export class LocalCoreReleases {
     const run=async(args:string[])=>{await exec(toolchain.node,[toolchain.npm,...args],{cwd:staging,env:toolchain.env,timeout:600_000,maxBuffer:4_000_000});};
     try {
       await this.git(this.cache,'clone','--no-checkout',selected.directory,staging);
+      // The clone's origin is Gateway's private cache; the Core must fetch future releases from the real repository.
+      await this.git(staging,'remote','set-url','origin',normalizeRepositorySettings(settings).repository);
       await this.git(staging,'checkout','--detach',expectedCommit);
       await run(['ci','--no-audit','--no-fund']);
       for(const name of ['acp','protocol','client','relay','connector','test-fixtures','core','desktop']) await run(['run','build','-w',`@hatopad/${name}`]);
