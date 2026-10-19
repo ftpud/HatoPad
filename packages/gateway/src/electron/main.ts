@@ -193,9 +193,19 @@ async function stopLocalServer(workspaceId: string): Promise<void> {
   }
   if (localServers.get(workspaceId) === previous) localServers.delete(workspaceId);
 }
+const coreReleasesDirectory = () => path.join(app.getPath("userData"), "core-releases");
+const localReleaseName = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
+/** The release supervisor records the release it switched to here; it outranks Gateway's older saved commit. */
+const localSelectionFile = (workspaceId: string) => path.join(coreReleasesDirectory(), `selected-${workspaceId}`);
+async function selectedLocalRelease(workspaceId: string): Promise<string | undefined> {
+  const value = (await readFile(localSelectionFile(workspaceId), "utf8").catch(() => "")).trim();
+  return localReleaseName.test(value) ? value : undefined;
+}
 async function startLocalServer(workspaceId: string, expectedCommit?: string, repository?: RepositorySettings, useBundle = false, compatibility?: Compatibility): Promise<{ remotePort: number }> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
-  const savedCommit = useBundle ? undefined : (await readState()).coreReleases?.[workspaceId];
+  if (useBundle) await rm(localSelectionFile(workspaceId), { force: true });
+  const selectedRelease = useBundle || expectedCommit ? undefined : await selectedLocalRelease(workspaceId);
+  const savedCommit = useBundle ? undefined : selectedRelease?.split("-node")[0] ?? (await readState()).coreReleases?.[workspaceId];
   let { coreMain, node, env } = await localArtifactPaths(Boolean(expectedCommit || savedCommit));
   if (expectedCommit) {
     const npm = bundle ? path.resolve(path.dirname(coreMain), "../../../lib/node_modules/npm/bin/npm-cli.js") : process.env.npm_execpath;
@@ -213,9 +223,14 @@ async function startLocalServer(workspaceId: string, expectedCommit?: string, re
   const log = await open(logPath, "a");
   const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspaceId}.json`);
   const paired = await access(pairingFile).then(() => true, () => false);
-  const child = spawn(node, [coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
+  // Releases from the local cache that include the supervisor can update themselves through Hub.
+  const releaseRoot = path.resolve(path.dirname(coreMain), "../../..");
+  const supervisor = path.join(releaseRoot, "scripts/core-release-service.mjs");
+  const supervised = path.dirname(releaseRoot) === coreReleasesDirectory() && localReleaseName.test(path.basename(releaseRoot)) &&
+    await access(supervisor).then(() => true, () => false) && (await readFile(coreMain, "utf8").catch(() => "")).includes("HATOPAD_CORE_RELEASE_MODE");
+  const child = spawn(node, [supervised ? supervisor : coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
     cwd: workspace.directory, detached: true,
-    env: { ...env, HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
+    env: { ...env, ...(supervised ? { HATOPAD_CORE_RELEASE_ROOT: coreReleasesDirectory(), HATOPAD_CORE_RELEASES_DIR: coreReleasesDirectory(), HATOPAD_CORE_RELEASE_SELECTION: localSelectionFile(workspaceId) } : {}), HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
     // macOS child processes such as Git and node-pty need valid inherited descriptors.
     // Keep stdin attached to /dev/null and retain Core output in a durable diagnostic log.
     stdio: ["ignore", log.fd, log.fd]
@@ -242,6 +257,8 @@ async function startLocalServer(workspaceId: string, expectedCommit?: string, re
   }
   if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Local Core exited during startup. Inspect ${logPath}`);
   runtime(workspaceId, "server", `Server listening locally on ${workspace.remotePort} (log: ${logPath})`);
+  if (supervised) await mkdir(coreReleasesDirectory(), { recursive: true }).then(() => writeFile(localSelectionFile(workspaceId), path.basename(releaseRoot), { mode: 0o600 }));
+  else await rm(localSelectionFile(workspaceId), { force: true });
   if (expectedCommit || useBundle) await updateState(state => { if (expectedCommit) state.coreReleases = { ...state.coreReleases, [workspaceId]: expectedCommit }; else if (state.coreReleases) delete state.coreReleases[workspaceId]; });
   child.unref();
   return { remotePort: workspace.remotePort };
@@ -609,10 +626,13 @@ async function managedCloudCore(origin: string, coreId: string): Promise<Managed
     for (const workspace of workspaces.filter(item => item.connectionId === connection.id)) {
       try {
         const pairing = JSON.parse(await readFile(path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`), "utf8"));
-        const selected = matchLocalCloudCore(pairing, origin, coreId, workspace.id, coreTarget(process.platform, process.arch), localServers.get(workspace.id)?.spawnargs[1]);
+        const entry = localServers.get(workspace.id)?.spawnargs[1];
+        const running = entry && path.basename(entry) === "core-release-service.mjs" ? path.join(path.dirname(entry), "../packages/core/dist/index.js") : entry;
+        const selected = matchLocalCloudCore(pairing, origin, coreId, workspace.id, coreTarget(process.platform, process.arch), running);
         if (selected) {
           const commit = state.coreReleases?.[workspace.id];
-          return { ...selected, ...(!selected.release && commit ? { release: commit } : {}) };
+          const switched = await selectedLocalRelease(workspace.id);
+          return { ...selected, ...(switched ? { release: switched } : !selected.release && commit ? { release: commit } : {}) };
         }
       } catch { /* This local workspace has no matching accessible pairing. */ }
     }

@@ -162,3 +162,10 @@ Verified with fixtures: supervisor success, build-failure and unready-rollback
 scenarios, unmanaged layout fallback, release-mode Core update checks, Gateway
 activation/stop under the supervisor, and the Hub-first/SSH-fallback update flow. No
 real cloud host has been updated.
+
+Local Gateway Cores follow the same path: a release in Gateway's `core-releases` cache
+that contains the supervisor is started under it (`HATOPAD_CORE_RELEASES_DIR` points at
+the cache). The supervisor records the release it switched to in
+`core-releases/selected-<workspaceId>`; Gateway prefers that file over its saved commit
+on restart and when reporting the current release. Bundled (non-Git) local Cores and
+source checkouts are still unmanaged and are updated through Gateway.

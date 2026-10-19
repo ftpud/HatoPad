@@ -13,6 +13,7 @@ process.send({type:'hatopad-core-ready'});
 process.send({type:'hatopad-core-update',branch:'main',expectedCurrent:process.env.HATOPAD_CORE_RUNNING_COMMIT,expectedLatest:process.env.FIXTURE_LATEST});
 process.on('message',m=>{if(m.type==='hatopad-core-update-go'){console.log('STOPPING_FOR_SWITCH');process.exit(75);}if(m.type==='hatopad-core-update-abort'){console.log('ABORTED_KEEPING_CORE');process.exit(0);}});`;
 const scenarios={
+  'local release cache layout':{local:true,npm:0,second:"console.log('UPDATED_CORE:'+process.env.HATOPAD_CORE_RUNNING_COMMIT);process.send({type:'hatopad-core-ready'});setTimeout(()=>process.exit(0),50);",expect:/STOPPING_FOR_SWITCH[\s\S]*UPDATED_CORE/,switched:true},
   success:{npm:0,second:"console.log('UPDATED_CORE:'+process.env.HATOPAD_CORE_RUNNING_COMMIT);process.send({type:'hatopad-core-ready'});setTimeout(()=>process.exit(0),50);",expect:/STOPPING_FOR_SWITCH[\s\S]*UPDATED_CORE/,switched:true},
   'build failure keeps the running Core':{npm:23,second:"console.log('UPDATED_CORE');process.exit(0);",expect:/ABORTED_KEEPING_CORE/,reject:/STOPPING_FOR_SWITCH|UPDATED_CORE/,switched:false},
   'unready release rolls back':{npm:0,second:"console.log('BROKEN_CORE');process.exit(1);",expect:/STOPPING_FOR_SWITCH[\s\S]*BROKEN_CORE[\s\S]*PREVIOUS_RESTARTED/,switched:false}
@@ -33,15 +34,15 @@ for (const [name,scenario] of Object.entries(scenarios)) test(`cloud release lau
     await cp(new URL('../packages/protocol/dist/',import.meta.url),path.join(origin,'packages/protocol/dist'),{recursive:true});
     await writeFile(path.join(origin,'packages/core/dist/index.js'),first_core);
     git(origin,'add','-f','.');git(origin,'commit','-m','initial');const first=git(origin,'rev-parse','HEAD');
-    const deploy=path.join(root,'deploy'),releases=path.join(deploy,'releases');await mkdir(releases,{recursive:true});
+    const deploy=path.join(root,'deploy'),releases=scenario.local?deploy:path.join(deploy,'releases');await mkdir(releases,{recursive:true});
     const firstName=`${first}-node${abi}`,release=path.join(releases,firstName);
     git(root,'clone',origin,release);git(release,'checkout','--detach',first);
-    await writeFile(path.join(release,'.hatopad-build'),`${first}:node${abi}:${process.platform}:${process.arch}\n`);
+    if(scenario.local)await writeFile(path.join(release,'.complete'),first);else await writeFile(path.join(release,'.hatopad-build'),`${first}:node${abi}:${process.platform}:${process.arch}\n`);
     const selection=path.join(root,'server.release');await writeFile(selection,firstName);
     await writeFile(path.join(origin,'packages/core/dist/index.js'),scenario.second);git(origin,'commit','-am','update');
     git(origin,'tag',`core-protocol-${protocolCompatibility.maximum}-v0.1.2`);const latest=git(origin,'rev-parse','HEAD');
     const npm=path.join(root,'npm.mjs');await writeFile(npm,`process.exit(${scenario.npm});`);
-    const result=spawnSync(process.execPath,[path.join(release,'scripts/core-release-service.mjs'),'--gateway-workspace-id','ws1','--workspace','/tmp/x'],{cwd:release,encoding:'utf8',timeout:30000,env:{...process.env,npm_execpath:npm,FIXTURE_LATEST:latest,HATOPAD_CORE_RELEASE_ROOT:deploy,HATOPAD_CORE_RELEASE_SELECTION:selection,HATOPAD_CORE_READY_TIMEOUT_MS:'5000'}});
+    const result=spawnSync(process.execPath,[path.join(release,'scripts/core-release-service.mjs'),'--gateway-workspace-id','ws1','--workspace','/tmp/x'],{cwd:release,encoding:'utf8',timeout:30000,env:{...process.env,npm_execpath:npm,FIXTURE_LATEST:latest,HATOPAD_CORE_RELEASE_ROOT:deploy,...(scenario.local?{HATOPAD_CORE_RELEASES_DIR:deploy}:{}),HATOPAD_CORE_RELEASE_SELECTION:selection,HATOPAD_CORE_READY_TIMEOUT_MS:'5000'}});
     assert.equal(result.status,0,result.stderr+result.stdout);assert.match(result.stdout,scenario.expect);assert.match(result.stdout,/MODE:1:1/);
     if(scenario.reject)assert.doesNotMatch(result.stdout,scenario.reject);
     const chosen=(await readFile(selection,'utf8')).trim();
@@ -50,6 +51,7 @@ for (const [name,scenario] of Object.entries(scenarios)) test(`cloud release lau
     assert.equal(git(release,'rev-parse','HEAD'),first,'running release stays immutable');
     const left=(await readdir(releases)).filter(item=>item.startsWith('.staging'));assert.deepEqual(left,[]);
     assert.deepEqual((await readdir(deploy)).filter(item=>item.endsWith('.lock')),[]);
+    if(scenario.local&&scenario.switched)assert.equal((await readFile(path.join(releases,chosen,'.complete'),'utf8')).trim(),latest);
   } finally {await rm(root,{recursive:true,force:true});}
 });
 

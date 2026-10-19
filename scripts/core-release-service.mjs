@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 // Supervises a Gateway-deployed cloud Core. Releases are immutable clones under
-// <root>/releases; an update stages a new release beside the running one and
+// <root>/releases (or Gateway's local release cache); an update stages a new release beside the running one and
 // switches only after it is built and smoke-tested, then rolls back if it never
 // reports ready. Non-cloud installations keep using core-service.mjs.
 const exec = promisify(execFile);
@@ -17,6 +17,8 @@ const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bund
 const sha = /^[a-f0-9]{40}$/;
 const readyTimeoutMs = Number(process.env.HATOPAD_CORE_READY_TIMEOUT_MS) || 180_000;
 const root = process.env.HATOPAD_CORE_RELEASE_ROOT; const selection = process.env.HATOPAD_CORE_RELEASE_SELECTION;
+// SSH hosts keep releases in <root>/releases; Gateway's local cache keeps them directly in its release directory.
+const releases = process.env.HATOPAD_CORE_RELEASES_DIR || (root ? path.join(root, 'releases') : undefined);
 const workspaceId = (process.argv.join(' ').match(/--gateway-workspace-id ([A-Za-z0-9_-]{1,200})(?: |$)/) ?? [])[1];
 const valid = value => value && value.type === 'hatopad-core-update' && ['dev', 'main'].includes(value.branch) && sha.test(value.expectedCurrent) && sha.test(value.expectedLatest) && (!value.compatibility || Number.isSafeInteger(value.compatibility.minimum) && Number.isSafeInteger(value.compatibility.maximum) && value.compatibility.minimum > 0 && value.compatibility.maximum >= value.compatibility.minimum);
 const exists = target => access(target).then(() => true, () => false);
@@ -47,8 +49,10 @@ async function acquire(lock, owner) {
 }
 async function atomicWrite(file, content) { const temporary = `${file}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`; await writeFile(temporary, content, { mode: 0o600 }); await rename(temporary, file); }
 
-function validBuild(directory, marker) {
-  return readFile(path.join(directory, '.hatopad-build'), 'utf8').then(value => value.trim() === marker && Promise.all(['packages/core/dist/index.js', 'packages/desktop/dist-electron/main.js', 'packages/desktop/dist-renderer/index.html'].map(file => exists(path.join(directory, file)))).then(all => all.every(Boolean)), () => false);
+async function validBuild(directory, marker) {
+  // Remote releases carry `.hatopad-build`; Gateway's local cache carries `.complete` holding the commit.
+  const recorded = (await readFile(path.join(directory, '.hatopad-build'), 'utf8').catch(() => '')).trim() === marker || (await readFile(path.join(directory, '.complete'), 'utf8').catch(() => '')).trim() === marker.split(':')[0];
+  return recorded && (await Promise.all(['packages/core/dist/index.js', 'packages/desktop/dist-electron/main.js', 'packages/desktop/dist-renderer/index.html'].map(file => exists(path.join(directory, file))))).every(Boolean);
 }
 
 /** Builds the requested tag in a staging clone, then publishes it as an immutable release. */
@@ -62,9 +66,9 @@ async function stage(current, request) {
   const toolchain = await runtime(current.directory); const npm = await npmCli(toolchain.node);
   const abi = (await exec(toolchain.node, ['-p', 'process.versions.modules'], { env: { ...env, PATH: toolchain.path } })).stdout.trim();
   const marker = `${request.expectedLatest}:node${abi}:${process.platform}:${process.arch}`;
-  const name = `${request.expectedLatest}-node${abi}`; const target = path.join(root, 'releases', name);
+  const name = `${request.expectedLatest}-node${abi}`; const target = path.join(releases, name);
   if (await exists(target)) { if (!await validBuild(target, marker)) throw new Error('Existing release failed validation'); return { name, directory: target, revision: request.expectedLatest }; }
-  const staging = await mkdtemp(path.join(root, 'releases', `.staging-${name}.`));
+  const staging = await mkdtemp(path.join(releases, `.staging-${name}.`));
   try {
     const origin = await git(current.directory, 'remote', 'get-url', 'origin');
     await exec('git', ['clone', '--no-checkout', current.directory, staging], { env, timeout: 300_000 });
@@ -78,7 +82,7 @@ async function stage(current, request) {
     for (const workspace of ['acp', 'protocol', 'client', 'relay', 'connector', 'test-fixtures', 'core', 'desktop']) await command(staged.node, [npm, 'run', 'build', '-w', `@hatopad/${workspace}`], staging, staged.path);
     const range = request.compatibility ?? protocolCompatibility;
     await command(staged.node, ['--input-type=module', '-e', `const p=await import('./packages/protocol/dist/index.js'); const wire=p.serverProtocolVersion; const range=p.protocolCompatibility; if(wire ? wire<${range.minimum}||wire>${range.maximum} : !range||range.minimum>${range.maximum}||range.maximum<${range.minimum}) throw Error('Incompatible built Core protocol'); await import('./packages/core/dist/server.js');`], staging, staged.path);
-    await writeFile(path.join(staging, '.hatopad-build'), `${marker}\n`);
+    await writeFile(path.join(staging, '.hatopad-build'), `${marker}\n`); await writeFile(path.join(staging, '.complete'), request.expectedLatest);
     if (!await validBuild(staging, marker)) throw new Error('Staged release failed validation');
     if (await git(current.directory, 'rev-parse', 'HEAD') !== request.expectedCurrent) throw new Error('Installation changed');
     await rename(staging, target);
@@ -108,7 +112,7 @@ function start(release, revision, failed, onUpdate) {
 
 async function main() {
   const name = path.basename(home);
-  const managed = root && selection && path.isAbsolute(root) && path.isAbsolute(selection) && releasePattern.test(name) && path.dirname(home) === path.join(root, 'releases');
+  const managed = root && selection && path.isAbsolute(root) && path.isAbsolute(selection) && releasePattern.test(name) && path.dirname(home) === releases;
   const revision = await git(home, 'rev-parse', 'HEAD').catch(() => '');
   if (!managed || !sha.test(revision)) {
     // A layout this supervisor cannot update still runs normally, reporting itself as unmanaged.
