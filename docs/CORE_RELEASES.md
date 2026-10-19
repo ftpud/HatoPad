@@ -5,8 +5,9 @@ minimum/maximum independently. Run `node scripts/sync-protocol.mjs` after changi
 it. This generates Protocol and Gateway metadata; Gateway imports no sibling
 workspace runtime. CI checks that generated declarations are current.
 
-After all CI verification jobs pass for a push to `main` or `dev`, CI creates
-immutable Git tags:
+The dedicated `Protocol tags` workflow validates declarations, generated metadata
+and protocol tests for pushes to `main` or `dev`, then creates immutable Git tags.
+It operates independently of the manually disabled full CI workflow:
 
 - `core-protocol-<server>-v0.<commit-count>.<commit-prefix-number>`
 - `client-protocol-<minimum>-<maximum>-v0.<commit-count>.<commit-prefix-number>`
@@ -56,8 +57,7 @@ An interrupted response is reported as uncertain and is never replayed.
 Verified locally: full build and root typecheck; Protocol/Core/Gateway tests;
 real Git launcher success/build-failure fixtures; tag generation/idempotency;
 Gateway compatible tag selection, stale approval and local staging failures;
-Hub boundary tests and browser confirmation/lost-response checks. CI tag creation
-on GitHub and live cloud Core upgrades require subsequent CI/runtime observation.
+Hub boundary tests and browser confirmation/lost-response checks. Live cloud Core upgrades require subsequent runtime observation.
 
 The existing `main` branch predates the current HatoPad package layout. It has not
 been promoted or given a misleading Core release tag by this change. Stable

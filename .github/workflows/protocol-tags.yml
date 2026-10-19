@@ -1,0 +1,29 @@
+name: Protocol tags
+on:
+  push:
+    branches: [main, dev]
+permissions:
+  contents: read
+jobs:
+  protocol-tags:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Verify declared protocol metadata
+        run: node scripts/sync-protocol.mjs --check
+      - run: npm run build -w @hatopad/acp && npm run build -w @hatopad/protocol
+      - run: npm run test -w @hatopad/protocol
+      - run: node --test scripts/protocol-tags.test.mjs
+      - name: Create immutable client and server tags
+        run: node scripts/protocol-tags.mjs
+      - name: Push protocol tags
+        run: git push origin 'refs/tags/core-protocol-*' 'refs/tags/client-protocol-*'
