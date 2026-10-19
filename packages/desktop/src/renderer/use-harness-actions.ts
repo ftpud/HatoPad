@@ -1,7 +1,12 @@
 import { useCallback, useRef } from "react";
 import { mergeWorkflowHistory } from "./workflow-context";
 import { CoreClient } from "./client";
-import { type HarnessRun, type HarnessDefinition, type HarnessStateDiagnostic, type AiProvider } from "@hatopad/protocol";
+import {
+  type HarnessRun,
+  type HarnessDefinition,
+  type HarnessStateDiagnostic,
+  type AiProvider,
+} from "@hatopad/protocol";
 
 export interface HarnessActionsDeps {
   clientRef: React.MutableRefObject<CoreClient | undefined>;
