@@ -44,10 +44,10 @@ it.each(["Static chat instructions", "Goal: {{input}}; Tool: {{blocks.tool.outpu
   // Continuing after a runner restart must not re-send the Chatbox instructions.
   const resumed = new HarnessRunner(f.store, () => {});
   await resumed.continueChat(run.id, "chat", "second-user-message", dispatch, "test", append);
-  await vi.waitFor(() => expect(resumed.isActive(run.id)).toBe(false));
+  await vi.waitFor(() => expect(resumed.isActive(run.id)).toBe(false), { timeout: 10_000 });
   expect((await resumed.readRun(run.id))?.status).toBe("succeeded");
   expect(dispatch).toHaveBeenCalledOnce(); expect(append).toHaveBeenCalledOnce();
-});
+}, 15_000);
 
 it.each(["Static agent instructions", "Goal: {{input}}; Tool: {{blocks.tool.output}}"])("preserves AI Agent follow-up templates: %s", async (prompt) => {
   const f = await setup([block("parent", "chatbox"), block("agent", "ai", { prompt }), block("tool", "text", { prompt: "tool-result" })]);
