@@ -91,6 +91,8 @@ it("retries only failed stages in the same run and continues their prior session
   expect(append.mock.calls[0]?.[0].id).toBe("failed");
   expect(append.mock.calls[0]?.[1]).toContain("first");
   expect(final.operations!.length).toBeGreaterThan(prior.operations!.length);
+  // Persisting the terminal status precedes the live execution's cleanup.
+  await runner.drain();
   await expect(runner.retryFailedRun(run.id, dispatch, "test", append)).rejects.toThrow("failed workflow");
 });
 it("preserves completed typed-flow blocks when continuing a failed AI block", async () => {
