@@ -35,8 +35,8 @@ describe("endpoint restrictions", () => {
 });
 
 describe("connector against test relay and fake Core", () => {
-  async function setup(credential = "good") {
-    const relay = new TestRelay({ credentials: ["good"] });
+  async function setup(credential = "good", maxFrameBytes?: number) {
+    const relay = new TestRelay({ credentials: ["good"], ...(maxFrameBytes ? { limits: { maxFrameBytes } } : {}) });
     const hubSide = await listen();
     let hubSocket: WebSocket | undefined;
     hubSide.server.on("connection", (socket) => {
@@ -63,7 +63,7 @@ describe("connector against test relay and fake Core", () => {
       random: () => 0
     });
     cleanups.push(() => connector.stop());
-    return { relay, connector, statuses, coreMessages, hub: () => hubSocket };
+    return { relay, connector, statuses, coreMessages, core: core.server, hub: () => hubSocket };
   }
 
   it("relays data after ready and injects the local token only toward Core", async () => {
@@ -83,6 +83,37 @@ describe("connector against test relay and fake Core", () => {
     await until(() => relay.received.length === 1, "reply relayed");
     expect(JSON.stringify(relay.received)).not.toContain("LOCAL-SECRET");
     expect(relay.received[0]).toEqual({ channel, payload: { id: "1", ok: true, result: { echoed: true } } });
+  });
+
+  it("relays multi-megabyte project replies without dropping Hub", async () => {
+    const { relay, connector, statuses, core, hub } = await setup();
+    connector.start();
+    await until(() => statuses.some(s => s.state === "online"), "online");
+    const { channel, frame } = relay.openChannel(); hub()!.send(frame);
+    await until(() => relay.isChannelReady(channel), "ready");
+    const payload = { id: "large-project", ok: true, result: { text: "x".repeat(12 * 1024 * 1024) } };
+    [...core.clients][0]!.send(JSON.stringify(payload));
+    await until(() => relay.received.length === 1, "large reply received");
+    expect(relay.received[0]).toEqual({ channel, payload });
+    expect(hub()!.readyState).toBe(WebSocket.OPEN);
+  });
+
+  it("isolates an oversized Core reply without disconnecting Hub or another browser", async () => {
+    const { relay, connector, statuses, core, hub } = await setup("good", 1024 * 1024);
+    connector.start();
+    await until(() => statuses.some(s => s.state === "online"), "online");
+    const first = relay.openChannel(); hub()!.send(first.frame);
+    const second = relay.openChannel(); hub()!.send(second.frame);
+    await until(() => relay.isChannelReady(first.channel) && relay.isChannelReady(second.channel), "both channels ready");
+    const sockets = [...core.clients];
+    sockets[0]!.send(JSON.stringify({ id: "history", ok: true, result: { text: "x".repeat(4 * 1024 * 1024) } }));
+    await until(() => !relay.isChannelReady(first.channel), "oversized channel closed");
+    expect(hub()!.readyState).toBe(WebSocket.OPEN);
+    expect(relay.isChannelReady(second.channel)).toBe(true);
+    hub()!.send(relay.sendData(second.channel, { id: "still-alive", type: "protocol.keepAlive", payload: {} }));
+    await until(() => relay.received.some(reply => reply.channel === second.channel), "other channel still works");
+    expect(statuses.filter(s => s.state === "online")).toHaveLength(1);
+    expect(statuses.some(s => s.state === "offline")).toBe(false);
   });
 
   it("authenticates maintenance requests with the local token without exposing it to Hub", async () => {

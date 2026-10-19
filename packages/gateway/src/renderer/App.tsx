@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { ArrowUpCircle, Cable, Cloud, CloudUpload, LogOut, PlugZap, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
 
+type CloudCoreList = { roots: GatewayCloudRoot[]; loading: boolean; failure: string };
+
 const emptyState: GatewayState = { connections: [], workspaces: [], portTunnels: [] };
 
 export function gatewayErrorMessage(reason: unknown): string {
@@ -23,6 +25,26 @@ export function GatewayErrorNotice({ message, onDismiss }: { message: string; on
 
 export function App() {
   const [cloud, setCloud] = useState<GatewayCloudAccount>();
+  const [cloudLists, setCloudLists] = useState<Record<string, CloudCoreList>>({});
+  const cloudGeneration = useRef(0);
+  const cloudListOrigin = useRef<string>();
+  const [cloudListRevision, setCloudListRevision] = useState(0);
+  const loadCloudList = useCallback(async (coreId: string, generation = cloudGeneration.current) => {
+    setCloudLists(current => ({ ...current, [coreId]: { roots: current[coreId]?.roots ?? [], loading: true, failure: "" } }));
+    try {
+      const roots = await window.gateway.cloudListCores(coreId);
+      if (generation === cloudGeneration.current) setCloudLists(current => ({ ...current, [coreId]: { roots, loading: false, failure: "" } }));
+    } catch (reason) {
+      if (generation === cloudGeneration.current) setCloudLists(current => ({ ...current, [coreId]: { roots: current[coreId]?.roots ?? [], loading: false, failure: gatewayErrorMessage(reason) } }));
+    }
+  }, []);
+  useEffect(() => {
+    const generation = ++cloudGeneration.current;
+    if (cloudListOrigin.current !== cloud?.origin) setCloudLists({});
+    cloudListOrigin.current = cloud?.origin;
+    for (const core of cloud?.cores ?? []) if (core.status === "online") void loadCloudList(core.id, generation);
+    return () => { ++cloudGeneration.current; };
+  }, [cloud, cloudListRevision, loadCloudList]);
   const [cloudDialog, setCloudDialog] = useState(false);
   const [cloudUrl, setCloudUrl] = useState("");
   const [cloudBusy, setCloudBusy] = useState(false);
@@ -129,7 +151,7 @@ export function App() {
   };
   const refreshCloud = async () => {
     setCloudBusy(true); clearError();
-    try { setCloud(await window.gateway.cloudGet()); } catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+    try { setCloud(await window.gateway.cloudGet()); setCloudListRevision(value => value + 1); } catch (reason) { showError(reason); } finally { setCloudBusy(false); }
   };
   const disconnectCloud = async () => {
     setCloudBusy(true); clearError();
@@ -155,7 +177,7 @@ export function App() {
     </aside>
     <main className="gateway-main">
 
-      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : cloudCore ? <CloudServerView key={`${cloud!.origin}/${cloudCore.id}`} core={cloudCore} cloudBusy={cloudBusy} onRefresh={refreshCloud} onFailure={showError} /> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage HatoPad workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
+      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : cloudCore ? <CloudServerView key={`${cloud!.origin}/${cloudCore.id}`} core={cloudCore} list={cloudLists[cloudCore.id]} cloudBusy={cloudBusy} onRefresh={refreshCloud} onFailure={showError} /> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage HatoPad workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
         <header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">{connection.kind === "local" ? "ON THIS MAC" : "SSH CONNECTION"}</span><h1>{connection.name}</h1><p>{connection.kind === "local" ? "Projects stored on this Mac" : `${connection.username}@${connection.host}`}</p></div><div className="connection-actions">{connection && <><span className={`connection-health ${connectionRuntime!.status}`} title={connectionRuntime!.message} role="status" aria-live="polite">{connection.kind === "local" ? "Local" : connectionHealthName(connectionRuntime!.status)}{connection.kind !== "local" && connectionRuntime!.latencyMs !== undefined && ` · ${connectionRuntime!.latencyMs} ms`}</span><button title="Refresh connection and Core status" aria-label="Refresh connection and Core status" onClick={() => void refreshConnection(connection.id)}><RefreshCw size={14} /></button><DiagnosticsCopyButton onCopy={() => window.gateway.copyDiagnostics(connection.id)} onFailure={(reason) => showError(reason, "Could not copy diagnostics: ")} /><button title="Edit connection" aria-label={`Edit connection ${connection.name}`} onClick={() => { clearError(); setConnectionDialog({ ...connection, password: "", passphrase: "" }); }}><Pencil size={14} /></button><button title="Delete connection" aria-label={`Delete connection ${connection.name}`} onClick={() => void removeConnection(connection)}><Trash2 size={14} /></button></>}</div><div className="workspace-header-actions">{connection.kind !== "local" && <button className="secondary" onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(true); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Search size={15} /> Discover workspaces</button>}<button onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(false); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Plus size={15} /> Add workspace</button></div></header>
         <div className="gateway-content"><section className="workspace-collection"><header className="section-heading"><div><h2 id="workspace-list-heading">Workspaces</h2><span>{workspaces.length} {workspaces.length === 1 ? "project" : "projects"}</span></div></header>
         <div className="workspace-list" role="region" aria-label="Workspaces" tabIndex={0}>{workspaces.map((workspace) => { const current = runtimes[workspace.id] ?? { status: "idle", message: "Not running" }; const busy = current.status === "working"; const serverRunning = current.status === "server" || current.status === "client"; return <article key={workspace.id}>
@@ -201,10 +223,8 @@ export function DiagnosticsCopyButton({ onCopy, onFailure }: { onCopy(): Promise
   return <><button title="Copy connection diagnostics" aria-label="Copy connection diagnostics" disabled={status === "copying"} onClick={() => void copy()}>{status === "success" ? <Check size={14} /> : <Copy size={14} />}</button><span className="visually-hidden" role="status" aria-live="polite">{status === "copying" ? "Copying connection diagnostics" : status === "success" ? "Connection diagnostics copied" : status === "error" ? "Connection diagnostics could not be copied" : ""}</span></>;
 }
 
-function CloudServerView({ core, cloudBusy, onRefresh, onFailure }: { core: GatewayCloudCore; cloudBusy: boolean; onRefresh(): Promise<void>; onFailure(reason: unknown): void }) {
-  const [roots, setRoots] = useState<GatewayCloudRoot[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [failure, setFailure] = useState("");
+function CloudServerView({ core, list, cloudBusy, onRefresh, onFailure }: { core: GatewayCloudCore; list?: CloudCoreList; cloudBusy: boolean; onRefresh(): Promise<void>; onFailure(reason: unknown): void }) {
+  const { roots = [], loading = core.status === "online", failure = "" } = list ?? {};
   const [revision, setRevision] = useState(0);
   const [connecting, setConnecting] = useState<string>();
   const [updateInfo, setUpdateInfo] = useState<GatewayCloudCoreUpdateInfo>();
@@ -219,14 +239,6 @@ function CloudServerView({ core, cloudBusy, onRefresh, onFailure }: { core: Gate
     });
     return () => { active = false; };
   }, [core.id, core.access, revision, updateRevision]);
-  useEffect(() => {
-    let active = true;
-    setRoots([]); setFailure("");
-    if (core.status !== "online") { setLoading(false); return; }
-    setLoading(true);
-    void window.gateway.cloudListCores(core.id).then((value) => { if (active) setRoots(value); }).catch((reason) => { if (active) setFailure(gatewayErrorMessage(reason)); }).finally(() => { if (active) setLoading(false); });
-    return () => { active = false; };
-  }, [core.id, core.status, revision]);
   const connect = async (root: GatewayCloudRoot) => {
     setConnecting(root.id);
     try { await window.gateway.cloudOpen(core.id, root.id); }
@@ -243,7 +255,7 @@ function CloudServerView({ core, cloudBusy, onRefresh, onFailure }: { core: Gate
   };
   const updateTitle = !updateInfo ? "Checking compatible Core release…" : updateInfo.reason ?? `Download and run ${updateInfo.tag ?? `Gateway bundle ${updateInfo.bundledVersion}`} (${updateInfo.bundledRelease?.slice(0, 12)})`;
   const updateMessage = core.access !== "owner" ? "Only the Core owner can install updates." : updating ? "Installing compatible Core…" : !updateInfo ? "Checking compatible Core release…" : updateInfo.reason ?? (updateInfo.updateNeeded ? `Ready to install ${updateInfo.tag ?? `Gateway bundle ${updateInfo.bundledVersion}`}.` : "Core is already using the selected compatible release.");
-  return <section className="workspace-view cloud-server-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{core.name}</h1><p>{core.status} · {core.access}</p>{updateInfo?.tag && <p>{updateInfo.updateNeeded ? "Available" : "Current"}: {updateInfo.tag} · {updateInfo.branch}</p>}</div><div className="connection-actions"><button title={updating ? "Installing compatible Core…" : updateTitle} aria-label="Update cloud Core" disabled={cloudBusy || updating || Boolean(connecting) || !updateInfo?.available || !updateInfo.updateNeeded} onClick={() => void update()}><ArrowUpCircle size={14} className={updating ? "cloud-spinning" : undefined} /></button><button title="Refresh cloud Cores" aria-label="Refresh cloud Cores" disabled={cloudBusy || updating} onClick={() => { void onRefresh(); setRevision((value) => value + 1); }}><RefreshCw size={14} /></button></div></header><div className="cloud-update-status"><p role="status" aria-live="polite" title={updateMessage}>{updateMessage}</p>{core.access === "owner" && updateInfo && !updating && <button className="icon-button" aria-label="Retry Core update check" title="Retry Core update check" disabled={cloudBusy} onClick={() => setUpdateRevision(value => value + 1)}><RefreshCw size={14} /></button>}</div><section className="workspace-collection cloud-core-collection"><header className="section-heading"><div><h2>Cores</h2><span>{updating ? "Installing compatible Core…" : updateDone ? "Core updated" : `${roots.length} available`}</span></div></header><div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>{loading ? <div className="workspace-empty" role="status">Loading Cores…</div> : failure ? <div className="workspace-empty" role="alert">{failure}</div> : core.status !== "online" ? <div className="workspace-empty">Server is {core.status}. Reconnect the server and refresh to see its Cores.</div> : roots.length === 0 ? <div className="workspace-empty">No Cores available on this server.</div> : roots.map((root) => <article key={root.id}><div className="workspace-info"><HardDrive size={17} /><div><h2>{root.alias}</h2><code>{root.path}</code></div><button className="icon-button cloud-core-connect" title={`Connect to ${root.alias}`} aria-label={`Connect to ${root.alias}`} disabled={Boolean(connecting) || updating} onClick={() => void connect(root)}><PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} /></button></div></article>)}</div></section></section>;
+  return <section className="workspace-view cloud-server-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{core.name}</h1><p>{core.status} · {core.access}</p>{updateInfo?.tag && <p>{updateInfo.updateNeeded ? "Available" : "Current"}: {updateInfo.tag} · {updateInfo.branch}</p>}</div><div className="connection-actions"><button title={updating ? "Installing compatible Core…" : updateTitle} aria-label="Update cloud Core" disabled={cloudBusy || updating || Boolean(connecting) || !updateInfo?.available || !updateInfo.updateNeeded} onClick={() => void update()}><ArrowUpCircle size={14} className={updating ? "cloud-spinning" : undefined} /></button><button title="Refresh cloud Cores" aria-label="Refresh cloud Cores" disabled={cloudBusy || updating} onClick={() => { void onRefresh(); setRevision((value) => value + 1); }}><RefreshCw size={14} /></button></div></header><div className="cloud-update-status"><p role="status" aria-live="polite" title={updateMessage}>{updateMessage}</p>{core.access === "owner" && updateInfo && !updating && <button className="icon-button" aria-label="Retry Core update check" title="Retry Core update check" disabled={cloudBusy} onClick={() => setUpdateRevision(value => value + 1)}><RefreshCw size={14} /></button>}</div><section className="workspace-collection cloud-core-collection"><header className="section-heading"><div><h2>Cores</h2><span>{updating ? "Installing compatible Core…" : updateDone ? "Core updated" : `${roots.length} available`}</span></div></header><div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>{core.status === "online" && loading && !roots.length ? <div className="workspace-empty" role="status">Loading Cores…</div> : failure ? <div className="workspace-empty" role="alert">{failure}</div> : core.status !== "online" ? <div className="workspace-empty">Server is {core.status}. Reconnect the server and refresh to see its Cores.</div> : roots.length === 0 ? <div className="workspace-empty">No Cores available on this server.</div> : roots.map((root) => <article key={root.id}><div className="workspace-info"><HardDrive size={17} /><div><h2>{root.alias}</h2><code>{root.path}</code></div><button className="icon-button cloud-core-connect" title={`Connect to ${root.alias}`} aria-label={`Connect to ${root.alias}`} disabled={Boolean(connecting) || updating} onClick={() => void connect(root)}><PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} /></button></div></article>)}</div></section></section>;
 }
 
 function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): void }) {

@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
 import { createCloudBridge, type CloudRelayTarget } from "./cloud-tunnel.js";
 
-async function fixture(rejectedType?: string) {
+async function fixture(rejectedType?: string, replyBytes = 0) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
   const address = server.address();
@@ -22,7 +22,7 @@ async function fixture(rejectedType?: string) {
         socket.send(JSON.stringify({ id: message.id, ok: false, error: { code: "INVALID_REQUEST", message: "This operation is not available through HatoHub" } }));
         return;
       }
-      const result = message.type === "protocol.handshake" ? { compatible: true } : { roots, selectedRootId: "root-1" };
+      const result = message.type === "protocol.handshake" ? { compatible: true } : { roots, selectedRootId: "root-1", ...(replyBytes ? { padding: "x".repeat(replyBytes) } : {}) };
       socket.send(JSON.stringify({ id: message.id, ok: true, result }));
     });
   });
@@ -84,3 +84,16 @@ test("relay failures surface to Desktop and leave no hanging loopback connection
   } finally { bridge.close(); }
 });
 
+
+
+test("bridge carries project replies larger than the previous 8 MiB bridge limit", async () => {
+  const hub = await fixture(undefined, 12 * 1024 * 1024);
+  const bridge = await createCloudBridge(hub.target);
+  const local = await connect(bridge.port);
+  try {
+    await request(local, { id: "hello", type: "protocol.handshake", payload: { token: bridge.token } });
+    const reply = await request(local, { id: "large", type: "workspace.roots", payload: {} });
+    assert.equal(reply.result.padding.length, 12 * 1024 * 1024);
+    assert.equal(local.readyState, WebSocket.OPEN);
+  } finally { local.terminate(); bridge.close(); await hub.close(); }
+});

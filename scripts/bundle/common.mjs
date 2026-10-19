@@ -76,6 +76,14 @@ export async function pruneRuntimeDependencies(destination, dependencies) {
   await prune(path.join(destination, 'node_modules'));
 }
 
+/** Electron main imports protocol helpers at startup, including in the embedded Desktop. */
+export async function prepareElectronRuntime(destination, source = root) {
+  for (const name of ['acp', 'protocol']) {
+    await cp(path.join(source, 'packages', name, 'dist'), path.join(destination, 'packages', name, 'dist'), { recursive: true });
+  }
+  await pruneRuntimeDependencies(destination, ['ws', 'ssh2', '@hatopad/protocol']);
+}
+
 /** Preserve framework links so the copied app stays relocatable. */
 export async function copyBundledApplication(source, destination) {
   await cp(source, destination, { recursive: true, verbatimSymlinks: true });

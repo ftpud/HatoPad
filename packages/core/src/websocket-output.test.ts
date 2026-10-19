@@ -164,3 +164,12 @@ describe("bounded WebSocket output", () => {
     }
   });
 });
+
+
+it("allows large project replies with the default outbound budget", () => {
+  const peer = new Peer();
+  const message = "x".repeat(20 * 1024 * 1024);
+  expect(sendWebSocketData(peer.socket(), message)).toBe(true);
+  expect(peer.sent[0]).toBe(message);
+  expect(peer.readyState).toBe(WebSocket.OPEN);
+});

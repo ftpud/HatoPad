@@ -3,7 +3,8 @@ import { createServer } from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
 
 export type CloudRelayTarget = { origin: string; coreId: string; cookie(): Promise<string> };
-const maxBufferedBytes = 8 * 1024 * 1024;
+const maxFrameBytes = 64 * 1024 * 1024;
+const maxBufferedBytes = 128 * 1024 * 1024;
 
 export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocket> {
   const url = new URL("/relay/browser", target.origin);
@@ -11,7 +12,7 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
   url.searchParams.set("coreId", target.coreId);
   const cookie = await target.cookie();
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, { origin: target.origin, headers: { cookie }, handshakeTimeout: 15_000, maxPayload: maxBufferedBytes });
+    const socket = new WebSocket(url, { origin: target.origin, headers: { cookie }, handshakeTimeout: 15_000, maxPayload: maxFrameBytes });
     socket.on("error", () => undefined);
     const fail = () => { socket.terminate(); reject(new Error("Could not connect to cloud Core. Refresh cloud status and check your sign-in.")); };
     socket.once("error", fail);
@@ -24,7 +25,7 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
 export async function createCloudBridge(target: CloudRelayTarget): Promise<{ port: number; token: string; close(): void }> {
   const token = randomBytes(32).toString("hex");
   const server = createServer((_request, response) => { response.writeHead(404); response.end(); });
-  const wss = new WebSocketServer({ server, maxPayload: maxBufferedBytes, perMessageDeflate: false });
+  const wss = new WebSocketServer({ server, maxPayload: maxFrameBytes, perMessageDeflate: false });
   const sockets = new Set<WebSocket>();
   let stopped = false;
   wss.on("connection", (local) => {

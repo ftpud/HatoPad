@@ -15,7 +15,7 @@ const outputs = new WeakMap<WebSocket, WebSocketOutput>();
 
 export function websocketOutboundLimits(options: WebSocketOutboundOptions = {}) {
   const limits = {
-    maxBufferedBytes: options.maxBufferedBytes ?? 16 * 1024 * 1024,
+    maxBufferedBytes: options.maxBufferedBytes ?? 128 * 1024 * 1024,
     maxCoalescedBytes: options.maxCoalescedBytes ?? 64 * 1024,
     maxCoalescedEvents: options.maxCoalescedEvents ?? 64,
     drainIntervalMs: options.drainIntervalMs ?? 25,

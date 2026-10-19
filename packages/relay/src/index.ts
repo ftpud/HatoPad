@@ -20,9 +20,9 @@ export interface RelayLimits {
 }
 
 export const DEFAULT_RELAY_LIMITS: RelayLimits = {
-  maxFrameBytes: 1024 * 1024,
+  maxFrameBytes: 64 * 1024 * 1024,
   maxChannels: 16,
-  maxQueuedBytesPerChannel: 4 * 1024 * 1024,
+  maxQueuedBytesPerChannel: 128 * 1024 * 1024,
   maxFramesPerSecond: 200,
   heartbeatIntervalMs: 20_000
 };

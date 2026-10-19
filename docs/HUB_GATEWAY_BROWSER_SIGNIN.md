@@ -106,3 +106,27 @@ Verified: Gateway build/typecheck, 31 renderer tests and 101 Electron tests;
 Chromium desktop/phone light/dark styling and overflow checks. Live Google,
 passkey and isolated Electron-session verification still require the updated
 Hub deployment and a separate end-to-end check.
+
+## Core discovery and large project replies
+
+Gateway preloads online servers' Core lists after loading the cloud account and
+retains those lists while switching between servers. Refresh updates the lists
+without clearing already known roots. Opening a Core no longer repeats the
+workspace-list discovery before launching Desktop; Desktop validates its root
+through its own authenticated connection.
+
+The relay accepts 64 MiB serialized frames, with 128 MiB channel/bridge buffers
+and a matching Core outbound budget. Desktop keeps full conversation responses;
+these transport limits also cover large project metadata. A Core reply exceeding
+the negotiated relay limit closes only that channel, preserving the connector
+and other clients. Gateway retains Desktop launch output in its private
+`logs/desktop-launch.log`. Packaged Desktop includes its protocol/ACP runtime
+imports.
+
+Verified with 12 MiB relay/bridge fixtures, a 20 MiB Core outbound reply, and the
+existing running Core's full 3,846,351-byte VibeHub session response through a
+local instance of the actual Hub relay, connector and Desktop bridge. Hub stayed
+online and the Desktop renderer opened without errors. The development Hub was then deployed with the updated packed relay dependency
+on 2026-10-19. Its public readiness check returned 200 and the existing Core
+reconnected online without a Core restart. Gateway changes still require an
+updated/rebuilt Gateway on the client device.

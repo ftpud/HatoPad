@@ -4,7 +4,7 @@ import { spawn, execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { macApplicationIcon } from './icon.mjs';
 import { packageGatewayInstaller } from './gateway-installer.mjs';
-import { root, output, json, writeJson, run, stageWorkspace, sha256, pruneRuntimeDependencies, copyBundledApplication, pruneElectronLocales } from './common.mjs';
+import { root, output, json, writeJson, run, stageWorkspace, sha256, prepareElectronRuntime, copyBundledApplication, pruneElectronLocales } from './common.mjs';
 
 if (!(process.platform === 'darwin' && process.arch === 'arm64') && !(process.platform === 'win32' && process.arch === 'x64')) throw new Error('Build apps on macOS ARM64 or Windows x64');
 const commit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
@@ -26,8 +26,7 @@ for (const kind of ['desktop', 'gateway']) {
   await stageWorkspace(staging, kind);
   // Renderer imports are already compiled by Vite. Only Electron main-process
   // dependencies belong in the shipped node_modules.
-  const runtimeDependencies = ['ws', 'ssh2'];
-  await pruneRuntimeDependencies(staging, runtimeDependencies);
+  await prepareElectronRuntime(staging);
   const appDirectory = path.join(staging, 'packages', kind);
   for (const name of ['dist-electron', 'dist-renderer', 'assets']) await cp(path.join(root, 'packages', kind, name), path.join(appDirectory, name), { recursive: true, filter: source => !source.endsWith('.test.js') });
   // Remove the workspace's self-link before dereferencing the dependency tree.

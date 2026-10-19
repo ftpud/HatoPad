@@ -245,6 +245,17 @@ describe("Gateway cloud", () => {
     await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
     expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
   });
+  it("preloads cloud Cores before selection and retains them when switching servers", async () => {
+    bridge(account); render(<App />);
+    await waitFor(() => expect(window.gateway.cloudListCores).toHaveBeenCalledWith("remote-core"));
+    expect(screen.queryByText("/srv/project")).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    expect(await screen.findByText("/srv/project")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "This Mac, local Mac" }));
+    fireEvent.click(screen.getByRole("button", { name: /Cloud machine/ }));
+    expect(screen.getByText("/srv/project")).toBeTruthy();
+    expect(window.gateway.cloudListCores).toHaveBeenCalledTimes(1);
+  });
   it("can cancel while waiting for browser sign-in", async () => {
     bridge();
     let cancel!: () => void;

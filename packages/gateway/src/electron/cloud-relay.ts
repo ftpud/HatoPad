@@ -4,7 +4,8 @@ import type { Compatibility } from "./client-compatibility.js";
 
 export type CloudRoot = { id: string; alias: string; path: string; primary: boolean };
 export type CloudRelayTarget = { origin: string; coreId: string; cookie(): Promise<string> };
-const maxBufferedBytes = 8 * 1024 * 1024;
+const maxFrameBytes = 64 * 1024 * 1024;
+const maxBufferedBytes = 128 * 1024 * 1024;
 
 export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocket> {
   const url = new URL("/relay/browser", target.origin);
@@ -12,7 +13,7 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
   url.searchParams.set("coreId", target.coreId);
   const cookie = await target.cookie();
   return new Promise((resolve, reject) => {
-    const socket = new WebSocket(url, { origin: target.origin, headers: { cookie }, handshakeTimeout: 15_000, maxPayload: maxBufferedBytes });
+    const socket = new WebSocket(url, { origin: target.origin, headers: { cookie }, handshakeTimeout: 15_000, maxPayload: maxFrameBytes });
     socket.on("error", () => undefined);
     const fail = () => { socket.terminate(); reject(new Error("Could not connect to cloud Core. Refresh cloud status and check your sign-in.")); };
     socket.once("error", fail);

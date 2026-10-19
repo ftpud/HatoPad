@@ -234,7 +234,7 @@ export class CoreConnector {
   }
 
   private openLocal(channel: string, generation: number): void {
-    const socket = new WebSocket(this.localUrl, { maxPayload: this.limits.maxFrameBytes * 8 });
+    const socket = new WebSocket(this.localUrl, { maxPayload: this.limits.maxFrameBytes });
     this.channels.set(channel, { socket, generation });
     socket.on("open", () => {
       const result = this.table?.ready(channel, generation);
@@ -246,11 +246,21 @@ export class CoreConnector {
       const text = data.toString();
       let payload: unknown;
       try { payload = JSON.parse(text); } catch { this.diagnostic("local Core sent non-JSON"); return; }
-      if (this.hub.bufferedAmount > this.limits.maxQueuedBytesPerChannel * this.limits.maxChannels) {
+      const frame: RelayFrame = { type: "channel.data", channel, generation, payload };
+      // Hub enforces this limit on its shared connector socket. One large history
+      // reply must not disconnect every other browser channel for this Core.
+      const encoded = serializeRelayFrame(frame);
+      const bytes = Buffer.byteLength(encoded);
+      if (bytes > this.limits.maxFrameBytes) {
+        this.diagnostic("local Core response exceeds relay frame limit");
+        this.closeChannel(channel, generation, "too-large");
+        return;
+      }
+      if (this.hub.bufferedAmount + bytes > this.limits.maxQueuedBytesPerChannel) {
         this.closeChannel(channel, generation, "quota");
         return;
       }
-      this.sendHub({ type: "channel.data", channel, generation, payload });
+      this.hub.send(encoded);
     });
     socket.on("close", () => {
       if (this.channels.get(channel)?.socket !== socket) return;

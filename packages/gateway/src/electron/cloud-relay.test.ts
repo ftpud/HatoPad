@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
 import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 
-async function fixture(rejectedType?: string, incompatible = false) {
+async function fixture(rejectedType?: string, incompatible = false, replyBytes = 0) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
   const address = server.address();
@@ -22,7 +22,7 @@ async function fixture(rejectedType?: string, incompatible = false) {
         socket.send(JSON.stringify({ id: message.id, ok: false, error: { code: "INVALID_REQUEST", message: "This operation is not available through HatoHub" } }));
         return;
       }
-      const result = message.type === "protocol.maintenance" ? {maintenance:true,compatible:!incompatible} : message.type === "protocol.handshake" ? { compatible: !incompatible } : { roots, selectedRootId: "root-1" };
+      const result = message.type === "protocol.maintenance" ? {maintenance:true,compatible:!incompatible} : message.type === "protocol.handshake" ? { compatible: !incompatible } : { roots, selectedRootId: "root-1", ...(replyBytes ? { padding: "x".repeat(replyBytes) } : {}) };
       socket.send(JSON.stringify({ id: message.id, ok: true, result }));
     });
   });
@@ -53,4 +53,11 @@ for (const legacy of [false,true]) test(`${legacy ? 'older' : 'incompatible'} Co
   const hub=await fixture(legacy ? 'protocol.maintenance' : undefined,!legacy);
   try {await assert.rejects(listCloudRoots(hub.target,{minimum:19,maximum:19}),/Core.*(?:compatib|update)/);assert.deepEqual(hub.requests.map(request=>request.type),['protocol.maintenance']);}
   finally {await hub.close();}
+});
+
+
+test("Gateway accepts discovery replies larger than the previous 8 MiB limit", async () => {
+  const hub = await fixture(undefined, false, 12 * 1024 * 1024);
+  try { assert.deepEqual(await listCloudRoots(hub.target, { minimum: 19, maximum: 19 }), hub.roots); }
+  finally { await hub.close(); }
 });

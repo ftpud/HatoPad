@@ -511,14 +511,21 @@ async function launchManagedDesktop(desktopRoot: string, connection: Record<stri
   await access(desktopMain);
   const file = await writeDesktopHandoff(path.join(app.getPath("userData"), "connection-launches"), connection);
   const desktop = desktopCommand(desktopMain);
-  const child = spawn(desktop.command, [...desktop.args, "--connection-file", file], {
-    cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore"
-  });
+  const logPath = path.join(app.getPath("userData"), "logs", "desktop-launch.log");
+  await mkdir(path.dirname(logPath), { recursive: true });
+  const log = await open(logPath, "a", 0o600);
+  let child: ReturnType<typeof spawn>;
   try {
+    child = spawn(desktop.command, [...desktop.args, "--connection-file", file], {
+      cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: ["ignore", log.fd, log.fd]
+    });
     await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+  } catch (error) { await rm(file, { force: true }); throw error; }
+  finally { await log.close(); }
+  try {
     const deadline = Date.now() + 15_000;
     while (await access(file).then(() => true, () => false)) {
-      if (child.exitCode !== null || child.signalCode !== null || Date.now() >= deadline) throw new Error("Desktop did not accept its connection handoff. Rebuild or update Desktop and try again.");
+      if (child.exitCode !== null || child.signalCode !== null || Date.now() >= deadline) throw new Error(`Desktop did not accept its connection handoff. Inspect ${logPath} for the startup error.`);
       await new Promise(resolve => setTimeout(resolve, 100));
     }
     child.unref();
@@ -678,8 +685,7 @@ handleIpc("gateway:cloudUpdateCore", async (_event, coreId: string, expectedRele
 handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));
 handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) => {
   const target = await cloudTarget(coreId);
-  const roots = await cloudRoots(target);
-  if (!roots.some((root) => root.id === rootId)) throw new Error("Cloud workspace is unavailable. Refresh the Core list.");
+  if (typeof rootId !== "string" || !rootId) throw new Error("Cloud workspace is unavailable. Refresh the Core list.");
   const desktopRoot = cloudDesktopRoot();
   const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
   await access(desktopMain).catch(() => { throw new Error("Desktop is missing. Build or reinstall Gateway before connecting to cloud."); });
