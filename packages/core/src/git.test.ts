@@ -27,7 +27,7 @@ describe("parseGitStatus", () => {
   });
 
   it("returns HEAD and workspace contents for a changed file", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -44,7 +44,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back tracked and untracked files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rollback-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rollback-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -61,7 +61,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back task changes to the base without changing HEAD or unrelated files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-task-rollback-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-task-rollback-"));
     const git = (...args: string[]) => execFileAsync("git", ["-C", root, ...args]);
     await git("init");
     await git("config", "user.email", "test@example.com");
@@ -98,7 +98,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back task renames and treats wildcard paths literally", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-task-rollback-rename-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-task-rollback-rename-"));
     const git = (...args: string[]) => execFileAsync("git", ["-C", root, ...args]);
     await git("init");
     await git("config", "user.email", "test@example.com");
@@ -122,7 +122,7 @@ describe("parseGitStatus", () => {
   });
 
   it("stages and unstages exact reviewed hunks without changing the worktree", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-hunks-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-hunks-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -146,7 +146,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rejects a stale reviewed hunk with a refresh instruction", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-stale-hunk-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-stale-hunk-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await writeFile(path.join(root, "file.txt"), "before\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
     await writeFile(path.join(root, "file.txt"), "first\n"); const filesystem = new WorkspaceFileSystem(); await filesystem.open(root); const service = new GitService(root);
@@ -156,7 +156,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back only selected staged, unstaged, partially staged, deleted, and renamed entries", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rollback-selected-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rollback-selected-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -183,7 +183,7 @@ describe("parseGitStatus", () => {
   });
 
   it("requires explicit permission before deleting selected untracked files and reports partial failures", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rollback-untracked-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rollback-untracked-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -207,7 +207,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back a staged new file in a repository without HEAD", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rollback-unborn-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rollback-unborn-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await writeFile(path.join(root, "new.txt"), "new\n");
     await execFileAsync("git", ["-C", root, "add", "new.txt"]);
@@ -218,7 +218,7 @@ describe("parseGitStatus", () => {
   });
 
   it("rolls back a selected merge conflict to HEAD", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rollback-conflict-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rollback-conflict-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -241,7 +241,7 @@ describe("parseGitStatus", () => {
   });
 
   it("commits only selected files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-commit-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-commit-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -259,7 +259,7 @@ describe("parseGitStatus", () => {
   });
 
   it("amends only staged index changes and undoes the last commit into the worktree", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-rewrite-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-rewrite-"));
     await execFileAsync("git", ["-C", root, "init"]); await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]); await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await writeFile(path.join(root, "file.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", "initial"]);
     await writeFile(path.join(root, "file.txt"), "staged\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await writeFile(path.join(root, "other.txt"), "unstaged\n");
@@ -280,7 +280,7 @@ describe("parseGitStatus", () => {
   });
 
   it("cherry-picks a commit or applies it without committing", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-cherry-pick-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-cherry-pick-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -323,7 +323,7 @@ describe("Git conflict resolution", () => {
   });
 
   it("recognizes stash conflicts and does not offer nonexistent native actions", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-stash-conflict-")); await initRepository(root);
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-stash-conflict-")); await initRepository(root);
     await writeFile(path.join(root, "file.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await execFileAsync("git", ["-C", root, "commit", "-m", "base"]);
     await writeFile(path.join(root, "file.txt"), "stashed\n"); await execFileAsync("git", ["-C", root, "stash", "push", "-m", "conflict"]); await writeFile(path.join(root, "file.txt"), "current\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await execFileAsync("git", ["-C", root, "commit", "-m", "current"]); await execFileAsync("git", ["-C", root, "stash", "apply"]).catch(() => undefined);
     const service = new GitService(root); await expect(service.conflicts()).resolves.toMatchObject({ operation: "stash", canContinue: false, canAbort: false }); await expect(service.conflictAction("abort")).rejects.toThrow("no native abort");
@@ -335,7 +335,7 @@ async function initRepository(root: string): Promise<void> {
 }
 
 async function conflictedMerge(name: string): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), `remote-ide-git-conflict-${name}-`)); await initRepository(root); await writeFile(path.join(root, "file.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await execFileAsync("git", ["-C", root, "commit", "-m", "base"]); const branch = (await execFileAsync("git", ["-C", root, "branch", "--show-current"])).stdout.trim();
+  const root = await mkdtemp(path.join(tmpdir(), `hatopad-git-conflict-${name}-`)); await initRepository(root); await writeFile(path.join(root, "file.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "file.txt"]); await execFileAsync("git", ["-C", root, "commit", "-m", "base"]); const branch = (await execFileAsync("git", ["-C", root, "branch", "--show-current"])).stdout.trim();
   await execFileAsync("git", ["-C", root, "checkout", "-b", "theirs"]); await writeFile(path.join(root, "file.txt"), "theirs\n"); await execFileAsync("git", ["-C", root, "commit", "-am", "theirs"]); await execFileAsync("git", ["-C", root, "checkout", branch]); await writeFile(path.join(root, "file.txt"), "ours\n"); await execFileAsync("git", ["-C", root, "commit", "-am", "ours"]); await execFileAsync("git", ["-C", root, "merge", "theirs"]).catch(() => undefined); return root;
 }
 
@@ -386,7 +386,7 @@ describe("Git ref merges", () => {
 });
 
 async function mergeRepository(mode: "fast-forward" | "diverged" | "conflict"): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), `remote-ide-git-merge-${mode}-`)); await initRepository(root);
+  const root = await mkdtemp(path.join(tmpdir(), `hatopad-git-merge-${mode}-`)); await initRepository(root);
   await writeFile(path.join(root, "base.txt"), "base\n"); if (mode === "conflict") await writeFile(path.join(root, "shared.txt"), "base\n");
   await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", "base"]); const branch = (await execFileAsync("git", ["-C", root, "branch", "--show-current"])).stdout.trim();
   await execFileAsync("git", ["-C", root, "checkout", "-b", "feature"]); await writeFile(path.join(root, mode === "conflict" ? "shared.txt" : "feature.txt"), "feature\n"); await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", "feature"]); await execFileAsync("git", ["-C", root, "checkout", branch]);
@@ -396,7 +396,7 @@ async function mergeRepository(mode: "fast-forward" | "diverged" | "conflict"): 
 
 describe("Git stashes", () => {
   it("creates explicit stashes, previews overlap, and retains a failed pop", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-stash-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-stash-"));
     await execFileAsync("git", ["-C", root, "init"]); await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]); await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
     await writeFile(path.join(root, "file.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", "initial"]);
     await writeFile(path.join(root, "file.txt"), "stashed\n"); await writeFile(path.join(root, "new.txt"), "new\n");
@@ -410,7 +410,7 @@ describe("Git stashes", () => {
 
 describe("Git upstream status", () => {
   it("reports no upstream, ahead/behind counts, fetch time, and clears ahead after push", async () => {
-    const parent = await mkdtemp(path.join(tmpdir(), "remote-ide-git-upstream-"));
+    const parent = await mkdtemp(path.join(tmpdir(), "hatopad-git-upstream-"));
     const remote = path.join(parent, "remote.git");
     const root = path.join(parent, "repo");
     await execFileAsync("git", ["init", "--bare", remote]);
@@ -446,7 +446,7 @@ describe("Git upstream status", () => {
   });
 
   it("previews fetched commits, blocks dirty and stale pulls, and runs explicit merge or rebase without stashing", async () => {
-    const parent = await mkdtemp(path.join(tmpdir(), "remote-ide-git-pull-"));
+    const parent = await mkdtemp(path.join(tmpdir(), "hatopad-git-pull-"));
     const remote = path.join(parent, "remote.git"); const root = path.join(parent, "repo"); const other = path.join(parent, "other");
     await execFileAsync("git", ["init", "--bare", remote]); await execFileAsync("git", ["clone", remote, root]);
     for (const repo of [root]) { await execFileAsync("git", ["-C", repo, "config", "user.email", "test@example.com"]); await execFileAsync("git", ["-C", repo, "config", "user.name", "Test"]); }
@@ -469,7 +469,7 @@ describe("Git upstream status", () => {
 
 describe("local Git tags", () => {
   it("lists, creates, and deletes local tags", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-tags-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-tags-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -526,7 +526,7 @@ describe("interactive rebase planner", () => {
 
 describe("Git branch management", () => {
   it("creates branches, previews unmerged commits, and protects worktree branches from deletion", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-git-branches-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-git-branches-"));
     await execFileAsync("git", ["-C", root, "init"]);
     await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
     await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
@@ -573,7 +573,7 @@ describe("Git history parsing", () => {
 });
 
 async function rebaseRepository(subjects: string[], shared = false): Promise<string> {
-  const root = await mkdtemp(path.join(tmpdir(), "remote-ide-rebase-")); await execFileAsync("git", ["-C", root, "init"]); await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]); await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+  const root = await mkdtemp(path.join(tmpdir(), "hatopad-rebase-")); await execFileAsync("git", ["-C", root, "init"]); await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]); await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
   await writeFile(path.join(root, shared ? "shared.txt" : "base.txt"), "base\n"); await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", "base"]); await execFileAsync("git", ["-C", root, "branch", "upstream"]); await execFileAsync("git", ["-C", root, "switch", "-c", "feature"]); await execFileAsync("git", ["-C", root, "branch", "--set-upstream-to=upstream"]);
   for (const [index, subject] of subjects.entries()) { await writeFile(path.join(root, `${index}-${subject}.txt`), `${subject}\n`); await execFileAsync("git", ["-C", root, "add", "."]); await execFileAsync("git", ["-C", root, "commit", "-m", subject]); }
   return root;

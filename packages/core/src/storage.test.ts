@@ -6,7 +6,7 @@ import path from "node:path";
 import os from "node:os";
 import crypto from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
-import type { HarnessRun, StorageCategory } from "@remote-ide/protocol";
+import type { HarnessRun, StorageCategory } from "@hatopad/protocol";
 import { ServerStorage, storageAge, storageCutoffs } from "./storage.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { HarnessStore } from "./harnesses.js";
@@ -17,8 +17,8 @@ afterEach(async () => { await Promise.all(temporary.splice(0).map((entry) => rm(
 const hash = (value: string) => crypto.createHash("sha256").update(value).digest("hex");
 async function fixture() {
   // macOS temp paths may use /var, a symlink; keep the cleanup fixtures canonical.
-  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-storage-"))); temporary.push(home);
-  const stateDirectory = path.join(home, ".remote-ide", "workspaces"); await mkdir(stateDirectory, { recursive: true });
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-storage-"))); temporary.push(home);
+  const stateDirectory = path.join(home, ".hatopad", "workspaces"); await mkdir(stateDirectory, { recursive: true });
   const root = path.join(home, "project"); await mkdir(root);
   const service = new ServerStorage({ home, stateDirectory, roots: () => [root], isBusy: async () => false });
   const file = async (name: string, days: number, content = "stored content") => {
@@ -73,7 +73,7 @@ describe("server storage", () => {
     expect(await readFile(path.join(`${path.dirname(old)}-moved`, "old.json"), "utf8")).toBe("stored content");
   });
   it("cleans rotated logs but preserves current server logs and provider databases", async () => {
-    const f = await fixture(); const rotated = path.join(f.home, ".vibe-server-test.log.previous"), live = path.join(f.home, ".vibe-server-test.log");
+    const f = await fixture(); const rotated = path.join(f.home, ".hatopad-server-test.log.previous"), live = path.join(f.home, ".hatopad-server-test.log");
     for (const file of [rotated, live]) { await writeFile(file, "server log"); const old = new Date(Date.now() - 20 * 86400000); await utimes(file, old, old); }
     await mkdir(path.join(f.home, ".codex")); await writeFile(path.join(f.home, ".codex", "state.sqlite"), "database");
     await f.scan(); await f.clean("logs", "older");

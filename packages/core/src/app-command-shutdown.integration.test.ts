@@ -21,7 +21,7 @@ it("drains an admitted MCP bridge command through its response before shutdown c
   let shutdown: Promise<void> | undefined;
   try {
     await mkdir(workspace); await promisify(execFile)("git", ["init", workspace]);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     server = await createServer("127.0.0.1", 0, workspace);
     const bridge = new AppEventBridge(workspace, undefined, appBridgeInstanceId);
     command = bridge.call({ name: "test-admitted-command", args: {} }, 5_000);

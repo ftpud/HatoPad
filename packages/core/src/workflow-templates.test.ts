@@ -59,3 +59,5 @@ describe("Git review and commit template", () => {
     expect((await exec("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"])).stdout).toBe((await git("rev-parse", "HEAD")).stdout);
   });
 });
+
+it("lists bounded template metadata without prompts or graph bodies", async () => { const { workflowTemplateCatalog } = await import("./workflow-templates.js"); const catalog = workflowTemplateCatalog(); expect(catalog).toHaveLength(2); expect(catalog.every(item => item.blocks > 0 && !Object.hasOwn(item, "prompt"))).toBe(true); });

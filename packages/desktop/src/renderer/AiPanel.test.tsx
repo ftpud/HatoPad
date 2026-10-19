@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { AiPanel, ContextUsageIndicator, contextUsage, resolveAiLink } from "./AiPanel";
 
 afterEach(cleanup);
@@ -83,7 +83,7 @@ describe("response provenance", () => {
 });
 
 describe("activity output", () => {
-  it("keeps execution output expandable without linking provider terminal IDs to Vibe terminals", () => {
+  it("keeps execution output expandable without linking provider terminal IDs to HatoPad terminals", () => {
     const conversation: AiSession = { id: "one", model: "model-a", reasoning: "low", status: "done", messages: [{ id: "tool", role: "activity", text: "Run build\nBuild succeeded", terminalId: "terminal-1", timestamp: "2026-08-30T12:00:00.000Z" }] };
     render(<AiPanel provider="codex" providers={[]} session={conversation} sessions={[conversation]} models={[]} attachments={[]} permissionOwner={{ provider: "codex" }} onProviderChange={vi.fn()} onConfigurationChange={vi.fn()} onAttachmentsChange={vi.fn()} onSend={vi.fn()} onSteer={vi.fn()} onInterrupt={vi.fn()} onNewSession={vi.fn()} onSwitchSession={vi.fn()} onRemoveSession={vi.fn()} onResolvePermission={vi.fn()} />);
     const summary = screen.getByText("Run build").closest("summary")!;

@@ -8,7 +8,7 @@ import type { TerminalSessionHost } from "./process-manager.js";
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function fixture() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-run-config-")); roots.push(root);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-run-config-")); roots.push(root);
   const workspace = path.join(root, "workspace"); const state = path.join(root, "state"); await mkdir(workspace);
   const terminal = { create: vi.fn(() => ({ terminalId: "terminal-1", status: "running", output: "" })), input: vi.fn(), terminate: vi.fn() } as unknown as TerminalSessionHost;
   const changed = vi.fn(); const service = new RunConfigService(terminal, changed, workspace, state); return { root, workspace, global: service.directory(workspace, "global"), local: service.directory(workspace, "local"), terminal, changed, service };

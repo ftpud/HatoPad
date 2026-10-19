@@ -3,7 +3,7 @@ import { constants, createWriteStream } from "node:fs";
 import { chmod, link, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { WebSocket } from "ws";
-import { remoteTransferDefaultLimit, type RemoteTransferDirection, type RemoteTransferTicket } from "@remote-ide/protocol";
+import { remoteTransferDefaultLimit, type RemoteTransferDirection, type RemoteTransferTicket } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 type Entry = { token: string; workspace: string; target: string; relative: string; direction: RemoteTransferDirection; size: number; maxBytes: number; overwrite: boolean; mode: number; expiresAt: number; socket?: WebSocket; partial?: string; cancelled: boolean; stop?: () => Promise<void> };
@@ -118,7 +118,7 @@ export class RemoteTransferService {
     await mkdir(path.dirname(entry.target), { recursive: true });
     await rejectSymlinkPath(entry.workspace, entry.target, true);
     if (entry.cancelled || this.closed || socket.readyState !== socket.OPEN) return;
-    entry.partial = path.join(path.dirname(entry.target), `.${path.basename(entry.target)}.vibe-part-${randomBytes(8).toString("hex")}`);
+    entry.partial = path.join(path.dirname(entry.target), `.${path.basename(entry.target)}.hatopad-part-${randomBytes(8).toString("hex")}`);
     const file = createWriteStream(entry.partial, { flags: "wx", mode: 0o600 });
     const closed = new Promise<void>((resolve) => file.once("close", resolve));
     let received = 0;

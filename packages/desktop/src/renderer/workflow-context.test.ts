@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { HarnessRun } from "@remote-ide/protocol";
+import type { HarnessRun } from "@hatopad/protocol";
 import { mergeWorkflowHistory, workflowRunsForContext } from "./workflow-context";
 
 it("keeps live cancellation and new runs when an older history response arrives", () => {

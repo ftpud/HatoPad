@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { HarnessBlock, HarnessBlockRun } from "@remote-ide/protocol";
-import { MeetingUpdates, useMeeting } from "./workflow-meeting.js";
+import type { HarnessBlock, HarnessBlockRun, HarnessRun } from "@hatopad/protocol";
+import { MeetingUpdates, useMeeting, publishMeetingStatusChanges } from "./workflow-meeting.js";
 
 const agent = (id: string): HarnessBlock => ({ id, label: id, type: "ai", provider: "claude", model: "sonnet", prompt: "", position: { x: 0, y: 0 } });
 const room = (): HarnessBlockRun => ({ blockId: "meeting", status: "queued" });
@@ -66,5 +66,45 @@ describe("Meeting transcript", () => {
     useMeeting(state, agent("__proto__"), { action: "publish", message: "Hello" });
     expect(useMeeting(state, agent("__proto__"), {})).toMatchObject({ cursor: 1 });
     expect(Object.getPrototypeOf(state.meeting?.cursors)).toBe(Object.prototype);
+  });
+});
+
+describe("Meeting participant status notices", () => {
+  it("publishes concise transitions to connected rooms once and makes them readable through diff", async () => {
+    const run: HarnessRun = {
+      id: "run", harnessId: "flow", harnessVersion: 1, input: "work", status: "running", createdAt: "now",
+      definition: { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [agent("a"), agent("b"), { ...agent("chat"), type: "chatbox" }, { ...agent("meeting"), type: "meeting" }, { ...agent("other"), type: "meeting" }], edges: [
+        { id: "a-room", from: "a", to: "meeting", type: "use" },
+        { id: "a-room-duplicate", from: "a", to: "meeting", type: "use" },
+        { id: "b-room", from: "b", to: "meeting", type: "use" },
+        { id: "chat-room", from: "chat", to: "meeting" },
+      ] },
+      blocks: ["a", "b", "chat", "meeting", "other"].map((blockId) => ({ blockId, status: "queued" })),
+    };
+    const previous = new Map<string, string>();
+    expect(publishMeetingStatusChanges(run, previous)).toEqual([]);
+    const participant = run.blocks[0]!;
+    const meeting = run.blocks[3]!;
+    const updates = new MeetingUpdates();
+    for (const status of ["running", "waiting_timer", "running", "succeeded", "running", "failed", "cancelled"] as const) {
+      participant.status = status;
+      const waiting = updates.wait(run.id, "meeting", 1000);
+      const changed = publishMeetingStatusChanges(run, previous);
+      expect(changed).toEqual(["meeting"]);
+      changed.forEach((id) => updates.publish(run.id, id));
+      await expect(waiting).resolves.toBe("updated");
+      expect(publishMeetingStatusChanges(run, previous)).toEqual([]);
+    }
+    expect(meeting.meeting?.messages.map((message) => message.text)).toEqual([
+      "[Status] a started activity.", "[Status] a is waiting for a timer.", "[Status] a started activity.",
+      "[Status] a is idle.", "[Status] a started activity.", "[Status] a stopped with an error.", "[Status] a was stopped.",
+    ]);
+    expect(useMeeting(meeting, agent("b"), { action: "diff" }).messages).toHaveLength(7);
+    expect(useMeeting(meeting, agent("b"), { action: "diff" }).messages).toHaveLength(0);
+    expect(run.blocks[4]!.meeting).toBeUndefined();
+    run.blocks[2]!.status = "running";
+    expect(publishMeetingStatusChanges(run, previous)).toEqual(["meeting"]);
+    expect(meeting.meeting?.messages.at(-1)?.text).toBe("[Status] chat started activity.");
+    expect(meeting.output).toContain("[Status] chat started activity.");
   });
 });

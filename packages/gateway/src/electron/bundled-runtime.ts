@@ -1,14 +1,18 @@
+import { protocolCompatibility } from "./protocol-versions.js";
 import { createReadStream } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { access, readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { quoteWorkspaceShellArgument as shell } from "./workspace-path.js";
 
-export type CoreBundle = { target: string; commit: string; release: string; archive: string; sha256: string };
+export type CoreBundle = { target: string; commit: string; release: string; archive: string; sha256: string; protocol?: number };
 /** Gateway argument that runs the bundled Editor on Gateway's own Electron runtime. */
-export const EDITOR_FLAG = "--vibe-editor";
+export const EDITOR_FLAG = "--hatopad";
 /** `desktopApp` is the Editor's Electron app directory (package.json, dist-electron, dist-renderer, node_modules), relative to `bundle/`. */
 export type BundleManifest = { schema: 1; channel: "early-access"; version: string; commit: string; desktopApp: string; cores: Record<string, CoreBundle> };
+export function bundleCoreCompatible(core: CoreBundle): boolean {
+  return Number.isSafeInteger(core.protocol) && core.protocol! >= protocolCompatibility.minimum && core.protocol! <= protocolCompatibility.maximum;
+}
 export async function loadBundle(resources: string): Promise<BundleManifest> {
   const manifest = JSON.parse(await readFile(path.join(resources, "bundle/manifest.json"), "utf8")) as BundleManifest;
   if (manifest.schema !== 1 || manifest.channel !== "early-access" || !/^[0-9a-f]{40,64}$/.test(manifest.commit)) throw new Error("Invalid Early Access bundle manifest");
@@ -37,20 +41,20 @@ export async function verifiedCoreArchive(resources: string, core: CoreBundle): 
 }
 export function bundledEnvironment(release: string): string {
   if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(release)) throw new Error("Invalid bundled release identity");
-  return `export PATH="$HOME/.vibe-deploy/releases/${release}/bin:$PATH"`;
+  return `export PATH="$HOME/.hatopad-deploy/releases/${release}/bin:$PATH"`;
 }
 
 /** Upload to a private directory, verify before extraction, then atomically install. */
 export function installBundleCommand(core: CoreBundle, upload: string): string {
-  if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(core.release) || !/^[0-9a-f]{64}$/.test(core.sha256) || !/^\.vibe-upload-[a-zA-Z0-9-]+$/.test(upload)) throw new Error("Invalid bundled deployment parameters");
+  if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(core.release) || !/^[0-9a-f]{64}$/.test(core.sha256) || !/^\.hatopad-upload-[a-zA-Z0-9-]+$/.test(upload)) throw new Error("Invalid bundled deployment parameters");
   return `set -eu
 umask 077
 archive="$HOME/${upload}/core.tar.gz"
-base="$HOME/.vibe-deploy/releases"
+base="$HOME/.hatopad-deploy/releases"
 mkdir -p "$base"
 staging="$base/.bundle-$$-$RANDOM"
 promotion=""
-provision_lock="$HOME/.vibe-deploy/provision.lock"
+provision_lock="$HOME/.hatopad-deploy/provision.lock"
 lock_owned=0
 trap 'rm -rf "$staging" "$HOME/${upload}"; if [ -n "$promotion" ]; then rmdir "$promotion" 2>/dev/null || true; fi; if [ "$lock_owned" = 1 ]; then rm -rf "$provision_lock"; fi' EXIT
 if ! mkdir "$provision_lock" 2>/dev/null; then echo 'Gateway provisioning or storage maintenance is in progress; retry when it finishes' >&2; exit 1; fi
@@ -75,7 +79,7 @@ else
   rmdir "$lock"
   promotion=""
 fi
-echo VIBE_RESULT:${core.commit}:0:${core.release}`;
+echo HATOPAD_RESULT:${core.commit}:0:${core.release}`;
 }
 
 const preparing = new Map<string, Promise<string>>();

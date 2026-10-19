@@ -1,6 +1,6 @@
 import { Check, ChevronDown, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { AiModel } from "@remote-ide/protocol";
+import type { AiModel } from "@hatopad/protocol";
 
 /**
  * Catalogue-aware model chooser. ACP agents advertise more than a name: Copilot

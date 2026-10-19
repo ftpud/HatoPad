@@ -6,7 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { WebSocket, type WebSocketServer } from "ws";
 import { afterEach, expect, it, vi } from "vitest";
-import { protocolCompatibility, type AiMcpServer, type AiSession, type HarnessBlock, type HarnessRun, type ProtocolOperations, type RequestType, type Response } from "@remote-ide/protocol";
+import { protocolCompatibility, type AiMcpServer, type AiSession, type HarnessBlock, type HarnessRun, type ProtocolOperations, type RequestType, type Response } from "@hatopad/protocol";
 import { AiTimerStore } from "./ai-timers.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { WorkspaceRootRegistry } from "./workspace-roots.js";
@@ -43,7 +43,7 @@ async function connect(initialRootId: string) {
 }
 async function setup() {
   directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "workflow-binding-server-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   const primary = path.join(directory, "primary"), secondary = path.join(directory, "secondary");
   for (const root of [primary, secondary]) {
     await mkdir(root); await exec("git", ["init", "-q", root]);
@@ -116,8 +116,8 @@ it("recovers queued secondary-root work on server restart with the primary Core 
   await vi.waitFor(async () => expect((await f.store.runs()).find((item) => item.id === run.id)).toMatchObject({ status: "succeeded" }), { timeout: 4_000 });
   expect(await readFile(path.join(f.wa, "actual-cwd.txt"), "utf8")).toBe(`${f.wa}\n`);
   expect(await readFile(path.join(f.wa, "actual-script.txt"), "utf8")).toBe(`${f.wa}\n`);
-  const tools = f.starts[0]!.servers?.find((item) => item.name === "vibe-editor");
-  expect(tools && tools.transport === "stdio" ? tools.env : undefined).toMatchObject({ VIBE_EDITOR_ROOT_WORKSPACE: f.secondary, VIBE_EDITOR_BRIDGE_WORKSPACE: f.primary });
+  const tools = f.starts[0]!.servers?.find((item) => item.name === "hatopad");
+  expect(tools && tools.transport === "stdio" ? tools.env : undefined).toMatchObject({ HATOPAD_ROOT_WORKSPACE: f.secondary, HATOPAD_BRIDGE_WORKSPACE: f.primary });
   await closeServer();
   await f.store.saveRun({ ...run, id: "restart-missing" }); await rm(f.wa, { recursive: true, force: true });
   await f.start();
@@ -146,8 +146,8 @@ it("uses secondary recoveryAppend and the server timer owner loop after switches
   await vi.waitFor(async () => expect((await f.store.runs()).find((item) => item.id === saved.id)?.status).toBe("succeeded"), { timeout: 4_000 });
   expect(f.sends).toHaveLength(2);
   expect(f.sends.every((send) => send.workspace === alias)).toBe(true);
-  const tools = f.sends[0]!.servers?.find((item) => item.name === "vibe-editor");
-  expect(tools && tools.transport === "stdio" ? tools.env : undefined).toMatchObject({ VIBE_EDITOR_ROOT_WORKSPACE: f.secondary, VIBE_EDITOR_BRIDGE_WORKSPACE: f.primary });
+  const tools = f.sends[0]!.servers?.find((item) => item.name === "hatopad");
+  expect(tools && tools.transport === "stdio" ? tools.env : undefined).toMatchObject({ HATOPAD_ROOT_WORKSPACE: f.secondary, HATOPAD_BRIDGE_WORKSPACE: f.primary });
   expect(await readFile(path.join(f.wa, "continuation-cwd.txt"), "utf8")).toBe(`${f.wa}\n${f.wa}\n`);
   await expect(readFile(path.join(f.wb, "continuation-cwd.txt"))).rejects.toThrow();
 }, 15000);

@@ -1,4 +1,4 @@
-import type { GitHistoryRewritePreview } from "@remote-ide/protocol";
+import type { GitHistoryRewritePreview } from "@hatopad/protocol";
 
 export function GitHistoryRewriteDialog({ action, preview, busy, onClose, onConfirm }: { action: "amend" | "undo"; preview: GitHistoryRewritePreview; busy: boolean; onClose(): void; onConfirm(confirmedRisk: boolean): void }) {
   const risk = preview.confirmationRequired;

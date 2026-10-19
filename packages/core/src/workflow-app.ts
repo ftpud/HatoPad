@@ -6,7 +6,7 @@ import { stat } from "node:fs/promises";
 import { workspaceShellCommand } from "./workspace-shell.js";
 import path from "node:path";
 import { spawn, type IPty } from "node-pty";
-import type { AiSession, HarnessAppState, HarnessAppAction, HarnessBlock } from "@remote-ide/protocol";
+import type { AiSession, HarnessAppState, HarnessAppAction, HarnessBlock } from "@hatopad/protocol";
 
 type App = { events: EventEmitter; terminalIds: Map<string, string>; launchId: string; child: IPty; output: string; status: "starting" | "running" | "exited"; exitCode: number | null; signal: string | null; ready: Promise<void>; closed: Promise<void> };
 
@@ -57,7 +57,7 @@ export class WorkflowAppService {
         const processContext = { ...context, rootWorkspace: context.rootWorkspace ?? workspace, workspace, kind: "workflow-app" as const, appName: name, command: `${name}: ${block.command}` };
         const launch = managedProcesses.prepare(processContext);
         let child: IPty;
-        try { child = spawn(shell, args, { cwd: workspace, env: { ...launch.env, TERM: "xterm-256color", COLORTERM: "truecolor", VIBE_WORKFLOW_INPUT: input }, name: "xterm-256color", cols: 100, rows: 30 }); }
+        try { child = spawn(shell, args, { cwd: workspace, env: { ...launch.env, TERM: "xterm-256color", COLORTERM: "truecolor", HATOPAD_WORKFLOW_INPUT: input, VIBE_WORKFLOW_INPUT: input }, name: "xterm-256color", cols: 100, rows: 30 }); }
         catch (error) { managedProcesses.abandon(launch.launchId); throw error; }
         const launchId = launch.launchId;
         const lifecycle = Object.assign(new EventEmitter(), { pid: child.pid });

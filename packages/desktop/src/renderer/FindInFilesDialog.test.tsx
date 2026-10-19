@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { SearchResult } from "@remote-ide/protocol";
+import type { SearchResult } from "@hatopad/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreClient } from "./client";
 import { FindInFilesDialog } from "./FindInFilesDialog";

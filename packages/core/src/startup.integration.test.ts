@@ -7,14 +7,14 @@ import path from "node:path";
 import chokidar from "chokidar";
 import { WebSocket } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import { createServer, shutdownCore } from "./server.js";
 
 it("serves an authenticated protocol handshake while the initial workspace watcher is still scanning", async () => {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "vibe-startup-scan-"));
-  const state = await mkdtemp(path.join(os.tmpdir(), "vibe-startup-state-"));
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-startup-scan-"));
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-startup-state-"));
   await promisify(execFile)("git", ["init", "-q", workspace]);
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", state);
+  vi.stubEnv("HATOPAD_STATE_DIR", state);
   const pending = Object.assign(new EventEmitter(), { close: vi.fn(async () => {}) });
   const watch = vi.spyOn(chokidar, "watch").mockImplementationOnce(() => pending as unknown as ReturnType<typeof chokidar.watch>);
   let server: Awaited<ReturnType<typeof createServer>> | undefined;

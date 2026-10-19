@@ -1,4 +1,4 @@
-import type { FileTreeNode } from "@remote-ide/protocol";
+import type { FileTreeNode } from "@hatopad/protocol";
 
 /** The focused node and stable selection count drive both menus and keyboard commands. */
 export type ProjectTreeAction = "createFile" | "createDirectory" | "rename" | "open" | "duplicate" | "copyTo" | "moveTo" | "copyRelativePath" | "copyAbsolutePath" | "delete";

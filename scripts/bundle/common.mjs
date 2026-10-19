@@ -24,12 +24,12 @@ export function run(command, args, cwd = root, env = process.env) {
 export async function stageWorkspace(destination, workspace) {
   await mkdir(destination, { recursive: true });
   for (const file of ['package.json', 'package-lock.json', 'LICENSE.md']) await cp(path.join(root, file), path.join(destination, file));
-  for (const name of ['acp', 'protocol', 'core', 'desktop', 'gateway']) {
+  for (const name of ['acp', 'protocol', 'client', 'relay', 'connector', 'test-fixtures', 'core', 'desktop', 'gateway']) {
     const target = path.join(destination, 'packages', name);
     await mkdir(target, { recursive: true });
     await cp(path.join(root, 'packages', name, 'package.json'), path.join(target, 'package.json'));
   }
-  await run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--workspace', `@remote-ide/${workspace}`, '--include-workspace-root=false'], destination);
+  await run('npm', ['ci', '--omit=dev', '--ignore-scripts', '--no-audit', '--no-fund', '--workspace', `@hatopad/${workspace}`, '--include-workspace-root=false'], destination);
 }
 
 export async function sha256(file) {
@@ -76,13 +76,21 @@ export async function pruneRuntimeDependencies(destination, dependencies) {
   await prune(path.join(destination, 'node_modules'));
 }
 
+/** Electron main imports protocol helpers at startup, including in the embedded Desktop. */
+export async function prepareElectronRuntime(destination, source = root) {
+  for (const name of ['acp', 'protocol']) {
+    await cp(path.join(source, 'packages', name, 'dist'), path.join(destination, 'packages', name, 'dist'), { recursive: true });
+  }
+  await pruneRuntimeDependencies(destination, ['ws', 'ssh2', '@hatopad/protocol']);
+}
+
 /** Preserve framework links so the copied app stays relocatable. */
 export async function copyBundledApplication(source, destination) {
   await cp(source, destination, { recursive: true, verbatimSymlinks: true });
 }
 
 /**
- * Vibe's UI is English-only; Chromium's other UI translations add ~60 MB per
+ * HatoPad's UI is English-only; Chromium's other UI translations add ~60 MB per
  * Electron copy. Runs on the extracted Electron before the app is signed.
  */
 export async function pruneElectronLocales(buildPath, keep = ['en.lproj', 'en-US.pak']) {

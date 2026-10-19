@@ -1,14 +1,15 @@
+import { metadataPage } from "./metadata-page.js";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import path from "node:path";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { createHash } from "node:crypto";
-import type { FileRevision, GitBranch, GitBranchDeletePreview, GitCommit, GitCommitFile, GitConflictOperationKind, GitConflictWorkspace, GitDiffHunk, GitHistoryRewritePreview, GitMergePreview, GitMergeRef, GitMergeResult, GitPullPreview, GitPullResult, GitPullStrategy, GitRebasePreview, GitRebaseResult, GitRebaseTodoItem, GitRollbackFailure, GitStash, GitStashInclusion, GitStashPreview, GitStatusEntry, GitTag, GitUpstreamStatus } from "@remote-ide/protocol";
+import type { GitSummary, FileRevision, GitBranch, GitBranchDeletePreview, GitCommit, GitCommitFile, GitConflictOperationKind, GitConflictWorkspace, GitDiffHunk, GitHistoryRewritePreview, GitMergePreview, GitMergeRef, GitMergeResult, GitPullPreview, GitPullResult, GitPullStrategy, GitRebasePreview, GitRebaseResult, GitRebaseTodoItem, GitRollbackFailure, GitStash, GitStashInclusion, GitStashPreview, GitStatusEntry, GitTag, GitUpstreamStatus } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { serializedRootMutation } from "./root-mutation.js";
-import type { GitCommitPatch } from "@remote-ide/protocol";
+import type { GitCommitPatch } from "@hatopad/protocol";
 
 const execFileAsync = promisify(execFile);
 
@@ -32,6 +33,31 @@ export class GitService {
       if (message.includes("not a git repository")) throw new CoreError("GIT_NOT_REPOSITORY", "Workspace is not a Git repository");
       throw new CoreError("GIT_FAILED", `Could not read Git status: ${message}`);
     }
+  }
+
+  async summary(limit = 100, offset = 0): Promise<GitSummary> {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new CoreError("INVALID_REQUEST", "Choose a valid summary page");
+    const status = await this.status();
+    let head = false; try { await this.git(["rev-parse", "--verify", "HEAD"]); head = true; } catch { /* Unborn branch. */ }
+    const outputs = head ? [await this.git(["diff", "--numstat", "-z", "--no-renames", "HEAD", "--"])] : await Promise.all([this.git(["diff", "--numstat", "-z", "--no-renames", "--"]), this.git(["diff", "--cached", "--numstat", "-z", "--no-renames", "--"])]);
+    const counts = new Map<string, { additions: number | null; deletions: number | null }>();
+    for (const output of outputs) for (const record of output.split("\0").filter(Boolean)) {
+      const first = record.indexOf("\t"), second = record.indexOf("\t", first + 1);
+      if (first < 0 || second < 0) continue;
+      const file = record.slice(second + 1), added = record.slice(0, first), removed = record.slice(first + 1, second);
+      const prior = counts.get(file);
+      const binary = added === "-" || removed === "-" || prior?.additions === null;
+      counts.set(file, { additions: binary ? null : (prior?.additions ?? 0) + Number(added), deletions: binary ? null : (prior?.deletions ?? 0) + Number(removed) });
+    }
+    const entries: GitSummary["entries"] = status.entries.map(entry => {
+      const values = [counts.get(entry.path), ...(entry.originalPath ? [counts.get(entry.originalPath)] : [])].filter(value => value !== undefined);
+      const unknown = entry.indexStatus === "?" || values.length === 0 || values.some(value => value.additions === null);
+      const conflicted = entry.indexStatus === "U" || entry.worktreeStatus === "U" || ["AA", "DD"].includes(entry.indexStatus + entry.worktreeStatus);
+      return { ...entry, group: conflicted ? "conflicted" : entry.indexStatus === "?" ? "untracked" : entry.indexStatus !== " " ? "staged" : "working-tree", additions: unknown ? null : values.reduce((sum, value) => sum + (value.additions ?? 0), 0), deletions: unknown ? null : values.reduce((sum, value) => sum + (value.deletions ?? 0), 0) };
+    });
+    const revision = createHash("sha256").update(JSON.stringify({ ...status, entries })).digest("hex");
+    const page = metadataPage(entries, offset, limit);
+    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, conflicts: entries.filter(entry => entry.group === "conflicted").length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: page.rows, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) };
   }
 
   private async upstreamStatus(): Promise<GitUpstreamStatus | undefined> {
@@ -449,7 +475,7 @@ export class GitService {
 
   /** Zero-context hunks turning `before` into `after`, compared outside the repository. */
   private async lineDiffHunks(before: string, after: string): Promise<LineHunk[]> {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-line-map-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-line-map-"));
     try {
       await Promise.all([writeFile(path.join(directory, "before"), before), writeFile(path.join(directory, "after"), after)]);
       const output = await new Promise<string>((resolve, reject) => execFile("git", ["diff", "--no-index", "--no-color", "-U0", "--", path.join(directory, "before"), path.join(directory, "after")], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
@@ -572,7 +598,7 @@ export class GitService {
     if (include.staged && !include.unstaged && (include.untracked || include.ignored)) throw new CoreError("INVALID_REQUEST", "A staged-only stash cannot include untracked or ignored files; include unstaged changes too");
     if (paths && (!Array.isArray(paths) || paths.length > 500)) throw new CoreError("INVALID_REQUEST", "Invalid stash path selection");
     for (const filePath of paths ?? []) validatePath(filePath);
-    const args = ["stash", "push", "--message", (message?.trim() || "Vibe Editor stash")];
+    const args = ["stash", "push", "--message", (message?.trim() || "HatoPad stash")];
     if (include.staged && !include.unstaged) args.push("--staged");
     else if (!include.staged && include.unstaged) args.push("--keep-index");
     else if (!include.staged && !include.unstaged && (include.untracked || include.ignored)) args.push("--keep-index");
@@ -766,7 +792,7 @@ export class GitService {
   }
 
   private async rebasePlanDirectory(): Promise<string> {
-    const gitPath = (await this.git(["rev-parse", "--git-path", "vibe-rebase-plan"])).trim();
+    const gitPath = (await this.git(["rev-parse", "--git-path", "hatopad-rebase-plan"])).trim();
     return path.isAbsolute(gitPath) ? gitPath : path.resolve(this.workspace, gitPath);
   }
 

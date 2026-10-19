@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 
 describe("WorkspaceSearch", () => {
   it("searches recursively inside a selected directory", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await mkdir(path.join(root, "src", "nested"), { recursive: true });
     await writeFile(path.join(root, "src", "a.ts"), "const target = 1;\n");
     await writeFile(path.join(root, "src", "nested", "b.ts"), "TARGET value\n");
@@ -30,7 +30,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("returns no matches when a scoped directory is absent", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target\n");
     const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
 
@@ -38,7 +38,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("searches inside a directory Git reports as one embedded-repository entry", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-")); const nested = path.join(root, "nested");
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-")); const nested = path.join(root, "nested");
     await execFileAsync("git", ["init", "-q", root]); await mkdir(nested); await execFileAsync("git", ["init", "-q", nested]); await writeFile(path.join(nested, "a.txt"), "target\n");
     const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
     const result = await new WorkspaceSearch(filesystem).search("target", "nested", false);
@@ -46,7 +46,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("returns bounded surrounding context and marks omitted or shortened content", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     const longLine = "a".repeat(201);
     await writeFile(path.join(root, "a.txt"), `one\ntwo\nthree\n${longLine}\ntarget\nsix\nseven\neight\n`);
     const filesystem = new WorkspaceFileSystem();
@@ -69,7 +69,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("supports case-sensitive matching", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "Target\ntarget\n");
     const filesystem = new WorkspaceFileSystem();
     await filesystem.open(root);
@@ -79,7 +79,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("returns every non-overlapping occurrence on a line", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target target TARGET\ntargettarget\n");
     const filesystem = new WorkspaceFileSystem();
     await filesystem.open(root);
@@ -97,7 +97,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("returns at most one match per file for file-content filtering", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target target\ntarget\n");
     await writeFile(path.join(root, "b.txt"), "target\n");
     const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
@@ -108,7 +108,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("evaluates include and exclude globs in Core and excludes binary files", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await mkdir(path.join(root, "src"));
     await writeFile(path.join(root, "src", "kept.ts"), "target\n");
     await writeFile(path.join(root, "src", "skip.test.ts"), "target\n");
@@ -119,7 +119,7 @@ describe("WorkspaceSearch", () => {
   });
 
   it("previews replacements and reports changed files without hiding partial success", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "remote-ide-search-"));
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target\n"); await writeFile(path.join(root, "b.txt"), "target\n");
     const filesystem = new WorkspaceFileSystem(); await filesystem.open(root); const search = new WorkspaceSearch(filesystem);
     const preview = await search.previewReplace("target", "done", "", false);

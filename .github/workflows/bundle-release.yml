@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir bundles
-          for artifact in vibe-early-access-macos-15 vibe-early-access-windows-2025; do
+          for artifact in hatopad-early-access-macos-15 hatopad-early-access-windows-2025; do
             gh run download "$RUN_ID" --name "$artifact" --dir bundles
           done
 
@@ -66,7 +66,7 @@ jobs:
           from pathlib import Path
 
           bundles = Path('bundles')
-          manifests = sorted([*bundles.glob('vibe-gateway-*.dmg.json'), *bundles.glob('vibe-gateway-*-setup.exe.json')])
+          manifests = sorted([*bundles.glob('hatopad-gateway-*.dmg.json'), *bundles.glob('hatopad-gateway-*-setup.exe.json')])
           if len(manifests) != 2:
               found = ', '.join(sorted(p.name for p in bundles.iterdir())) or '(no files)'
               raise SystemExit(
@@ -93,7 +93,7 @@ jobs:
           assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Expected a major.minor.patch bundle version'
           assert os.environ['TAG'] == 'v' + version, 'Release tag must match the bundle version: v' + version
           for suffix in ('darwin-arm64.dmg', 'win32-x64-setup.exe'):
-              assert f'vibe-gateway-{version}-{suffix}' in expected
+              assert f'hatopad-gateway-{version}-{suffix}' in expected
           assets = Path('assets')
           assets.mkdir()
           for filename in sorted(expected):
@@ -111,6 +111,6 @@ jobs:
           printf '\nEarly Access release. Applications are unsigned; macOS uses ad-hoc signing.\n' >> notes.md
           # Upload everything while still a draft, then make the complete release visible.
           gh release create "$TAG" assets/* --target "$SOURCE_SHA" \
-            --title "Vibe $TAG (Early Access)" --notes-file notes.md --draft
+            --title "HatoPad $TAG (Early Access)" --notes-file notes.md --draft
           gh release edit "$TAG" --draft=false --prerelease=false --latest
           gh release view "$TAG" --json url --jq .url >> "$GITHUB_STEP_SUMMARY"

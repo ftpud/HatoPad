@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import type { HarnessBlock } from "@remote-ide/protocol";
+import type { HarnessBlock } from "@hatopad/protocol";
 import { TerminalSessionHost } from "./process-manager.js";
 import { executeTerminalControl, executeTerminalControlAsync } from "./workflow-terminal.js";
 import { WorkflowAppService } from "./workflow-app.js";

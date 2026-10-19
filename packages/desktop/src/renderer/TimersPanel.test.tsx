@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TimersPanel } from "./TimersPanel";
-import type { WorkspaceSchedule } from "@remote-ide/protocol";
+import type { WorkspaceSchedule } from "@hatopad/protocol";
 
 afterEach(cleanup);
 function setup(schedules: WorkspaceSchedule[] = []) {

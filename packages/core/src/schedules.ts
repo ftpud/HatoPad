@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { ScheduledAction, ScheduleInput, WorkspaceSchedule } from "@remote-ide/protocol";
+import type { ScheduledAction, ScheduleInput, WorkspaceSchedule } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { serializedStateMutation } from "./root-mutation.js";
 
@@ -32,11 +33,12 @@ function abandoned(launch: PendingLaunch): boolean {
   try { process.kill(launch.pid, 0); return false; }
   catch (error) { return (error as NodeJS.ErrnoException).code === "ESRCH"; }
 }
+function revision(value: object): string { return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex"); }
 function withoutLaunch(schedule: StoredSchedule): WorkspaceSchedule { const { pendingLaunch: _pendingLaunch, ...value } = schedule; return value; }
 function interrupted(schedule: StoredSchedule): WorkspaceSchedule { return { ...withoutLaunch(schedule), enabled: false, lastError: UNKNOWN_LAUNCH }; }
 function publicSchedule(schedule: StoredSchedule): WorkspaceSchedule {
   if (schedule.pendingLaunch?.host !== undefined && schedule.pendingLaunch.host !== os.hostname()) return { ...withoutLaunch(schedule), enabled: false, lastError: "A scheduled launch is owned by another host. Inspect its outcome before retrying." };
-  return schedule.pendingLaunch && abandoned(schedule.pendingLaunch) ? interrupted(schedule) : withoutLaunch(schedule);
+  return schedule.pendingLaunch && abandoned(schedule.pendingLaunch) ? interrupted(schedule) : { ...withoutLaunch(schedule), ...(schedule.pendingLaunch ? { launching: true } : {}) };
 }
 
 
@@ -53,7 +55,7 @@ export class ScheduleService {
   private closePromise?: Promise<void>;
   private warnedBackupRecovery = false;
 
-  constructor(rootWorkspace: string, private readonly deliver: (schedule: WorkspaceSchedule, active: () => boolean) => Promise<{ workflowRunId?: string }>, private readonly changed: () => void, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, private readonly deliver: (schedule: WorkspaceSchedule, active: () => boolean) => Promise<{ workflowRunId?: string }>, private readonly changed: () => void, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     this.file = path.join(stateDirectory, `${crypto.createHash("sha256").update(rootWorkspace).digest("hex")}-schedules.json`);
   }
 
@@ -121,7 +123,7 @@ export class ScheduleService {
     }
   }
 
-  list(): WorkspaceSchedule[] { return this.schedules.map((schedule) => structuredClone(publicSchedule(schedule))).sort((a, b) => a.dueAt.localeCompare(b.dueAt)); }
+  list(includeRevision = false): WorkspaceSchedule[] { return this.schedules.map((schedule) => structuredClone({ ...publicSchedule(schedule), ...(includeRevision ? { revision: revision(schedule) } : {}) })).sort((a, b) => a.dueAt.localeCompare(b.dueAt)); }
 
   async create(rootId: string, input: ScheduleInput): Promise<WorkspaceSchedule> {
     this.assertOpen();
@@ -132,6 +134,21 @@ export class ScheduleService {
     await this.mutate((items) => [...items, schedule]);
     this.arm(schedule);
     return schedule;
+  }
+
+  async update(id: string, rootId: string, input: ScheduleInput, enabled: boolean, expectedRevision: string): Promise<WorkspaceSchedule> {
+    this.assertOpen(); validateSchedule(input);
+    if (typeof enabled !== "boolean" || typeof expectedRevision !== "string") throw new CoreError("INVALID_REQUEST", "Enabled and expected revision are required");
+    if (enabled && Date.parse(input.dueAt) <= Date.now()) throw new CoreError("INVALID_REQUEST", "First run time must be in the future");
+    await this.mutate(items => {
+      const previous = items.find(item => item.id === id && item.rootId === rootId);
+      if (!previous) throw new CoreError("FILE_NOT_FOUND", "Schedule no longer exists in this root");
+      if (revision(previous) !== expectedRevision || previous.pendingLaunch || this.running.has(id)) throw new CoreError("INVALID_REQUEST", "Schedule changed or is launching; refresh before editing");
+      return items.map(item => item.id === id ? { ...item, ...structuredClone(input), name: input.name.trim(), dueAt: new Date(input.dueAt).toISOString(), enabled } : item);
+    });
+    this.cancellationEpochs.set(id, (this.cancellationEpochs.get(id) ?? 0) + 1);
+    this.disarm(id); this.arm(this.schedules.find(item => item.id === id)!);
+    return this.list(true).find(item => item.id === id)!;
   }
 
   async setEnabled(id: string, enabled: boolean): Promise<WorkspaceSchedule> {
@@ -249,7 +266,12 @@ export class ScheduleService {
         this.changed();
       });
     });
-    this.writes = write;
+    // Rejected optimistic edits are handled requests, not failed shutdown work.
+    this.writes = write.catch(error => {
+      if (error instanceof CoreError && ["INVALID_REQUEST", "FILE_NOT_FOUND"].includes(error.code)) return;
+      throw error;
+    });
+    void this.writes.catch(() => undefined);
     await write;
   }
 

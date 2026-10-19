@@ -1,3 +1,4 @@
+import "./plugins/languages/java/java-settings.js"; // registers the Java workspace-state validators
 import { mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -34,7 +35,7 @@ describe("WorkspaceStateStore", () => {
   });
 
   it("saves and restores workspace options", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-state-"));
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-state-"));
     const store = new WorkspaceStateStore("/workspace/example", stateDirectory);
     const terminal = { tabs: [{ displayName: "Terminal 1", terminalId: "00000000-0000-0000-0000-000000000001" }, { displayName: "Build", terminalId: "00000000-0000-0000-0000-000000000002" }], activeTabIndex: 1, panelOpen: true };
     const fileColors = { "src/a.ts": "blue" as const, src: "green" as const };
@@ -43,7 +44,7 @@ describe("WorkspaceStateStore", () => {
   });
 
   it("restores breakpoints for closed files after reopening the store and isolates workspaces", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-breakpoints-"));
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-breakpoints-"));
     const javaBreakpoints = [{ path: "src/main/java/App.java", className: "App", line: 8 }];
     const store = new WorkspaceStateStore("/workspace/debug", stateDirectory);
     await store.save({ openFiles: [], javaBreakpoints });
@@ -62,12 +63,12 @@ describe("WorkspaceStateStore", () => {
   });
 
   it("returns empty options when no state exists", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-state-"));
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-state-"));
     await expect(new WorkspaceStateStore("/workspace/missing", stateDirectory).load()).resolves.toEqual({ openFiles: [] });
   });
 
   it("serializes rapid saves and retains the latest options", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-state-"));
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-state-"));
     const store = new WorkspaceStateStore("/workspace/rapid-edits", stateDirectory);
     const messages = Array.from({ length: 50 }, (_, index) => `Commit message ${index}`);
     await expect(Promise.all(messages.map((gitCommitMessage) => store.save({ openFiles: [], gitCommitMessage })))).resolves.toHaveLength(messages.length);
@@ -75,7 +76,7 @@ describe("WorkspaceStateStore", () => {
   });
 
   it("does not collide when stores for the same workspace save concurrently", async () => {
-    const stateDirectory = await mkdtemp(path.join(tmpdir(), "remote-ide-state-"));
+    const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-state-"));
     const first = new WorkspaceStateStore("/workspace/shared", stateDirectory);
     const second = new WorkspaceStateStore("/workspace/shared", stateDirectory);
     const messages = Array.from({ length: 50 }, (_, index) => `Commit message ${index}`);

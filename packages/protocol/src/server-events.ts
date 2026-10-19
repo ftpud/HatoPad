@@ -1,4 +1,4 @@
-import type { JavaDebugVariable, RunConfig, ServerEvent } from "./index.js";
+import type { JavaDebugVariable, LanguageDebugVariable, RunConfig, ServerEvent } from "./index.js";
 
 type Validator = (value: unknown) => boolean;
 type Schema<T> = { [K in keyof T]-?: Validator };
@@ -22,18 +22,34 @@ const variable = shape<JavaDebugVariable>({
   objectId: optional(string), indexedCount: optional(number)
 });
 
+const languageVariable = shape<LanguageDebugVariable>({
+  name: string, value: string, reference: optional(string), type: optional(string),
+  indexedCount: optional(number), extra: optional(object)
+});
+
 // Both event names and every payload field must be accounted for when Protocol changes.
 const eventPayloadSchemas = {
   "processes.changed": {},
   "configuration.changed": { rootId: string, resource: string, global: boolean },
+  "automation.changed": { rootId: optional(string), kind: choice("schedule", "trigger") },
   "timers.changed": { rootId: optional(string) },
   "workflow.document": { rootId: string, runId: string, blockId: string, title: string, content: string },
   "filesystem.changed": { rootId: string, paths: array(string), overflow: boolean, health: choice("healthy", "degraded"), message: optional(string) },
   "terminal.opened": { rootId: string, workspace: string, session: shape({ terminalId: string, status: choice("running", "exited"), output: string, exitCode: optional(number), displayName: optional(string) }) },
+  "terminal.watch.output": { rootId: string, watchId: string, terminalId: string, sequence: number, data: string, truncated: boolean },
+  "terminal.watch.exit": { rootId: string, watchId: string, terminalId: string, exitCode: number },
   "terminal.output": { rootId: string, terminalId: string, data: string },
   "terminal.exit": { rootId: string, terminalId: string, exitCode: number },
   "git.changed": { rootId: string },
   "taskGit.changed": { rootId: string },
+  "language.semantic.changed": { rootId: string, language: string },
+  "language.output": { rootId: string, language: string, data: string, stream: choice("stdout", "stderr") },
+  "language.exit": { rootId: string, language: string, exitCode: nullable(number), signal: optional(nullable(string)) },
+  "language.debug.state": {
+    rootId: string, language: string, status: choice("starting", "running", "paused", "stopped"), variables: array(languageVariable),
+    path: optional(string), line: optional(number), frame: optional(string), stopReason: optional(string),
+    inspectionError: optional(string), busy: optional(boolean), extra: optional(object)
+  },
   "java.semantic.changed": { rootId: string },
   "java.output": { rootId: string, data: string },
   "java.exit": { rootId: string, exitCode: nullable(number), signal: nullable(string) },

@@ -24,13 +24,13 @@ function fakeAgent(on: (message: Message, agent: { emit(method: string, params: 
   return { toAgent, toClient, close: () => toClient.end() };
 }
 const client = () => ({ sessionUpdate: vi.fn(async () => {}), requestPermission: vi.fn(async () => ({ outcome: { outcome: "selected", optionId: "allow" } })), createElicitation: vi.fn(async () => ({ action: "cancel" })) });
-const initialize = { protocolVersion: 1, clientCapabilities: { auth: { terminal: true } }, clientInfo: { name: "Vibe Editor", version: "0.1.0" } } as never;
+const initialize = { protocolVersion: 1, clientCapabilities: { auth: { terminal: true } }, clientInfo: { name: "HatoPad", version: "0.1.0" } } as never;
 const updates = (handlers: ReturnType<typeof client>) => (handlers.sessionUpdate.mock.calls as unknown as [{ update: Message }][]).map(([notification]) => notification.update);
 
 it("negotiates v2, maps config options and modes, and ends a prompt on the idle state", async () => {
   const handlers = client();
   const agent = fakeAgent(async (message, peer) => {
-    if (message.method === "initialize") { expect(message.params).toMatchObject({ protocolVersion: 2, info: { name: "Vibe Editor" }, capabilities: { auth: { terminal: true } } }); return { protocolVersion: 2, info: { name: "fake", version: "1" }, capabilities: { session: { prompt: { image: true } } }, authMethods: [] }; }
+    if (message.method === "initialize") { expect(message.params).toMatchObject({ protocolVersion: 2, info: { name: "HatoPad" }, capabilities: { auth: { terminal: true } } }); return { protocolVersion: 2, info: { name: "fake", version: "1" }, capabilities: { session: { prompt: { image: true } } }, authMethods: [] }; }
     if (message.method === "session/new") return { sessionId: "s1", configOptions: [{ configId: "mode", category: "mode", type: "select", currentValue: "agent", options: [{ value: "read-only", name: "Read only" }, { value: "agent", name: "Agent" }] }] };
     if (message.method === "session/set_config_option") return { configOptions: [{ configId: "mode", category: "mode", type: "select", currentValue: message.params.value, options: [] }] };
     if (message.method === "session/prompt") {
@@ -123,10 +123,10 @@ it("refuses agents that only negotiate v1 and fails pending work when the agent 
 it("types stdio MCP servers for v2 and leaves out SSE servers, which v2 does not support", () => {
   const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
   expect(v2McpServers([
-    { name: "vibe-skills", command: "node", args: ["server.js"], env: [] },
+    { name: "hatopad-skills", command: "node", args: ["server.js"], env: [] },
     { type: "http", name: "remote", url: "https://example.com/mcp", headers: [] },
     { type: "sse", name: "legacy", url: "https://example.com/sse", headers: [] }
-  ])).toEqual([{ type: "stdio", name: "vibe-skills", command: "node", args: ["server.js"], env: [] }, { type: "http", name: "remote", url: "https://example.com/mcp", headers: [] }]);
+  ])).toEqual([{ type: "stdio", name: "hatopad-skills", command: "node", args: ["server.js"], env: [] }, { type: "http", name: "remote", url: "https://example.com/mcp", headers: [] }]);
   expect(warn).toHaveBeenCalledWith(expect.stringContaining("legacy uses SSE"));
   warn.mockRestore();
 });

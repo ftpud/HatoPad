@@ -6,13 +6,13 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { WebSocket, type WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@remote-ide/protocol";
+import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@hatopad/protocol";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { createServer } from "./server.js";
 
 it("delivers independent responses and real terminal output while a file read is held", async () => {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-ws-concurrency-")));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-ws-concurrency-")));
   const workspace = path.join(directory, "project");
   let server: WebSocketServer | undefined;
   let socket: WebSocket | undefined;
@@ -27,7 +27,7 @@ it("delivers independent responses and real terminal output while a file read is
   });
   let releaseSwitch: (() => void) | undefined;
   let restoreSelect: (() => void) | undefined;
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   try {
     await mkdir(workspace);
     await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
@@ -72,11 +72,11 @@ it("delivers independent responses and real terminal output while a file read is
     const fastId = send("filesystem.readFile", { path: "fast.txt" });
     const errorId = send("filesystem.readFile", { path: "missing.txt" });
     // printf emits a contiguous marker; terminal echo contains the split arguments.
-    const inputId = send("terminal.input", { terminalId, data: "printf '%s%s\\n' VIBE_ CONCURRENT\r" });
+    const inputId = send("terminal.input", { terminalId, data: "printf '%s%s\\n' HATOPAD_ CONCURRENT\r" });
     expect(await response(fastId)).toMatchObject({ id: fastId, ok: true, rootId, result: { content: "fast contents" } });
     expect(await response(errorId)).toMatchObject({ id: errorId, ok: false });
     expect(await response(inputId)).toMatchObject({ ok: true });
-    await vi.waitFor(() => expect(events.filter((event) => event.type === "terminal.output" && event.payload.terminalId === terminalId).map((event) => event.type === "terminal.output" ? event.payload.data : "").join("")).toContain("VIBE_CONCURRENT"), { timeout: 5_000 });
+    await vi.waitFor(() => expect(events.filter((event) => event.type === "terminal.output" && event.payload.terminalId === terminalId).map((event) => event.type === "terminal.output" ? event.payload.data : "").join("")).toContain("HATOPAD_CONCURRENT"), { timeout: 5_000 });
     expect(responses.has(slowId)).toBe(false);
     release();
     expect(await response(slowId)).toMatchObject({ id: slowId, ok: true, result: { content: "slow contents" } });

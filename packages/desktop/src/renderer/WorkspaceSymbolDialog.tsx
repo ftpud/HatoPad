@@ -1,6 +1,6 @@
 import { Braces, Search } from "lucide-react";
 import { useEffect, useRef, useState, type KeyboardEvent } from "react";
-import type { RootedWorkspaceSymbol } from "@remote-ide/protocol";
+import type { RootedWorkspaceSymbol } from "@hatopad/protocol";
 
 export function WorkspaceSymbolDialog({ search, onOpen, onClose }: { search(query: string): Promise<{ symbols: RootedWorkspaceSymbol[]; truncated: boolean }>; onOpen(symbol: RootedWorkspaceSymbol): void; onClose(): void }) {
   const [query, setQuery] = useState(""); const [symbols, setSymbols] = useState<RootedWorkspaceSymbol[]>([]); const [selected, setSelected] = useState(0); const [truncated, setTruncated] = useState(false);

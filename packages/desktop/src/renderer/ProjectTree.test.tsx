@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FileTreeNode } from "@remote-ide/protocol";
+import type { FileTreeNode } from "@hatopad/protocol";
 import { useState } from "react";
 import { ProjectTree, compactProjectTree, filterProjectTree, filterProjectTreeByPaths } from "./ProjectTree";
 

@@ -1,4 +1,4 @@
-import type { ServerEvent } from "@remote-ide/protocol";
+import type { ServerEvent } from "@hatopad/protocol";
 import { CoalescedAsyncAction } from "./client";
 
 type Guard = () => boolean;

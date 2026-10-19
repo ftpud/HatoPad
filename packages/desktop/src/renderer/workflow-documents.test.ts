@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import type { HarnessRun } from "@remote-ide/protocol";
+import type { HarnessRun } from "@hatopad/protocol";
 import type { EditorTab } from "./model";
 import { workflowDocumentOptions, restoreWorkflowDocuments } from "./workflow-documents";
 

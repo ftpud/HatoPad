@@ -3,7 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { EventEmitter } from "node:events";
 import { execFile, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
-import type { ManagedProcess, ManagedWorkflowApp } from "@remote-ide/protocol";
+import type { ManagedProcess, ManagedWorkflowApp } from "@hatopad/protocol";
 
 const exec = promisify(execFile);
 export type ProcessRow = { pid: number; parentPid: number; birth: string; command: string; state: string; launchId?: string };
@@ -25,7 +25,7 @@ export class ManagedProcesses extends EventEmitter {
   prepare(context: Context): { launchId: string; env: NodeJS.ProcessEnv } {
     const launchId = crypto.randomUUID();
     this.launches.set(launchId, { context, pending: true, revision: ++this.revision });
-    return { launchId, env: { ...process.env, VIBE_MANAGED_LAUNCH: launchId } };
+    return { launchId, env: { ...process.env, HATOPAD_MANAGED_LAUNCH: launchId } };
   }
   launch<T extends ChildProcess>(context: Context, create: (env: NodeJS.ProcessEnv) => T): T { return this.launchWithIdentity(context, create).child; }
   launchWithIdentity<T extends ChildProcess>(context: Context, create: (env: NodeJS.ProcessEnv) => T): { child: T; launchId: string } {
@@ -202,7 +202,7 @@ async function processSnapshot(): Promise<Row[]> {
           const end = stat.lastIndexOf(")"); const fields = stat.slice(end + 2).split(" ");
           if (!fields[19] || !fields[0]) return undefined;
           const [command, environment] = await Promise.all([readFile(`/proc/${name}/cmdline`, "utf8").catch(() => ""), readFile(`/proc/${name}/environ`, "utf8").catch(() => "")]);
-          const launchId = environment.split("\0").find((item) => item.startsWith("VIBE_MANAGED_LAUNCH="))?.slice("VIBE_MANAGED_LAUNCH=".length);
+          const launchId = environment.split("\0").find((item) => item.startsWith("HATOPAD_MANAGED_LAUNCH="))?.slice("HATOPAD_MANAGED_LAUNCH=".length);
           const verify = await readFile(`/proc/${name}/stat`, "utf8");
           if (verify.slice(verify.lastIndexOf(")") + 2).split(" ")[19] !== fields[19]) return undefined;
           return { pid: Number(name), parentPid: Number(fields[1]), birth: fields[19], state: fields[0], command: command.replace(/\0/g, " ").trim() || stat.slice(stat.indexOf("(") + 1, end), launchId };

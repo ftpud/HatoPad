@@ -2,6 +2,7 @@ name: CI
 
 on:
   push:
+    branches: ["**"]
   pull_request:
 
 permissions:
@@ -43,6 +44,9 @@ jobs:
       - name: Audit locked dependencies
         run: npm audit --audit-level=moderate
 
+      - name: Check protocol declarations
+        run: node scripts/sync-protocol.mjs --check
+
       - name: Build
         run: npm run build
 
@@ -50,21 +54,21 @@ jobs:
         run: npm run typecheck
 
       - name: Typecheck Gateway
-        run: npm run typecheck -w @remote-ide/gateway
+        run: npm run typecheck -w @hatopad/gateway
 
       - name: Run full test suite
         id: tests
         shell: bash
         run: |
           set -o pipefail
-          npm test 2>&1 | tee "$RUNNER_TEMP/vibe-tests.log"
+          npm test 2>&1 | tee "$RUNNER_TEMP/hatopad-tests.log"
 
       - name: Report test failure details
         if: failure() && steps.tests.outcome == 'failure'
-        run: node scripts/annotate-test-failure.mjs "$RUNNER_TEMP/vibe-tests.log"
+        run: node scripts/annotate-test-failure.mjs "$RUNNER_TEMP/hatopad-tests.log"
 
       - name: Verify bundle dependency pruning
         run: npm run test:bundle
 
       - name: Verify crash and restart recovery
-        run: npm run test:release-soak -- --cycles 12 --output "${{ runner.temp }}/vibe-release-soak.json"
+        run: npm run test:release-soak -- --cycles 12 --output "${{ runner.temp }}/hatopad-release-soak.json"

@@ -8,11 +8,11 @@ import { ContextMenu } from "./ContextMenu";
 import { BranchPicker } from "./BranchPicker";
 import { ConnectionMenu } from "./ConnectionMenu";
 import { startBackgroundLoading } from "./background-loading";
-import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@remote-ide/protocol";
+import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@hatopad/protocol";
 import { DiffEditor, type Monaco } from "@monaco-editor/react";
-import { Archive, Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Bug, Check, ChevronDown, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileCode2, FileDiff, FileText, Folder, FolderOpen, GitBranch, GitCompareArrows, GitMerge, Library, ListTodo, ListTree, LoaderCircle, LogOut, MoreVertical, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, ShieldAlert, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
+import { Archive, Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Bug, Check, ChevronDown, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileDiff, FileText, Folder, FolderOpen, GitBranch, GitCompareArrows, GitMerge, Library, ListTodo, ListTree, LoaderCircle, LogOut, MoreVertical, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, ShieldAlert, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
 import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, ProtocolOperations, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@remote-ide/protocol";
+import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, ProtocolOperations, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -28,13 +28,19 @@ import { AiProvidersPanel } from "./AiProvidersPanel";
 import { ToolsPanel } from "./ToolsPanel";
 import { DialogHost, gitRefNameError, requestConfirm, requestFields, requestText } from "./dialogs";
 import { StoragePanel } from "./StoragePanel";
+import { PluginsPanel } from "./PluginsPanel";
 import { readAiPromptDraft, writeAiPromptDraft } from "./ai-prompt-drafts";
 import { editorTabLabel, initialLayout, type EditorTab, type LayoutModel, type Panel } from "./model";
 import { TerminalPanel } from "./TerminalPanel";
 import { clearViewedTerminalActivity, markTerminalActivity } from "./terminal-activity";
-import { JavaConfigurationDialog } from "./JavaConfigurationDialog";
+import { JavaConfigurationDialog } from "./plugins/languages/java";
+import { languageClient, loadJavaProjectTree } from "./language-client";
 import { attachDebugEditor } from "./debug-editor";
-import { JavaPanel } from "./JavaPanel";
+import { RunConfigurationToolbar } from "./RunConfigurationToolbar";
+import { projectRegistration, runProject, type RunProject, type RunProjectProcess } from "./run-projects";
+import { GenericProjectConfigurationDialog } from "./GenericProjectConfigurationDialog";
+import { projectConfigurationEditors } from "./plugins/languages/configuration-editors";
+import { JavaPanel } from "./plugins/languages/java";
 import { ProblemsPanel } from "./ProblemsPanel";
 import { GitLogPanel } from "./GitLogPanel";
 import { GitHistoryDialog } from "./GitHistoryDialog";
@@ -64,7 +70,7 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { FindInFilesDialog } from "./FindInFilesDialog";
 import { restoredFocusedLeftPanels, initialTaskPanel, switchedTaskPanel, taskPanelPreferenceKey, type ClassicTaskPanel } from "./task-panel-state";
 import { ProjectTree } from "./ProjectTree";
-import { JavaFileIcon } from "./JavaFileIcon";
+import { JavaFileIcon } from "./plugins/languages/java";
 import { FileKindIcon } from "./FileKindIcon";
 import { menuPosition } from "./menu-position";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
@@ -72,7 +78,7 @@ import { copyProjectTreeActions } from "./project-context-menu";
 import { QuickOpenDialog, workspaceFiles } from "./QuickOpenDialog";
 import { CommandPalette } from "./CommandPalette";
 import { WorkspaceSymbolDialog } from "./WorkspaceSymbolDialog";
-import { commandEnabled, defaultShortcutBindings, desktopPlatform, shortcutMatches, type Command, type CommandContext, type CommandId } from "./command-registry";
+import { languageCommands, commandEnabled, defaultShortcutBindings, desktopPlatform, shortcutMatches, type Command, type CommandContext, type CommandId } from "./command-registry";
 import { KEYBOARD_SHORTCUTS_SETTING, migrateShortcutSetting, parseShortcutSetting, serializeShortcutSetting, updateShortcut } from "./keyboard-shortcuts";
 import { EditorStatusBar, type EditorStatusBarHandle } from "./EditorStatusBar";
 import { adjacentEditorTabId, editorShortcutEligible, editorTabShortcut } from "./editor-shortcuts";
@@ -85,7 +91,7 @@ import { ModalFocusManager } from "./accessibility";
 
 type ConnectionStatus = "idle" | "connecting" | "connected" | "failed" | "disconnected" | "workspace-error";
 type StatusKind = "progress" | "success" | "error";
-type BottomPanelType = Extract<Panel["type"], "terminal" | "java" | "problems" | "gitlog">;
+type BottomPanelType = Extract<Panel["type"], "terminal" | "languageOutput" | "problems" | "gitlog">;
 const languageByExtension: Record<string, string> = {
   ts: "typescript", tsx: "typescript", js: "javascript", jsx: "javascript", json: "json", html: "html",
   css: "css", md: "markdown", java: "java", py: "python", yaml: "yaml", yml: "yaml", mta: "yaml", mtaext: "yaml",
@@ -149,8 +155,9 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [storageOpen, setStorageOpen] = useState(false);
   const [aiProvidersOpen, setAiProvidersOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
-  /** Bumped on every repository change, including commits/pushes made outside Vibe. */
+  /** Bumped on every repository change, including commits/pushes made outside HatoPad. */
   const [gitRevision, setGitRevision] = useState(0);
   const platform = useMemo(desktopPlatform, []);
   const [shortcutBindings, setShortcutBindings] = useState(() => { const stored = readSetting(KEYBOARD_SHORTCUTS_SETTING); const migrated = migrateShortcutSetting(stored, desktopPlatform()); if (migrated) writeSetting(KEYBOARD_SHORTCUTS_SETTING, migrated); return parseShortcutSetting(stored, desktopPlatform()); });
@@ -168,15 +175,19 @@ export function App() {
   }, []);
   const launchConfig = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return { host: params.get("host") ?? undefined, port: params.get("port") ?? undefined };
+    return { host: params.get("host") ?? undefined, port: params.get("port") ?? undefined, rootId: params.get("rootId") ?? undefined, cloudOrigin: params.get("cloudOrigin") ?? undefined };
   }, []);
   const [host, setHost] = useState(launchConfig.host ?? saved.host ?? "127.0.0.1");
   const [port, setPort] = useState(launchConfig.port ?? saved.port ?? "7331");
+  const cloudConnection = Boolean(launchConfig.cloudOrigin && host.trim() === launchConfig.host && port === launchConfig.port);
   const [status, setStatus] = useState<ConnectionStatus>("idle");
   const [statusMessage, setStatusMessageState] = useState("");
   const [statusKind, setStatusKind] = useState<StatusKind>("error");
   const [lastDeleted, setLastDeleted] = useState<{ recoveryId: string; path: string }>();
-  const setStatusMessage = useCallback((message: string) => { setStatusKind("error"); setStatusMessageState(message); }, []);
+  const setStatusMessage = useCallback((message: string) => {
+    if (cloudConnection && message.endsWith("[workspace.saveOptions]")) return;
+    setStatusKind("error"); setStatusMessageState(message);
+  }, [cloudConnection]);
   const showStatus = useCallback((message: string, kind: StatusKind) => { setStatusKind(kind); setStatusMessageState(message); }, []);
   const [tree, setTree] = useState<FileTreeNode[]>([]);
   const [projectFilter, setProjectFilter] = useState("");
@@ -240,9 +251,9 @@ export function App() {
   const [runConfigs, setRunConfigs] = useState<RunConfig[]>([]);
   const [runConfigDialog, setRunConfigDialog] = useState<{ scope: RunConfigScope }>();
   const [runConfigMenu, setRunConfigMenu] = useState<{ x: number; y: number; config: RunConfig }>();
-  useEffect(() => { const listener = (event: Event) => setRunConfigDialog({ scope: (event as CustomEvent<RunConfigScope>).detail }); window.addEventListener("vibe:create-run-config", listener); return () => window.removeEventListener("vibe:create-run-config", listener); }, []);
-  useEffect(() => { window.dispatchEvent(new CustomEvent("vibe:run-configs", { detail: runConfigs })); }, [runConfigs]);
-  useEffect(() => { const listener = () => window.dispatchEvent(new CustomEvent("vibe:run-configs", { detail: runConfigs })); window.addEventListener("vibe:request-run-configs", listener); return () => window.removeEventListener("vibe:request-run-configs", listener); }, [runConfigs]);
+  useEffect(() => { const listener = (event: Event) => setRunConfigDialog({ scope: (event as CustomEvent<RunConfigScope>).detail }); window.addEventListener("hatopad:create-run-config", listener); return () => window.removeEventListener("hatopad:create-run-config", listener); }, []);
+  useEffect(() => { window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); }, [runConfigs]);
+  useEffect(() => { const listener = () => window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); window.addEventListener("hatopad:request-run-configs", listener); return () => window.removeEventListener("hatopad:request-run-configs", listener); }, [runConfigs]);
   const [agents, setAgents] = useState<AgentFile[]>([]);
   const [harnesses, setHarnesses] = useState<HarnessDefinition[]>([]);
   const [harnessRuns, setHarnessRuns] = useState<HarnessRun[]>([]);
@@ -263,7 +274,7 @@ export function App() {
   const [aiSession, setAiSession] = useState<AiSession>({ model: "gpt-5.6-sol", reasoning: "low", status: "idle", messages: [] });
   const [skillCatalog, setSkillCatalog] = useState<SkillCatalog>({ skills: [], policy: { allowed: [], defaults: [] } });
   const [aiSessions, setAiSessions] = useState<AiSession[]>([]);
-  const [aiProvider, setAiProvider] = useState<AiProvider>(() => readSetting("aiProvider") === "copilot" ? "copilot" : "codex");
+  const [aiProvider, setAiProvider] = useState<AiProvider>(() => readSetting("aiProvider") ?? "");
   const [aiModels, setAiModels] = useState<AiModel[]>([]);
   // True from the moment the provider changes until its own model list arrives, so the picker never shows another provider's models.
   const [aiModelsLoading, setAiModelsLoading] = useState(false);
@@ -297,15 +308,26 @@ export function App() {
   const [gitRewriteDialog, setGitRewriteDialog] = useState<{ action: "amend" | "undo"; preview: GitHistoryRewritePreview }>();
   const [gitStashDialog, setGitStashDialog] = useState(false);
   const [gitConflictPath, setGitConflictPath] = useState<string>();
-  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@remote-ide/protocol").GitPullPreview; error?: string }>();
+  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@hatopad/protocol").GitPullPreview; error?: string }>();
   const [gitPulling, setGitPulling] = useState(false);
-  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@remote-ide/protocol").GitRebasePreview; error?: string }>();
+  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@hatopad/protocol").GitRebasePreview; error?: string }>();
   const [gitRebasing, setGitRebasing] = useState(false);
   const [taskGitEntries, setTaskGitEntries] = useState<GitStatusEntry[]>([]);
   const [taskCheckpoints, setTaskCheckpoints] = useState<TaskCheckpoint[]>([]);
   const [taskGitError, setTaskGitError] = useState("");
   const [gitError, setGitError] = useState("");
   const [workspaceOptionsReady, setWorkspaceOptionsReady] = useState(false);
+  const [languages, setLanguages] = useState<LanguageDescriptor[]>([]);
+  const [runProjects, setRunProjects] = useState<RunProject[]>([]);
+  const [runProjectProcesses, setRunProjectProcesses] = useState<Record<string, RunProjectProcess>>({});
+  const [runConfigurationEditor, setRunConfigurationEditor] = useState<string>();
+  const [runProjectBusy, setRunProjectBusy] = useState(false);
+  const runProjectGeneration = useRef(0);
+  const [selectedLanguage, setSelectedLanguage] = useState<string>();
+  const openRunConfigurations = (language?: string) => {
+    const projectLanguage = language ?? selectedLanguage ?? runProjects[0]?.language;
+    if (projectLanguage) { setSelectedLanguage(projectLanguage); setRunConfigurationEditor(projectLanguage); }
+  };
   const [javaOptions, setJavaOptions] = useState<JavaProjectOptions>();
   const [javaTree, setJavaTree] = useState<JavaProjectNode[]>([]);
   const [javaLog, setJavaLog] = useState("");
@@ -381,7 +403,7 @@ export function App() {
   }, [selectedRootId, refreshProcesses]);
   const projectContentFilterVersion = useRef(0);
   const gitRollbackRunningRef = useRef(false);
-  const aiProviderRef = useRef<AiProvider>(readSetting("aiProvider") === "copilot" ? "copilot" : "codex");
+  const aiProviderRef = useRef<AiProvider>(readSetting("aiProvider") ?? "");
   const didAutoConnect = useRef(false);
   const layoutRef = useRef(layout);
   const navigationHistory = useRef(new NavigationHistory());
@@ -413,7 +435,7 @@ export function App() {
 
   useEffect(() => {
     if (status !== "connected" || !workspaceOptionsReady || !workspaceKeyRef.current) return;
-    const activePanel = layout.panels.find((panel): panel is Panel & { type: BottomPanelType } => ["terminal", "java", "problems", "gitlog"].includes(panel.type));
+    const activePanel = layout.panels.find((panel): panel is Panel & { type: BottomPanelType } => ["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type));
     writeWorkspaceSetting(workspaceKeyRef.current, "bottom.activePanel", activePanel?.type ?? "");
   }, [layout.panels, status, workspaceOptionsReady]);
   useEffect(() => { if (workspaceOptionsReady && workspaceKeyRef.current) writeWorkspaceSetting(workspaceKeyRef.current, "bottom.terminalHeight", String(terminalHeight)); }, [terminalHeight, workspaceOptionsReady]);
@@ -439,7 +461,7 @@ export function App() {
       connected && activeTab?.type === "file" ? editorTabLabel(activeTab) : undefined,
       connected ? taskName || projectName : undefined,
       connected && gitBranch !== "HEAD" ? gitBranch : undefined,
-      "Vibe Editor"
+      "HatoPad"
     ];
     document.title = titleParts.filter(Boolean).join(" — ");
   }, [activeTab?.id, activeTab?.path, activeTab?.title, gitBranch, projectName, selectedTaskId, status, tasks]);
@@ -507,7 +529,7 @@ export function App() {
     const requestedRoot = clientRef.current.getRoot();
     setJavaChecking(true);
     try {
-      const diagnostics = (await clientRef.current.request("java.check", {})).diagnostics;
+      const diagnostics = (await clientRef.current.request("language.check", { language: "java" })).diagnostics;
       if (requestedRoot === selectedRootIdRef.current) setJavaDiagnostics(diagnostics);
     }
     catch (error) { setStatusMessage(error instanceof Error ? error.message : "Java checks failed"); }
@@ -724,7 +746,7 @@ export function App() {
   const readHarnessApp = useCallback(async (harnessId: string, blockId: string, runId?: string) => (await clientRef.current!.request("harnesses.app.read", { harnessId, blockId, runId })).app, []);
   const killHarnessApp = useCallback(async (harnessId: string, blockId: string, runId?: string) => { await clientRef.current!.request("harnesses.app.kill", { harnessId, blockId, runId }); }, []);
   const runHarness = useCallback(async (harnessId: string, input: string, startBlockId?: string, rerunRunId?: string) => { const result = await clientRef.current!.request("harnesses.run", { harnessId, input, startBlockId, rerunRunId, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
-  const chatHarness = useCallback(async (harnessId: string, blockId: string, input: string, runId?: string, settings?: import("@remote-ide/protocol").HarnessChatSettings) => { const result = await clientRef.current!.request("harnesses.chat", { harnessId, blockId, input, runId, settings, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
+  const chatHarness = useCallback(async (harnessId: string, blockId: string, input: string, runId?: string, settings?: import("@hatopad/protocol").HarnessChatSettings) => { const result = await clientRef.current!.request("harnesses.chat", { harnessId, blockId, input, runId, settings, provider: aiProviderRef.current, target: { taskId: selectedTaskIdRef.current } }); setHarnessRuns((current) => [result.run, ...current.filter((item) => item.id !== result.run.id)]); return result.run; }, []);
   const steerHarnessChat = useCallback(async (runId: string, blockId: string, sessionId: string, input: string) => {
     const { run } = await clientRef.current!.request("harnesses.steer", { runId, blockId, sessionId, input });
     setHarnessRuns((current) => current.map((item) => item.id === runId ? run : item));
@@ -808,16 +830,17 @@ export function App() {
     }));
     ensureCurrent();
     const activeTerminal = restoredTerminals.find((item) => item.index === options.terminal?.activeTabIndex)?.tab ?? restoredTerminals[0]?.tab;
-    const savedBottomPanel = workspaceKeyRef.current ? readWorkspaceSetting(workspaceKeyRef.current, "bottom.activePanel") : null;
+    const legacyBottomPanel = workspaceKeyRef.current ? readWorkspaceSetting(workspaceKeyRef.current, "bottom.activePanel") : null;
+    const savedBottomPanel = legacyBottomPanel === "java" ? "languageOutput" : legacyBottomPanel;
     const validBottomPanel = savedBottomPanel === "gitlog"
       || (savedBottomPanel === "terminal" && restoredTerminals.length > 0)
-      || ((savedBottomPanel === "java" || savedBottomPanel === "problems") && Boolean(options.javaProject));
+      || ((savedBottomPanel === "languageOutput" || savedBottomPanel === "problems") && Boolean(options.javaProject));
     const bottomPanel: BottomPanelType | undefined = validBottomPanel
       ? savedBottomPanel as BottomPanelType
       : savedBottomPanel === null && (options.terminal?.panelOpen || discovered.length > 0) && restoredTerminals.length > 0 ? "terminal" : undefined;
     setLayout((layout) => current() ? ({
       ...layout,
-      panels: recovery ? layout.panels : [...layout.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), ...(bottomPanel ? [{ id: bottomPanel, type: bottomPanel }] : [])],
+      panels: recovery ? layout.panels : [...layout.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), ...(bottomPanel ? [{ id: bottomPanel, type: bottomPanel }] : [])],
       editorGroups: recovery ? recoverEditorGroups(layout.editorGroups, tabs, activeTabId, rootId, current)
         : layout.editorGroups.map((item, index) => index === 0 ? { ...item, tabs, activeTabId } : item),
       terminalGroup: { ...layout.terminalGroup, tabs: restoredTerminals.map((item) => item.tab), activeTabId: activeTerminal?.id }
@@ -837,6 +860,7 @@ export function App() {
     setAiStatuses({ root: emptyAiSummary, tasks: {} }); setActiveTimers([]); setSchedules([]); setTriggers([]);
     setStatus("connecting"); setStatusMessage(`Opening connection to ${host.trim()}:${port}…`);
     const client = new CoreClient();
+    if (launchConfig.rootId && host.trim() === launchConfig.host && port === launchConfig.port) client.setRoot(launchConfig.rootId);
     clientRef.current = client;
     client.onConnectionProgress = (message) => { if (clientRef.current === client) setStatusMessage(message); };
     let connectionReady = false;
@@ -948,19 +972,21 @@ export function App() {
         markUnreadTerminalOutput(event.payload.terminalId);
         return;
       }
-      if (event.type === "java.semantic.changed") { refreshJavaSemanticRef.current?.(); return; }
-      if (event.type === "java.output") {
+      if (event.type === "language.semantic.changed") { if (event.payload.language === "java") refreshJavaSemanticRef.current?.(); return; }
+      if (event.type === "language.output") {
+        if (event.payload.language !== "java") return;
         setJavaLog((current) => (current + event.payload.data).slice(-1_000_000));
         return;
       }
-      if (event.type === "java.exit") {
+      if (event.type === "language.exit") {
+        if (event.payload.language !== "java") return;
         setJavaRunning(false);
         setJavaLog((current) => `${current}\nProcess exited${event.payload.exitCode === null ? "" : ` with code ${event.payload.exitCode}`}${event.payload.signal ? ` (${event.payload.signal})` : ""}.\n`);
         return;
       }
       if (event.type === "java.debug.state") {
         setJavaDebugState(event.payload);
-        if (event.payload.status === "paused") setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "java", type: "java" }] }));
+        if (event.payload.status === "paused") setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "languageOutput", type: "languageOutput" }] }));
         return;
       }
       if (event.type === "ai.changed") {
@@ -1001,6 +1027,7 @@ export function App() {
         }).catch(() => undefined);
       };
       if (event.type === "git.changed") { refreshDiffs(); setGitRevision((revision) => revision + 1); return; }
+      if (event.type !== "filesystem.changed") return;
       const changedPaths = event.payload.paths;
       if (changedPaths.includes(javaConfigurationPath) || event.payload.overflow) {
         const rootId = client.getRoot();
@@ -1013,7 +1040,7 @@ export function App() {
       if (javaOptionsRef.current && changedPaths.some((changedPath) => changedPath.endsWith(".java"))) {
         if (javaRefreshTimer.current) clearTimeout(javaRefreshTimer.current);
         javaRefreshTimer.current = setTimeout(() => {
-          void client.request("java.getProjectTree", {}).then((result) => setJavaTree(result.tree)).catch(() => undefined);
+          void loadJavaProjectTree(client).then(setJavaTree).catch(() => undefined);
         }, 200);
       }
       if (event.payload.health === "degraded") showStatus(event.payload.message ?? "Filesystem watcher degraded; synchronization may be incomplete.", "error");
@@ -1086,7 +1113,7 @@ export function App() {
         setJavaOptions(result.options.javaProject);
         if (result.options.javaProject) {
           setStatusMessage("Loading Java project…");
-          try { setJavaTree((await client.request("java.getProjectTree", {})).tree); } catch { setJavaTree([]); }
+          try { setJavaTree(await loadJavaProjectTree(client)); } catch { setJavaTree([]); }
         } else setJavaTree([]);
         setStatusMessage("Restoring editors and terminals…");
         await restoreWorkspaceOptions(result.options, client);
@@ -1100,7 +1127,7 @@ export function App() {
         const taskProvider = setting(aiProviderTaskKey(taskResult.selectedTaskId)) as AiProvider | null;
         const wsProvider = setting("aiProvider") as AiProvider | null;
         const known = (candidate: AiProvider | null) => Boolean(candidate) && providerResult.providers.some((item) => item.id === candidate);
-        const provider = known(taskProvider) ? taskProvider! : known(wsProvider) ? wsProvider! : (providerResult.providers[0]?.id ?? "codex");
+        const provider = known(taskProvider) ? taskProvider! : known(wsProvider) ? wsProvider! : (providerResult.providers[0]?.id ?? "");
         aiProviderRef.current = provider; setAiProvider(provider);
         wsSave(aiProviderTaskKey(taskResult.selectedTaskId), provider);
         setStatusMessage(`Loading ${providerResult.providers.find((item) => item.id === provider)?.name ?? provider} models…`);
@@ -1313,11 +1340,11 @@ export function App() {
     const tab: EditorTab = { id: crypto.randomUUID(), type: "runConfig", rootId: selectedRootIdRef.current, title: config.name, path: config.name, runConfigScope: config.scope, dirty: false, content: result.config.commands, savedContent: result.config.commands, loading: false };
     updateGroup((tabs) => ({ tabs: [...tabs, tab], activeTabId: tab.id }));
   }, [updateGroup]);
-  useEffect(() => { const listener = (event: Event) => void openRunConfigFile((event as CustomEvent<RunConfig>).detail); window.addEventListener("vibe:open-run-config", listener); return () => window.removeEventListener("vibe:open-run-config", listener); }, [openRunConfigFile]);
+  useEffect(() => { const listener = (event: Event) => void openRunConfigFile((event as CustomEvent<RunConfig>).detail); window.addEventListener("hatopad:open-run-config", listener); return () => window.removeEventListener("hatopad:open-run-config", listener); }, [openRunConfigFile]);
   useEffect(() => {
     const renameConfig = (event: Event) => { const config = (event as CustomEvent<RunConfig>).detail; void requestText({ title: "Rename run configuration", label: "Name", defaultValue: config.name, confirmLabel: "Rename" }).then((newName) => { if (!newName || newName === config.name) return; void clientRef.current?.request("runConfig.rename", { scope: config.scope, name: config.name, newName }).then(({ config: renamed }) => { setRunConfigs((items) => items.map((item) => item.scope === config.scope && item.name === config.name ? renamed : item)); updateGroup((tabs, active) => ({ tabs: tabs.map((tab) => tab.type === "runConfig" && tab.runConfigScope === config.scope && tab.path === config.name ? { ...tab, path: renamed.name, title: renamed.name } : tab), activeTabId: active })); }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not rename Run Config")); }); };
     const deleteConfig = (event: Event) => { const config = (event as CustomEvent<RunConfig>).detail; void requestConfirm({ title: "Delete run configuration?", message: `Delete Run Config ${config.name}?`, confirmLabel: "Delete", danger: true }).then((confirmed) => { if (!confirmed) return; void clientRef.current?.request("runConfig.delete", { scope: config.scope, name: config.name }).then(() => { setRunConfigs((items) => items.filter((item) => item.scope !== config.scope || item.name !== config.name)); updateGroup((tabs, active) => { const next = tabs.filter((tab) => tab.type !== "runConfig" || tab.runConfigScope !== config.scope || tab.path !== config.name); return { tabs: next, activeTabId: next.some((tab) => tab.id === active) ? active : next.at(-1)?.id }; }); }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not delete Run Config")); }); };
-    window.addEventListener("vibe:rename-run-config", renameConfig); window.addEventListener("vibe:delete-run-config", deleteConfig); return () => { window.removeEventListener("vibe:rename-run-config", renameConfig); window.removeEventListener("vibe:delete-run-config", deleteConfig); };
+    window.addEventListener("hatopad:rename-run-config", renameConfig); window.addEventListener("hatopad:delete-run-config", deleteConfig); return () => { window.removeEventListener("hatopad:rename-run-config", renameConfig); window.removeEventListener("hatopad:delete-run-config", deleteConfig); };
   }, [updateGroup]);
 
   const openAgentFile = async (file: AgentFile) => {
@@ -1492,7 +1519,7 @@ export function App() {
     finally { setGitFetching(false); }
   };
 
-  const executePull = async (strategy: import("@remote-ide/protocol").GitPullStrategy) => {
+  const executePull = async (strategy: import("@hatopad/protocol").GitPullStrategy) => {
     if (!clientRef.current || !gitPullDialog || gitPulling) return;
     setGitPulling(true); setGitPullDialog((current) => current ? { preview: current.preview } : current); showStatus(`Fetching again, then pulling with ${strategy}…`, "progress");
     try {
@@ -1504,7 +1531,7 @@ export function App() {
     } finally { setGitPulling(false); }
   };
 
-  useEffect(() => { const listener = () => void previewPull(); window.addEventListener("vibe:git-pull", listener); return () => window.removeEventListener("vibe:git-pull", listener); }, [gitOperationRunning]);
+  useEffect(() => { const listener = () => void previewPull(); window.addEventListener("hatopad:git-pull", listener); return () => window.removeEventListener("hatopad:git-pull", listener); }, [gitOperationRunning]);
 
   const previewInteractiveRebase = async () => {
     if (!clientRef.current || gitOperationRunning) return;
@@ -1514,7 +1541,7 @@ export function App() {
     finally { setGitRebasing(false); }
   };
 
-  const executeInteractiveRebase = async (items: import("@remote-ide/protocol").GitRebaseTodoItem[]) => {
+  const executeInteractiveRebase = async (items: import("@hatopad/protocol").GitRebaseTodoItem[]) => {
     if (!clientRef.current || !gitRebaseDialog || gitRebasing) return;
     setGitRebasing(true); setGitRebaseDialog((current) => current ? { preview: current.preview } : current); showStatus("Running interactive rebase…", "progress");
     try {
@@ -1526,7 +1553,7 @@ export function App() {
     finally { setGitRebasing(false); }
   };
 
-  useEffect(() => { const listener = () => void previewInteractiveRebase(); window.addEventListener("vibe:git-rebase", listener); return () => window.removeEventListener("vibe:git-rebase", listener); }, [gitOperationRunning]);
+  useEffect(() => { const listener = () => void previewInteractiveRebase(); window.addEventListener("hatopad:git-rebase", listener); return () => window.removeEventListener("hatopad:git-rebase", listener); }, [gitOperationRunning]);
 
   const openGitHunkDialog = async (path: string, hunk: GitDiffHunk, x: number, y: number) => {
     if (!clientRef.current) return;
@@ -1712,7 +1739,7 @@ export function App() {
       const result = await client.request("tasks.switch", { ...(taskId ? { taskId } : {}), includeIgnored: showIgnoredRef.current });
       if (!isCurrent()) return;
       terminalWriters.current.clear(); terminalBuffers.current.clear(); markdownBlockTerminals.current.clear();
-      setLayout((current) => { const tabs = current.terminalGroup.tabs.filter((tab) => tab.rootId && tab.rootId !== selectedRootIdRef.current); return { ...current, panels: current.panels.filter((panel) => !["terminal", "java", "problems"].includes(panel.type)), terminalGroup: { ...current.terminalGroup, tabs, activeTabId: tabs[0]?.id } }; });
+      setLayout((current) => { const tabs = current.terminalGroup.tabs.filter((tab) => tab.rootId && tab.rootId !== selectedRootIdRef.current); return { ...current, panels: current.panels.filter((panel) => !["terminal", "languageOutput", "problems"].includes(panel.type)), terminalGroup: { ...current.terminalGroup, tabs, activeTabId: tabs[0]?.id } }; });
       setTasks(result.tasks); setSelectedTaskId(result.selectedTaskId); selectedTaskIdRef.current = result.selectedTaskId; activeTaskRef.current = result.tasks.find((task) => task.id === result.selectedTaskId); setTree(result.tree);
       const switchedPanel = switchedTaskPanel(result.selectedTaskId);
       if (switchedPanel.classic) setClassicSideView(switchedPanel.classic);
@@ -1725,7 +1752,7 @@ export function App() {
       cursorPositions.setWorkspace(result.workspace);
       setProjectName(result.projectName);
       setJavaOptions(result.options.javaProject); setJavaTree([]); setJavaRunning(false); setJavaDebugState({ status: "stopped", variables: [] }); setJavaLog(""); setJavaDiagnostics([]);
-      if (result.options.javaProject) setJavaTree((await client.request("java.getProjectTree", {})).tree);
+      if (result.options.javaProject) setJavaTree(await loadJavaProjectTree(client));
       if (!isCurrent()) return;
       await restoreWorkspaceOptions(result.options, client);
       if (!isCurrent()) return;
@@ -1841,7 +1868,7 @@ export function App() {
       throw error;
     }
   }, [aiToken, applyAiSession, refreshAi, refreshAiStatuses, setStatusMessage]);
-  const answerAiQuestion = useCallback(async (owner: PermissionRequestOwner, requestId: string, action: import("@remote-ide/protocol").AiQuestionAction, answer?: import("@remote-ide/protocol").AiQuestionAnswer) => {
+  const answerAiQuestion = useCallback(async (owner: PermissionRequestOwner, requestId: string, action: import("@hatopad/protocol").AiQuestionAction, answer?: import("@hatopad/protocol").AiQuestionAnswer) => {
     if (!clientRef.current) return;
     const isActiveOwner = owner.taskId === selectedTaskIdRef.current && owner.provider === aiProviderRef.current;
     const token = isActiveOwner ? aiToken() : undefined;
@@ -2121,7 +2148,7 @@ export function App() {
         const tab = { id, rootId: selectedRootIdRef.current, terminalId: result.terminalId, title: `Terminal ${current.tabs.length + 1}`, status: "running" as const };
         return { ...current, tabs: [...current.tabs, tab], activeTabId: id };
       });
-      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
+      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
       if (command) await client.request("terminal.input", { terminalId: result.terminalId, data: `${command.replace(/\s+$/, "")}\n` });
       return result.terminalId;
     } catch (error) {
@@ -2139,7 +2166,7 @@ export function App() {
       terminalBuffers.current.set(attached.session.terminalId, attached.session.output);
       updateTerminalGroup((current) => { const alreadyOpen = current.tabs.find((tab) => tab.terminalId === attached.session.terminalId); if (alreadyOpen) return { ...current, activeTabId: alreadyOpen.id }; const id = crypto.randomUUID(); return { ...current, tabs: [...current.tabs, { id, rootId: selectedRootIdRef.current, terminalId: attached.session.terminalId, title, status: attached.session.status === "running" ? "running" : "exited", ...(attached.session.exitCode === undefined ? {} : { exitCode: attached.session.exitCode }), ...(attached.session.status === "running" ? { recovery: "reattached" as const } : {}) }], activeTabId: id }; });
     } else updateTerminalGroup((current) => ({ ...current, activeTabId: existing.id }));
-    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
+    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
     return true;
   };
 
@@ -2166,7 +2193,7 @@ export function App() {
     const existing = terminalId ? layoutRef.current.terminalGroup.tabs.find((tab) => tab.terminalId === terminalId && tab.status === "running") : undefined;
     if (existing && clientRef.current) {
       updateTerminalGroup((current) => ({ ...current, activeTabId: existing.id }));
-      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
+      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
       try { await clientRef.current.request("terminal.input", { terminalId: existing.terminalId, data: `${command.replace(/\s+$/, "")}\n` }); return; }
       catch { markdownBlockTerminals.current.delete(blockId); }
     }
@@ -2189,7 +2216,7 @@ export function App() {
     if (visible) {
       setLayout((current) => ({ ...current, panels: current.panels.filter((panel) => panel.type !== "terminal") }));
     } else if (layout.terminalGroup.tabs.length > 0) {
-      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["java", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
+      setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "terminal", type: "terminal" }] }));
     } else {
       void createTerminal();
     }
@@ -2199,7 +2226,7 @@ export function App() {
     if (tab.rootId && tab.rootId !== selectedRootIdRef.current) await selectWorkspaceRootRef.current(tab.rootId);
     const owner = runConfigs.find((config) => config.terminalId === tab.terminalId && ["starting", "running", "stopping"].includes(config.status));
     if (owner && clientRef.current) void clientRef.current.request("runConfig.stop", { scope: owner.scope, name: owner.name }).then((result) => setRunConfigs((items) => items.map((item) => item.scope === result.config.scope && item.name === result.config.name ? result.config : item))).catch(() => undefined);
-    else if (tab.status !== "unavailable") void clientRef.current?.request("terminal.close", { terminalId: tab.terminalId }).catch(() => undefined);
+    else if (tab.status !== "unavailable") void clientRef.current?.request("terminal.close", { terminalId: tab.terminalId }).then(() => refreshRunProjects()).catch(() => undefined);
     terminalBuffers.current.delete(tab.terminalId);
     for (const [blockId, terminalId] of markdownBlockTerminals.current) if (terminalId === tab.terminalId) markdownBlockTerminals.current.delete(blockId);
     setLayout((current) => {
@@ -2252,17 +2279,8 @@ export function App() {
   };
 
   const refreshJavaTree = async () => {
-    try { setJavaTree((await clientRef.current!.request("java.getProjectTree", {})).tree); }
+    try { setJavaTree(await loadJavaProjectTree(clientRef.current!)); }
     catch (error) { setStatusMessage(error instanceof Error ? error.message : "Could not refresh Java project"); }
-  };
-
-  const loadMavenProject = async (pomPath: string) => {
-    setTreeContextMenu(undefined);
-    try {
-      const result = await clientRef.current!.request("java.loadMavenProject", { pomPath });
-      setJavaOptions(result.options); javaOptionsRef.current = result.options; setJavaTree(result.tree);
-      if (sideLayout === "classic") setClassicSideView("java"); else setRightPanels((current) => ({ ...current, java: true }));
-    } catch (error) { setStatusMessage(error instanceof Error ? error.message : "Could not load Maven project"); }
   };
 
   const addJavaSourceRoot = async (sourcePath: string) => {
@@ -2339,51 +2357,51 @@ export function App() {
   };
 
   const toggleJavaPanel = () => {
-    const visible = layout.panels.some((panel) => panel.type === "java");
+    const visible = layout.panels.some((panel) => panel.type === "languageOutput");
     setLayout((current) => ({
       ...current,
-      panels: visible ? current.panels.filter((panel) => panel.type !== "java") : [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "java", type: "java" }]
+      panels: visible ? current.panels.filter((panel) => panel.type !== "languageOutput") : [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "languageOutput", type: "languageOutput" }]
     }));
   };
 
   const toggleProblemsPanel = () => {
     const visible = layout.panels.some((panel) => panel.type === "problems");
-    setLayout((current) => ({ ...current, panels: visible ? current.panels.filter((panel) => panel.type !== "problems") : [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "problems", type: "problems" }] }));
+    setLayout((current) => ({ ...current, panels: visible ? current.panels.filter((panel) => panel.type !== "problems") : [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "problems", type: "problems" }] }));
     if (!visible) void checkJava();
   };
 
   const toggleGitLogPanel = () => {
     const visible = layout.panels.some((panel) => panel.type === "gitlog");
-    setLayout((current) => ({ ...current, panels: visible ? current.panels.filter((panel) => panel.type !== "gitlog") : [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "gitlog", type: "gitlog" }] }));
+    setLayout((current) => ({ ...current, panels: visible ? current.panels.filter((panel) => panel.type !== "gitlog") : [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "gitlog", type: "gitlog" }] }));
   };
 
-  const saveJavaLaunchFiles = async () => {
+  const saveLaunchFiles = async () => {
     const client = clientRef.current!;
     const rootId = client.getRoot();
     for (const tab of layoutRef.current.editorGroups.flatMap((group) => group.tabs)) {
-      if (tab.type === "file" && (!tab.rootId || tab.rootId === rootId) && tab.dirty && !await saveFileTab(tab)) throw new Error(`Could not save ${tab.path} before launching Java`);
+      if (tab.type === "file" && (!tab.rootId || tab.rootId === rootId) && tab.dirty && !await saveFileTab(tab)) throw new Error(`Could not save ${tab.path} before launching a process`);
     }
     if (clientRef.current !== client || client.getRoot() !== rootId) throw new Error("Workspace changed while saving edits");
     return client;
   };
 
-  const runJavaAction = async (action: "java.build" | "java.run") => {
-    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "java", type: "java" }] }));
+  const runJavaAction = async (action: "language.build" | "language.run") => {
+    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "languageOutput", type: "languageOutput" }] }));
     setJavaRunning(true);
-    try { const client = await saveJavaLaunchFiles(); await client.request(action, {}, { timeoutMs: 10 * 60_000 }); }
+    try { const client = await saveLaunchFiles(); await client.request(action, { language: "java" }, { timeoutMs: 10 * 60_000 }); }
     catch (error) { setJavaRunning(false); setJavaLog((current) => `${current}${error instanceof Error ? error.message : "Java process failed"}\n`); if (error instanceof Error && error.message.includes("Java configuration")) setShowRunConfigurationDialog(true); }
   };
 
   const stopJava = async () => {
-    try { await clientRef.current!.request("java.stop", {}); } catch { /* Process may have already exited. */ }
+    try { await clientRef.current!.request("language.stop", { language: "java" }); } catch { /* Process may have already exited. */ }
   };
 
   const debugJava = async () => {
-    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "java", "problems", "gitlog"].includes(panel.type)), { id: "java", type: "java" }] }));
+    setLayout((current) => ({ ...current, panels: [...current.panels.filter((panel) => !["terminal", "languageOutput", "problems", "gitlog"].includes(panel.type)), { id: "languageOutput", type: "languageOutput" }] }));
     setJavaRunning(true);
     try {
-      const client = await saveJavaLaunchFiles();
-      await client.request("java.debug.start", { breakpoints: javaBreakpoints }, { timeoutMs: 10 * 60_000 });
+      const client = await saveLaunchFiles();
+      await languageClient(client, "java").startDebug(javaBreakpoints.map(({ className, ...breakpoint }) => ({ ...breakpoint, extra: { className } })), { timeoutMs: 10 * 60_000 });
     }
     catch (error) { setJavaRunning(false); setJavaDebugState({ status: "stopped", variables: [] }); setJavaLog((current) => `${current}${error instanceof Error ? error.message : "Debugger failed"}\n`); if (error instanceof Error && error.message.includes("Java configuration")) setShowRunConfigurationDialog(true); }
   };
@@ -2398,11 +2416,12 @@ export function App() {
       }
     }
     if (clientRef.current !== client || client.getRoot() !== rootId) throw new Error("Workspace changed while saving edits");
-    return client.request("java.debug.applyChanges", {}, { timeoutMs: 10 * 60_000 });
+    // JavaPanel still renders Java HotSwap details; this is the Java-specific result boundary.
+    return languageClient(client, "java").applyChanges({ timeoutMs: 10 * 60_000 }) as unknown as Promise<JavaApplyChangesResult>;
   };
 
-  const commandJavaDebugger = async (command: ProtocolOperations["java.debug.command"]["payload"]["command"]) => {
-    try { await clientRef.current!.request("java.debug.command", { command }); }
+  const commandJavaDebugger = async (command: LanguageDebugCommand) => {
+    try { await languageClient(clientRef.current!, "java").debugCommand(command); }
     catch (error) { setJavaLog((current) => `${current}${error instanceof Error ? error.message : "Debugger command failed"}\n`); }
   };
 
@@ -2425,7 +2444,9 @@ export function App() {
 
   useEffect(() => {
     if (javaDebugState.status !== "running" && javaDebugState.status !== "paused") return;
-    void clientRef.current?.request("java.debug.setBreakpoints", { breakpoints: javaBreakpoints }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not update breakpoints"));
+    const client = clientRef.current;
+    if (!client) return;
+    void languageClient(client, "java").setBreakpoints(javaBreakpoints.map(({ className, ...breakpoint }) => ({ ...breakpoint, extra: { className } }))).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not update breakpoints"));
   }, [javaBreakpoints, javaDebugState.status]);
 
   useEffect(() => {
@@ -2457,15 +2478,8 @@ export function App() {
     }; }));
   }, [activeTab?.path, javaDiagnostics]);
 
-  const selectRunConfiguration = async (id: string) => {
-    try {
-      const result = await clientRef.current!.request("java.selectRunConfiguration", { id });
-      setJavaOptions(result.options); javaOptionsRef.current = result.options;
-    } catch (error) { setStatusMessage(error instanceof Error ? error.message : "Could not select run configuration"); }
-  };
-
   useEffect(() => {
-    debugEditorRef.current?.update(javaDebugState);
+    debugEditorRef.current?.update({ ...javaDebugState, busy: javaDebugState.applyingChanges });
     if (javaDebugState.status === "paused" && javaDebugState.path && activeTab?.path !== javaDebugState.path) {
       void openFile({ name: javaDebugState.path.split("/").pop()!, path: javaDebugState.path, type: "file" });
     }
@@ -2515,7 +2529,8 @@ export function App() {
 
   const searchWorkspaceSymbols = useCallback(async (query: string) => {
     const client = clientRef.current; if (!client) return { symbols: [], truncated: false };
-    return client.request("java.workspaceSymbols", { query, limit: 100 });
+    const result = await client.request("language.symbols", { language: "java", query, limit: 100 });
+    return { symbols: result.symbols, truncated: result.truncated ?? false };
   }, []);
 
   const openWorkspaceSymbol = async (symbol: RootedWorkspaceSymbol) => {
@@ -2588,9 +2603,9 @@ export function App() {
       const rootId = client.getRoot();
       debugEditorRef.current = attachDebugEditor(instance, api, filePath, (reference, start) => {
         if (clientRef.current !== client || client.getRoot() !== rootId) return Promise.reject(new Error("Workspace changed"));
-        return client.request("java.debug.variables", { reference, start });
+        return languageClient(client, "java").debugVariables(reference, start);
       });
-      debugEditorRef.current.update(javaDebugStateRef.current);
+      debugEditorRef.current.update({ ...javaDebugStateRef.current, busy: javaDebugStateRef.current.applyingChanges });
     }
     breakpointDecorationsRef.current = [];
     if (activeTab.type === "file") decorateBreakpoints(instance, filePath, api);
@@ -2662,7 +2677,7 @@ export function App() {
       const generation = ++semanticGeneration;
       const version = instance.getModel()?.getVersionId();
       try {
-        const result = await clientRef.current.request("java.semanticTokens", { path: filePath, content: instance.getValue() });
+        const result = await clientRef.current.request("language.lsp.semanticTokens", { language: "java", path: filePath, content: instance.getValue() });
         if (semanticDisposed || generation !== semanticGeneration || version !== instance.getModel()?.getVersionId()) return;
         functionMarkers.set(functionStartDecorations(result.tokens.filter((token) => ["function", "method", "constructor"].includes(token.type) && (token.modifiers.includes("declaration") || token.modifiers.includes("definition"))).map((token) => ({ line: token.startLine, name: instance.getModel()?.getValueInRange({ startLineNumber: token.startLine, startColumn: token.startColumn, endLineNumber: token.endLine, endColumn: token.endColumn }) ?? "" }))));
         if (highlightTheme !== "ftpud") { semanticDecorations = instance.deltaDecorations(semanticDecorations, []); return; }
@@ -2681,7 +2696,7 @@ export function App() {
       triggerCharacters: ["."],
       provideCompletionItems: async (model, position) => {
         if (!clientRef.current || model !== instance.getModel()) return { suggestions: [] };
-        const result = await clientRef.current.request("java.completion", { path: filePath, content: model.getValue(), line: position.lineNumber, column: position.column });
+        const result = await clientRef.current.request("language.lsp.completion", { language: "java", path: filePath, content: model.getValue(), line: position.lineNumber, column: position.column });
         const word = model.getWordUntilPosition(position);
         return { suggestions: result.items.map((item) => ({
           label: item.label, detail: item.detail, kind: api.languages.CompletionItemKind.Text, insertText: item.insertText,
@@ -2700,11 +2715,11 @@ export function App() {
       event.event.preventDefault();
       const content = instance.getValue();
       const navigationRoot = clientRef.current.getRoot();
-      void clientRef.current.request("java.definition", { path: filePath, content, line: position.lineNumber, column: position.column }).then(async ({ locations }) => {
+      void clientRef.current.request("language.lsp.definition", { language: "java", path: filePath, content, line: position.lineNumber, column: position.column }).then(async ({ locations }) => {
         if (navigationRoot !== selectedRootIdRef.current) return;
         const declaration = locations.find((location) => location.path === filePath && position.lineNumber >= location.startLine && position.lineNumber <= location.endLine && position.column >= location.startColumn && position.column <= location.endColumn);
         if (declaration) {
-          const references = await clientRef.current!.request("java.references", { path: filePath, content, line: position.lineNumber, column: position.column });
+          const references = await clientRef.current!.request("language.lsp.references", { language: "java", path: filePath, content, line: position.lineNumber, column: position.column });
           if (navigationRoot === selectedRootIdRef.current) setJavaUsages(references.locations);
         } else if (locations[0]) void openJavaLocation(locations[0]);
       }).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Java navigation failed"));
@@ -2926,6 +2941,117 @@ export function App() {
     catch (error) { setStatusMessage(error instanceof Error ? error.message : "Could not remove workspace root"); }
   };
   const rightSidebarOpen = rightPanels.project || rightPanels.git || rightPanels.useful || rightPanels.agents || rightPanels.skills || ((rightPanels.taskGit || rightPanels.promptHistory) && Boolean(selectedTaskId)) || (rightPanels.java && Boolean(javaOptions));
+  useEffect(() => {
+    const client = clientRef.current;
+    setLanguages([]);
+    if (status !== "connected" || !client) return;
+    let current = true;
+    void client.request("language.list", {}).then(({ languages }) => { if (current) setLanguages(languages); }).catch((error: unknown) => { if (current) setStatusMessage(error instanceof Error ? error.message : "Could not list language services"); });
+    return () => { current = false; };
+  }, [status, selectedRootId, selectedTaskId]);
+  const refreshRunProjects = useCallback(async (client = clientRef.current) => {
+    if (!client || !client.isConnected() || taskSwitchActive.current) return;
+    const root = client.getRoot(); const task = selectedTaskIdRef.current; const workspace = activeWorkspaceRef.current;
+    const generation = ++runProjectGeneration.current;
+    const results = await Promise.allSettled(languages.filter((language) => language.capabilities.run).map(async (language) => {
+      const { options } = await client.request("language.options", { language: language.id });
+      return runProject(language, options);
+    }));
+    if (generation !== runProjectGeneration.current || clientRef.current !== client || client.getRoot() !== root || selectedTaskIdRef.current !== task || activeWorkspaceRef.current !== workspace || taskSwitchActive.current) return;
+    const projects = results.flatMap((result) => result.status === "fulfilled" && result.value ? [result.value] : []);
+    setRunProjects(projects);
+    setSelectedLanguage((current) => projects.some((project) => project.language === current) ? current : projects[0]?.language);
+  }, [languages]);
+  useEffect(() => {
+    runProjectGeneration.current++;
+    setRunProjects([]); setRunProjectProcesses({}); setRunConfigurationEditor(undefined); setRunProjectBusy(false);
+    if (status === "connected") void refreshRunProjects().catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not load run configurations"));
+  }, [status, selectedRootId, selectedTaskId, refreshRunProjects]);
+  useEffect(() => {
+    const client = clientRef.current;
+    if (!client || status !== "connected") return;
+    const root = client.getRoot(); const task = selectedTaskIdRef.current;
+    return client.subscribeServerEvents((event) => {
+      if (clientRef.current !== client || client.getRoot() !== root || task !== selectedTaskIdRef.current || taskSwitchActive.current) return;
+      if ((event.type === "terminal.exit" && event.payload.rootId === root) || (event.type === "configuration.changed" && event.payload.rootId === root && event.payload.resource.startsWith("languages/"))) {
+        void refreshRunProjects().catch(() => undefined); return;
+      }
+      if (event.type === "filesystem.changed" && event.payload.rootId === root && (event.payload.overflow || event.payload.paths.some((path) => /(^|\/)(package\.json|pom\.xml)$/.test(path) || /^\.settings\/(npm|java)\.json$/.test(path)))) {
+        void refreshRunProjects().catch(() => undefined); return;
+      }
+      if ((event.type !== "language.output" && event.type !== "language.exit" && event.type !== "language.debug.state") || event.payload.rootId !== root) return;
+      const language = event.payload.language;
+      setRunProjectProcesses((current) => {
+        const previous = current[language] ?? { running: false, log: "" };
+        if (event.type === "language.output") return { ...current, [language]: { ...previous, log: (previous.log + event.payload.data).slice(-1_000_000) } };
+        if (event.type === "language.exit") return { ...current, [language]: { ...previous, running: false, log: `${previous.log}\nProcess exited${event.payload.exitCode === null ? "" : ` with code ${event.payload.exitCode}`}\n` } };
+        return { ...current, [language]: { ...previous, running: event.payload.status !== "stopped" } };
+      });
+    });
+  }, [status, selectedRootId, selectedTaskId, refreshRunProjects]);
+  useEffect(() => { if (languages.length && status === "connected") void refreshRunProjects().catch(() => undefined); }, [javaOptions]);
+  const selectProjectRunConfiguration = async (language: string, id: string) => {
+    const client = clientRef.current;
+    if (!client || taskSwitchActive.current) return;
+    const root = client.getRoot(); const task = selectedTaskIdRef.current;
+    setRunProjectBusy(true);
+    try {
+      await languageClient(client, language).request("language.selectRunConfiguration", { id });
+      if (clientRef.current !== client || client.getRoot() !== root || task !== selectedTaskIdRef.current) return;
+      setSelectedLanguage(language);
+      await refreshRunProjects(client);
+      const java = await client.request("java.getOptions", {});
+      if (clientRef.current === client && client.getRoot() === root && task === selectedTaskIdRef.current) { setJavaOptions(java.options); javaOptionsRef.current = java.options; }
+    } catch (error) { if (clientRef.current === client && client.getRoot() === root) setStatusMessage(error instanceof Error ? error.message : "Could not select run configuration"); }
+    finally { if (clientRef.current === client && client.getRoot() === root && task === selectedTaskIdRef.current) setRunProjectBusy(false); }
+  };
+  const registerRunProject = async (path: string) => {
+    const registration = projectRegistration(path); const client = clientRef.current;
+    setTreeContextMenu(undefined);
+    if (!registration || !client || taskSwitchActive.current) return;
+    const root = client.getRoot(); const task = selectedTaskIdRef.current;
+    setRunProjectBusy(true);
+    try {
+      await languageClient(client, registration.language).request("language.load", { extra: registration.extra });
+      if (clientRef.current !== client || client.getRoot() !== root || task !== selectedTaskIdRef.current) return;
+      const java = await client.request("java.getOptions", {});
+      if (clientRef.current !== client || client.getRoot() !== root || task !== selectedTaskIdRef.current) return;
+      setJavaOptions(java.options); javaOptionsRef.current = java.options;
+      if (java.options) void refreshJavaTree();
+      await refreshRunProjects(client);
+      if (clientRef.current !== client || client.getRoot() !== root || task !== selectedTaskIdRef.current || taskSwitchActive.current) return;
+      openRunConfigurations(registration.language);
+      void refreshTree();
+    } catch (error) { if (clientRef.current === client && client.getRoot() === root) setStatusMessage(error instanceof Error ? error.message : "Could not add project"); }
+    finally { if (clientRef.current === client && client.getRoot() === root && task === selectedTaskIdRef.current) setRunProjectBusy(false); }
+  };
+  const launchProjectConfiguration = async (language: string, debug = false) => {
+    if (runProjectBusy || taskSwitchActive.current || runProjectProcesses[language]?.running) return;
+    const client = clientRef.current; if (!client) return;
+    const root = client.getRoot(); const task = selectedTaskIdRef.current;
+    const current = () => clientRef.current === client && client.getRoot() === root && selectedTaskIdRef.current === task && !taskSwitchActive.current;
+    setSelectedLanguage(language);
+    setRunProjectProcesses((states) => ({ ...states, [language]: { ...(states[language] ?? { log: "" }), running: true, error: undefined } }));
+    try {
+      await saveLaunchFiles();
+      if (!current()) return;
+      if (debug) await languageClient(client, language).startDebug(language === "java" ? javaBreakpoints.map(({ className, ...breakpoint }) => ({ ...breakpoint, extra: { className } })) : [], { timeoutMs: 10 * 60_000 });
+      else {
+        const { terminal } = await languageClient(client, language).request("language.run", {}, { timeoutMs: 10 * 60_000 });
+        if (current()) await openTerminalReference(terminal.terminalId, terminal.displayName ?? "Run");
+      }
+    } catch (error) {
+      if (current()) {
+        const message = error instanceof Error ? error.message : "Run failed";
+        setRunProjectProcesses((states) => ({ ...states, [language]: { ...(states[language] ?? { log: "" }), running: false, error: message } }));
+        setStatusMessage(message);
+      }
+    }
+  };
+  const stopProjectConfiguration = async (language: string) => {
+    try { await languageClient(clientRef.current!, language).request("language.stop", {}); }
+    catch (error) { setStatusMessage(error instanceof Error ? error.message : "Could not stop project"); }
+  };
   const commandContext: CommandContext = { connected: status === "connected", hasActiveEditor: Boolean(activeTab), activeEditorDirty: Boolean(activeTab?.dirty), gitBusy: gitOperationRunning, taskSwitching, aiBusy: aiSession.status === "in_progress" };
   const commands: Command[] = [
     { id: "project.commandPalette", label: "Show Command Palette", category: "Project", when: (context) => context.connected, execute: () => setCommandPaletteOpen(true) },
@@ -2940,7 +3066,8 @@ export function App() {
     { id: "terminal.toggle", label: "Toggle Terminal Panel", category: "Terminal", when: (context) => context.connected, execute: toggleTerminalPanel },
     { id: "task.create", label: "Create Task", category: "Task", when: (context) => context.connected && !context.taskSwitching, execute: () => setShowCreateTaskDialog(true) },
     { id: "ai.open", label: "Open AI", category: "AI", when: (context) => context.connected, execute: () => { if (sideLayout === "classic") setClassicAiOpen(true); else setLeftPanels((current) => ({ ...current, ai: true, harness: false, timers: false, triggers: false, proc: false })); void refreshAi(); } },
-    { id: "java.configuration", label: "Edit Java Run/Debug Configuration", category: "Java", when: (context) => context.connected, execute: () => setShowRunConfigurationDialog(true) },
+    { id: "language.tools", label: "Open Run Configurations", category: "Language", when: (context) => context.connected && runProjects.length > 0, execute: () => openRunConfigurations() },
+    ...languageCommands(languages.filter((language) => runProjects.some((project) => project.language === language.id)), openRunConfigurations),
     { id: "editor.save", label: "Save Active Editor", category: "Editor", when: (context) => context.hasActiveEditor && context.activeEditorDirty, execute: () => saveActive() }
   ];
 
@@ -2996,6 +3123,24 @@ export function App() {
     }}
     onCancelAll={async () => { const client = clientRef.current; if (!client) return; await client.request("timers.cancelAll", {}); await refreshAiStatuses(client); }} />;
 
+  const projectProcessStates: Record<string, RunProjectProcess> = { ...runProjectProcesses, java: { ...(runProjectProcesses.java ?? { log: "" }), running: javaRunning || !!runProjectProcesses.java?.running } };
+  for (const project of runProjects) if (project.terminalRunning) projectProcessStates[project.language] = { ...(projectProcessStates[project.language] ?? { log: "" }), running: true };
+  const runProjectActions = {
+    projects: runProjects, selectedLanguage,
+    processes: projectProcessStates,
+    busy: runProjectBusy || taskSwitching || status !== "connected",
+    onSelect: (language: string, id: string) => { void selectProjectRunConfiguration(language, id); },
+    onConfigure: (language: string) => { setSelectedLanguage(language); setRunConfigurationEditor(language); },
+    onRun: (language: string, debug?: boolean) => { void launchProjectConfiguration(language, debug); },
+    onStop: (language: string) => { void stopProjectConfiguration(language); }
+  };
+  const rightBottomTools = <><div className="tool-stripe-spacer" aria-hidden="true" /><div className="right-bottom-tools">
+    <button className={`tool-stripe-button right ${rightPanels.useful ? "active" : ""}`} title={rightPanels.useful ? "Hide Useful Files" : "Show Useful Files"} onClick={() => setRightPanels((current) => { if (!current.useful) void refreshUsefulFiles(); return { ...current, useful: !current.useful }; })}><Bookmark size={15} /><span>Useful</span></button>
+    <button className={`tool-stripe-button right ${rightPanels.agents ? "active" : ""}`} title={rightPanels.agents ? "Hide Agents" : "Show Agents"} onClick={() => setRightPanels((current) => { if (!current.agents) void refreshAgents(); return { ...current, agents: !current.agents }; })}><Bot size={15} /><span>Agents</span></button>
+    <button className={`tool-stripe-button right ${rightPanels.skills ? "active" : ""}`} title={rightPanels.skills ? "Hide Skills" : "Show Skills"} onClick={() => setRightPanels((current) => { if (!current.skills) void refreshSkills(); return { ...current, skills: !current.skills }; })}><GraduationCap size={15} /><span>Skills</span></button>
+    <SidebarExtentButton edge="right" extended={rightSidebarExtended} onChange={setRightSidebarExtended} />
+  </div></>;
+  const ProjectConfigurationEditor = runConfigurationEditor ? projectConfigurationEditors[runConfigurationEditor] ?? GenericProjectConfigurationDialog : undefined;
   // Keep live buffers mounted during automatic recovery; commands still see disconnected.
   if (status !== "connected" && status !== "disconnected") return <ConnectionScreen {...{ host, port, status, statusMessage, setHost, setPort, connect }} />;
 
@@ -3009,17 +3154,11 @@ export function App() {
       {statusKind !== "progress" && <button title="Dismiss" aria-label="Dismiss status message" onClick={() => setStatusMessageState("")}><X size={14} /></button>}
     </div>}
     <header className="titlebar-actions" aria-label="Workspace toolbar">
-      <div className="workspace-identity" title={activeWorkspace}><Workflow size={20} /><span>{projectName}</span></div>
+      <div className="workspace-identity" title={activeWorkspace}><span className="branding-mark titlebar-branding" aria-hidden="true" /><span>{projectName}</span></div>
       <BranchPicker current={gitBranch} menu={branchMenu} onToggle={() => void toggleBranchMenu()} onClose={() => setBranchMenu(undefined)} onRefresh={() => void loadBranchMenu()} onCreate={() => void createBranch()} onCheckout={checkoutBranch} onRename={renameBranch} onDelete={deleteBranch} onPublish={publishBranch} onSetUpstream={setBranchUpstream} />
       <div className="titlebar-spacer" />
-      {javaOptions && <div className="top-java-run" role="toolbar" aria-label="Java run controls">
-        <button aria-label="Run selected Java configuration" title="Run selected Java configuration" disabled={javaRunning || !javaOptions.selectedRunConfigurationId} onClick={() => void runJavaAction("java.run")}><Play size={14} /></button>
-        <button aria-label="Debug selected Java configuration" title="Debug selected Java configuration" disabled={javaRunning || !javaOptions.selectedRunConfigurationId} onClick={() => void debugJava()}><Bug size={14} /></button>
-        <button aria-label="Stop Java process" title="Stop Java process" disabled={!javaRunning} onClick={() => void stopJava()}><Square size={13} /></button>
-        <button aria-label="Edit Java run/debug configuration" title="Edit Java run/debug configuration" onClick={() => setShowRunConfigurationDialog(true)}><Settings size={14} /></button>
-        <select aria-label="Java run configuration" value={javaOptions.selectedRunConfigurationId ?? ""} onChange={(event) => event.target.value === "__create__" ? setShowRunConfigurationDialog(true) : void selectRunConfiguration(event.target.value)}><option value="" disabled>Select run configuration</option>{javaOptions.runConfigurations.map((configuration) => <option key={configuration.id} value={configuration.id}>{configuration.name}</option>)}<option value="__create__">Edit configurations…</option></select>
-      </div>}
-      {storageOpen && clientRef.current && <StoragePanel client={clientRef.current} onClose={() => setStorageOpen(false)} />}{aiProvidersOpen && clientRef.current && <AiProvidersPanel client={clientRef.current} onClose={() => setAiProvidersOpen(false)} onChanged={() => void refreshAiProviders()} />}{toolsOpen && clientRef.current && <ToolsPanel client={clientRef.current} onClose={() => setToolsOpen(false)} />}<div className="workspace-utilities"><FocusModeButton active={focusMode} onChange={changeFocusMode} /><span className="workspace-utility-divider" aria-hidden="true" /><ConnectionMenu host={host} port={port} connected={status === "connected"} onDisconnect={disconnect} /><div className="settings-anchor"><button className="workspace-settings-button" aria-label="Settings" title="Settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings size={16} /><span>Settings</span></button>{settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} onStorage={() => { setSettingsOpen(false); setStorageOpen(true); }} onAiProviders={() => { setSettingsOpen(false); setAiProvidersOpen(true); }} onTools={() => { setSettingsOpen(false); setToolsOpen(true); }} workspace={activeWorkspace} sideLayout={sideLayout} onSideLayoutChange={changeSideLayout} commands={commands} shortcutBindings={shortcutBindings} platform={platform} onShortcutChange={changeShortcut} onShortcutsReset={resetShortcuts} values={{ theme, highlightTheme, uiFontFamily, uiFontWeight, uiFontSize, uiLineHeight }} isWorkspaceOverride={(setting) => hasWorkspaceSetting(activeWorkspace, setting)} onChange={(setting, value) => { workspaceDefaultsRef.current.delete(setting); if (setting === "theme") setTheme(value as DesktopSettings["theme"]); else if (setting === "highlightTheme") setHighlightTheme(value as DesktopSettings["highlightTheme"]); else if (setting === "uiFontFamily") setUiFontFamily(value as DesktopSettings["uiFontFamily"]); else if (setting === "uiFontWeight") setUiFontWeight(value as number); else if (setting === "uiFontSize") setUiFontSize(value as number); else setUiLineHeight(value as number); }} onReset={(setting) => { resetWorkspaceSetting(activeWorkspace, setting); workspaceDefaultsRef.current.add(setting); const value = readSetting(setting); if (setting === "theme") setTheme(value === "dark" ? "dark" : "light"); else if (setting === "highlightTheme") setHighlightTheme(value === "ftpud" || value === "ftpud-dark" ? "ftpud" : "default"); else if (setting === "uiFontFamily") setUiFontFamily(value === "jetbrains" ? "jetbrains" : "inter"); else if (setting === "uiFontWeight") setUiFontWeight(readSettingNumber(setting, 450, 350, 600)); else if (setting === "uiFontSize") setUiFontSize(readSettingNumber(setting, 13, 10, 20)); else setUiLineHeight(readSettingNumber(setting, 1.2, 1, 2)); setSettingsRevision((revision) => revision + 1); }} />}</div></div>
+      <RunConfigurationToolbar {...runProjectActions} />
+      {storageOpen && clientRef.current && <StoragePanel client={clientRef.current} onClose={() => setStorageOpen(false)} />}{aiProvidersOpen && clientRef.current && <AiProvidersPanel client={clientRef.current} onClose={() => setAiProvidersOpen(false)} onChanged={() => void refreshAiProviders()} />}{pluginsOpen && clientRef.current && <PluginsPanel client={clientRef.current} onClose={() => setPluginsOpen(false)} />}{toolsOpen && clientRef.current && <ToolsPanel client={clientRef.current} onClose={() => setToolsOpen(false)} />}<div className="workspace-utilities"><FocusModeButton active={focusMode} onChange={changeFocusMode} /><span className="workspace-utility-divider" aria-hidden="true" /><ConnectionMenu host={host} port={port} cloudOrigin={cloudConnection ? launchConfig.cloudOrigin : undefined} connected={status === "connected"} onDisconnect={disconnect} /><div className="settings-anchor"><button className="workspace-settings-button" aria-label="Settings" title="Settings" aria-expanded={settingsOpen} onClick={() => setSettingsOpen((open) => !open)}><Settings size={16} /><span>Settings</span></button>{settingsOpen && <SettingsMenu onClose={() => setSettingsOpen(false)} onStorage={() => { setSettingsOpen(false); setStorageOpen(true); }} onAiProviders={() => { setSettingsOpen(false); setAiProvidersOpen(true); }} onPlugins={() => { setSettingsOpen(false); setPluginsOpen(true); }} onTools={() => { setSettingsOpen(false); setToolsOpen(true); }} workspace={activeWorkspace} sideLayout={sideLayout} onSideLayoutChange={changeSideLayout} commands={commands} shortcutBindings={shortcutBindings} platform={platform} onShortcutChange={changeShortcut} onShortcutsReset={resetShortcuts} values={{ theme, highlightTheme, uiFontFamily, uiFontWeight, uiFontSize, uiLineHeight }} isWorkspaceOverride={(setting) => hasWorkspaceSetting(activeWorkspace, setting)} onChange={(setting, value) => { workspaceDefaultsRef.current.delete(setting); if (setting === "theme") setTheme(value as DesktopSettings["theme"]); else if (setting === "highlightTheme") setHighlightTheme(value as DesktopSettings["highlightTheme"]); else if (setting === "uiFontFamily") setUiFontFamily(value as DesktopSettings["uiFontFamily"]); else if (setting === "uiFontWeight") setUiFontWeight(value as number); else if (setting === "uiFontSize") setUiFontSize(value as number); else setUiLineHeight(value as number); }} onReset={(setting) => { resetWorkspaceSetting(activeWorkspace, setting); workspaceDefaultsRef.current.add(setting); const value = readSetting(setting); if (setting === "theme") setTheme(value === "dark" ? "dark" : "light"); else if (setting === "highlightTheme") setHighlightTheme(value === "ftpud" || value === "ftpud-dark" ? "ftpud" : "default"); else if (setting === "uiFontFamily") setUiFontFamily(value === "jetbrains" ? "jetbrains" : "inter"); else if (setting === "uiFontWeight") setUiFontWeight(readSettingNumber(setting, 450, 350, 600)); else if (setting === "uiFontSize") setUiFontSize(readSettingNumber(setting, 13, 10, 20)); else setUiLineHeight(readSettingNumber(setting, 1.2, 1, 2)); setSettingsRevision((revision) => revision + 1); }} />}</div></div>
     </header>
     <div className={`workspace-row${leftSidebarExtended ? " extend-left" : ""}${rightSidebarExtended ? " extend-right" : ""}`}>
       <div className="workspace-sidebar workspace-sidebar-left">
@@ -3054,8 +3193,6 @@ export function App() {
         <button className={`tool-stripe-button ${classicSideView === "git" ? "active" : ""}`} title="Git changes" onClick={() => { selectClassicSideView("git"); void refreshGit(); }}><GitBranch size={15} /><span>Git</span>{gitEntries.length > 0 && <span className="tool-badge">{gitEntries.length > 99 ? "99+" : gitEntries.length}</span>}</button>
         {selectedTaskId && <button className={`tool-stripe-button ${classicSideView === "taskGit" ? "active" : ""}`} title="Changes from task base branch" onClick={() => { selectClassicSideView("taskGit"); void refreshTaskGit(); }}><GitCompareArrows size={15} /><span>Task Git</span>{taskGitEntries.length > 0 && <span className="tool-badge">{taskGitEntries.length > 99 ? "99+" : taskGitEntries.length}</span>}</button>}
         {selectedTaskId && <button className={`tool-stripe-button ${rightPanels.promptHistory ? "active" : ""}`} title={rightPanels.promptHistory ? "Hide Prompt History" : "Show Prompt History"} onClick={() => setRightPanels((current) => { if (!current.promptHistory) void refreshTaskGit(); return { ...current, promptHistory: !current.promptHistory }; })}><History size={15} /><span>History</span>{taskCheckpoints.length > 0 && <span className="tool-badge">{taskCheckpoints.length > 99 ? "99+" : taskCheckpoints.length}</span>}</button>}
-        <button className={`tool-stripe-button ${classicSideView === "useful" ? "active" : ""}`} title="Useful Files" onClick={() => { selectClassicSideView("useful"); void refreshUsefulFiles(); }}><Bookmark size={15} /><span>Useful</span></button>
-        <button className={`tool-stripe-button ${classicSideView === "agents" ? "active" : ""}`} title="Agents" onClick={() => { selectClassicSideView("agents"); void refreshAgents(); }}><Bot size={15} /><span>Agents</span></button>
         <button className={`tool-stripe-button ${classicSideView === "workflowRuns" ? "active" : ""}`} title="Workflows · View / Run" onClick={() => { selectClassicSideView("workflowRuns"); void Promise.all([refreshHarnesses(), refreshHarnessRuns()]); }}><Play size={15} /><span>Workflows</span></button>
         {javaOptions && <button className={`tool-stripe-button ${classicSideView === "java" ? "active" : ""}`} title="Java project" onClick={() => { selectClassicSideView("java"); void refreshJavaTree(); }}><Coffee size={15} /><span>Java</span></button>}
         <div className="tool-stripe-bottom">
@@ -3104,7 +3241,7 @@ export function App() {
           setEditorGitMenu({ x: Math.min(event.clientX, window.innerWidth - 245), y: Math.min(event.clientY, window.innerHeight - 85), path: activeTab.path, ...(hasSelection ? { ...selectedLineRange(selection!), content: monacoEditorRef.current?.getModel()?.getValue() } : {}) });
         }}>
           {group.tabs.filter((tab) => tab.type === "workflow" && tab.rootId === selectedRootId).map((tab) => <div className="workflow-editor-tab" key={tab.id} hidden={tab.id !== group.activeTabId}>{taskSwitching ? <p role="status">Switching workspace…</p> : tab.workflowTaskId !== selectedTaskId ? <div className="harness-empty"><Workflow size={30} /><strong>This workflow belongs to another task</strong><button onClick={() => void activateEditorTab(tab)}>Switch to workflow task</button></div> : harnessesLoading ? <p role="status">Loading workflow…</p> : !harnesses.some((workflow) => workflow.id === tab.workflowId) ? <div className="harness-empty"><Workflow size={30} /><strong>Workflow unavailable</strong><span>This workflow may have been deleted.</span></div> : renderWorkflowPanel(tab)}</div>)}
-          {!activeTab ? <div className="empty-editor"><div className="workspace-welcome"><Workflow size={40} /><h1>Your workspace,<br /><span>ready.</span></h1><p>Explore your project, build with an agent, or run a workflow.</p><button onClick={() => setQuickOpen(true)}><Folder size={18} /><span>Open a file</span><ChevronRight size={16} /></button></div></div> : activeTab.loading ? <div className="empty-editor">Loading {activeTab.title}...</div> : activeTab.error && !activeTab.content ? <div className="editor-error">{activeTab.error}</div> : <>
+          {!activeTab ? <div className="empty-editor"><div className="workspace-welcome"><span className="branding-mark welcome-branding" aria-hidden="true" /><h1>Your workspace,<br /><span>ready.</span></h1><p>Explore your project, build with an agent, or run a workflow.</p><button onClick={() => setQuickOpen(true)}><Folder size={18} /><span>Open a file</span><ChevronRight size={16} /></button></div></div> : activeTab.loading ? <div className="empty-editor">Loading {activeTab.title}...</div> : activeTab.error && !activeTab.content ? <div className="editor-error">{activeTab.error}</div> : <>
             {activeTab.error && <div className="inline-error">{activeTab.error}</div>}
             {activeTab.type === "workflow" ? null : activeTab.type === "diff" ? <><DiffEditor key={`${activeTab.id}:${activeTab.diffMode ?? "unified"}`} original={activeTab.originalContent ?? ""} modified={activeTab.content} language={languageByExtension[activeTab.path.split(".").pop()?.toLowerCase() ?? ""] ?? "plaintext"} beforeMount={configureMonacoThemes} theme={monacoTheme(theme, highlightTheme)} onMount={mountWorkingDiff} options={{ automaticLayout: true, readOnly: false, originalEditable: false, renderMarginRevertIcon: true, renderSideBySide: activeTab.diffMode === "split", useInlineViewWhenSpaceIsLimited: false, minimap: { enabled: false }, fontFamily: editorFontFamily, fontWeight: "normal", fontSize: uiFontSize, lineHeight: editorLineHeight, scrollBeyondLastLine: false }} /><DiffNavigation editorRef={monacoDiffEditorRef} /></> : activeTab.markdownMode === "preview" ? <div className="markdown-preview"><MarkdownPreview sourcePath={activeTab.type === "skill" ? activeTab.skillPath ?? "SKILL.md" : activeTab.path} workspacePath={activeTab.type === "skill" ? undefined : activeWorkspace} renderPre={renderMarkdownPre} onOpenFile={(path) => activeTab.type === "skill" ? void openSkillFile(activeTab.skillId!, "preview", path) : void openFile({ name: path.split("/").pop() ?? path, path, type: "file" })} onOpenExternal={(url) => { void window.desktop?.openExternal(url).catch((error: unknown) => setStatusMessage(error instanceof Error ? error.message : "Could not open external link")); }} onChange={activeTab.type === "workflowDocument" || (activeTab.type === "skill" && !!activeTab.skillPath && activeTab.skillPath !== "SKILL.md") ? undefined : (content) => updateGroup((tabs, active) => ({ tabs: tabs.map((tab) => tab.id === activeTab.id ? { ...tab, content, dirty: content !== tab.savedContent, error: undefined } : tab), activeTabId: active }))}>{activeTab.content}</MarkdownPreview></div> : <StableEditor key={`${activeTab.type}:${activeTab.usefulScope ?? activeTab.runConfigScope ?? activeTab.agentScope ?? activeTab.skillId ?? "workspace"}:${activeTab.path}`} path={activeTab.type === "workflowDocument" ? `${activeTab.id}.md` : activeTab.type === "useful" ? `useful-${activeTab.usefulScope}/${activeTab.path}` : activeTab.type === "runConfig" ? `run-config-${activeTab.runConfigScope}/${activeTab.path}.sh` : activeTab.type === "agent" ? `agent-${activeTab.agentScope}/${activeTab.path}` : activeTab.type === "skill" ? `skill-${activeTab.skillId}/${activeTab.skillPath ?? "SKILL.md"}` : activeTab.path} language={activeTab.type === "runConfig" ? "shell" : languageByExtension[activeTab.path.split(".").pop()?.toLowerCase() ?? ""] ?? "plaintext"} value={activeTab.content} beforeMount={configureMonacoThemes} theme={monacoTheme(theme, highlightTheme)} onMount={mountEditor} options={{ readOnly: activeTab.type === "workflowDocument" || (activeTab.type === "skill" && !!activeTab.skillPath && activeTab.skillPath !== "SKILL.md"), automaticLayout: true, contextmenu: false, minimap: { enabled: false }, glyphMargin: activeTab.type === "file" || /\.http$/i.test(activeTab.path), fontFamily: editorFontFamily, fontWeight: "normal", fontSize: uiFontSize, lineHeight: editorLineHeight, scrollBeyondLastLine: false, padding: { top: 10 } }} onChange={(value) => updateGroup((tabs, active) => ({ tabs: tabs.map((tab) => tab.id === activeTab.id ? { ...tab, content: value, dirty: value !== tab.savedContent, error: undefined } : tab), activeTabId: active }))} />}
           </>}
@@ -3141,12 +3278,12 @@ export function App() {
         {selectedTaskId && <button className={`tool-stripe-button right ${rightPanels.taskGit ? "active" : ""}`} title={rightPanels.taskGit ? "Hide Task Git" : "Show Task Git"} onClick={toggleFocusedTaskGit}><GitCompareArrows size={15} /><span>Task Git</span>{taskGitEntries.length > 0 && <span className="tool-badge">{taskGitEntries.length > 99 ? "99+" : taskGitEntries.length}</span>}</button>}
         {selectedTaskId && <button className={`tool-stripe-button right ${rightPanels.promptHistory ? "active" : ""}`} title={rightPanels.promptHistory ? "Hide Prompt History" : "Show Prompt History"} onClick={() => setRightPanels((current) => { if (!current.promptHistory) void refreshTaskGit(); return { ...current, promptHistory: !current.promptHistory }; })}><History size={15} /><span>History</span>{taskCheckpoints.length > 0 && <span className="tool-badge">{taskCheckpoints.length > 99 ? "99+" : taskCheckpoints.length}</span>}</button>}
         {javaOptions && <button className={`tool-stripe-button right ${rightPanels.java ? "active" : ""}`} title={rightPanels.java ? "Hide Java project" : "Show Java project"} onClick={() => setRightPanels((current) => { if (!current.java) void refreshJavaTree(); return { ...current, java: !current.java }; })}><Coffee size={15} /><span>Java</span></button>}
-        <button className={`tool-stripe-button right ${rightPanels.useful ? "active" : ""}`} title={rightPanels.useful ? "Hide Useful Files" : "Show Useful Files"} onClick={() => setRightPanels((current) => { if (!current.useful) void refreshUsefulFiles(); return { ...current, useful: !current.useful }; })}><Bookmark size={15} /><span>Useful</span></button>
-        <button className={`tool-stripe-button right ${rightPanels.agents ? "active" : ""}`} title={rightPanels.agents ? "Hide Agents" : "Show Agents"} onClick={() => setRightPanels((current) => { if (!current.agents) void refreshAgents(); return { ...current, agents: !current.agents }; })}><Bot size={15} /><span>Agents</span></button>
-        <button className={`tool-stripe-button right ${rightPanels.skills ? "active" : ""}`} title={rightPanels.skills ? "Hide Skills" : "Show Skills"} onClick={() => setRightPanels((current) => { if (!current.skills) void refreshSkills(); return { ...current, skills: !current.skills }; })}><GraduationCap size={15} /><span>Skills</span></button>
-      <div className="tool-stripe-bottom"><SidebarExtentButton edge="right" extended={rightSidebarExtended} onChange={setRightSidebarExtended} /></div></nav></FocusDock>
+        {rightBottomTools}
+      </nav></FocusDock>
       </> : <>
-      {(classicTasksOpen || classicAiOpen || rightPanels.skills || (rightPanels.promptHistory && selectedTaskId)) && <><div className="right-resize-handle" role="separator" aria-label="Resize right sidebar" aria-orientation="vertical" aria-valuemin={240} aria-valuemax={Math.round(Math.min(960, window.innerWidth * .72))} aria-valuenow={Math.round(classicRightWidth)} tabIndex={0} onKeyDown={(event) => keyboardResize(event, classicRightWidth, setClassicRightWidth, 240, Math.min(960, window.innerWidth * .72), true)} onPointerDown={beginClassicRightResize} /><aside className="side-panel classic-right-panel" style={{ width: classicRightWidth }}>
+      {(rightPanels.useful || rightPanels.agents || classicTasksOpen || classicAiOpen || rightPanels.skills || (rightPanels.promptHistory && selectedTaskId)) && <><div className="right-resize-handle" role="separator" aria-label="Resize right sidebar" aria-orientation="vertical" aria-valuemin={240} aria-valuemax={Math.round(Math.min(960, window.innerWidth * .72))} aria-valuenow={Math.round(classicRightWidth)} tabIndex={0} onKeyDown={(event) => keyboardResize(event, classicRightWidth, setClassicRightWidth, 240, Math.min(960, window.innerWidth * .72), true)} onPointerDown={beginClassicRightResize} /><aside className="side-panel classic-right-panel" style={{ width: classicRightWidth }}>
+        {rightPanels.useful && <section key="useful" className="stacked-panel"><header className="panel-header"><span>Useful Files</span><button title="Refresh useful files" onClick={() => void refreshUsefulFiles()}><RefreshCw size={14} /></button></header><div className="useful-files-list"><UsefulFileSection title="Global" scope="global" files={usefulFiles} activeTab={activeTab} onOpen={openUsefulFile} onCreate={(scope) => setUsefulDialog({ mode: "create", scope })} onRename={(file) => setUsefulDialog({ mode: "rename", scope: file.scope, file })} onDelete={(file) => void deleteUsefulFile(file)} /><UsefulFileSection title="Local" scope="local" files={usefulFiles} activeTab={activeTab} onOpen={openUsefulFile} onCreate={(scope) => setUsefulDialog({ mode: "create", scope })} onRename={(file) => setUsefulDialog({ mode: "rename", scope: file.scope, file })} onDelete={(file) => void deleteUsefulFile(file)} /></div></section>}
+        {rightPanels.agents && <section key="agents" className="stacked-panel"><AgentsPanel agents={agents} activeTab={activeTab} onRefresh={() => void refreshAgents()} onOpen={(file) => void openAgentFile(file)} onCreate={(scope) => setAgentDialog({ mode: "create", scope })} onRename={(file) => { if (file.scope !== "workspace") setAgentDialog({ mode: "rename", scope: file.scope, file }); }} onDelete={(file) => void deleteAgent(file)} /></section>}
         {classicTasksOpen && <section className="stacked-panel" style={classicAiOpen ? { flex: `0 0 ${classicSplit}%` } : undefined}><header className="panel-header"><span>Tasks</span><button title="Create task" disabled={taskSwitching} onClick={() => setShowCreateTaskDialog(true)}><Plus size={15} /></button></header><div className="task-filters"><QuickFilter value={taskFilter} placeholder="Filter tasks" label="Filter tasks" onChange={setTaskFilter} /><select aria-label="Task lifecycle filter" value={taskLifecycleFilter} onChange={(event) => setTaskLifecycleFilter(event.target.value as typeof taskLifecycleFilter)}><option value="active">Active</option><option value="finished">Finished</option><option value="archived">Archived</option><option value="all">All</option></select></div><div className="tasks-list">
           {showRootTask && <TaskRow icon={<Folder size={15} />} name="Root workspace" summary={aiStatuses.root} selected={selectedTaskId === undefined} disabled={taskSwitching} onClick={() => openTask(undefined, aiStatuses.root.pendingPermission)} onCancelTimer={() => void timerAction(undefined, "cancel")} onFireTimer={() => void timerAction(undefined, "fire")} />}
           {filteredTasks.map((task) => { const summary = aiStatuses.tasks[task.id] ?? emptyAiSummary; return <TaskRow key={task.id} icon={<ListTodo size={15} />} name={task.name} branch={task.branch} summary={summary} finished={task.status === "finished"} archived={task.archived} selected={selectedTaskId === task.id} disabled={taskSwitching} onClick={() => openTask(task.id, summary.pendingPermission)} onSetFinished={() => void setTaskStatus(task, task.status === "finished" ? "active" : "finished")} onRename={() => void renameTask(task)} onSetArchived={() => void setTaskArchived(task, !task.archived)} onMerge={() => setMergeDialog(task)} onDelete={() => void deleteTask(task)} onCancelTimer={() => void timerAction(task, "cancel")} onFireTimer={() => void timerAction(task, "fire")} />; })}
@@ -3157,19 +3294,19 @@ export function App() {
         {rightPanels.skills && <section className="stacked-panel"><SkillsPanel key={activeWorkspace} catalog={skillCatalog} agents={agents} agentPreset={selectedAgentReference} selected={selectedSkillIds} running={aiSession.status === "in_progress"} disabled={taskSwitching} onRefresh={() => refreshSkills()} onSelection={selectSkills} onOpen={openSkillFile} activeSkillId={activeTab?.type === "skill" ? activeTab.skillId : undefined} actions={skillActions} /></section>}
         {rightPanels.promptHistory && selectedTaskId && <TaskCheckpointHistory checkpoints={taskCheckpoints} onOpen={openCheckpointDiff} onReview={reviewCheckpointFile} onRestore={restoreCheckpoint} onFollowUp={followUpCheckpoint} onClose={() => setRightPanels((current) => ({ ...current, promptHistory: false }))} />}
       </aside></>}
-      <FocusDock edge="right" active={focusMode}><nav className="right-tool-stripe" aria-label="Right tool windows"><button className={`tool-stripe-button right ${classicTasksOpen ? "active" : ""}`} title={classicTasksOpen ? "Hide Tasks" : "Show Tasks"} onClick={() => setClassicTasksOpen((open) => !open)}><ListTodo size={15} /><span>Tasks</span>{tasks.length > 0 && <span className="tool-badge">{tasks.length > 99 ? "99+" : tasks.length}</span>}</button><button className={`tool-stripe-button right ${classicAiOpen ? "active" : ""}`} title={classicAiOpen ? "Hide AI" : "Show AI"} onClick={() => { setClassicAiOpen((open) => { if (!open) void refreshAi(); return !open; }); }}><Sparkles size={15} /><span>AI</span>{aiSession.status === "in_progress" && <span className="tool-badge">...</span>}</button><button className={`tool-stripe-button right ${rightPanels.skills ? "active" : ""}`} title={rightPanels.skills ? "Hide Skills" : "Show Skills"} onClick={() => { setRightPanels((current) => ({ ...current, skills: !current.skills })); void refreshSkills(); }}><GraduationCap size={15} /><span>Skills</span></button><div className="tool-stripe-bottom"><SidebarExtentButton edge="right" extended={rightSidebarExtended} onChange={setRightSidebarExtended} /></div></nav></FocusDock>
+      <FocusDock edge="right" active={focusMode}><nav className="right-tool-stripe" aria-label="Right tool windows"><button className={`tool-stripe-button right ${classicTasksOpen ? "active" : ""}`} title={classicTasksOpen ? "Hide Tasks" : "Show Tasks"} onClick={() => setClassicTasksOpen((open) => !open)}><ListTodo size={15} /><span>Tasks</span>{tasks.length > 0 && <span className="tool-badge">{tasks.length > 99 ? "99+" : tasks.length}</span>}</button><button className={`tool-stripe-button right ${classicAiOpen ? "active" : ""}`} title={classicAiOpen ? "Hide AI" : "Show AI"} onClick={() => { setClassicAiOpen((open) => { if (!open) void refreshAi(); return !open; }); }}><Sparkles size={15} /><span>AI</span>{aiSession.status === "in_progress" && <span className="tool-badge">...</span>}</button>{rightBottomTools}</nav></FocusDock>
       </>}
       </div>
       <div className="workspace-bottom-panels">
     {layout.terminalGroup.tabs.length > 0 && <TerminalPanel visible={terminalPanelOpen} onActivity={markUnreadTerminalOutput} theme={theme} fontFamily={terminalFontFamily} fontSize={uiFontSize} lineHeight={uiLineHeight} client={clientRef.current!} group={layout.terminalGroup} height={terminalHeight} highlightedTerminalIds={new Set(runConfigs.filter((config) => ["starting", "running", "stopping"].includes(config.status)).flatMap((config) => config.terminalId ? [config.terminalId] : []))} onActivate={activateTerminalTab} onCreate={() => void createTerminal()} onClose={closeTerminal} onRename={renameTerminal} onDuplicate={(tab) => void duplicateTerminal(tab)} onMove={moveTerminal} onRecoveryShown={(tabId) => updateTerminalGroup((group) => ({ ...group, tabs: group.tabs.map((tab) => tab.id === tabId ? { ...tab, recovery: undefined } : tab) }))} onResizeStart={beginTerminalResize} registerWriter={registerTerminalWriter} />}
-    {layout.panels.some((panel) => panel.type === "java") && javaOptions && <JavaPanel key={`java-panel:${selectedRootId}`} height={javaPanelHeight} log={javaLog} running={javaRunning} options={javaOptions} debugState={javaDebugState} onConfigure={() => setShowRunConfigurationDialog(true)} onApplyChanges={applyJavaChanges} onInspect={(reference, start) => clientRef.current!.request("java.debug.variables", { reference, start })} onBuild={() => void runJavaAction("java.build")} onRun={() => void runJavaAction("java.run")} onDebug={() => void debugJava()} onStop={() => void stopJava()} onDebugCommand={(command) => void commandJavaDebugger(command)} onClear={() => setJavaLog("")} onResizeStart={beginJavaResize} onHeightChange={setJavaPanelHeight} />}
-    {layout.panels.some((panel) => panel.type === "problems") && javaOptions && <ProblemsPanel height={problemsHeight} diagnostics={javaDiagnostics} checking={javaChecking} onRefresh={() => void checkJava()} onOpen={(diagnostic) => void openDiagnostic(diagnostic)} onResizeStart={beginProblemsResize} />}
+    {layout.panels.some((panel) => panel.type === "languageOutput") && javaOptions && languages.find((language) => language.id === "java") && <JavaPanel key={`java-panel:${selectedRootId}`} capabilities={languages.find((language) => language.id === "java")!.capabilities} height={javaPanelHeight} log={javaLog} running={javaRunning} options={javaOptions} debugState={javaDebugState} onConfigure={() => setShowRunConfigurationDialog(true)} onApplyChanges={applyJavaChanges} onInspect={(reference, start) => languageClient(clientRef.current!, "java").debugVariables(reference, start)} onBuild={() => void runJavaAction("language.build")} onRun={() => void runJavaAction("language.run")} onDebug={() => void debugJava()} onStop={() => void stopJava()} onDebugCommand={(command) => void commandJavaDebugger(command)} onClear={() => setJavaLog("")} onResizeStart={beginJavaResize} onHeightChange={setJavaPanelHeight} />}
+    {layout.panels.some((panel) => panel.type === "problems") && javaOptions && <ProblemsPanel language="java" height={problemsHeight} diagnostics={javaDiagnostics} checking={javaChecking} onRefresh={() => void checkJava()} onOpen={(diagnostic) => void openDiagnostic(diagnostic)} onResizeStart={beginProblemsResize} />}
     {layout.panels.some((panel) => panel.type === "gitlog") && <GitLogPanel client={clientRef.current!} height={gitLogHeight} revision={gitRevision} onResizeStart={beginGitLogResize} onRepositoryChanged={() => { void Promise.all([refreshGit(), refreshTree()]); }} onMergeConflict={() => { void clientRef.current?.request("git.conflicts", {}).then((conflicts) => setGitConflictPath(conflicts.files[0]?.path ?? "")); }} />}
       </div>
     </div>
     <FocusDock edge="bottom" active={focusMode}><footer className="bottom-tool-bar">
       <button className={`bottom-tool-button ${layout.panels.some((panel) => panel.type === "terminal") ? "active" : ""}`} onClick={toggleTerminalPanel}><SquareTerminal size={14} /><span>Terminal</span>{hasUnreadTerminalOutput && <span className="terminal-activity-dot" role="img" aria-label="New terminal output" />}{layout.terminalGroup.tabs.length > 0 && <span className="bottom-tool-count">{layout.terminalGroup.tabs.length}</span>}</button>
-      {javaOptions && <button className={`bottom-tool-button ${layout.panels.some((panel) => panel.type === "java") ? "active" : ""}`} onClick={toggleJavaPanel}><Coffee size={14} /><span>Java</span>{javaRunning && <span className="running-indicator" />}</button>}
+      {javaOptions && <button className={`bottom-tool-button ${layout.panels.some((panel) => panel.type === "languageOutput") ? "active" : ""}`} onClick={toggleJavaPanel}><Coffee size={14} /><span>Java</span>{javaRunning && <span className="running-indicator" />}</button>}
       {javaOptions && <button className={`bottom-tool-button ${layout.panels.some((panel) => panel.type === "problems") ? "active" : ""}`} onClick={toggleProblemsPanel}><CircleAlert size={14} /><span>Problems</span>{javaDiagnostics.length > 0 && <span className="bottom-tool-count">{javaDiagnostics.length}</span>}</button>}
       <button className={`bottom-tool-button ${layout.panels.some((panel) => panel.type === "gitlog") ? "active" : ""}`} onClick={toggleGitLogPanel}><GitBranch size={14} /><span>Git</span></button>
       {runConfigs.map((config, index) => <button key={`${config.scope}:${config.name}`} className={`bottom-tool-button run-config-entry ${index === 0 ? "first" : ""} ${["starting", "running", "stopping"].includes(config.status) ? "active-run" : ""}`} aria-label={`${config.name}, ${config.scope}, ${config.status}`} title={`${config.scope} Run Config: ${config.name} (${config.status})`} onClick={() => void runConfigAction(config, config.terminalId ? "openTerminal" : "run")} onContextMenu={(event) => { event.preventDefault(); setRunConfigMenu({ x: Math.min(event.clientX, window.innerWidth - 218), y: Math.min(event.clientY, window.innerHeight - 126), config }); }}><Play size={12} /><span>{config.name}</span><span className={`run-config-indicator ${config.status}`} aria-hidden="true" /></button>)}
@@ -3191,7 +3328,7 @@ export function App() {
         <div className="context-menu-separator" role="separator" />
         <div className="context-submenu-trigger"><button role="menuitem" aria-haspopup="menu" aria-label="Copy paths"><ClipboardCopy size={14} /><span>Copy Paths</span><ChevronRight size={13} /></button><ContextMenu className="context-menu context-submenu copy-submenu" role="menu" aria-label="Copy path actions">{copyProjectTreeActions.map(({ action, label }) => <button key={action} role="menuitem" onClick={() => { runProjectTreeAction(action, treeContextMenu.nodes); setTreeContextMenu(undefined); }}><ClipboardCopy size={14} /><span>{label}</span></button>)}</ContextMenu></div>
         <div className="context-menu-separator" role="separator" />
-        {treeContextMenu.nodes.length === 1 && treeContextMenu.nodes[0]?.type === "file" && treeContextMenu.nodes[0].name === "pom.xml" && <button onClick={() => void loadMavenProject(treeContextMenu.nodes[0]!.path)}><Package size={14} /><span>Load as Maven Project</span></button>}
+        {treeContextMenu.nodes.length === 1 && treeContextMenu.nodes[0]?.type === "file" && projectRegistration(treeContextMenu.nodes[0].path) && <button role="menuitem" disabled={runProjectBusy || taskSwitching} onClick={() => void registerRunProject(treeContextMenu.nodes[0]!.path)}><Package size={14} /><span>{projectRegistration(treeContextMenu.nodes[0].path)!.label}</span></button>}
         {treeContextMenu.nodes.length === 1 && javaOptions && treeContextMenu.nodes[0]?.type === "directory" && treeContextMenu.nodes[0].path && <button onClick={() => void addJavaSourceRoot(treeContextMenu.nodes[0]!.path)}><Coffee size={14} /><span>Mark as Sources Root</span></button>}
         {treeContextMenu.nodes.length === 1 && treeContextMenu.nodes[0]?.path && <div className="context-submenu-trigger"><button><Palette size={14} /><span>Color</span><ChevronRight size={13} /></button><ContextMenu className="context-menu context-submenu color-submenu">{fileColorChoices.map((color) => <button key={color.id} onClick={() => { const target = treeContextMenu.nodes[0]!.path; setFileColors((current) => ({ ...current, [target]: color.id })); setTreeContextMenu(undefined); }}><span className={`file-color-swatch ${color.id}`} /><span>{color.label}</span>{fileColors[treeContextMenu.nodes[0]!.path] === color.id && <Check size={13} />}</button>)}<button disabled={!fileColors[treeContextMenu.nodes[0]!.path]} onClick={() => { const target = treeContextMenu.nodes[0]!.path; setFileColors((current) => { const next = { ...current }; delete next[target]; return next; }); setTreeContextMenu(undefined); }}><X size={14} /><span>Clear Color</span></button></ContextMenu></div>}
         <button className="danger" disabled={treeContextMenu.nodes.length !== 1} onClick={() => { runProjectTreeAction("delete", treeContextMenu.nodes); setTreeContextMenu(undefined); }}><Trash2 size={14} /><span>Delete...</span></button>
@@ -3229,6 +3366,12 @@ export function App() {
     {gitRebaseDialog && <GitRebaseDialog preview={gitRebaseDialog.preview} busy={gitRebasing} error={gitRebaseDialog.error} onClose={() => { if (!gitRebasing) setGitRebaseDialog(undefined); }} onConfirm={(items) => void executeInteractiveRebase(items)} />}
     {gitHunkDialog && <div className="context-menu-layer" onMouseDown={() => setGitHunkDialog(undefined)}><section className="git-hunk-popup" role="dialog" aria-label={`Previous content in ${gitHunkDialog.path}`} style={{ left: gitHunkDialog.x, top: gitHunkDialog.y }} onMouseDown={(event) => event.stopPropagation()}><header><div><strong>Before this change</strong><span>{gitHunkDialog.path.split("/").pop()} · line {gitHunkDialog.hunk.originalStart}</span></div><button title="Close" onClick={() => setGitHunkDialog(undefined)}><X size={14} /></button></header>{gitHunkDialog.error && <div className="git-hunk-error">{gitHunkDialog.error}</div>}<pre>{gitHunkDialog.hunk.originalLines === 0 ? "This block did not exist before." : gitHunkDialog.originalContent.split("\n").slice(Math.max(0, gitHunkDialog.hunk.originalStart - 1), Math.max(0, gitHunkDialog.hunk.originalStart - 1) + gitHunkDialog.hunk.originalLines).join("\n")}</pre><footer>{gitHunkDialog.hunk.source === "worktree" ? <button onClick={() => void updateGitIndex("stage", gitHunkDialog.path, gitHunkDialog.hunk)}><Check size={13} /><span>Stage Hunk</span></button> : <button onClick={() => void updateGitIndex("unstage", gitHunkDialog.path, gitHunkDialog.hunk)}><X size={13} /><span>Unstage Hunk</span></button>}<button className="danger" disabled={gitHunkDialog.hunk.source !== "worktree"} onClick={() => void rollbackGitHunk()}><RefreshCw size={13} /><span>Rollback</span></button></footer></section></div>}
     {externalConflict && <ExternalChangeConflict dialog={externalConflict} onClose={() => setExternalConflict(undefined)} onReload={() => { updateGroup((tabs, active) => ({ tabs: tabs.map((tab) => tab.id === externalConflict.tabId ? { ...tab, content: externalConflict.externalContent, savedContent: externalConflict.externalContent, revision: externalConflict.externalRevision, dirty: false, error: undefined } : tab), activeTabId: active })); setExternalConflict(undefined); }} onOverwrite={() => { const tab = layoutRef.current.editorGroups[0]?.tabs.find((item) => item.id === externalConflict.tabId); if (!tab || !clientRef.current) return; void clientRef.current.request("filesystem.writeFile", { path: externalConflict.path, content: tab.content, expectedRevision: externalConflict.externalRevision, force: true }).then((saved) => { updateGroup((tabs, active) => ({ tabs: tabs.map((item) => item.id === tab.id ? { ...item, savedContent: tab.content, dirty: false, revision: saved.revision, error: undefined } : item), activeTabId: active })); setExternalConflict(undefined); }).catch((error: unknown) => setExternalConflict((current) => current ? { ...current, error: error instanceof Error ? error.message : "Could not overwrite" } : current)); }} onSaveAs={(target) => { const tab = layoutRef.current.editorGroups[0]?.tabs.find((item) => item.id === externalConflict.tabId); if (!tab || !clientRef.current) return; void clientRef.current.request("filesystem.writeFile", { path: target, content: tab.content, create: true }).then(() => { setExternalConflict(undefined); void refreshTree(); }).catch((error: unknown) => setExternalConflict((current) => current ? { ...current, error: error instanceof Error ? error.message : "Could not save as" } : current)); }} />}
+    {ProjectConfigurationEditor && clientRef.current && <ProjectConfigurationEditor key={`project-configuration:${selectedRootId}:${selectedTaskId ?? ""}:${runConfigurationEditor}`} client={clientRef.current} language={runConfigurationEditor} running={!!runProjectActions.processes[runConfigurationEditor ?? ""]?.running} onClose={() => setRunConfigurationEditor(undefined)} onSaved={() => {
+      setRunConfigurationEditor(undefined);
+      void refreshRunProjects();
+      const client = clientRef.current; const root = client?.getRoot(); const task = selectedTaskIdRef.current;
+      void client?.request("java.getOptions", {}).then(({ options }) => { if (clientRef.current === client && client.getRoot() === root && task === selectedTaskIdRef.current) { setJavaOptions(options); javaOptionsRef.current = options; } }).catch((error: unknown) => { if (clientRef.current === client && client?.getRoot() === root && task === selectedTaskIdRef.current) setStatusMessage(error instanceof Error ? error.message : "Could not refresh Java project"); });
+    }} />}
     {showRunConfigurationDialog && <JavaConfigurationDialog key={`java-configuration:${selectedRootId}`} client={clientRef.current!} running={javaRunning} onClose={() => setShowRunConfigurationDialog(false)} onSaved={(options) => { setJavaOptions(options); javaOptionsRef.current = options; setShowRunConfigurationDialog(false); void refreshJavaTree(); void refreshTree(); }} />}
     {showCreateTaskDialog && <CreateTaskDialog client={clientRef.current!} onClose={() => setShowCreateTaskDialog(false)} onCreate={createTask} />}
     {mergeDialog && <MergeTaskDialog task={mergeDialog} onClose={() => setMergeDialog(undefined)} onMerge={(strategy) => void mergeTask(mergeDialog, strategy)} />}
@@ -3276,7 +3419,7 @@ function reviewOutcome(action: string, result: { applied: string[]; alreadyAppli
 function ConnectionScreen(props: { host: string; port: string; status: ConnectionStatus; statusMessage: string; setHost(value: string): void; setPort(value: string): void; connect(): Promise<void> }) {
   const connecting = props.status === "connecting";
   return <main className="connection-screen"><form className="connection-form" onSubmit={(event) => { event.preventDefault(); void props.connect(); }}>
-    <h1>Vibe Editor</h1><p>Connect to a core backend</p>
+    <h1>HatoPad</h1><p>Connect to a core backend</p>
     <label>Host<input autoFocus value={props.host} onChange={(event) => props.setHost(event.target.value)} placeholder="192.168.1.50" required /></label>
     <label>Port<input value={props.port} onChange={(event) => props.setPort(event.target.value)} type="number" min="1" max="65535" required /></label>
     {props.statusMessage && <div role="status" aria-live="polite" className={`connection-message ${props.status}`}>{props.statusMessage}</div>}
@@ -3409,10 +3552,10 @@ function TaskPreviewMarkdown({ children }: { children: string }) {
 function UsefulFileSection({ title, scope, files, activeTab, onOpen, onCreate, onRename, onDelete }: { title: string; scope: UsefulFileScope; files: UsefulFile[]; activeTab?: EditorTab; onOpen(file: UsefulFile): void; onCreate(scope: UsefulFileScope): void; onRename(file: UsefulFile): void; onDelete(file: UsefulFile): void }) {
   const scoped = files.filter((file) => file.scope === scope);
   const [configs, setConfigs] = useState<RunConfig[]>([]);
-  useEffect(() => { const listener = (event: Event) => setConfigs((event as CustomEvent<RunConfig[]>).detail); window.addEventListener("vibe:run-configs", listener); window.dispatchEvent(new Event("vibe:request-run-configs")); return () => window.removeEventListener("vibe:run-configs", listener); }, []);
-  return <section className="useful-section"><header><span>{title}</span><button title={`Create ${title} file`} onClick={() => onCreate(scope)}><Plus size={14} /></button><button title={`Create ${title} Run Config`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:create-run-config", { detail: scope }))}><Play size={13} /><Plus size={9} /></button></header>
+  useEffect(() => { const listener = (event: Event) => setConfigs((event as CustomEvent<RunConfig[]>).detail); window.addEventListener("hatopad:run-configs", listener); window.dispatchEvent(new Event("hatopad:request-run-configs")); return () => window.removeEventListener("hatopad:run-configs", listener); }, []);
+  return <section className="useful-section"><header><span>{title}</span><button title={`Create ${title} file`} onClick={() => onCreate(scope)}><Plus size={14} /></button><button title={`Create ${title} Run Config`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:create-run-config", { detail: scope }))}><Play size={13} /><Plus size={9} /></button></header>
     {scoped.length === 0 ? <div className="useful-empty">No files</div> : scoped.map((file) => <div key={file.name} className={`useful-row ${activeTab?.type === "useful" && activeTab.usefulScope === scope && activeTab.path === file.name ? "selected" : ""}`}><button className="useful-open" title={file.name} onClick={() => void onOpen(file)}><FileKindIcon name={file.name} /><span>{file.name}</span></button><button title={`Rename ${file.name}`} onClick={() => onRename(file)}><Pencil size={12} /></button><button title={`Delete ${file.name}`} onClick={() => onDelete(file)}><Trash2 size={12} /></button></div>)}
-    {configs.filter((config) => config.scope === scope).map((config) => <div key={`run:${config.name}`} className={`useful-row run-config-useful-row ${activeTab?.type === "runConfig" && activeTab.runConfigScope === scope && activeTab.path === config.name ? "selected" : ""}`}><button className="useful-open" title={`${config.name} (${config.status})`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:open-run-config", { detail: config }))}><Play className={`run-config-icon ${config.status}`} size={14} /><span>{config.name}</span></button><button title={`Rename ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:rename-run-config", { detail: config }))}><Pencil size={12} /></button><button title={`Delete ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("vibe:delete-run-config", { detail: config }))}><Trash2 size={12} /></button></div>)}
+    {configs.filter((config) => config.scope === scope).map((config) => <div key={`run:${config.name}`} className={`useful-row run-config-useful-row ${activeTab?.type === "runConfig" && activeTab.runConfigScope === scope && activeTab.path === config.name ? "selected" : ""}`}><button className="useful-open" title={`${config.name} (${config.status})`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:open-run-config", { detail: config }))}><Play className={`run-config-icon ${config.status}`} size={14} /><span>{config.name}</span></button><button title={`Rename ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:rename-run-config", { detail: config }))}><Pencil size={12} /></button><button title={`Delete ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:delete-run-config", { detail: config }))}><Trash2 size={12} /></button></div>)}
   </section>;
 }
 

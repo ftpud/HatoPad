@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
-import type { AiSession, HarnessBlock, HarnessDefinition } from "@remote-ide/protocol";
-import { resolveSkillIds } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
+import { resolveSkillIds } from "@hatopad/protocol";
 import type { HarnessRunner } from "./harness-runner.js";
 import { CoreError } from "./errors.js";
 import type { SkillsStore } from "./skills.js";

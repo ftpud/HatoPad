@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import type { RootedJavaDiagnostic } from "@remote-ide/protocol";
+import type { RootedJavaDiagnostic } from "@hatopad/protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProblemsPanel } from "./ProblemsPanel";
 
@@ -63,4 +63,15 @@ describe("ProblemsPanel keyboard navigation", () => {
     expect(globalEscape).not.toHaveBeenCalled();
     window.removeEventListener("keydown", globalEscape);
   });
+});
+
+it("opens a diagnostic from a non-Java language without dropping its routing identity", () => {
+  const diagnostic = { rootId: "python-root", language: "python", path: "app.py", line: 2, column: 1, severity: "error" as const, message: "Unknown name" };
+  const onOpen = vi.fn();
+  const onRefresh = vi.fn();
+  render(<ProblemsPanel language="python" height={220} diagnostics={[diagnostic]} checking={false} onRefresh={onRefresh} onOpen={onOpen} onResizeStart={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", { name: "Check project" }));
+  expect(onRefresh).toHaveBeenCalledOnce();
+  fireEvent.keyDown(screen.getByRole("listbox", { name: "Problems" }), { key: "Enter" });
+  expect(onOpen).toHaveBeenCalledWith(diagnostic);
 });

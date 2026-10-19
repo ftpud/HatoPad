@@ -1,4 +1,4 @@
-import type { HarnessRun, WorkspaceOptions } from "@remote-ide/protocol";
+import type { HarnessRun, WorkspaceOptions } from "@hatopad/protocol";
 import type { EditorTab } from "./model";
 
 export function workflowDocumentOptions(tabs: EditorTab[], activeTabId?: string, rootId?: string): Pick<WorkspaceOptions, "workflowDocuments"> {

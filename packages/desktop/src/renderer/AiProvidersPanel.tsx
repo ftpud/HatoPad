@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpCircle, Bot, Check, CircleAlert, Download, LoaderCircle, RefreshCw, Server, Trash2, X } from "lucide-react";
-import type { AiProviderInstallation } from "@remote-ide/protocol";
+import type { AiProviderInstallation } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { AiAuthentication } from "./AiAuthentication";
 import { SegmentedControl } from "./SegmentedControl";
-import type { AiCredentialSource, AiProtocolVersion } from "@remote-ide/protocol";
+import type { AiCredentialSource, AiProtocolVersion } from "@hatopad/protocol";
 
 const busy = (item: AiProviderInstallation) => item.status === "installing" || item.status === "removing";
 const usable = (item: AiProviderInstallation) => item.status === "installed" || !!item.version;
@@ -89,7 +89,7 @@ export function AiProvidersPanel({ client, onClose, onChanged }: { client: CoreC
           const disabled = busy(item) || pending === item.provider;
           return <article className={`install-item-card ${usable(item) ? "installed" : ""}`} key={item.provider} aria-label={item.name}>
             <div className="install-item-main">
-              <div className="install-item-title"><strong>{item.name}</strong><ProviderStatus item={item} update={update} /></div>
+              <div className="install-item-title"><strong>{item.name}</strong>{item.origin && item.origin !== "built-in" && <span className="install-item-origin">{item.origin === "plugin" ? "Plugin" : "Definition"}</span>}<ProviderStatus item={item} update={update} /></div>
               <p>{item.description}</p>
               <small className="install-item-meta">{external ? <><Server size={12} />Configured on the Core host: <code>{item.location}</code></> : <>{item.package && <code>{item.package}</code>}{item.version && <span>Installed {item.version}</span>}{item.latestVersion && <span>Latest {item.latestVersion}</span>}</>}</small>
               {item.error && <div className="install-panel-error" role="alert"><CircleAlert size={14} />{item.error}</div>}
@@ -112,7 +112,7 @@ export function AiProvidersPanel({ client, onClose, onChanged }: { client: CoreC
           </article>;
         })}
       </div>
-      <footer className="install-panel-footer"><span>Installations download from npm into <code>~/.remote-ide/provider-runtimes</code> on the Core host.</span><span>{active ? "Changes continue if you close this panel" : ""}</span></footer>
+      <footer className="install-panel-footer"><span>Installations download from npm into <code>~/.hatopad/provider-runtimes</code> on the Core host.</span><span>{active ? "Changes continue if you close this panel" : ""}</span></footer>
     </section>
   </div>, document.body);
 }

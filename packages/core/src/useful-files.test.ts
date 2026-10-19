@@ -6,7 +6,7 @@ import { UsefulFilesStore } from "./useful-files.js";
 
 describe("UsefulFilesStore", () => {
   it("creates, edits, renames, separates, and deletes useful files", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-useful-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-useful-"));
     const first = new UsefulFilesStore("/workspace/first", state);
     const second = new UsefulFilesStore("/workspace/second", state);
     await first.create("global", "guide.md");
@@ -22,7 +22,7 @@ describe("UsefulFilesStore", () => {
   });
 
   it("rejects paths and rename collisions", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "remote-ide-useful-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-useful-"));
     const store = new UsefulFilesStore("/workspace", state);
     await expect(store.create("local", "../escape")).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     await store.create("local", "one.txt"); await store.create("local", "two.txt");

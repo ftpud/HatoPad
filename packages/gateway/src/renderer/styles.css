@@ -163,3 +163,31 @@ button.stop:hover:not(:disabled) { background: var(--danger-soft); border-color:
 button, input, select, a, [tabindex], .connection-actions { -webkit-app-region: no-drag; }
 :root[data-native-window="true"][data-platform="mac"]:not([data-fullscreen="true"]) .gateway-brand { padding-top: 52px; }
 :root[data-native-window="true"]:not([data-platform="mac"]):not([data-fullscreen="true"]) .connection-actions { padding-top: 22px; }
+
+.cloud-account { min-height: 40px; flex-shrink: 0; margin: 0 8px 12px; padding: 4px 6px; display: flex; align-items: center; gap: 7px; border-bottom: 1px solid var(--border-subtle); }
+.cloud-account > svg { flex-shrink: 0; color: var(--text-muted); }
+.cloud-account > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-secondary); }
+.cloud-account > div { display: flex; gap: 2px; }
+.cloud-account button { width: 26px; min-height: 26px; padding: 0; border-color: transparent; background: transparent; }
+.cloud-connections { flex: 0 1 auto; min-height: 60px; }
+.cloud-list-label { display: block; padding: 8px; font-size: 12px; }
+.cloud-core-collection { min-height: 0; display: flex; flex-direction: column; }
+.cloud-core-collection .workspace-info { grid-template-columns: 17px minmax(0, 1fr) auto; align-items: center; padding: 12px; }
+.cloud-core-connect { margin-left: auto; width: 30px; min-height: 30px; padding: 0; }
+.cloud-spinning { animation: cloud-spin 1s linear infinite; }
+@keyframes cloud-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .cloud-spinning { animation: none; } }
+
+
+/* Status is intrinsic height; the Core collection owns the remaining viewport. */
+.workspace-view.cloud-server-view { grid-template-rows: auto minmax(0, 1fr); gap: 12px; }
+.workspace-view.cloud-server-view:has(> .autostart-control) { grid-template-rows: auto auto minmax(0, 1fr); }
+.update-chip { display: inline-block; margin-left: 10px; padding: 1px 8px; max-width: 280px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; border: 1px solid var(--border, currentColor); border-radius: 999px; font-size: 11px; line-height: 18px; }
+.update-chip.available { color: var(--accent, #4ea1ff); }
+.update-chip.error { color: var(--danger, #e5534b); }
+
+.autostart-control { align-self: start; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; padding: 8px 12px; border: 1px solid var(--border, #3a3f47); border-radius: 8px; font-size: 12px; }
+.autostart-control label { display: inline-flex; align-items: center; gap: 6px; }
+.autostart-control span { color: var(--muted, #8b949e); min-width: 0; overflow-wrap: anywhere; }
+
+.cloud-port-tunnels { flex: none; max-height: none; margin-top: 16px; }

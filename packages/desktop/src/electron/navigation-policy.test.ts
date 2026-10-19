@@ -25,7 +25,7 @@ it("allows only the configured dev origin and document route", () => {
   expect(isTrustedRendererUrl("http://user@localhost:5173/", renderer, dev)).toBe(false);
 });
 it("accepts equivalent file URL encoding without trusting other renderer files", () => {
-  const renderer = path.resolve("/Users/RUNNER~1/Vibe Gateway/dist-renderer/index.html");
+  const renderer = path.resolve("/Users/RUNNER~1/HatoPad Gateway/dist-renderer/index.html");
   const document = pathToFileURL(renderer).href;
   expect(isTrustedIpcFrame({ url: document.replace(/~|%7e/i, "%7E"), isMainFrame: true }, true, renderer)).toBe(true);
   expect(isTrustedRendererUrl(document.replace(/~|%7e/i, "%7e"), renderer)).toBe(true);

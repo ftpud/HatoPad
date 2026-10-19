@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { BookOpen, Pencil, Plus, RefreshCw, Settings2, Trash2, X } from "lucide-react";
-import { skillAllowedForAgent } from "@remote-ide/protocol";
-import type { AgentFile, AiAgentPreset, SkillCatalog, SkillPolicy, SkillScope } from "@remote-ide/protocol";
+import { skillAllowedForAgent } from "@hatopad/protocol";
+import type { AgentFile, AiAgentPreset, SkillCatalog, SkillPolicy, SkillScope } from "@hatopad/protocol";
 
 export type SkillsActions = {
   write(id: string, content: string): Promise<void>;

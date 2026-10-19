@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
-import type { AiSession, HarnessBlock, WorkspaceTask } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock, WorkspaceTask } from "@hatopad/protocol";
 import { HarnessStore } from "./harnesses.js";
 import { HarnessRunner } from "./harness-runner.js";
 import { startWorkflow } from "./server.js";

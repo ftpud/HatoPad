@@ -11,20 +11,20 @@ const compile = spawnSync(executable("tsc"), ["-p", "tsconfig.electron.json"], {
 if (compile.status !== 0) process.exit(compile.status ?? 1);
 const vite = spawn(executable("vite"), [], { cwd: packageRoot, stdio: "inherit" });
 await waitOn({ resources: ["tcp:5174"], timeout: 30_000 });
-const electronRuntime = await electronExecutable({ packageRoot, productName: "Vibe Gateway", bundleId: "com.vibe-editor.gateway" });
+const electronRuntime = await electronExecutable({ packageRoot, productName: "HatoPad Gateway", bundleId: "com.hatopad.gateway" });
 const desktopRuntime = await electronExecutable({
   packageRoot: path.resolve(packageRoot, "../desktop"),
-  productName: "Vibe Editor",
-  bundleId: "com.vibe-editor.desktop",
+  productName: "HatoPad",
+  bundleId: "com.hatopad.desktop",
 });
 const electron = spawn(electronRuntime, [packageRoot], {
   cwd: packageRoot,
   env: {
     ...process.env,
     VITE_DEV_SERVER_URL: "http://localhost:5174",
-    VIBE_DESKTOP_EXECUTABLE: desktopRuntime,
-    VIBE_NODE_EXECUTABLE: process.env.VIBE_NODE_EXECUTABLE || process.execPath,
-    VIBE_DESKTOP_ICON: path.resolve(packageRoot, "../desktop/assets/app-icon.png"),
+    HATOPAD_DESKTOP_EXECUTABLE: desktopRuntime,
+    HATOPAD_NODE_EXECUTABLE: process.env.HATOPAD_NODE_EXECUTABLE || process.execPath,
+    HATOPAD_DESKTOP_ICON: path.resolve(packageRoot, "../desktop/assets/app-icon.png"),
   },
   stdio: "inherit",
   shell: false,

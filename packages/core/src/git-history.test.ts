@@ -11,7 +11,7 @@ const run = promisify(execFile);
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
 async function repository() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-git-history-")); directories.push(root);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-git-history-")); directories.push(root);
   const git = (...args: string[]) => run("git", ["-C", root, ...args]).then((result) => result.stdout);
   await git("init", "-q", "-b", "main"); await git("config", "user.email", "t@example.com"); await git("config", "user.name", "Test");
   const write = (name: string, text: string) => writeFile(path.join(root, name), text);
@@ -80,7 +80,7 @@ describe("Git log pages and ignore", () => {
   });
 });
 
-it("reports commits and pushes made outside Vibe, batched", async () => {
+it("reports commits and pushes made outside HatoPad, batched", async () => {
   const { root, write, commit, git } = await repository();
   await write("a.txt", "1\n"); await commit("initial");
   const changed = vi.fn();

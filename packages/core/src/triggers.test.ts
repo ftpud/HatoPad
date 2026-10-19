@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdtemp, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { TriggerInput } from "@remote-ide/protocol";
+import type { TriggerInput } from "@hatopad/protocol";
 import { TriggerService, validateTrigger, type TriggerDelivery, type TriggerEvent } from "./triggers.js";
 
 const directories: string[] = [];
@@ -10,7 +10,7 @@ const services: TriggerService[] = [];
 afterEach(async () => { for (const service of services.splice(0)) await service.close(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 const action: TriggerInput["action"] = { type: "prompt", provider: "codex", prompt: "React" };
 async function harness(deliver = vi.fn(async (): Promise<TriggerDelivery> => ({}))) {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "vibe-triggers-"));
+  const dir = await mkdtemp(path.join(os.tmpdir(), "hatopad-triggers-"));
   directories.push(dir);
   const service = new TriggerService("/workspace", deliver, vi.fn(), path.join(dir, "state"));
   services.push(service); await service.start();
@@ -131,4 +131,37 @@ describe("reactive triggers", () => {
     await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(1), { timeout: 5000 });
     await vi.waitFor(() => expect(second.list()[0]).toMatchObject({ enabled: true, fireCount: 1 }));
   });
+});
+
+it("retains trigger identity and counters when updating and rejects stale or foreign-root edits", async () => {
+  const { service, dir } = await harness();
+  const input: TriggerInput = { name: "Original", source: { type: "file", path: path.join(dir, "watched"), events: ["changed"] }, action };
+  const created = await service.create("root-a", input);
+  const revision = service.list(true)[0]!.revision!;
+  await expect(service.update(created.id, { ...input, name: "foreign" }, false, revision, "root-b")).rejects.toThrow("this root");
+  const updated = await service.update(created.id, { ...input, name: "Updated" }, false, revision, "root-a");
+  expect(updated).toMatchObject({ id: created.id, name: "Updated", rootId: "root-a", fireCount: 0, enabled: false });
+  await expect(service.update(created.id, input, true, revision, "root-a")).rejects.toThrow("refresh");
+  expect(service.list()[0]!.name).toBe("Updated");
+});
+
+it("pages bounded fire history, preserves it on edit and restores hourly counts after restart", async () => {
+  let attempt = 0;
+  const { service, dir } = await harness(vi.fn(async () => { attempt++; if (attempt === 2) return { skipped: "Target is busy" }; if (attempt === 3) throw new Error("Synthetic delivery failure"); return {}; }));
+  const definition: TriggerInput = { name: "History", source: { type: "file", path: path.join(dir, "watched"), events: ["changed"] }, action };
+  const trigger = await service.create("root-a", definition);
+  await service.fire(trigger.id); await service.fire(trigger.id); await service.fire(trigger.id);
+  const page = await service.history(trigger.id, 2);
+  expect(page.entries.map(entry => entry.status)).toEqual(["failed", "skipped-busy"]);
+  expect(page.nextBefore).toEqual(expect.any(String));
+  expect((await service.history(trigger.id, 2, page.nextBefore)).entries.map(entry => entry.status)).toEqual(["started"]);
+  expect(JSON.stringify(page)).not.toContain("React");
+  await service.update(trigger.id, { ...definition, name: "Edited" }, false);
+  expect((await service.history(trigger.id)).entries).toHaveLength(3);
+  await service.close();
+  const reloaded = new TriggerService("/workspace", vi.fn(async () => ({})), vi.fn(), path.join(dir, "state")); services.push(reloaded); await reloaded.start();
+  expect(reloaded.list(true)[0]).toMatchObject({ recentFires: 1, fireCount: 1 });
+  expect((await reloaded.history(trigger.id)).entries).toHaveLength(3);
+  await expect(reloaded.history(trigger.id, 101)).rejects.toThrow("page");
+  await expect(reloaded.history(trigger.id, 2, "unknown")).rejects.toThrow("refresh");
 });

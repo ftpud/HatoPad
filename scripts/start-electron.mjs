@@ -1,30 +1,37 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { electronExecutable } from "./electron-runtime.mjs";
+import { electronExecutable, macFinderLaunch } from "./electron-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const target = process.argv[2];
 const config = target === "desktop"
-  ? { packageRoot: path.join(root, "packages/desktop"), productName: "Vibe Editor", bundleId: "com.vibe-editor.desktop" }
+  ? { packageRoot: path.join(root, "packages/desktop"), productName: "HatoPad", bundleId: "com.hatopad.desktop" }
   : target === "gateway"
-    ? { packageRoot: path.join(root, "packages/gateway"), productName: "Vibe Gateway", bundleId: "com.vibe-editor.gateway" }
+    ? { packageRoot: path.join(root, "packages/gateway"), productName: "HatoPad Gateway", bundleId: "com.hatopad.gateway" }
     : undefined;
 if (!config) throw new Error("Expected desktop or gateway");
 const executable = await electronExecutable(config);
 const env = { ...process.env };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.VITE_DEV_SERVER_URL;
-env.VIBE_NODE_EXECUTABLE ??= process.execPath;
+// Pre-rename override still honored.
+if (env.HATOPAD_NODE_EXECUTABLE === undefined && env.VIBE_NODE_EXECUTABLE) env.HATOPAD_NODE_EXECUTABLE = env.VIBE_NODE_EXECUTABLE;
+env.HATOPAD_NODE_EXECUTABLE ??= process.execPath;
 if (target === "gateway") {
-  env.VIBE_DESKTOP_ICON = path.join(root, "packages/desktop/assets/app-icon.png");
-  env.VIBE_DESKTOP_EXECUTABLE = await electronExecutable({
+  env.HATOPAD_DESKTOP_ICON = path.join(root, "packages/desktop/assets/app-icon.png");
+  env.HATOPAD_DESKTOP_EXECUTABLE = await electronExecutable({
     packageRoot: path.join(root, "packages/desktop"),
-    productName: "Vibe Editor",
-    bundleId: "com.vibe-editor.desktop",
+    productName: "HatoPad",
+    bundleId: "com.hatopad.desktop",
   });
 }
-const child = spawn(executable, [config.packageRoot, ...process.argv.slice(3)], {
+const launchArgs = process.argv.slice(3);
+const finder = launchArgs.includes('--finder');
+if (finder && (process.platform !== 'darwin' || target !== 'gateway')) throw new Error('--finder is available for Gateway on macOS');
+const launch = finder ? macFinderLaunch(executable, config.packageRoot, launchArgs.filter(arg => arg !== '--finder'), env) : { command: executable, args: [config.packageRoot, ...launchArgs] };
+if (finder) console.log('[startup] Opening Gateway through macOS LaunchServices for Bluetooth passkeys. Close Gateway from its window when finished.');
+const child = spawn(launch.command, launch.args, {
   cwd: config.packageRoot,
   stdio: "inherit",
   env,

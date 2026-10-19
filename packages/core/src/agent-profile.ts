@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { AiAgent } from "@remote-ide/acp";
+import type { AiAgent } from "@hatopad/acp";
 
 /** Stable identity for the preset instructions attached to a durable AI session. */
 export function agentFingerprint(agent: AiAgent): string {

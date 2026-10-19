@@ -14,7 +14,7 @@ const node = path.join(runtime, 'bin/node');
 const require = createRequire(path.join(runtime, 'package.json'));
 const { WebSocket } = require('ws');
 const { protocolCompatibility } = await import(pathToFileURL(path.join(runtime, 'packages/protocol/dist/index.js')));
-const sandbox = await mkdtemp(path.join(os.tmpdir(), 'vibe-bundle-smoke-'));
+const sandbox = await mkdtemp(path.join(os.tmpdir(), 'hatopad-bundle-smoke-'));
 const server = net.createServer();
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const port = server.address().port;
@@ -61,7 +61,7 @@ try {
   for (let cycle = 0; cycle < 2; cycle++) {
     child = spawn(node, [path.join(runtime, 'packages/core/dist/index.js'), '--host', '127.0.0.1', '--port', String(port), '--workspace', sandbox], {
       cwd: sandbox,
-      env: { ...process.env, PATH: `${path.join(runtime, 'bin')}${path.delimiter}${process.env.PATH ?? ''}`, REMOTE_IDE_STATE_DIR: path.join(sandbox, 'state'), REMOTE_IDE_SESSION_TOKEN: token },
+      env: { ...process.env, PATH: `${path.join(runtime, 'bin')}${path.delimiter}${process.env.PATH ?? ''}`, HATOPAD_STATE_DIR: path.join(sandbox, 'state'), HATOPAD_SESSION_TOKEN: token },
       stdio: ['ignore', 'pipe', 'pipe']
     });
     child.stdout.on('data', data => { output += data; }); child.stderr.on('data', data => { output += data; });

@@ -2,7 +2,7 @@
 
 ## Installing providers
 
-Provider agents are not bundled with Vibe Editor. **Settings → AI providers** installs, updates and deletes Codex, Claude and Copilot on the Core host, and checks each provider's account. Only installed providers are returned by `ai.providers`, so pickers, chats and workflows offer only those; launching an uninstalled provider fails with a message pointing to the panel.
+Provider agents are not bundled with HatoPad. **Settings → AI providers** installs, updates and deletes Codex, Claude and Copilot on the Core host, and checks each provider's account. Only installed providers are returned by `ai.providers`, so pickers, chats and workflows offer only those; launching an uninstalled provider fails with a message pointing to the panel.
 
 | Provider | npm package | Agent entry |
 | --- | --- | --- |
@@ -10,7 +10,7 @@ Provider agents are not bundled with Vibe Editor. **Settings → AI providers** 
 | Claude | `@agentclientprotocol/claude-agent-acp` (bundles the Claude Code CLI) | `dist/index.js` |
 | Copilot | `@github/copilot` | `npm-loader.js` |
 
-Core installs the `latest` published version into a fresh directory under `~/.remote-ide/provider-runtimes/<provider>/` (`REMOTE_IDE_PROVIDER_RUNTIME_DIR` relocates it) and starts the agent with Core's own Node. A completed installation is selected atomically through `current.json`; a failed install or update keeps the previous one. Update replaces the selection and keeps the previous directory, because running agents may still use it. Delete unpublishes the provider before removing its files; provider sign-in and chat history stay. Installation runs in the background: `ai.installations.install` and `ai.installations.uninstall` return immediately, and Desktop polls `ai.installations.list` (`checkLatest: true` asks npm for the latest version, cached for ten minutes).
+Core installs the `latest` published version into a fresh directory under `~/.hatopad/provider-runtimes/<provider>/` (`HATOPAD_PROVIDER_RUNTIME_DIR` relocates it) and starts the agent with Core's own Node. A completed installation is selected atomically through `current.json`; a failed install or update keeps the previous one. Update replaces the selection and keeps the previous directory, because running agents may still use it. Delete unpublishes the provider before removing its files; provider sign-in and chat history stay. Installation runs in the background: `ai.installations.install` and `ai.installations.uninstall` return immediately, and Desktop polls `ai.installations.list` (`checkLatest: true` asks npm for the latest version, cached for ten minutes).
 
 Core-host overrides count as installed and cannot be managed from the client: `CODEX_ACP_COMMAND` (Codex adapter command; `CODEX_PATH` selects the CLI), `CLAUDE_AGENT_ACP_PATH` (adapter entry script) or `CLAUDE_ACP_COMMAND`, and `COPILOT_CLI_PATH`. Codex account-quota reads use the CLI belonging to the installed adapter, or `CODEX_PATH`; usage polling never installs anything.
 
@@ -45,11 +45,20 @@ Checking an account (`ai.auth.get` with `discover: true`) initializes the agent 
 
 For agent methods, Core calls ACP `authenticate`. URL elicitations appear as explicit browser links with a confirmation button. For terminal methods, Core starts the agent command with its advertised authentication arguments and environment in a dedicated interactive terminal. A successful terminal exit is checked by opening a fresh ACP session. Terminal methods do not call `authenticate`.
 
+The sign-in terminal supports Ctrl/Cmd+V, native paste and a **Paste into terminal**
+button. Pasted terminal text has trailing line breaks removed; press Enter to
+submit it. A standard **Sign-in code or response** password field also accepts
+native paste; **Send response** sends it once with Enter to the active sign-in
+request and clears the field. Clipboard denial leaves this manual field usable.
+Input stays transient, is not saved as a draft, and is cleared when the sign-in
+view/request/provider/root changes. Clipboard reads finishing after unmount are
+discarded.
+
 Desktop uses `ai.auth.get`, `ai.auth.start` (`methodId`), and `ai.auth.input` (`requestId` plus terminal `data`, `cols`/`rows`, or `action: "accept" | "cancel"`). Each active request belongs to one workspace and provider. Cancellation, shutdown, and a ten-minute timeout terminate the authentication processes. Discovery is shared across simultaneous requests. Browser links accept HTTP and HTTPS only and require a user click.
 
 Authentication output is bounded, held in memory, and cleared on success. It is not added to chat history or saved workspace configuration. Provider tools manage their own credential storage. Agents without advertised authentication methods continue to use their existing Core-host login or environment configuration.
 
-Vibe Editor uses one interface for Codex, GitHub Copilot, and Claude. Core handles each
+HatoPad uses one interface for Codex, GitHub Copilot, and Claude. Core handles each
 provider through `AcpProvider`; Desktop reads the provider's capabilities and
 settings to build the AI controls. Adding a provider should not require special
 cases in the UI or shared protocol.
@@ -62,7 +71,40 @@ An ACP plugin supplies:
 - model discovery, resumable session persistence, configuration, typed-content send, permission resolution, clear, and optional usage operations;
 - translation of the common MCP server and custom-agent structures to its native CLI/API.
 
-To add a provider, subclass `AcpProvider`, implement its required session/model/configuration operations under `ai/providers`, and register one instance in `ai/index.ts`. `AiProvider` is an open string, and the desktop builds its provider selector and extra controls from `ai.providers`, so no protocol or UI enum needs editing.
+To add a provider, subclass `AcpProvider`, implement its required session/model/configuration operations in a dedicated `plugins/ai/<id>/` directory and contribute its factory through `plugins/builtin.ts`. `AiProvider` is an open string, and the desktop builds its provider selector and extra controls from `ai.providers`, so no protocol or UI enum needs editing.
+
+## Declarative providers
+
+Any ACP agent that speaks stdio can be added without code. Put one `*.json`
+file per provider in `~/.hatopad/providers/` on the Core host (override with
+`HATOPAD_PROVIDER_DEFINITIONS_DIR`); Core reads it at startup. Definitions
+are never loaded from a workspace. Invalid files, unknown fields, reserved
+(`codex`, `claude`, `copilot`) or duplicate IDs are logged and skipped.
+
+```json
+{
+  "id": "my-agent",
+  "name": "My Agent",
+  "description": "Internal ACP agent",
+  "command": "/usr/local/bin/my-agent",
+  "args": ["--acp"],
+  "env": { "MY_AGENT_MODE": "ci" },
+  "models": [{ "id": "fast", "name": "Fast", "reasoningLevels": ["low", "high"], "defaultReasoning": "low" }],
+  "options": [],
+  "capabilities": { "usage": false }
+}
+```
+
+`models` are the fallback used when the agent cannot list its own. The agent is
+user-supplied (`source: external`): Core does not install, update or remove it.
+`id`, `name`, `description` and `command` are required.
+
+## Provider factories
+
+Built-in providers are created by `ProviderFactory` functions that receive a
+`ProviderContext` (`onChanged`, `turns`, `projectRoot`, `bridgeWorkspace`).
+`createAcpRegistry` registers them in order; the first is the default provider.
+`PROVIDER_API_VERSION` identifies this contract.
 
 ## Current adapters
 
@@ -128,9 +170,9 @@ Compaction notifications are counted when supplied by the adapter. Data is saved
 with the session and propagated into workflow block state; fresh sessions start
 new usage histories. Existing sessions begin collecting details on new activity.
 
-## Starting tasks through the Vibe Editor MCP server
+## Starting tasks through the HatoPad MCP server
 
-In this API, an **agent** is a Vibe Editor instruction preset, not the Codex or Copilot process that executes a task. `provider` selects that execution backend, `model` selects its model, and `agent` optionally selects the Markdown preset whose instructions and MCP allowlist are attached to the new session.
+In this API, an **agent** is a HatoPad instruction preset, not the Codex or Copilot process that executes a task. `provider` selects that execution backend, `model` selects its model, and `agent` optionally selects the Markdown preset whose instructions and MCP allowlist are attached to the new session.
 
 Agent presets are Markdown files with optional YAML frontmatter. Create and edit global or repository-local presets in the Desktop **Agents** panel; repository-local presets are stored outside the checkout in Core's workspace state. A repository may also commit workspace presets under `.agents/*.md`. The scope names used by MCP are:
 
@@ -150,7 +192,7 @@ mcpServers: []
 Review the requested change, run focused checks, and report concrete findings.
 ```
 
-Add `vibe-editor` under `mcpServers` when the started task should itself receive the built-in Vibe Editor MCP tools. An empty or omitted `mcpServers` list gives the preset no built-in task tools.
+Add `hatopad` under `mcpServers` when the started task should itself receive the built-in HatoPad MCP tools. An empty or omitted `mcpServers` list gives the preset no built-in task tools.
 
 `task_create_and_start` accepts `agent` as either a precise `{ "scope", "name" }` file reference or JSON `null`:
 
@@ -194,13 +236,13 @@ Create a task with no agent preset and the provider/model's default reasoning:
 
 Existing callers that send only `prompt`, `provider`, and `model` remain valid. There is currently no separate MCP tool for starting an existing idle task: `task_append_prompt` steers a running task or starts a follow-up turn with that task's persisted session configuration, so it does not accept a new `agent` or `reasoning` selection.
 
-Agents with the `vibe-editor` MCP server can call `ai_usage` to inspect the invoking provider's current session. The result contains `used`, `limit`, computed `remaining`, `unit`, and `resets_at`; unavailable values are returned as `null`. `kind: "context_window"` means those top-level numbers describe conversation capacity. When available, `account_quota` separately reports the plan plus primary and secondary rolling windows, including used/remaining percentages and reset times. Codex retrieves this snapshot from its authenticated app-server `account/rateLimits/read` endpoint; other ACP providers may leave it `null`.
+Agents with the `hatopad` MCP server can call `ai_usage` to inspect the invoking provider's current session. The result contains `used`, `limit`, computed `remaining`, `unit`, and `resets_at`; unavailable values are returned as `null`. `kind: "context_window"` means those top-level numbers describe conversation capacity. When available, `account_quota` separately reports the plan plus primary and secondary rolling windows, including used/remaining percentages and reset times. Codex retrieves this snapshot from its authenticated app-server `account/rateLimits/read` endpoint; other ACP providers may leave it `null`.
 
 The `timer_set` MCP tool lets an agent schedule one continuation for its current task and provider. It accepts `seconds` (1 through 604800) and a `prompt`; setting another timer replaces the existing timer for that task/provider. Timers are persisted by Core and recovered after restart. Once the current turn finishes, task summaries report `status: "waiting"` and `waitingUntil` until Core sends the continuation prompt. Deleting a task cancels its timers. The left **Timers** tool window lists all continuation timers in the Core workspace group, including internal workflow sessions, with their prompt, due time, and individual run/cancel controls. AI Stop also cancels pending continuation timers for that workspace/provider.
 
 The same window supports user-created one-time and recurring schedules. A schedule targets a root workspace or an active task and either starts a workflow (with an optional start block) or sends a prompt through a chosen provider and agent preset. These schedules are persisted separately from agent continuation timers. They can be run now, paused, resumed, or deleted; **Cancel all** cancels continuation timers and pauses enabled user schedules. Core must be running to execute them. After downtime, an overdue schedule runs once rather than replaying every missed interval. A busy prompt target, overlapping scheduled workflow, missing target/preset, or failed launch pauses the schedule with a visible error. Claims are saved before launch to avoid replaying one-time actions after a crash; a crash between the claim and launch can skip that occurrence.
 
-The left **Triggers** tool window is the reactive counterpart of schedules. A trigger watches a file or folder (created, changed and/or deleted, polled once per second) or a named pipe (FIFO, created with `mkfifo` when missing; each write fires it), then sends a prompt or starts a workflow in the root workspace or an active task, with the same choices as schedules: a prompt either continues the provider's current session or starts a new one (only then can an agent preset, model and reasoning effort be chosen), and a workflow needs only its start block. The event description and, for pipes, the received text are appended to the prompt or workflow input. Events are grouped until a quiet period (default 2 s) passes; events are skipped, not queued, while the target agent is busy or the previous workflow run is still active; and a trigger that fires more than its hourly limit (default 20) disables itself to stop feedback loops. Triggers are persisted separately, re-armed when Core starts, and never replay changes made while Core was stopped. Pipes are not supported on Windows. The Vibe Configurator agent can create and edit triggers through `triggers/{id}.json` (start from `triggers/new.json`); deletion stays in the panel.
+The left **Triggers** tool window is the reactive counterpart of schedules. A trigger watches a file or folder (created, changed and/or deleted, polled once per second) or a named pipe (FIFO, created with `mkfifo` when missing; each write fires it), then sends a prompt or starts a workflow in the root workspace or an active task, with the same choices as schedules: a prompt either continues the provider's current session or starts a new one (only then can an agent preset, model and reasoning effort be chosen), and a workflow needs only its start block. The event description and, for pipes, the received text are appended to the prompt or workflow input. Events are grouped until a quiet period (default 2 s) passes; events are skipped, not queued, while the target agent is busy or the previous workflow run is still active; and a trigger that fires more than its hourly limit (default 20) disables itself to stop feedback loops. Triggers are persisted separately, re-armed when Core starts, and never replay changes made while Core was stopped. Pipes are not supported on Windows. The HatoPad Configurator agent can create and edit triggers through `triggers/{id}.json` (start from `triggers/new.json`); deletion stays in the panel.
 
 `model_switch_next` queues a one-shot `model` and `reasoning` override for the invoking provider session. Both values are required and validated together against the provider's current model catalogue. It never changes the turn that calls it; when called during a running turn, it automatically queues a continuation, and that newly started turn consumes the override, replacing UI/default configuration for that turn only. Calling the tool again before consumption replaces the pending override. Generated assistant messages record their effective model so later configuration changes do not rewrite response provenance.
 
@@ -211,12 +253,12 @@ The left **Triggers** tool window is the reactive counterpart of schedules. A tr
 Skills are reusable instruction folders that can be combined with an agent preset.
 Open **Skills** on the right tool stripe, beneath **Agents**, to create and edit
 skills, allow them in the current project, or enable them by default for new chats.
-The panel separates **Global** skills (`$REMOTE_IDE_STATE_DIR/skills/global/<name>/SKILL.md`),
-**Local** skills (`$REMOTE_IDE_STATE_DIR/skills/local/<root-project-hash>/<name>/SKILL.md`)
+The panel separates **Global** skills (`$HATOPAD_STATE_DIR/skills/global/<name>/SKILL.md`),
+**Local** skills (`$HATOPAD_STATE_DIR/skills/local/<root-project-hash>/<name>/SKILL.md`)
 and **Workspace** skills (`.agents/skills/<name>/SKILL.md` in the current checkout).
 Local skills use the same root-project scope as local agents and are shared by all
 tasks of that project. Other projects have their own local skills. When unset,
-`REMOTE_IDE_STATE_DIR` defaults to `~/.remote-ide/workspaces`. Supporting files can live alongside `SKILL.md`; each
+`HATOPAD_STATE_DIR` defaults to `~/.hatopad/workspaces`. Supporting files can live alongside `SKILL.md`; each
 turn supplies the skill's base directory so the agent can resolve references.
 Deleting a skill in the panel removes its instructions and retains supporting files.
 
@@ -232,7 +274,7 @@ Inspect the diff, check behavior at boundaries, and run focused tests.
 ```
 
 Project availability, defaults and agent assignments are stored outside Git in
-`$REMOTE_IDE_STATE_DIR/skills/local/<root-project-hash>/skills.json`, shared by all tasks.
+`$HATOPAD_STATE_DIR/skills/local/<root-project-hash>/skills.json`, shared by all tasks.
 Existing `.agents/skills.json` files remain readable until you use **Move settings
 out of Git repo** in the Skills panel or save policy changes. Core saves the settings
 in its state directory before removing the imported checkout file. New policies
@@ -263,7 +305,7 @@ worktree (commit them first).
 
 Selected skills are available on demand. The first turn in a provider conversation
 receives a compact catalogue of IDs, names, descriptions and revisions, without
-skill bodies. The agent calls **skill_load** on the dedicated **vibe-skills** MCP
+skill bodies. The agent calls **skill_load** on the dedicated **hatopad-skills** MCP
 server when a skill is relevant. Core returns the current `SKILL.md`, its revision
 and base directory for supporting files. This server exposes only skill loading,
 so enabling skills does not grant other app tools.
@@ -278,7 +320,7 @@ only subsequent changes. Fresh or failed-to-resume conversations receive an
 initial catalogue. Skill-load requests check the turn's advertised catalogue and
 current project/agent policy; deleted, revoked and unadvertised skills are rejected.
 Previously loaded text can remain in history; start a new chat for a clean reset.
-Availability controls Vibe's skill interface, not independent filesystem access.
+Availability controls HatoPad's skill interface, not independent filesystem access.
 
 The provider-neutral `skills.*` operations handle catalogue editing and project
 policy. `ai.skills` sets the selection with a session ID guard. Both current stdio
@@ -316,11 +358,11 @@ including queued follow-ups.
 
 ## Self-configuration through MCP
 
-Core ships a global **Vibe Configurator** agent (`vibe-configurator.md`) and a global
-**vibe-self-configuration** skill. They are installed on Core startup for every
+Core ships a global **HatoPad Configurator** agent (`hatopad-configurator.md`) and a global
+**hatopad-self-configuration** skill. They are installed on Core startup for every
 project on that host. Existing custom versions are preserved; a missing shipped
 file is recreated at startup. Choose the agent in the chatbox to configure the app
-with natural language. Its `mcpServers: [vibe-editor]` preset grants access to the
+with natural language. Its `mcpServers: [hatopad]` preset grants access to the
 built-in app tools. The agent reads the configuration skill through the same
 configuration interface; projects can also allow/enable the skill in the Skills panel.
 The skill links supporting references covering every workflow block and connection,
@@ -370,7 +412,7 @@ For example, create a global agent preset:
   "name": "configuration_write",
   "arguments": {
     "resource": "agents/global/reviewer.md",
-    "content": "---\nname: Reviewer\ndescription: Review changes for regressions.\nmcpServers: [vibe-editor]\n---\n\nInspect changes and run focused tests.\n",
+    "content": "---\nname: Reviewer\ndescription: Review changes for regressions.\nmcpServers: [hatopad]\n---\n\nInspect changes and run focused tests.\n",
     "expected_revision": null
   }
 }
@@ -387,3 +429,19 @@ Successful writes broadcast `configuration.changed`; Desktop refreshes its agent
 skills, useful files, workflows and tasks panels. Global changes refresh every
 connected project's panels. Global here means projects sharing the same Core
 state directory, rather than an installation across unrelated Core hosts.
+
+
+## Built-in provider source layout
+
+Each built-in provider is isolated under `packages/core/src/plugins/ai/<id>/`:
+`codex`, `claude`, and `copilot`. Its `index.ts` exports `createProvider(context)`
+and `apiVersion`, alongside the provider class. Provider-specific helpers and
+unit tests live in the same directory (for example Codex account-usage parsing).
+`plugins/builtin.ts` is the composition boundary that lists built-in factories;
+shared Core modules import that boundary instead of individual provider files.
+
+The ACP host, registry, authentication and installation machinery remain shared
+under `core/src/ai/`. Fake ACP agents and cross-provider integration tests also
+stay there because they exercise the common protocol rather than one plugin.
+This layout groups source files; it does not change runtime provider installation
+paths or load executable code from workspace plugin directories.

@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, mkdir, realpath, rm, writeFile } from "node:fs/promises";
 import { afterEach, expect, it, vi } from "vitest";
-import type { AiSession, HarnessBlock } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock } from "@hatopad/protocol";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { HarnessStore } from "./harnesses.js";
 import { HarnessRunner } from "./harness-runner.js";
@@ -85,7 +85,7 @@ it("reports missing linked skills before starting a workflow", async () => {
 
 it("loads a linked skill through Core’s workflow dispatch", async () => {
   const { workspace, runner, store, definition, state } = await setup();
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", state);
+  vi.stubEnv("HATOPAD_STATE_DIR", state);
   const direct = await store.update({ ...definition, blocks: [definition.blocks[1]!], edges: [] });
   const run = await startWorkflow({ harnessId: direct.id, input: "Load skill", provider: "codex" }, { tasks: new WorkspaceTaskStore(workspace), harnessRunner: runner, rootWorkspace: workspace, workspacePath: workspace } as Parameters<typeof startWorkflow>[1]);
   await runner.drain();
@@ -106,7 +106,7 @@ it("enables attached skills in the provider catalogue while retaining allowed de
 
 it("passes linked skills to a workflow agent’s native provider catalogue", async () => {
   const { workspace, runner, definition, state } = await setup();
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", state);
+  vi.stubEnv("HATOPAD_STATE_DIR", state);
   const completed = { id: "session", model: "test", reasoning: "", status: "idle", messages: [{ id: "reply", role: "assistant", text: "Done", timestamp: "now" }] } as AiSession;
   const provider = { descriptor: { id: "test", options: [] }, models: vi.fn(async () => []), get: vi.fn(async () => completed), startFreshSession: vi.fn(async (_workspace: string, _request: unknown) => completed) };
   const context = { tasks: new WorkspaceTaskStore(workspace), harnessRunner: runner, rootWorkspace: workspace, workspacePath: workspace, bridgeWorkspace: workspace, acp: { get: () => provider }, agents: { list: async () => [] }, aiTimers: { next: async () => undefined } } as unknown as Parameters<typeof startWorkflow>[1];

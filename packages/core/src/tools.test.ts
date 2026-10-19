@@ -8,7 +8,7 @@ import { ToolInstallations, type Download, type ToolSpec } from "./tools.js";
 
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
-async function temporary() { const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-tools-")); directories.push(directory); return directory; }
+async function temporary() { const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-tools-")); directories.push(directory); return directory; }
 /** A tar.gz with one top-level directory holding `bin/tool`. */
 async function archive(name: string) {
   const source = await temporary();

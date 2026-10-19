@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ArrowUpCircle, Check, CircleAlert, Download, LoaderCircle, Trash2, Wrench, X } from "lucide-react";
-import type { ToolInstallation } from "@remote-ide/protocol";
+import type { ToolInstallation } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 
 const busy = (tool: ToolInstallation) => tool.status === "installing" || tool.status === "removing";
@@ -70,7 +70,7 @@ export function ToolsPanel({ client, onClose }: { client: CoreClient; onClose():
           </article>;
         })}
       </div>
-      <footer className="install-panel-footer"><span>Tools are stored in <code>~/.remote-ide/tools</code> on the Core host and shared by all projects.</span><span>{active ? "Downloads continue if you close this panel" : ""}</span></footer>
+      <footer className="install-panel-footer"><span>Tools are stored in <code>~/.hatopad/tools</code> on the Core host and shared by all projects.</span><span>{active ? "Downloads continue if you close this panel" : ""}</span></footer>
     </section>
   </div>, document.body);
 }

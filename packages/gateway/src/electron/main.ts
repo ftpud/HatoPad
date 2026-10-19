@@ -1,9 +1,23 @@
-import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
+import { CloudPortTunnel } from './cloud-port-tunnel.js';
+import { matchLocalCloudCore } from "./managed-local-core.js";
+import { LocalCoreReleases } from "./local-core-release.js";
+import { writeDesktopHandoff } from "./desktop-handoff.js";
+import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
+import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
+import { autostartInstallCommand, autostartRemoveCommand, autostartStatusCommand, autostartExplanation, parseAutostart, type AutostartTarget } from "./autostart.js";
+import { stopOrphanedLocalCore } from "./local-core-process.js";
+import { applyCloudCoreUpdate, CloudUpdateUncertainError, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
+import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
+import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
+import { EDITOR_FLAG, bundleCoreCompatible, loadBundle, coreTarget, verifiedCoreArchive, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
-import { remoteNodeEnvironment } from "./remote-node.js";
+import { legacyUserDataPath } from "./legacy-user-data.js";
+import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
+import { installedNodeEnvironment, remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, type IpcMainInvokeEvent } from "electron";
-import { spawn } from "node:child_process";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, shell as electronShell, type IpcMainInvokeEvent } from "electron";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,40 +26,44 @@ import { Client } from "ssh2";
 import { connectionHealthForLatency, type ConnectionRuntime } from "./connection-health.js";
 import { connectionConfig, normalizeStoredAuthentication, sshConnectionError, testSshConnection, validatePrivateKey, validatePrivateKeyPath, type AuthenticationMethod, type ConnectionAuth, type ConnectionDetails } from "./connection-auth.js";
 import { defaultRepositorySettings, normalizeRepositorySettings, provisionCommand, repositorySettingsOrDefault, type RepositorySettings } from "./repository-settings.js";
-import { parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
+import { legacyRemoteMigrationCommand, parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
 import { compatibleClient, readCompatibility, type Compatibility } from "./client-compatibility.js";
+import { protocolCompatibility } from "./protocol-versions.js";
 import { boundedProvisioningLog, classifyProvisioningFailure } from "./provisioning.js";
 import { buildConnectionDiagnostics } from "./diagnostics.js";
 import { SshTunnel } from "./ssh-tunnel.js";
-import { activateRelease, activatedReleaseVerificationCommand, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory, type ProvisionedRelease, WorkspaceOperations } from "./deployment.js";
+import { activateRelease, activatedReleaseVerificationCommand, coreHealthProbe, keptGitReleaseCommand, parseKeptGitRelease, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory, type ProvisionedRelease, WorkspaceOperations } from "./deployment.js";
 import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js";
 import { JsonStateStore } from "./state-store.js";
 
-type Connection = { id: string; name: string; host: string; port: number; username: string } & ConnectionAuth;
+type Connection = { id: string; name: string; host: string; port: number; username: string; hostKeyFingerprint?: string } & ConnectionAuth;
 type Workspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
-type PortTunnel = { id: string; connectionId: string; port: number };
+type PortTunnel = { id: string; connectionId: string; port: number; remotePort?: number; cloudOrigin?: string };
 type StoredConnection = { id: string; kind?: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod?: AuthenticationMethod; password: string; privateKeyPath?: string; passphrase?: string; hostKeyFingerprint?: string };
-type State = { connections: StoredConnection[]; workspaces: Workspace[]; portTunnels: PortTunnel[]; repository: RepositorySettings };
+type State = { connections: StoredConnection[]; workspaces: Workspace[]; portTunnels: PortTunnel[]; repository: RepositorySettings; coreReleases?: Record<string, string> };
 type PublicState = { connections: { id: string; kind: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod: AuthenticationMethod; privateKeyPath?: string; hostKeyFingerprint?: string }[]; workspaces: Workspace[]; portTunnels: PortTunnel[] };
 type Runtime = { status: "idle" | "working" | "server" | "client" | "error"; message: string; updatedAt: string; stage: string; logs?: string[]; retryable?: boolean; repairable?: boolean };
 type TunnelRuntime = { status: "idle" | "working" | "running" | "error"; message: string; updatedAt: string; stage: string };
 type ConnectionRuntimeSnapshot = ConnectionRuntime & { updatedAt: string; stage: string };
 
 const bundle = app.isPackaged ? await loadBundle(process.resourcesPath) : undefined;
-/** The bundled Editor's app directory; it runs on this executable with `--vibe-editor` (see entry.ts). */
+/** The bundled Editor's app directory; it runs on this executable with `--hatopad` (see entry.ts). */
 const bundledDesktop = bundle ? path.join(process.resourcesPath, "bundle", bundle.desktopApp) : undefined;
 function desktopCommand(desktopMain: string): { command: string; args: string[] } {
-  return bundle ? { command: process.execPath, args: [EDITOR_FLAG] } : { command: process.env.VIBE_DESKTOP_EXECUTABLE || process.execPath, args: [desktopMain] };
+  return bundle ? { command: process.execPath, args: [EDITOR_FLAG] } : { command: process.env.HATOPAD_DESKTOP_EXECUTABLE || process.execPath, args: [desktopMain] };
 }
 const bundleSmokeTest = (app.isPackaged && process.argv.includes("--bundle-smoke-test")) || (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
-if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `vibe-gateway-bundle-smoke-${process.pid}`));
+applyLegacyEnvironmentWithWarning(process.env);
+if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Gateway", "HatoPad Gateway"));
+if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `hatopad-gateway-bundle-smoke-${process.pid}`));
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const rendererFilePath = path.join(directory, "../dist-renderer/index.html");
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const runtimes = new Map<string, Runtime>();
-const tunnels = new Map<string, SshTunnel>();
 const portTunnelRuntimes = new Map<string, TunnelRuntime>();
-const portTunnels = new Map<string, SshTunnel>();
+const portTunnels = new Map<string, SshTunnel | CloudPortTunnel>();
+const portTunnelAttempts = new Map<string, number>();
+let cloudTunnelEpoch = 0;
 const connectionRuntimes = new Map<string, ConnectionRuntimeSnapshot>();
 const provisioningClients = new Map<string, Client>();
 const cancelledProvisioning = new Set<string>();
@@ -53,10 +71,10 @@ let quitRequested = false;
 const workspaceOperations = new WorkspaceOperations();
 const localServers = new Map<string, ReturnType<typeof spawn>>();
 
-app.name = "Vibe Gateway";
-app.setName("Vibe Gateway");
-app.setAppUserModelId("com.vibe-editor.gateway");
-process.title = "Vibe Gateway";
+app.name = "HatoPad Gateway";
+app.setName("HatoPad Gateway");
+app.setAppUserModelId("com.hatopad.gateway");
+process.title = "HatoPad Gateway";
 const ownsInstance = app.requestSingleInstanceLock();
 if (!ownsInstance) app.quit();
 app.on("second-instance", () => {
@@ -64,7 +82,7 @@ app.on("second-instance", () => {
   if (window?.isMinimized()) window.restore();
   window?.show(); window?.focus();
 });
-app.commandLine.appendSwitch("class", "VibeGateway");
+app.commandLine.appendSwitch("class", "HatoPadGateway");
 
 function handleIpc(channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => any): void {
   ipcMain.handle(channel, (event, ...args) => {
@@ -83,7 +101,7 @@ function decodeState(text: string): State {
   if (state.connections !== undefined && !Array.isArray(state.connections)) throw new Error("Gateway connections must be an array");
   if (state.workspaces !== undefined && !Array.isArray(state.workspaces)) throw new Error("Gateway workspaces must be an array");
   if (state.portTunnels !== undefined && !Array.isArray(state.portTunnels)) throw new Error("Gateway port tunnels must be an array");
-  return { connections: (state.connections ?? []).map(normalizeStoredAuthentication), workspaces: state.workspaces ?? [], portTunnels: state.portTunnels ?? [], repository: repositorySettingsOrDefault(state.repository) };
+  return { connections: (state.connections ?? []).map(normalizeStoredAuthentication), workspaces: state.workspaces ?? [], portTunnels: state.portTunnels ?? [], repository: repositorySettingsOrDefault(state.repository), coreReleases: state.coreReleases && typeof state.coreReleases === "object" && !Array.isArray(state.coreReleases) ? Object.fromEntries(Object.entries(state.coreReleases).filter(([id,commit])=>/^[A-Za-z0-9_-]{1,200}$/.test(id) && typeof commit === "string" && /^[a-f0-9]{40}$/.test(commit))) : {} };
 }
 const stateStore = new JsonStateStore<State>(stateFile(), () => ({ connections: [], workspaces: [], portTunnels: [], repository: defaultRepositorySettings }), decodeState);
 async function readState(): Promise<State> { return stateStore.read(); }
@@ -98,7 +116,12 @@ function encrypt(password: string): string {
   if (!safeStorage.isEncryptionAvailable()) throw new Error("Secure credential storage is unavailable on this system");
   return safeStorage.encryptString(password).toString("base64");
 }
-function decrypt(password: string): string { return safeStorage.decryptString(Buffer.from(password, "base64")); }
+function decrypt(password: string): string {
+  try { return safeStorage.decryptString(Buffer.from(password, "base64")); }
+  // The operating system ties the encryption key to the application name. After the HatoPad rename a secret saved by the
+  // previous build may not decrypt; ask for it again instead of failing with an opaque error.
+  catch { throw new Error("A saved SSH password or passphrase can no longer be decrypted, which can happen after the app was renamed. Edit the connection and enter it again."); }
+}
 function publicState(state: State): PublicState {
   return { connections: state.connections.map((connection) => { const item = normalizeStoredAuthentication(connection); return { id: item.id, kind: connection.kind === "local" ? "local" : "ssh", name: item.name, host: item.host, port: item.port, username: item.username, authenticationMethod: item.authenticationMethod, ...(item.privateKeyPath ? { privateKeyPath: item.privateKeyPath } : {}), ...(item.hostKeyFingerprint ? { hostKeyFingerprint: item.hostKeyFingerprint } : {}) }; }), workspaces: state.workspaces, portTunnels: state.portTunnels };
 }
@@ -135,7 +158,8 @@ function connectWithConfig(config: Parameters<Client["connect"]>[0]): Promise<Cl
       // guard prevents a later transport error from reaching Electron as an
       // uncaught exception and native system error dialog.
       client.on("error", () => undefined);
-      resolve(client);
+      // Best effort: move pre-rename server files so a running server and its releases keep being found.
+      execute(client, legacyRemoteMigrationCommand()).catch(() => undefined).finally(() => resolve(client));
     };
     const onError = (error: Error) => { client.off("ready", onReady); reject(sshConnectionError(error, config.privateKey ? "privateKey" : config.agent ? "agent" : "password")); };
     client.once("ready", onReady).once("error", onError).connect(config);
@@ -154,16 +178,16 @@ async function workspaceAndStoredConnection(workspaceId: string): Promise<{ work
   if (!connection) throw new Error("Connection was not found");
   return { workspace, connection };
 }
-async function localArtifactPaths(): Promise<{ coreMain: string; desktopRoot: string; node: string; env: NodeJS.ProcessEnv }> {
+async function localArtifactPaths(toolchainOnly = false): Promise<{ coreMain: string; desktopRoot: string; node: string; env: NodeJS.ProcessEnv }> {
   if (bundle) {
     const target = coreTarget(process.platform, process.arch);
     const shippedCore = bundle.cores[target];
-    if (!shippedCore) throw new Error(`This bundle does not include Core for ${target}.`);
+    if (!shippedCore || !toolchainOnly && !bundleCoreCompatible(shippedCore)) throw new Error(`This bundle does not include a protocol-compatible Core for ${target}. Install a compatible Gateway release.`);
     const root = await prepareBundledCore(process.resourcesPath, path.join(app.getPath("userData"), "cores"), shippedCore, (archive, destination) => runLocal("tar", ["-xzf", archive, "-C", destination], destination));
     return { coreMain: path.join(root, "packages/core/dist/index.js"), desktopRoot: bundledDesktop!, node: path.join(root, "bin/node"), env: { ...process.env, PATH: `${path.join(root, "bin")}${path.delimiter}${process.env.PATH ?? ""}` } };
   }
   const repositoryRoot = path.resolve(directory, "../../..");
-  return { coreMain: path.join(repositoryRoot, "packages/core/dist/index.js"), desktopRoot: path.join(repositoryRoot, "packages/desktop"), node: process.env.VIBE_NODE_EXECUTABLE || "node", env: process.env };
+  return { coreMain: path.join(repositoryRoot, "packages/core/dist/index.js"), desktopRoot: path.join(repositoryRoot, "packages/desktop"), node: process.env.HATOPAD_NODE_EXECUTABLE || "node", env: process.env };
 }
 async function stopLocalServer(workspaceId: string): Promise<void> {
   const previous = localServers.get(workspaceId);
@@ -176,20 +200,47 @@ async function stopLocalServer(workspaceId: string): Promise<void> {
   }
   if (localServers.get(workspaceId) === previous) localServers.delete(workspaceId);
 }
-async function startLocalServer(workspaceId: string): Promise<{ remotePort: number }> {
+const coreReleasesDirectory = () => path.join(app.getPath("userData"), "core-releases");
+const localReleaseName = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
+/** The release supervisor records the release it switched to here; it outranks Gateway's older saved commit. */
+const localSelectionFile = (workspaceId: string) => path.join(coreReleasesDirectory(), `selected-${workspaceId}`);
+async function selectedLocalRelease(workspaceId: string): Promise<string | undefined> {
+  const value = (await readFile(localSelectionFile(workspaceId), "utf8").catch(() => "")).trim();
+  return localReleaseName.test(value) ? value : undefined;
+}
+async function startLocalServer(workspaceId: string, expectedCommit?: string, repository?: RepositorySettings, useBundle = false, compatibility?: Compatibility): Promise<{ remotePort: number }> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
-  const { coreMain, node, env } = await localArtifactPaths();
-  await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall Vibe Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
+  if (useBundle) await rm(localSelectionFile(workspaceId), { force: true });
+  const selectedRelease = useBundle || expectedCommit ? undefined : await selectedLocalRelease(workspaceId);
+  const savedCommit = useBundle ? undefined : selectedRelease?.split("-node")[0] ?? (await readState()).coreReleases?.[workspaceId];
+  let { coreMain, node, env } = await localArtifactPaths(Boolean(expectedCommit || savedCommit));
+  if (expectedCommit) {
+    const npm = bundle ? path.resolve(path.dirname(coreMain), "../../../lib/node_modules/npm/bin/npm-cli.js") : process.env.npm_execpath;
+    if (!npm) throw Error("Start Gateway through npm to build a compatible Core.");
+    const release = await localCoreReleases.prepare(repository ?? (await readState()).repository, expectedCommit, {node,npm,env}, compatibility);
+    coreMain = path.join(release,"packages/core/dist/index.js");
+  } else if (savedCommit) coreMain = path.join(await localCoreReleases.installed(savedCommit,node,env),"packages/core/dist/index.js");
+  await access(coreMain).catch(() => { throw new Error(bundle ? "Bundled Core is missing or damaged. Reinstall HatoPad Gateway." : "Local Core is not built. Run npm run build before starting a local workspace."); });
   await prepareLocalWorkspaceDirectory(workspace.directory);
   await stopLocalServer(workspaceId);
+  runtime(workspaceId, "working", "Stopping any previous local Core on this port...");
+  await stopOrphanedLocalCore(workspace.remotePort, workspace.directory);
   runtime(workspaceId, "working", "Starting local Core...");
   const logDirectory = path.join(app.getPath("userData"), "logs");
   const logPath = path.join(logDirectory, `local-core-${workspace.id}.log`);
   await mkdir(logDirectory, { recursive: true });
   const log = await open(logPath, "a");
-  const child = spawn(node, [coreMain, "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
-    cwd: workspace.directory,
-    env: { ...env, ...(bundleSmokeTest ? { REMOTE_IDE_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), REMOTE_IDE_SESSION_TOKEN: "", REMOTE_IDE_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
+  const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspaceId}.json`);
+  const paired = await access(pairingFile).then(() => true, () => false);
+  // Releases from the local cache that include the supervisor can update themselves through Hub.
+  const releaseRoot = path.resolve(path.dirname(coreMain), "../../..");
+  const supervisor = path.join(releaseRoot, "scripts/core-release-service.mjs");
+  const supervised = path.dirname(releaseRoot) === coreReleasesDirectory() && localReleaseName.test(path.basename(releaseRoot)) &&
+    await access(supervisor).then(() => true, () => false) && (await readFile(coreMain, "utf8").catch(() => "")).includes("HATOPAD_CORE_RELEASE_MODE");
+  if (supervised) await localCoreReleases.pointOriginAtRepository(releaseRoot, repository ?? (await readState()).repository).catch(() => undefined);
+  const child = spawn(node, [supervised ? supervisor : coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
+    cwd: workspace.directory, detached: true,
+    env: { ...env, ...(supervised ? { HATOPAD_CORE_RELEASE_ROOT: coreReleasesDirectory(), HATOPAD_CORE_RELEASES_DIR: coreReleasesDirectory(), HATOPAD_CORE_RELEASE_SELECTION: localSelectionFile(workspaceId) } : {}), HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
     // macOS child processes such as Git and node-pty need valid inherited descriptors.
     // Keep stdin attached to /dev/null and retain Core output in a durable diagnostic log.
     stdio: ["ignore", log.fd, log.fd]
@@ -208,7 +259,7 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
       if (!token) await new Promise((resolve) => setTimeout(resolve, 100));
     }
     if (!token) throw new Error("Local Core did not create its authentication token");
-    await runLocal(node, ["--input-type=commonjs", "-e", coreHealthProbe(workspace.remotePort)], path.resolve(path.dirname(coreMain), "../../.."), { ...env, REMOTE_IDE_SESSION_TOKEN: token });
+    await runLocal(node, ["--input-type=commonjs", "-e", coreHealthProbe(workspace.remotePort)], path.resolve(path.dirname(coreMain), "../../.."), { ...env, HATOPAD_SESSION_TOKEN: token });
   } catch (error) {
     child.kill(); localServers.delete(workspaceId);
     runtime(workspaceId, "error", `Local Core failed health verification. Inspect ${logPath}`);
@@ -216,13 +267,17 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   }
   if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Local Core exited during startup. Inspect ${logPath}`);
   runtime(workspaceId, "server", `Server listening locally on ${workspace.remotePort} (log: ${logPath})`);
+  if (supervised) await mkdir(coreReleasesDirectory(), { recursive: true }).then(() => writeFile(localSelectionFile(workspaceId), path.basename(releaseRoot), { mode: 0o600 }));
+  else await rm(localSelectionFile(workspaceId), { force: true });
+  if (expectedCommit || useBundle) await updateState(state => { if (expectedCommit) state.coreReleases = { ...state.coreReleases, [workspaceId]: expectedCommit }; else if (state.coreReleases) delete state.coreReleases[workspaceId]; });
+  child.unref();
   return { remotePort: workspace.remotePort };
 }
 async function startLocalClient(workspaceId: string): Promise<void> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId); const { desktopRoot } = await localArtifactPaths();
-  const desktopMain = path.join(desktopRoot, "dist-electron/main.js"); await access(desktopMain).catch(() => { throw new Error(bundle ? "Bundled Desktop is missing or damaged. Reinstall Vibe Gateway." : "Local Desktop is not built. Run npm run build before starting a local workspace."); });
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js"); await access(desktopMain).catch(() => { throw new Error(bundle ? "Bundled Desktop is missing or damaged. Reinstall HatoPad Gateway." : "Local Desktop is not built. Run npm run build before starting a local workspace."); });
   const desktop = desktopCommand(desktopMain);
-  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)], { cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", REMOTE_IDE_SESSION_TOKEN: "", REMOTE_IDE_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) }, detached: true, stdio: "ignore" });
+  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)], { cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) }, detached: true, stdio: "ignore" });
   await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
   child.unref(); runtime(workspaceId, "client", `Client connected locally on port ${workspace.remotePort}`);
 }
@@ -249,7 +304,7 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
       const latencyMs = Math.round(performance.now() - startedAt);
       connectionRuntime(currentConnectionId, connectionHealthForLatency(latencyMs));
       for (const workspace of items) {
-        const pidFile = `~/.vibe-server-${workspace.id}.pid`;
+        const pidFile = `~/.hatopad-server-${workspace.id}.pid`;
         const result = (await execute(client, `bash -lc ${shell(`if [ -f ${pidFile} ] && kill -0 $(cat ${pidFile}) 2>/dev/null; then echo running; else rm -f ${pidFile}; echo stopped; fi`)}`)).trim();
         runtime(workspace.id, result === "running" ? "server" : "idle", result === "running" ? `Server listening remotely on ${workspace.remotePort}` : "Stopped");
       }
@@ -260,42 +315,51 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
     } finally { client?.end(); }
   }));
 }
-async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false): Promise<ProvisionedRelease> {
-  if (bundle) {
-    runtime(workspaceId, "working", "Uploading bundled Core…", { stage: "bundle-upload" });
+async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false, expectedCommit?: string, compatibility?: Compatibility): Promise<ProvisionedRelease> {
+  if (bundle && !expectedCommit) {
+    if (!repair) {
+      // Starting never downgrades a compatible Git release (managed Cores update themselves through Hub).
+      const selected = (await execute(client, `bash -lc ${shell(`${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release"`)}`)).trim();
+      if (/^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+)?$/.test(selected)) {
+        const kept = parseKeptGitRelease(await execute(client, `bash -lc ${shell(keptGitReleaseCommand(selected, installedNodeEnvironment(selected)))}`).catch(() => ""), selected, protocolCompatibility);
+        if (kept) return kept;
+      }
+    }
     const platform = (await execute(client, "uname -s; uname -m")).trim().split(/\s+/);
     const target = coreTarget(platform[0]!, platform[1]!);
     const shippedCore = bundle.cores[target];
-    if (!shippedCore) throw new Error(`This local bundle does not include Core for ${target}. Use a bundle containing that server platform.`);
-    const core = repair ? { ...shippedCore, release: `${shippedCore.release}-repair-${id().replaceAll("-", "")}` } : shippedCore;
-    const archive = await verifiedCoreArchive(process.resourcesPath, core);
-    const upload = `.vibe-upload-${id()}`;
-    await execute(client, `umask 077; mkdir "$HOME/${upload}"`);
-    try {
-      const home = (await execute(client, "printf '%s' \"$HOME\"" )).trim();
-      await new Promise<void>((resolve, reject) => client.sftp((error, sftp) => error ? reject(error) : sftp.fastPut(archive, path.posix.join(home, upload, "core.tar.gz"), failure => { sftp.end(); failure ? reject(failure) : resolve(); })));
-      const result = parseProvisionedRelease(await execute(client, `bash -lc ${shell(installBundleCommand(core, upload))}`));
-      if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
-      return result;
-    } finally { await execute(client, `rm -rf "$HOME/${upload}"`).catch(() => undefined); }
+    if (shippedCore && bundleCoreCompatible(shippedCore)) {
+      runtime(workspaceId, "working", "Uploading bundled Core…", { stage: "bundle-upload" });
+      const core = repair ? { ...shippedCore, release: `${shippedCore.release}-repair-${id().replaceAll("-", "")}` } : shippedCore;
+      const archive = await verifiedCoreArchive(process.resourcesPath, core);
+      const upload = `.hatopad-upload-${id()}`;
+      await execute(client, `umask 077; mkdir "$HOME/${upload}"`);
+      try {
+        const home = (await execute(client, "printf '%s' \"$HOME\"" )).trim();
+        await new Promise<void>((resolve, reject) => client.sftp((error, sftp) => error ? reject(error) : sftp.fastPut(archive, path.posix.join(home, upload, "core.tar.gz"), failure => { sftp.end(); failure ? reject(failure) : resolve(); })));
+        const result = parseProvisionedRelease(await execute(client, `bash -lc ${shell(installBundleCommand(core, upload))}`));
+        if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
+        return result;
+      } finally { await execute(client, `rm -rf "$HOME/${upload}"`).catch(() => undefined); }
+    }
   }
   const preferredRelease = (await execute(client, `bash -lc ${shell(`${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release"`)}`)).trim();
-  const command = provisionCommand(settings, remoteNodeEnvironment, repair, preferredRelease || undefined);
+  const command = provisionCommand(settings, installedNodeEnvironment(preferredRelease || undefined), repair, preferredRelease || undefined, expectedCommit ? { expectedCommit, compatibility } : undefined);
   const logs: string[] = [];
   const output = await execute(client, `bash -lc ${shell(command)}`, (line) => {
     logs.push(line);
-    const stage = line.match(/^VIBE_STAGE:(.+)$/)?.[1];
-    runtime(workspaceId, "working", stage ? `${stage.replaceAll("-", " ")}…` : "Provisioning remote Vibe application…", { stage: stage ?? "provisioning", logs: boundedProvisioningLog(logs) });
+    const stage = line.match(/^HATOPAD_STAGE:(.+)$/)?.[1];
+    runtime(workspaceId, "working", stage ? `${stage.replaceAll("-", " ")}…` : "Provisioning remote HatoPad application…", { stage: stage ?? "provisioning", logs: boundedProvisioningLog(logs) });
   });
   if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
   return parseProvisionedRelease(output);
 }
-async function startServer(workspaceId: string, repair = false): Promise<{ remotePort: number }> {
-  const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", bundle ? "Deploying bundled Core…" : "Updating and building remote server...");
+async function startServer(workspaceId: string, repair = false, expectedCommit?: string, repository?: RepositorySettings, compatibility?: Compatibility): Promise<{ remotePort: number }> {
+  const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", expectedCommit ? "Updating compatible Core…" : bundle ? "Deploying bundled Core…" : "Updating and building remote server...");
   const client = await connect(connection); provisioningClients.set(workspaceId, client); cancelledProvisioning.delete(workspaceId);
   try {
-    const build = await provision(workspaceId, client, (await readState()).repository, repair);
-    const environment = bundle ? bundledEnvironment(build.release) : remoteNodeEnvironment;
+    const build = await provision(workspaceId, client, repository ?? (await readState()).repository, repair, expectedCommit, compatibility);
+    const environment = installedNodeEnvironment(build.release);
     runtime(workspaceId, "working", "Preparing workspace directory and Git repository…", { stage: "workspace" });
     await execute(client, workspaceValidationCommand(workspace.directory));
     const portScript = `const net=require("net");const preferred=${workspace.remotePort};let fallback=false;const open=port=>{const server=net.createServer();server.unref();server.once("error",error=>{if(error.code==="EADDRINUSE"&&!fallback){fallback=true;open(0);return}throw error});server.listen(port,"127.0.0.1",()=>{console.log(server.address().port);server.close()})};open(preferred)`;
@@ -321,7 +385,7 @@ async function startServer(workspaceId: string, repair = false): Promise<{ remot
     }, (line) => {
       activationLogs.push(line);
       runtime(workspaceId, "working", "Starting Core and waiting for protocol health…", { stage: "activation", logs: boundedProvisioningLog(activationLogs) });
-    }); runtime(workspaceId, "server", `Server listening remotely on ${workspace.remotePort}${bundle ? ` (bundled ${bundle.version})` : build.rebuilt ? " (rebuilt)" : " (build reused)"}`);
+    }); runtime(workspaceId, "server", `Server listening remotely on ${workspace.remotePort}${build.release.includes("-bundle-") ? ` (bundled ${bundle?.version})` : build.rebuilt ? " (rebuilt)" : " (build reused)"}`);
     return { remotePort: workspace.remotePort };
   } catch (error) {
     const failure = classifyProvisioningFailure(cancelledProvisioning.has(workspaceId) ? new Error("Provisioning cancelled") : error);
@@ -332,7 +396,6 @@ async function startServer(workspaceId: string, repair = false): Promise<{ remot
 }
 async function stopServer(workspaceId: string): Promise<void> {
   const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", "Stopping remote server...");
-  tunnels.get(workspaceId)?.stop(); tunnels.delete(workspaceId);
   const client = await connect(connection);
   try { await execute(client, `bash -lc ${shell(serverStopCommand(workspace.id, workspace.directory, bundle ? "" : remoteNodeEnvironment))}`); }
   finally { client.end(); }
@@ -349,32 +412,28 @@ function runLocal(command: string, args: string[], cwd: string, env = process.en
     child.on("error", reject); child.on("close", (code) => code === 0 ? resolve() : reject(new Error(`${executable} exited with ${code}`)));
   });
 }
-async function createTunnel(workspaceId: string, connection: Connection, remotePort: number): Promise<number> {
-  tunnels.get(workspaceId)?.stop();
-  const tunnel = new SshTunnel({
-    localPort: 0,
-    remotePort,
-    connect: () => connect(connection),
-    onStatus: (status, localPort) => {
-      if (status === "reconnecting") runtime(workspaceId, "working", `SSH tunnel reconnecting on local port ${localPort}...`);
-      else if (status === "running" && localPort) runtime(workspaceId, "client", `Client connected through local port ${localPort}`);
-    },
-  });
-  const localPort = await tunnel.start();
-  tunnels.set(workspaceId, tunnel);
-  return localPort;
-}
 async function startPortTunnel(tunnelId: string): Promise<void> {
   const state = await readState();
   const tunnel = state.portTunnels.find((item) => item.id === tunnelId);
   if (!tunnel) throw new Error("Port tunnel was not found");
   if (!Number.isInteger(tunnel.port) || tunnel.port < 1 || tunnel.port > 65535) throw new Error("Tunnel port must be between 1 and 65535");
-  portTunnelRuntime(tunnelId, "working", "Connecting over SSH...");
+  portTunnelRuntime(tunnelId, "working", tunnel.cloudOrigin ? "Connecting through cloud..." : "Connecting over SSH...");
   stopPortTunnel(tunnelId, false);
+  const attempt = portTunnelAttempts.get(tunnelId); const epoch = cloudTunnelEpoch;
   try {
+    if (tunnel.cloudOrigin) {
+      const target = await cloudTarget(tunnel.connectionId.slice(6));
+      if (attempt !== portTunnelAttempts.get(tunnelId) || epoch !== cloudTunnelEpoch) throw Error("Port tunnel was stopped");
+      if (target.origin !== tunnel.cloudOrigin) throw Error("This tunnel belongs to a different cloud account URL.");
+      const managed = new CloudPortTunnel({ target, compatibility: protocolCompatibility, localPort: tunnel.port, remotePort: tunnel.remotePort ?? tunnel.port,
+        onStatus: (status, message) => portTunnelRuntime(tunnelId, status, message) });
+      portTunnels.set(tunnelId, managed);
+      try { await managed.start(); } catch (error) { if (portTunnels.get(tunnelId) === managed) portTunnels.delete(tunnelId); managed.stop(); throw error; }
+      return;
+    }
     const managed = new SshTunnel({
       localPort: tunnel.port,
-      remotePort: tunnel.port,
+      remotePort: tunnel.remotePort ?? tunnel.port,
       connect: async () => connect(await credentials(tunnel.connectionId)),
       onStatus: (status, localPort, error) => {
         if (status === "running") portTunnelRuntime(tunnelId, "running", `127.0.0.1:${localPort} → remote 127.0.0.1:${tunnel.port}`);
@@ -385,11 +444,12 @@ async function startPortTunnel(tunnelId: string): Promise<void> {
     portTunnels.set(tunnelId, managed);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    portTunnelRuntime(tunnelId, "error", message);
+    if (attempt === portTunnelAttempts.get(tunnelId)) portTunnelRuntime(tunnelId, "error", message);
     throw error;
   }
 }
 function stopPortTunnel(tunnelId: string, notify = true): void {
+  portTunnelAttempts.set(tunnelId, (portTunnelAttempts.get(tunnelId) ?? 0) + 1);
   const active = portTunnels.get(tunnelId);
   portTunnels.delete(tunnelId);
   active?.stop();
@@ -397,41 +457,52 @@ function stopPortTunnel(tunnelId: string, notify = true): void {
 }
 async function startClient(workspaceId: string): Promise<void> {
   const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", "Checking remote client build...");
-  const client = await connect(connection);
+  let observedHostKey = connection.hostKeyFingerprint;
+  const client = await connectWithConfig(await connectionConfig(connection, readFile, fingerprint => { observedHostKey = fingerprint; }));
+  connection.hostKeyFingerprint = observedHostKey;
   try {
   const releaseDirectory = (await execute(client, `bash -lc ${shell(`set -e; ${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release_directory"`)}`)).trim();
   if (!path.posix.isAbsolute(releaseDirectory) || /[\r\n\0]/.test(releaseDirectory)) { client.end(); throw new Error("Invalid deployed release directory"); }
-  const sessionToken = (await execute(client, `if [ -f ~/.vibe-server-${workspaceId}.token ]; then cat ~/.vibe-server-${workspaceId}.token; fi`)).trim();
+  const sessionToken = (await execute(client, `if [ -f ~/.hatopad-server-${workspaceId}.token ]; then cat ~/.hatopad-server-${workspaceId}.token; fi`)).trim();
   if (sessionToken && !/^[A-Za-z0-9_-]{32,256}$/.test(sessionToken)) throw new Error("Remote Core session token is invalid");
   if (bundle) {
     const remoteHome = (await execute(client, `printf '%s' "$HOME"`)).trim();
     const matchesBundle = Object.values(bundle.cores).some(core => {
-      const expected = path.posix.join(remoteHome, ".vibe-deploy/releases", core.release);
+      const expected = path.posix.join(remoteHome, ".hatopad-deploy/releases", core.release);
       return releaseDirectory === expected || (releaseDirectory.startsWith(expected) && /^-repair-[a-f0-9]{32}$/.test(releaseDirectory.slice(expected.length)));
     });
-    if (!matchesBundle) throw new Error("Start the bundled Core before opening Desktop");
-    await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken);
-    return;
+    // Any other release (for example a Hub-updated Git release) takes the compatibility check below.
+    if (matchesBundle) { await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken); return; }
   }
   const commit = (await execute(client, `git -C ${shell(releaseDirectory)} rev-parse HEAD`)).trim();
-  if (!/^[0-9a-f]{40,64}$/.test(commit)) { client.end(); throw new Error("Remote Vibe checkout was not found. Start the server first."); }
+  if (!/^[0-9a-f]{40,64}$/.test(commit)) { client.end(); throw new Error("Remote HatoPad checkout was not found. Start the server first."); }
   const remoteCompatibilityOutput = await execute(client, `bash -lc ${shell(`${remoteNodeEnvironment}; cd ${shell(releaseDirectory)}; node --input-type=module -e ${shell("import { protocolCompatibility } from './packages/protocol/dist/index.js'; console.log(JSON.stringify(protocolCompatibility))")}`)}`);
   const remoteCompatibility = JSON.parse(remoteCompatibilityOutput) as Compatibility;
   if (!compatibleClient(remoteCompatibility, remoteCompatibility)) { client.end(); throw new Error("Remote Core reported an invalid protocol compatibility range"); }
+  const localDesktop = cloudDesktopRoot();
+  let localDesktopCompatible = false;
+  try {
+    const localManifest = JSON.parse(await readFile(path.join(localDesktop, "compatibility.json"), "utf8"));
+    const compatibility = readCompatibility(localManifest);
+    await access(path.join(localDesktop, "dist-electron/main.js"));
+    localDesktopCompatible = localManifest.connectionHandoff === 1 && Boolean(compatibility && compatibleClient(compatibility, remoteCompatibility));
+  } catch { /* A compatible downloaded Desktop can still be selected below. */ }
+  if (localDesktopCompatible) { await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken); return; }
   const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
-  const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `vibe-${workspace.id}-${commit}.tar.gz`);
+  const clientRoot = path.join(clientsDirectory, commit); const archive = path.join(app.getPath("temp"), `hatopad-${workspace.id}-${commit}.tar.gz`);
   const buildMarker = path.join(clientRoot, ".gateway-client-built");
-  const expectedMarker = `artifact-v2:${commit}`;
+  const expectedMarker = `${clientArtifactVersion}:${commit}`;
   let clientBuilt = false;
   try {
     const marker = (await readFile(buildMarker, "utf8")).trim();
-    clientBuilt = marker === expectedMarker || marker === commit;
-    await access(path.join(clientRoot, "package.json")); await access(path.join(clientRoot, "compatibility.json")); await access(path.join(clientRoot, "dist-electron", "main.js")); await access(path.join(clientRoot, "dist-renderer", "index.html")); await access(path.join(clientRoot, "node_modules", "ws", "package.json"));
+    clientBuilt = marker === expectedMarker;
+    await access(path.join(clientRoot, "package.json")); await access(path.join(clientRoot, "compatibility.json")); await access(path.join(clientRoot, "dist-electron", "main.js")); await access(path.join(clientRoot, "dist-renderer", "index.html")); await validateClientRuntime(clientRoot);
     const compatibility = readCompatibility(JSON.parse(await readFile(path.join(clientRoot, "compatibility.json"), "utf8")));
     clientBuilt = clientBuilt && !!compatibility && compatibleClient(compatibility, remoteCompatibility);
     if (clientBuilt && marker !== expectedMarker) await writeFile(buildMarker, `${expectedMarker}\n`, "utf8");
   }
   catch { clientBuilt = false; }
+  let downloadApproved = false;
   if (!clientBuilt) {
     const cached = await readdir(clientsDirectory, { withFileTypes: true }).catch(() => []);
     const rollback = (await Promise.all(cached.filter((entry) => entry.isDirectory() && entry.name !== commit).map(async (entry) => {
@@ -439,20 +510,23 @@ async function startClient(workspaceId: string): Promise<void> {
       try {
         const marker = (await readFile(path.join(candidate, ".gateway-client-built"), "utf8")).trim();
         const compatibility = readCompatibility(JSON.parse(await readFile(path.join(candidate, "compatibility.json"), "utf8")));
-        await access(path.join(candidate, "dist-electron", "main.js")); await access(path.join(candidate, "dist-renderer", "index.html")); await access(path.join(candidate, "node_modules", "ws", "package.json"));
-        return marker.startsWith("artifact-v2:") && compatibility && compatibleClient(compatibility, remoteCompatibility) ? candidate : undefined;
+        await access(path.join(candidate, "dist-electron", "main.js")); await access(path.join(candidate, "dist-renderer", "index.html")); await validateClientRuntime(candidate);
+        return marker.startsWith(`${clientArtifactVersion}:`) && compatibility && compatibleClient(compatibility, remoteCompatibility) ? candidate : undefined;
       } catch { return undefined; }
     }))).find(Boolean);
     if (rollback) {
       const choice = await dialog.showMessageBox({ type: "warning", buttons: ["Download update", "Use last known-good client", "Cancel"], defaultId: 0, cancelId: 2, title: "Desktop update available", message: "The cached Desktop cannot be used with this Core.", detail: "Choose a verified update or keep using the last compatible client." });
       if (choice.response === 1) { client.end(); await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken); return; }
       if (choice.response === 2) { client.end(); throw new Error("Desktop update was cancelled"); }
+      downloadApproved = true;
     }
   }
   if (!clientBuilt) {
+    const approved = downloadApproved ? { response: 0 } : await dialog.showMessageBox({ type: "warning", buttons: ["Download and run", "Cancel"], defaultId: 1, cancelId: 1, title: "Run Desktop from this Core?", message: `This Gateway's Desktop cannot be used with the Core on ${connection.host ?? "this host"}.`, detail: "Gateway can download the Desktop built with that Core release and run it on this computer. Only continue if you control that server." });
+    if (approved.response !== 0) { client.end(); throw new Error("Desktop download was cancelled"); }
   try {
-    const remoteArchive = `/tmp/vibe-${workspace.id}-${id()}.tar.gz`;
-    const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; files="package.json compatibility.json dist-electron dist-renderer"; if [ -d assets ]; then files="$files assets"; fi; tar -czf ${remoteArchive} $files -C ../.. node_modules/ws; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
+    const remoteArchive = `/tmp/hatopad-${workspace.id}-${id()}.tar.gz`;
+    const checksum = (await execute(client, `bash -lc ${shell(`set -e; release_directory=${shell(releaseDirectory)}; test -f "$release_directory/packages/desktop/compatibility.json"; test -f "$release_directory/node_modules/ws/package.json"; cd "$release_directory/packages/desktop"; remote_archive=${shell(remoteArchive)}; ${clientArchiveCommand()}; if command -v sha256sum >/dev/null 2>&1; then sha256sum ${remoteArchive}; else shasum -a 256 ${remoteArchive}; fi`)}`)).trim().split(/\s+/)[0];
     await mkdir(path.dirname(archive), { recursive: true }); await download(client, remoteArchive, archive);
     const actual = createHash("sha256").update(await readFile(archive)).digest("hex");
     if (actual !== checksum) throw new Error("Downloaded Desktop artifacts failed checksum verification");
@@ -461,6 +535,7 @@ async function startClient(workspaceId: string): Promise<void> {
     await mkdir(clientRoot, { recursive: true });
     runtime(workspaceId, "working", "Installing remote-built client artifacts...");
     await runLocal("tar", ["-xzf", archive, "-C", clientRoot], clientRoot); await rm(archive, { force: true });
+    await validateClientRuntime(clientRoot);
     const downloadedCompatibility = readCompatibility(JSON.parse(await readFile(path.join(clientRoot, "compatibility.json"), "utf8")));
     if (!downloadedCompatibility || !compatibleClient(downloadedCompatibility, remoteCompatibility)) throw new Error("Downloaded Desktop is not compatible with the remote Core");
     await writeFile(buildMarker, `${expectedMarker}\n`, "utf8");
@@ -469,33 +544,288 @@ async function startClient(workspaceId: string): Promise<void> {
   } finally { client.end(); }
 }
 async function launchClient(workspaceId: string, workspace: Workspace, connection: Connection, clientRoot: string, clientBuilt: boolean, sessionToken?: string): Promise<void> {
-  const localIcon = bundle ? undefined : process.env.VIBE_DESKTOP_ICON;
+  const localIcon = bundle ? undefined : process.env.HATOPAD_DESKTOP_ICON;
   if (localIcon) {
     await mkdir(path.join(clientRoot, "assets"), { recursive: true });
     try { await access(path.join(clientRoot, "assets", "app-icon.png")); }
     catch { await copyFile(localIcon, path.join(clientRoot, "assets", "app-icon.png")); }
   }
-  const localPort = await createTunnel(workspaceId, connection, workspace.remotePort);
-  const desktopMain = path.join(clientRoot, "dist-electron", "main.js");
-  const desktop = desktopCommand(desktopMain);
-  const desktopExecutable = desktop.command;
-  const child = spawn(desktopExecutable, [...desktop.args, "--host", "127.0.0.1", "--port", String(localPort)], { cwd: clientRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", REMOTE_IDE_SESSION_TOKEN: sessionToken ?? "", REMOTE_IDE_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore" });
-  try {
-    await new Promise<void>((resolve, reject) => {
-      child.once("spawn", resolve);
-      child.once("error", (error) => reject(new Error(`Could not launch Vibe Editor using ${desktopExecutable}: ${error.message}`)));
-    });
-  } catch (error) {
-    tunnels.get(workspaceId)?.stop(); tunnels.delete(workspaceId);
-    throw error;
-  }
-  child.unref(); runtime(workspaceId, "client", `Client connected through local port ${localPort}${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
+  await launchManagedDesktop(clientRoot, { ...connection, kind: "ssh", remotePort: workspace.remotePort,
+    ...(sessionToken ? { sessionToken } : {}), ...(connection.authenticationMethod === "agent" ? { agentSocket: process.env.SSH_AUTH_SOCK } : {}) });
+  runtime(workspaceId, "client", `Desktop launched (Gateway can be closed)${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
 }
+async function launchManagedDesktop(desktopRoot: string, connection: Record<string, unknown>): Promise<void> {
+  const manifest = JSON.parse(await readFile(path.join(desktopRoot, "compatibility.json"), "utf8"));
+  if (manifest.connectionHandoff !== 1) throw new Error("This Desktop version cannot own its connection. Update/rebuild Desktop before connecting.");
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
+  await access(desktopMain);
+  const file = await writeDesktopHandoff(path.join(app.getPath("userData"), "connection-launches"), connection);
+  const desktop = desktopCommand(desktopMain);
+  const logPath = path.join(app.getPath("userData"), "logs", "desktop-launch.log");
+  await mkdir(path.dirname(logPath), { recursive: true });
+  const log = await open(logPath, "a", 0o600);
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn(desktop.command, [...desktop.args, "--connection-file", file], {
+      cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: ["ignore", log.fd, log.fd]
+    });
+    await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+  } catch (error) { await rm(file, { force: true }); throw error; }
+  finally { await log.close(); }
+  try {
+    const deadline = Date.now() + 15_000;
+    while (await access(file).then(() => true, () => false)) {
+      if (child.exitCode !== null || child.signalCode !== null || Date.now() >= deadline) throw new Error(`Desktop did not accept its connection handoff. Inspect ${logPath} for the startup error.`);
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    child.unref();
+  } catch (error) { child.kill(); await rm(file, { force: true }); throw error; }
+}
+
+function cloudDesktopRoot(): string { return bundledDesktop ?? path.resolve(directory, "../../desktop"); }
+async function cloudTarget(coreId: string): Promise<CloudRelayTarget> {
+  const client = await cloudClient();
+  const account = await client.account();
+  const core = account.cores.find((item) => item.id === coreId);
+  if (!core) throw new Error("Cloud Core is unavailable.");
+  if (core.status !== "online") throw new Error("Cloud Core is offline. Refresh cloud status and try again.");
+  return { origin: client.origin, coreId, cookie: async () => (await cloudSession().cookies.get({ url: client.origin })).map(cookie => `${cookie.name}=${cookie.value}`).join("; ") };
+}
+function stopCloudPortTunnels(): void {
+  cloudTunnelEpoch++;
+  for (const [id, tunnel] of portTunnels) if (tunnel instanceof CloudPortTunnel) stopPortTunnel(id);
+}
+async function cloudRoots(target: CloudRelayTarget) {
+  const compatibility = readCompatibility(JSON.parse(await readFile(path.join(cloudDesktopRoot(), "compatibility.json"), "utf8")));
+  if (!compatibility) throw new Error("Desktop compatibility metadata is unavailable. Rebuild or reinstall Gateway.");
+  return listCloudRoots(target, compatibility);
+}
+const cloudSettings = createCloudSettingsStore(path.join(app.getPath("userData"), "cloud.json"));
+async function saveCloudOrigin(input: string): Promise<string> {
+  const origin = cloudOrigin(input.trim());
+  const previous = (await cloudSettings.read()).origin;
+  if (previous && previous !== origin) {
+    stopCloudPortTunnels();
+    for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
+    await cloudSession().clearStorageData();
+  }
+  await cloudSettings.update((value) => { value.origin = origin; });
+  return origin;
+}
+handleIpc("gateway:cloudSaveOrigin", async (_event, input: string) => {
+  if (cloudConnecting) throw new Error("Close cloud sign-in before changing its URL.");
+  return saveCloudOrigin(input);
+});
+function cloudSession() { return session.fromPartition("persist:hatopad-cloud"); }
+async function cloudClient(): Promise<CloudClient> {
+  const { origin } = await cloudSettings.read();
+  if (!origin) throw new Error("Connect to cloud first.");
+  return new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
+}
+let cloudConnecting = false;
+let cloudLoginAbort: AbortController | undefined;
+app.on("will-quit", () => cloudLoginAbort?.abort());
+handleIpc("gateway:cloudCancelSignIn", () => cloudLoginAbort?.abort());
+handleIpc("gateway:cloudGet", async () => {
+  if (!(await cloudSettings.read()).origin) return undefined;
+  try { return await (await cloudClient()).account(); }
+  catch (error) { if (error instanceof Error && error.message.startsWith("Sign in")) return undefined; throw error; }
+});
+handleIpc("gateway:cloudConnect", async (_event, input: string) => {
+  if (cloudConnecting) throw new Error("Cloud sign-in is already open.");
+  cloudConnecting = true;
+  cloudLoginAbort = new AbortController();
+  try {
+    const origin = await saveCloudOrigin(input);
+    const client = new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
+    let account;
+    try { account = await client.account(); } catch { /* Sign in through the Hub's OIDC flow. */ }
+    if (!account) {
+      await signInCloudWithBrowser({ origin, fetch: (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init), openExternal: (url) => electronShell.openExternal(url), signal: cloudLoginAbort.signal });
+      account = await client.account();
+    }
+    return account;
+  } finally { cloudConnecting = false; cloudLoginAbort = undefined; }
+});
+handleIpc("gateway:cloudDisconnect", async () => {
+  stopCloudPortTunnels();
+  for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
+  await cloudSession().clearStorageData();
+});
+async function managedCloudCore(origin: string, coreId: string): Promise<ManagedCloudCore | undefined> {
+  const state = await readState();
+  const workspaces = state.workspaces.filter(item => /^[A-Za-z0-9_-]{1,200}$/.test(item.id));
+  const matches = (value: unknown): boolean => {
+    if (!value || typeof value !== "object") return false;
+    const pairing = value as { hubUrl?: string; coreId?: string };
+    try { return pairing.coreId === coreId && typeof pairing.hubUrl === "string" && cloudOrigin(pairing.hubUrl) === origin; } catch { return false; }
+  };
+  // Pairing files contain private credentials: only compare their public identity here.
+  for (const connection of state.connections.filter(item => item.kind === "local")) {
+    for (const workspace of workspaces.filter(item => item.connectionId === connection.id)) {
+      try {
+        const pairing = JSON.parse(await readFile(path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`), "utf8"));
+        const entry = localServers.get(workspace.id)?.spawnargs[1];
+        const running = entry && path.basename(entry) === "core-release-service.mjs" ? path.join(path.dirname(entry), "../packages/core/dist/index.js") : entry;
+        const selected = matchLocalCloudCore(pairing, origin, coreId, workspace.id, coreTarget(process.platform, process.arch), running);
+        if (selected) {
+          const commit = state.coreReleases?.[workspace.id];
+          const switched = await selectedLocalRelease(workspace.id);
+          return { ...selected, ...(switched ? { release: switched } : !selected.release && commit ? { release: commit } : {}) };
+        }
+      } catch { /* This local workspace has no matching accessible pairing. */ }
+    }
+  }
+  const results = await Promise.allSettled(state.connections.filter(item => item.kind !== "local").map(async connection => {
+    const ids = workspaces.filter(item => item.connectionId === connection.id).map(item => item.id);
+    if (!ids.length) return undefined;
+    const ssh = await connect(await credentials(connection.id, state));
+    try {
+      const script = `const fs=require('node:fs'),os=require('node:os'),path=require('node:path');const entries=[];for(const id of ${JSON.stringify(ids)}){try{const pairing=JSON.parse(fs.readFileSync(path.join(os.homedir(),'.hatopad/cloud-pairings',id+'.json'),'utf8'));let release;try{release=fs.readFileSync(path.join(os.homedir(),'.hatopad-server-'+id+'.release'),'utf8').trim()}catch{}entries.push({id,hubUrl:pairing.hubUrl,coreId:pairing.coreId,release})}catch{}}console.log('HATOPAD_CLOUD_MANAGED:'+JSON.stringify({os:os.platform(),arch:os.arch(),entries}))`;
+      // Packaged hosts need no system Node/npm: prefer an installed release's runtime.
+      const environment = `export PATH="$HOME/.local/bin:$HOME/.volta/bin:$PATH:/usr/local/bin:/opt/homebrew/bin"
+for workspace_id in ${ids.map(shell).join(" ")}; do
+  selected=$(cat "$HOME/.hatopad-server-$workspace_id.release" 2>/dev/null || true)
+  if [[ "$selected" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]] && [ -x "$HOME/.hatopad-deploy/releases/$selected/bin/node" ]; then
+    export PATH="$HOME/.hatopad-deploy/releases/$selected/bin:$PATH"; break
+  fi
+done
+if ! command -v node >/dev/null 2>&1; then
+${remoteNodeEnvironment}
+fi`;
+      const output = await execute(ssh, `bash -lc ${shell(`${environment}; node -e ${shell(script)}`)}`);
+      const line = output.split(/\r?\n/).find(item => item.startsWith("HATOPAD_CLOUD_MANAGED:"));
+      if (!line) return undefined;
+      const metadata = JSON.parse(line.slice("HATOPAD_CLOUD_MANAGED:".length)) as { os: string; arch: string; entries: { id: string; hubUrl?: string; coreId?: string; release?: string }[] };
+      const entry = metadata.entries.find(item => ids.includes(item.id) && matches(item));
+      return entry ? { workspaceId: entry.id, target: coreTarget(metadata.os, metadata.arch), ...(entry.release ? { release: entry.release } : {}) } : undefined;
+    } finally { ssh.end(); }
+  }));
+  const selected = results.find((result): result is PromiseFulfilledResult<ManagedCloudCore> => result.status === "fulfilled" && Boolean(result.value))?.value;
+  if (selected) return selected;
+  if (results.some(result => result.status === "rejected")) throw new CoreUpdateCheckError("Could not inspect a saved SSH host. Reconnect its management connection and check Node access, then retry.");
+  return undefined;
+}
+async function cloudReleaseSettings(origin: string): Promise<{ settings: RepositorySettings; compatibility: Compatibility }> {
+  const client = await cloudClient();
+  if (client.origin !== origin) throw new CoreUpdateCheckError("Cloud account changed. Refresh before updating.");
+  let environment;
+  try { environment = await client.environment(); }
+  catch (error) { throw new CoreUpdateCheckError(error instanceof Error && /^(Hub does not advertise|Gateway and Hub support)/.test(error.message) ? error.message : "Could not read Hub protocol requirements. Reconnect to Hub and retry."); }
+  return { settings: { ...(await readState()).repository, branch: environment.releaseBranch }, compatibility: environment.protocolCompatibility };
+}
+const localCoreReleases = new LocalCoreReleases(path.join(app.getPath("userData"), "core-releases"));
+const cloudCoreUpdates = new CloudCoreUpdates({ bundle, resolve: managedCloudCore,
+  compatibility: async origin => (await cloudReleaseSettings(origin)).compatibility,
+  git: {
+    check: async (_core, origin) => {
+      const { settings, compatibility } = await cloudReleaseSettings(origin);
+      // GitHub discovery runs on Gateway, independently of the remote Core, Node and Git.
+      try { return await localCoreReleases.check(settings, compatibility); }
+      catch (error) { throw new CoreUpdateCheckError(coreUpdateCheckReason(error, settings.branch)); }
+    },
+    deploy: async (workspaceId, commit, origin) => {
+      const { settings, compatibility } = await cloudReleaseSettings(origin);
+      return (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local"
+        ? startLocalServer(workspaceId, commit, settings, false, compatibility)
+        : startServer(workspaceId, false, commit, settings, compatibility);
+    }
+  },
+  hub: async (origin, coreId, branch, commit) => {
+    const { compatibility } = await cloudReleaseSettings(origin);
+    return applyCloudCoreUpdate(await cloudTarget(coreId), compatibility, branch, commit).catch(error => { if (error instanceof CloudUpdateUncertainError) throw error; return "unavailable" as const; });
+  },
+  deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId, undefined, undefined, true) : startServer(workspaceId),
+  run: (workspaceId, action) => workspaceOperations.run(workspaceId, "cloud-core-update", action)
+});
+async function authorizedCloudCore(coreId: string): Promise<string> {
+  const client = await cloudClient();
+  if (!(await client.account()).cores.some(item => item.id === coreId && item.access === "owner")) throw new Error("Cloud Core is unavailable.");
+  return client.origin;
+}
+handleIpc("gateway:cloudCoreUpdateInfo", async (_event, coreId: string) => cloudCoreUpdates.info(await authorizedCloudCore(coreId), coreId));
+/** Start-on-boot controls a Core's host, so it needs the owner's saved local/SSH management connection. */
+async function runAutostart(coreId: string, command: (target: AutostartTarget) => string): Promise<string> {
+  const origin = await authorizedCloudCore(coreId);
+  const core = await managedCloudCore(origin, coreId);
+  if (!core) throw new Error("No matching saved local/SSH server was found. Reconnect the management connection originally paired with this Core.");
+  return cloudCoreUpdates.runExclusive(core.workspaceId, async () => {
+    const { workspace, connection } = await workspaceAndStoredConnection(core.workspaceId);
+    if (connection.kind === "local") {
+      if (process.platform === "win32") throw new Error("Start on boot is available on macOS and Linux only.");
+      const { node, env } = await localArtifactPaths(true);
+      const absoluteNode = path.isAbsolute(node) ? node : (await promisify(execFile)("bash", ["-lc", `command -v ${shell(node)}`], { env })).stdout.trim();
+      if (!path.isAbsolute(absoluteNode)) throw new Error("Could not locate Node for the boot script.");
+      const script = command({ kind: "local", workspaceId: workspace.id, workspace: workspace.directory, port: workspace.remotePort, userData: app.getPath("userData"), node: absoluteNode });
+      return (await promisify(execFile)("bash", ["-lc", script], { env, timeout: 60_000 })).stdout;
+    }
+    const ssh = await connect(await credentials(connection.id));
+    try { return await execute(ssh, `bash -lc ${shell(command({ kind: "ssh", workspaceId: workspace.id, workspace: workspace.directory, port: workspace.remotePort }))}`); }
+    finally { ssh.end(); }
+  });
+}
+handleIpc("gateway:cloudAutostartInfo", async (_event, coreId: string) => {
+  try {
+    const state = parseAutostart(await runAutostart(coreId, target => autostartStatusCommand(target.workspaceId)));
+    return { state: state.state, ...(state.state === "on" ? { detail: autostartExplanation(state.mode) } : state.state === "unsupported" ? { detail: "This host has neither systemd user services nor cron, or is not macOS/Linux." } : {}) };
+  } catch (error) { return { state: "unknown", detail: error instanceof Error ? error.message : "Could not read the start-on-boot state." }; }
+});
+handleIpc("gateway:cloudSetAutostart", async (_event, coreId: string, enabled: boolean) => {
+  if (typeof enabled !== "boolean") throw new Error("Invalid start-on-boot request");
+  const state = parseAutostart(await runAutostart(coreId, target => enabled ? autostartInstallCommand(target) : autostartRemoveCommand(target.workspaceId)));
+  return { state: state.state, ...(state.state === "on" ? { detail: autostartExplanation(state.mode) } : {}) };
+});
+handleIpc("gateway:cloudUpdateCore", async (_event, coreId: string, expectedRelease: string) => cloudCoreUpdates.update(await authorizedCloudCore(coreId), coreId, expectedRelease));
+handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));
+handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) => {
+  const target = await cloudTarget(coreId);
+  if (typeof rootId !== "string" || !rootId) throw new Error("Cloud workspace is unavailable. Refresh the Core list.");
+  const desktopRoot = cloudDesktopRoot();
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
+  await access(desktopMain).catch(() => { throw new Error("Desktop is missing. Build or reinstall Gateway before connecting to cloud."); });
+  await launchManagedDesktop(desktopRoot, { kind: "cloud", origin: target.origin, coreId, rootId, cookie: await target.cookie() });
+});
+handleIpc("gateway:cloudAddServer", async (_event, workspaceId: string) => workspaceOperations.run(workspaceId, "add-to-cloud", async () => {
+  const cloud = await cloudClient();
+  const account = await cloud.account();
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(workspace.id)) throw new Error("Invalid workspace ID");
+  const script = cloudPairingScript(cloud.origin, account.user.email, workspace.name);
+  let claim: Promise<unknown> | undefined;
+  const onLine = (line: string) => {
+    const match = /^HATOPAD_PAIR_CODE:([A-Za-z0-9-]{4,32})$/.exec(line);
+    if (match && !claim) { claim = cloud.call("/api/pairings/claim", { code: match[1] }); void claim.catch(() => undefined); }
+  };
+  if (connection.kind === "local") {
+    const { coreMain, node, env } = await localArtifactPaths();
+    const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(node, ["--input-type=module", "-e", script], { cwd: path.resolve(path.dirname(coreMain), "../../.."), env: { ...env, HATOPAD_HUB_PAIRING_FILE: pairingFile }, stdio: ["ignore", "pipe", "pipe"] });
+      let pending = "";
+      child.stdout.on("data", (data) => { pending += data.toString(); const lines = pending.split(/\r?\n/); pending = lines.pop() ?? ""; lines.forEach(onLine); });
+      child.stderr.resume();
+      const timeout = setTimeout(() => { child.kill(); reject(new Error("Cloud pairing timed out.")); }, 180_000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.once("exit", (code) => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error("Cloud pairing failed. The server may already be paired; check its cloud account.")); });
+    });
+    await claim;
+    await startLocalServer(workspaceId);
+  } else {
+    const ssh = await connect(await credentials(connection.id));
+    try {
+      const command = `set -eu; ${remoteNodeEnvironment}; ${workspaceReleaseDirectory(workspace.id)}; cd "$release_directory"; if [ -x bin/node ]; then export PATH="$PWD/bin:$PATH"; fi; export HATOPAD_HUB_PAIRING_FILE="$HOME/.hatopad/cloud-pairings/${workspace.id}.json"; node --input-type=module -e ${shell(script)}`;
+      await execute(ssh, `bash -lc ${shell(command)}`, onLine);
+      await claim;
+    } finally { ssh.end(); }
+    await startServer(workspaceId);
+  }
+  return cloud.account();
+}));
 
 handleIpc("gateway:get", async () => {
   const state = await readState();
   setTimeout(() => { void refreshStatuses(); }, 0);
-  return { state: publicState(state), repository: state.repository, distribution: bundle ? "bundled" : "source", runtimes: Object.fromEntries(runtimes), tunnelRuntimes: Object.fromEntries(portTunnelRuntimes), connectionRuntimes: Object.fromEntries(connectionRuntimes) };
+  return { cloudOrigin: (await cloudSettings.read()).origin ?? "", state: publicState(state), repository: state.repository, distribution: bundle ? "bundled" : "source", runtimes: Object.fromEntries(runtimes), tunnelRuntimes: Object.fromEntries(portTunnelRuntimes), connectionRuntimes: Object.fromEntries(connectionRuntimes) };
 });
 handleIpc("gateway:saveRepository", async (_event, input: Partial<RepositorySettings>) => { if (bundle) throw new Error("Repository settings are unavailable in bundled releases"); if (!input.repository?.trim() || !input.branch?.trim()) throw new Error("Repository URL and branch are required"); const { result } = await updateState((state) => { state.repository = normalizeRepositorySettings(input); return state.repository; }); return result; });
 handleIpc("gateway:refreshStatuses", (_event, connectionId?: string) => refreshStatuses(connectionId));
@@ -617,7 +947,18 @@ handleIpc("gateway:deleteWorkspace", async (_event, workspaceId: string) => {
   }
   return publicState(await readState());
 });
-handleIpc("gateway:savePortTunnel", async (_event, input: Omit<PortTunnel, "id"> & { id?: string }) => { if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw new Error("Tunnel port must be between 1 and 65535"); if (input.id) stopPortTunnel(input.id, false); const { result } = await updateState((state) => { if (!state.connections.some((item) => item.id === input.connectionId)) throw new Error("SSH connection was not found"); const item = { ...input, id: input.id ?? id() } as PortTunnel; if (state.portTunnels.some((value) => value.id !== item.id && value.connectionId === item.connectionId && value.port === item.port)) throw new Error(`Port ${item.port} is already configured for this connection`); state.portTunnels = [...state.portTunnels.filter((value) => value.id !== item.id), item]; return publicState(state); }); return result; });
+handleIpc("gateway:savePortTunnel", async (_event, input: Omit<PortTunnel, "id"> & { id?: string }) => {
+  if (!input || typeof input.connectionId !== "string") throw Error("Invalid tunnel destination");
+  for (const port of [input.port, input.remotePort ?? input.port]) if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Tunnel ports must be between 1 and 65535");
+  if (input.cloudOrigin) { const target = await cloudTarget(input.connectionId.slice(6)); if (!input.connectionId.startsWith("cloud:") || target.origin !== input.cloudOrigin) throw Error("Invalid cloud tunnel destination"); }
+  if (input.id) stopPortTunnel(input.id, false);
+  const { result } = await updateState(state => {
+    if (!input.cloudOrigin && !state.connections.some(item => item.id === input.connectionId && item.kind !== "local")) throw Error("SSH connection was not found");
+    const item: PortTunnel = { id: input.id ?? id(), connectionId: input.connectionId, port: input.port, remotePort: input.remotePort ?? input.port, ...(input.cloudOrigin ? { cloudOrigin: input.cloudOrigin } : {}) };
+    if (state.portTunnels.some(value => value.id !== item.id && value.connectionId === item.connectionId && value.cloudOrigin === item.cloudOrigin && value.port === item.port)) throw Error("This local port is already configured for this server");
+    state.portTunnels = [...state.portTunnels.filter(value => value.id !== item.id), item]; return publicState(state);
+  }); return result;
+});
 handleIpc("gateway:deletePortTunnel", async (_event, tunnelId: string) => { stopPortTunnel(tunnelId, false); const { result } = await updateState((state) => { state.portTunnels = state.portTunnels.filter((item) => item.id !== tunnelId); return publicState(state); }); portTunnelRuntimes.delete(tunnelId); return result; });
 handleIpc("gateway:startPortTunnel", (_event, tunnelId: string) => startPortTunnel(tunnelId));
 handleIpc("gateway:stopPortTunnel", (_event, tunnelId: string) => stopPortTunnel(tunnelId));
@@ -646,7 +987,7 @@ function createWindow(): void {
       const distribution = bundle ? "bundled" : "source";
       const healthy = await window.webContents.executeJavaScript(`window.gateway && window.gateway.get().then(result => result.distribution === '${distribution}')`);
       if (!healthy) throw new Error("Gateway renderer, preload or distribution mode failed");
-      await access(bundledDesktop ? path.join(bundledDesktop, "dist-electron", "main.js") : process.env.VIBE_DESKTOP_EXECUTABLE!);
+      await access(bundledDesktop ? path.join(bundledDesktop, "dist-electron", "main.js") : process.env.HATOPAD_DESKTOP_EXECUTABLE!);
       if (process.argv.includes("--bundle-core-smoke-test") || process.argv.includes("--startup-core-smoke-test")) {
         const { createServer } = await import("node:net");
         const probe = createServer();
@@ -671,13 +1012,12 @@ function createWindow(): void {
   } else void load.catch(error => console.error("Gateway page load failed", error));
 }
 if (ownsInstance) app.whenReady().then(() => {
-  app.setName("Vibe Gateway"); process.title = "Vibe Gateway";
+  app.setName("HatoPad Gateway"); process.title = "HatoPad Gateway";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   powerMonitor.on("resume", () => {
-    for (const tunnel of tunnels.values()) tunnel.reconnect();
     for (const tunnel of portTunnels.values()) tunnel.reconnect();
   });
   createWindow();
 });
-app.on("window-all-closed", () => { for (const tunnel of tunnels.values()) tunnel.stop(); for (const tunnel of portTunnels.values()) tunnel.stop(); for (const server of localServers.values()) server.kill(); localServers.clear(); if (process.platform !== "darwin") app.quit(); });
+app.on("window-all-closed", () => { for (const tunnel of portTunnels.values()) tunnel.stop(); if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (!BrowserWindow.getAllWindows().length) createWindow(); });

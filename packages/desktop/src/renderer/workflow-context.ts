@@ -1,4 +1,4 @@
-import type { HarnessRun } from "@remote-ide/protocol";
+import type { HarnessRun } from "@hatopad/protocol";
 
 /** Keep live updates that arrived while an older history request was in flight. */
 export function mergeWorkflowHistory(current: HarnessRun[], incoming: HarnessRun[], baseline: HarnessRun[]): HarnessRun[] {

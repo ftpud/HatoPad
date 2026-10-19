@@ -5,7 +5,7 @@ export type StorageProcess = { pid: number; parentPid: number; birth: string; ar
 type ProcessAccess = { snapshot(): Promise<StorageProcess[]>; signal(row: StorageProcess, signal: "SIGTERM" | "SIGKILL"): Promise<void>; pause(): Promise<void>; now(): number; self: number };
 const inside = (file: string, directory: string) => file === directory || file.startsWith(`${directory}${path.sep}`);
 
-/** Only same-account Vibe Core processes, their descendants, and obsolete runtime executables are stopped. */
+/** Only same-account HatoPad Core processes, their descendants, and obsolete runtime executables are stopped. */
 export class StorageProcesses {
   constructor(private readonly access: ProcessAccess = {
     snapshot: storageProcessSnapshot, signal: signalStorageProcess,
@@ -31,25 +31,25 @@ export class StorageProcesses {
       }
     };
     collect(rows);
-    progress(`Stopping ${targets.size} other Vibe servers for this SSH account…`);
+    progress(`Stopping ${targets.size} other HatoPad servers for this SSH account…`);
     for (const row of targets.values()) await this.access.signal(row, "SIGTERM");
     const deadline = this.access.now() + 35_000;
     const alive = (row: StorageProcess) => rows.some((current) => current.pid === row.pid && current.birth === row.birth);
     while ([...targets.values()].some(alive) && this.access.now() < deadline) { await this.access.pause(); rows = await this.access.snapshot(); collect(rows); }
-    progress("Closing agents and terminals belonging to stopped Vibe servers…");
+    progress("Closing agents and terminals belonging to stopped HatoPad servers…");
     for (const row of descendants.values()) if (alive(row)) await this.access.signal(row, "SIGTERM");
     const childDeadline = this.access.now() + 3_000;
     while ([...descendants.values()].some(alive) && this.access.now() < childDeadline) { await this.access.pause(); rows = await this.access.snapshot(); collect(rows); }
     for (const row of descendants.values()) if (alive(row)) await this.access.signal(row, "SIGKILL");
     await this.access.pause(); rows = await this.access.snapshot();
-    if ([...descendants.values()].some(alive)) throw new Error("A Vibe session did not stop; obsolete versions have been preserved");
-    if (rows.some((row) => row.core && !protectedPids.has(row.pid))) throw new Error("Another Vibe server started during maintenance; versions have been preserved. Retry after it stops");
+    if ([...descendants.values()].some(alive)) throw new Error("A HatoPad session did not stop; obsolete versions have been preserved");
+    if (rows.some((row) => row.core && !protectedPids.has(row.pid))) throw new Error("Another HatoPad server started during maintenance; versions have been preserved. Retry after it stops");
     for (const row of rows) if (removing.some((directory) => inside(row.cwd, directory) || inside(row.executable, directory) || row.argv.some((arg) => path.isAbsolute(arg) && inside(arg, directory)))) throw new Error(`PID ${row.pid} is still using an obsolete version; its files have been preserved`);
   }
 }
 
 export async function storageProcessSnapshot(): Promise<StorageProcess[]> {
-  if (process.platform !== "linux") throw new Error("Closing Vibe sessions across this account currently requires a Linux server");
+  if (process.platform !== "linux") throw new Error("Closing HatoPad sessions across this account currently requires a Linux server");
   const rows: StorageProcess[] = [];
   const names = (await readdir("/proc")).filter((name) => /^\d+$/.test(name));
   for (let start = 0; start < names.length; start += 32) {
@@ -65,10 +65,10 @@ export async function storageProcessSnapshot(): Promise<StorageProcess[]> {
         let core = false;
         for (const arg of argv.slice(1)) {
           if (!/(?:^|\/)packages\/core\/(?:dist\/index\.js|src\/index\.ts)$/.test(arg)) continue;
-          if (!cwd && !path.isAbsolute(arg)) throw new Error("Cannot verify a Vibe server's working directory");
+          if (!cwd && !path.isAbsolute(arg)) throw new Error("Cannot verify a HatoPad server's working directory");
           const script = path.resolve(cwd, arg);
           const manifest = await readFile(path.resolve(path.dirname(script), "..", "package.json"), "utf8").then((raw) => JSON.parse(raw)).catch(() => undefined);
-          if (manifest?.name === "@remote-ide/core" && argv.includes("--workspace")) core = true;
+          if (manifest?.name === "@hatopad/core" && argv.includes("--workspace")) core = true;
         }
         return { pid: Number(name), parentPid: Number(fields[1]), birth: fields[19], argv, cwd, executable, core };
       } catch (error) {

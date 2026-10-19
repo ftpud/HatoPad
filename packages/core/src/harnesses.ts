@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
-import type { HarnessDefinition, HarnessRun, HarnessStateDiagnostic } from "@remote-ide/protocol";
+import type { HarnessDefinition, HarnessRun, HarnessStateDiagnostic } from "@hatopad/protocol";
 import { workflowTemplate } from "./workflow-templates.js";
 import { CoreError } from "./errors.js";
 
@@ -15,7 +16,7 @@ const mutationQueues = new Map<string, Promise<void>>();
 export class HarnessStore {
   private readonly directory: string;
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.directory = path.join(stateDirectory, "harnesses", key);
   }
@@ -116,9 +117,10 @@ export class HarnessStore {
     });
   }
 
-  async createRun(run: HarnessRun, maxActiveRuns: number): Promise<void> {
+  async createRun(run: HarnessRun, maxActiveRuns: number, replaceFailedOnly = false): Promise<void> {
     await this.mutate(async () => {
       const current = await this.runs();
+      if (replaceFailedOnly && !current.some(item => item.id === run.id && ["failed", "blocked"].includes(item.status))) throw new CoreError("INVALID_REQUEST", "Workflow state changed; refresh before retrying");
       assertRunBinding(run, current.find((item) => item.id === run.id));
       const active = current.filter((item) => item.harnessId === run.harnessId && activeRunStatuses.has(item.status)).length;
       if (active >= maxActiveRuns) throw new CoreError("INVALID_REQUEST", `Workflow already has ${active} active run${active === 1 ? "" : "s"}; its limit is ${maxActiveRuns}`);
@@ -233,7 +235,7 @@ export class HarnessStore {
 }
 
 export function summarizeHarnessRun(run: HarnessRun): HarnessRun {
-  return { summary: true, id: run.id, harnessId: run.harnessId, harnessVersion: run.harnessVersion, input: run.input.slice(0, 200), status: run.status,
+  return { summary: true, ...(run.paused ? { paused: true } : {}), id: run.id, harnessId: run.harnessId, harnessVersion: run.harnessVersion, input: run.input.slice(0, 200), status: run.status,
     createdAt: run.createdAt, startedAt: run.startedAt, completedAt: run.completedAt, workspace: run.workspace, binding: run.binding,
     blocks: run.blocks.map(({ blockId, status }) => ({ blockId, status })) };
 }

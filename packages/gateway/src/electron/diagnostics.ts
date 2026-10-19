@@ -40,7 +40,7 @@ export function buildConnectionDiagnostics(input: {
   tunnelRuntimes: Record<string, DiagnosticRuntime>;
 }): string {
   const lines = [
-    "Vibe Gateway connection diagnostics",
+    "HatoPad Gateway connection diagnostics",
     `generated=${input.generatedAt}`,
     `version=${clean(input.version, 80)} platform=${clean(input.platform, 80)}`,
     `connection=${clean(input.connection.name, 120)} authentication=${clean(input.connection.authenticationMethod, 40)}`,

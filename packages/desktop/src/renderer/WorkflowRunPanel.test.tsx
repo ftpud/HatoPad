@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { HarnessDefinition, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessDefinition, HarnessRun } from "@hatopad/protocol";
 import { BlockRunDetails, HarnessPanel } from "./HarnessPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
@@ -15,6 +15,19 @@ const run: HarnessRun = { id: "run", harnessId: workflow.id, harnessVersion: 1, 
 const props = () => ({ harnesses: [workflow], runs: [], onRun: vi.fn().mockResolvedValue(run), onCancelRun: vi.fn().mockResolvedValue(undefined), onError: vi.fn() });
 
 describe("Workflow run library", () => {
+  it("quick-runs button starts and opens a prompt for input starts while collapsed", async () => {
+    const callbacks = props();
+    render(<WorkflowRunPanel {...callbacks} />);
+    fireEvent.click(screen.getByRole("button", { name: "Quick start Quick check" }));
+    await waitFor(() => expect(callbacks.onRun).toHaveBeenCalledWith("flow", "Check workspace", "button", undefined));
+    fireEvent.click(screen.getByRole("button", { name: "Quick start Custom goal" }));
+    fireEvent.change(screen.getByLabelText("Input for Custom goal"), { target: { value: "Review tests" } });
+    fireEvent.click(screen.getByRole("button", { name: "Start Custom goal" }));
+    await waitFor(() => expect(callbacks.onRun).toHaveBeenCalledWith("flow", "Review tests", "input", undefined));
+    expect(screen.getByRole("button", { name: "Show Workspace check" }).getAttribute("aria-expanded")).toBe("false");
+    expect(document.querySelector(".workflow-narrow-preview")).toBeTruthy();
+  });
+
   it("opens the chosen workflow in an editor tab", () => {
     const onOpenWorkflow = vi.fn();
     render(<WorkflowRunPanel {...props()} onOpenWorkflow={onOpenWorkflow} />);
@@ -59,13 +72,13 @@ describe("Workflow run library", () => {
     await waitFor(() => expect((screen.getByRole("switch", { name: "Autopilot" }) as HTMLInputElement).checked).toBe(true));
   });
 
-  it("sends steering to the selected Chatbox session and retains stop", async () => {
+  it.each(["running", "waiting_timer"] as const)("sends steering to a %s Chatbox session and retains stop", async (status) => {
     const chatWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }], edges: [] };
-    const chatRun: HarnessRun = { ...run, definition: chatWorkflow, blocks: [{ blockId: "chat", status: "running", sessionId: "session" }] };
+    const chatRun: HarnessRun = { ...run, definition: chatWorkflow, blocks: [{ blockId: "chat", status, sessionId: "session" }] };
     const onSteerChat = vi.fn().mockResolvedValue(chatRun);
     render(<WorkflowRunPanel {...props()} harnesses={[chatWorkflow]} runs={[chatRun]} onChat={vi.fn()} onSteerChat={onSteerChat} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    fireEvent.click(screen.getByRole("button", { name: "Assistant: running" }));
+    fireEvent.click(screen.getByRole("button", { name: `Assistant: ${status.replaceAll("_", " ")}` }));
     fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Focus on tests" } });
     fireEvent.click(screen.getByRole("button", { name: "Steer chat response" }));
     await waitFor(() => expect(onSteerChat).toHaveBeenCalledWith("run", "chat", "session", "Focus on tests"));

@@ -11,8 +11,8 @@ const release = `${commit}-node${process.versions.modules}-bundle-${process.env.
 const staging = path.join(output, 'staging', `core-${target}`);
 await rm(staging, { recursive: true, force: true });
 await stageWorkspace(staging, 'core');
-for (const name of ['acp', 'protocol', 'core']) await cp(path.join(root, 'packages', name, 'dist'), path.join(staging, 'packages', name, 'dist'), { recursive: true, filter: source => !/\.(test|integration\.test)\.(js|d\.ts)$/.test(source) });
-for (const name of ['desktop', 'gateway']) await rm(path.join(staging, 'packages', name), { recursive: true, force: true });
+for (const name of ['acp', 'protocol', 'relay', 'connector', 'core']) await cp(path.join(root, 'packages', name, 'dist'), path.join(staging, 'packages', name, 'dist'), { recursive: true, filter: source => !/\.(test|integration\.test)\.(js|d\.ts)$/.test(source) });
+for (const name of ['desktop', 'gateway', 'client', 'test-fixtures']) await rm(path.join(staging, 'packages', name), { recursive: true, force: true });
 // Provider ACP agents are installed on the Core host from Settings -> AI providers, not shipped.
 const dependencies = Object.keys((await json(path.join(root, 'packages/core/package.json'))).dependencies);
 await pruneRuntimeDependencies(staging, dependencies);
@@ -40,7 +40,8 @@ await symlink('../lib/node_modules/npm/bin/npm-cli.js', path.join(staging, 'bin/
 await symlink('../lib/node_modules/npm/bin/npx-cli.js', path.join(staging, 'bin/npx'));
 // The Java runtime and language server are downloaded on demand from Settings -> Tools.
 await run(path.join(staging, 'bin/npm'), ['--version'], staging, { ...process.env, PATH: `${path.join(staging, 'bin')}${path.delimiter}${process.env.PATH ?? ''}` });
-const manifest = { schema: 1, target, commit, release, nodeVersion: process.versions.node, version: (await json(path.join(root, 'package.json'))).version };
+const { server: protocol } = await json(path.join(root, "protocol-versions.json"));
+const manifest = { schema: 1, target, commit, release, protocol, nodeVersion: process.versions.node, version: (await json(path.join(root, 'package.json'))).version };
 await writeJson(path.join(staging, 'bundle.json'), manifest);
 await run(path.join(staging, 'bin/node'), ['--input-type=module', '-e', "import {createRequire} from 'node:module'; const require=createRequire(import.meta.url); require('node-pty'); await import('./packages/core/dist/server.js');"], staging);
 await mkdir(path.join(output, 'cores'), { recursive: true });
@@ -49,7 +50,7 @@ const archive = path.join(output, 'cores', `core-${target}.tar.gz`);
 await run('tar', ['-czf', archive, '-C', staging, '.']);
 // Verify the actual extracted archive outside the checkout so parent node_modules
 // cannot hide an incomplete dependency closure.
-const isolated = await mkdtemp(path.join(os.tmpdir(), 'vibe-portable-core-'));
+const isolated = await mkdtemp(path.join(os.tmpdir(), 'hatopad-portable-core-'));
 try {
   await run('tar', ['-xzf', archive, '-C', isolated]);
   await run(process.execPath, [path.join(root, 'scripts/bundle/smoke-core.mjs'), isolated]);

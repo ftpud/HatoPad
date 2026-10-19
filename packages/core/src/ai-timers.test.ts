@@ -15,7 +15,7 @@ function validTimer(overrides: Partial<AiContinuationTimer> = {}): AiContinuatio
 
 describe("AI continuation timers", () => {
   it("supports an absent file and a valid legacy empty timer list", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-empty-timer-store-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-empty-timer-store-"));
     const store = new AiTimerStore("/workspace", state);
     try {
       await expect(store.list()).resolves.toEqual([]);
@@ -33,7 +33,7 @@ describe("AI continuation timers", () => {
     ["malformed due date", JSON.stringify({ timers: [validTimer({ dueAt: "not-a-date" })] })],
     ["malformed creation date", JSON.stringify({ timers: [validTimer({ createdAt: "not-a-date" })] })],
   ])("fails closed on %s without changing the original during list or mutation", async (_label, contents) => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-invalid-timer-store-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-invalid-timer-store-"));
     const file = timerFile("/workspace", state);
     const store = new AiTimerStore("/workspace", state);
     await writeFile(file, contents);
@@ -47,7 +47,7 @@ describe("AI continuation timers", () => {
   });
 
   it("recovers a valid backup and saves the validated previous state as the next backup", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-backup-recovery-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-backup-recovery-"));
     const file = timerFile("/workspace", state);
     const backup = `${file}.bak`;
     const previous = validTimer({ id: "last-good", prompt: "" });
@@ -74,7 +74,7 @@ describe("AI continuation timers", () => {
   });
 
   it("reads a valid backup when the primary is missing without restoring the primary", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-missing-timer-primary-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-missing-timer-primary-"));
     const file = timerFile("/workspace", state);
     const backup = `${file}.bak`;
     const previous = validTimer({ id: "backup-only" });
@@ -92,7 +92,7 @@ describe("AI continuation timers", () => {
   });
 
   it("suspends delivery handles while retaining durable timers for restart", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-suspend-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-suspend-"));
     const store = new AiTimerStore("/workspace", state);
     const provider = { get: vi.fn(async () => ({ status: "done", messages: [] })), send: vi.fn(), steer: vi.fn() };
     const service = new AiTimerService(store, { get: () => provider } as never, "/workspace", vi.fn());
@@ -105,7 +105,7 @@ describe("AI continuation timers", () => {
   });
 
   it("does not send a continuation if Stop races provider session lookup", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-cancel-race-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-cancel-race-"));
     const store = new AiTimerStore("/workspace", state);
     let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
     const provider = { get: vi.fn(async () => { await waiting; return { status: "done", model: "test", messages: [] }; }), send: vi.fn(), steer: vi.fn() };
@@ -121,7 +121,7 @@ describe("AI continuation timers", () => {
     expect(provider.steer).not.toHaveBeenCalled();
   });
   it("lists hidden sessions and controls the exact timer without cancelling another provider", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-ids-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-ids-"));
     const store = new AiTimerStore("/workspace", state);
     const provider = { get: vi.fn(async () => ({ status: "done", model: "test", messages: [] })), send: vi.fn(), steer: vi.fn() };
     const service = new AiTimerService(store, { get: () => provider } as never, "/workspace", vi.fn());
@@ -139,7 +139,7 @@ describe("AI continuation timers", () => {
   });
 
   it("cancels a stopped provider's timers while retaining another provider's schedule", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-provider-stop-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-provider-stop-"));
     const service = new AiTimerService(new AiTimerStore("/workspace", state), {} as never, "/workspace", vi.fn());
     await service.schedule("/task", "codex", "Stopped", 60);
     const other = await service.schedule("/task", "copilot", "Keep", 60);
@@ -150,7 +150,7 @@ describe("AI continuation timers", () => {
   });
 
   it("cancelling an exact timer prevents delivery racing session lookup", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-id-race-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-id-race-"));
     const store = new AiTimerStore("/workspace", state);
     let release!: () => void; const gate = new Promise<void>((resolve) => { release = resolve; });
     const provider = { get: vi.fn(async () => { await gate; return { status: "done", messages: [] }; }), send: vi.fn(), steer: vi.fn() };
@@ -164,7 +164,7 @@ describe("AI continuation timers", () => {
   });
 
   it("preserves concurrent timers and cancellation across store instances", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-concurrent-timers-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-concurrent-timers-"));
     const first = new AiTimerStore("/workspace", state); const second = new AiTimerStore("/workspace", state);
     await Promise.all(Array.from({ length: 12 }, (_, i) => (i % 2 ? first : second).set(`/task/${i}`, "codex", "continue", 60)));
     expect(await first.list()).toHaveLength(12);
@@ -175,7 +175,7 @@ describe("AI continuation timers", () => {
     expect(timers.some((timer) => timer.workspace === "/task/new")).toBe(true);
   });
   it("persists a replacement timer per workspace and provider", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-ai-timers-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timers-"));
     const store = new AiTimerStore("/workspace", state);
     await store.set("/workspace/task", "codex", "First", 60);
     const replacement = await store.set("/workspace/task", "codex", "Second", 120);
@@ -184,7 +184,7 @@ describe("AI continuation timers", () => {
   });
 
   it("returns the existing workflow timer for the same operation key", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-idempotent-timer-")); const store = new AiTimerStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-idempotent-timer-")); const store = new AiTimerStore("/workspace", state);
     const workflow = { runId: "run", blockId: "worker", operationKey: "timer-once" };
     const first = await store.set("/workspace/task", "codex", "First", 60, workflow);
     const replay = await store.set("/workspace/task", "codex", "First", 60, workflow);
@@ -192,7 +192,7 @@ describe("AI continuation timers", () => {
   });
 
   it("reconciles a crash after workflow timer delivery without sending twice", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-crash-recovery-")); const store = new AiTimerStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-crash-recovery-")); const store = new AiTimerStore("/workspace", state);
     const session = { status: "done", model: "gpt-5", reasoning: "low", messages: [] as Array<{ id: string; role: "user"; text: string; timestamp: string }> };
     const provider = { get: vi.fn(async () => session), send: vi.fn(async (_workspace: string, request: { prompt: string }) => { session.messages.push({ id: "continued", role: "user", text: request.prompt, timestamp: "now" }); return session; }), steer: vi.fn() };
     let crash = true;
@@ -212,7 +212,7 @@ describe("AI continuation timers", () => {
     let state: string | undefined;
     let service: AiTimerService | undefined;
     try {
-      state = await mkdtemp(path.join(os.tmpdir(), "vibe-ai-timers-"));
+      state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timers-"));
       const store = new AiTimerStore("/workspace", state);
       const session = { status: "done", model: "gpt-5", reasoning: "low", configuration: { model: "gpt-5", reasoning: "low" }, messages: [] };
       const provider = { get: vi.fn(async () => session), send: vi.fn(async () => ({ ...session, status: "in_progress" })), steer: vi.fn() };
@@ -220,7 +220,7 @@ describe("AI continuation timers", () => {
       service = new AiTimerService(store, { get: vi.fn(() => provider) } as never, "/workspace", changed);
       await service.schedule("/workspace/task", "codex", "Continue now", 1);
       await vi.advanceTimersByTimeAsync(1_000);
-      await vi.waitFor(() => expect(provider.send).toHaveBeenCalledWith("/workspace/task", expect.objectContaining({ prompt: "Continue now", configuration: session.configuration, mcpServers: [expect.objectContaining({ name: "vibe-editor" })] })));
+      await vi.waitFor(() => expect(provider.send).toHaveBeenCalledWith("/workspace/task", expect.objectContaining({ prompt: "Continue now", configuration: session.configuration, mcpServers: [expect.objectContaining({ name: "hatopad" })] })));
       await service.suspend();
       await expect(store.list()).resolves.toEqual([]);
     } finally {
@@ -237,7 +237,7 @@ describe("AI continuation timers", () => {
     let restarted: AiTimerService | undefined;
     try {
       const startAt = Date.now();
-      state = await mkdtemp(path.join(os.tmpdir(), "vibe-long-timer-wake-"));
+      state = await mkdtemp(path.join(os.tmpdir(), "hatopad-long-timer-wake-"));
       const store = new AiTimerStore("/workspace", state);
       const session = { status: "done", model: "gpt-5", reasoning: "low", messages: [] };
       const provider = { get: vi.fn(async () => session), send: vi.fn(async () => session), steer: vi.fn() };
@@ -282,14 +282,14 @@ describe("AI continuation timers", () => {
         expect(Date.parse((await store.next("/workspace/agent"))!.dueAt) - Date.now()).toBeGreaterThan(299_000);
       }
       expect(provider.send).toHaveBeenCalledTimes(2);
-      expect(provider.send).toHaveBeenLastCalledWith("/workspace/agent", expect.objectContaining({ mcpServers: [expect.objectContaining({ env: expect.objectContaining({ VIBE_EDITOR_FLOW_TOOLS: "1" }) })] }));
+      expect(provider.send).toHaveBeenLastCalledWith("/workspace/agent", expect.objectContaining({ mcpServers: [expect.objectContaining({ env: expect.objectContaining({ HATOPAD_FLOW_TOOLS: "1" }) })] }));
     } finally { await service.cancelWorkspace("/workspace/agent"); vi.useRealTimers(); await rm(directory, { recursive: true, force: true }); }
   });
 
   it("cancels the next timer without delivering it", async () => {
     vi.useFakeTimers();
     try {
-      const state = await mkdtemp(path.join(os.tmpdir(), "vibe-ai-timers-"));
+      const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timers-"));
       const store = new AiTimerStore("/workspace", state);
       const provider = { get: vi.fn(), send: vi.fn(), steer: vi.fn() };
       const changed = vi.fn();
@@ -307,7 +307,7 @@ describe("AI continuation timers", () => {
   it("fires the next timer immediately", async () => {
     vi.useFakeTimers();
     try {
-      const state = await mkdtemp(path.join(os.tmpdir(), "vibe-ai-timers-"));
+      const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timers-"));
       const store = new AiTimerStore("/workspace", state);
       const session = { status: "done", model: "gpt-5", reasoning: "low", messages: [] };
       const provider = { get: vi.fn(async () => session), send: vi.fn(async () => session), steer: vi.fn() };
@@ -323,7 +323,7 @@ describe("AI continuation timers", () => {
 });
 
 it("rejects invalid new timer timestamps without corrupting an existing timer file", async () => {
-  const state = await mkdtemp(path.join(os.tmpdir(), "vibe-timer-invalid-new-"));
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-timer-invalid-new-"));
   const store = new AiTimerStore("/workspace", state);
   try {
     const existing = await store.setAt("/task", "codex", "preserve", new Date(Date.now() + 60_000).toISOString());

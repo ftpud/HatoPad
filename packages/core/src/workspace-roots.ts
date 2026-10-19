@@ -1,8 +1,9 @@
+import { stateHome } from "./state-home.js";
 import { createHash } from "node:crypto";
 import { mkdir, readFile, realpath, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { WorkspaceRoot } from "@remote-ide/protocol";
+import type { WorkspaceRoot } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 type StoredRoots = { version: 1; roots: WorkspaceRoot[] };
@@ -11,10 +12,10 @@ export class WorkspaceRootRegistry {
   private roots: WorkspaceRoot[] = [];
   private constructor(private readonly primaryPath: string, private readonly stateFile: string) {}
 
-  static async open(primaryPath: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR): Promise<WorkspaceRootRegistry> {
+  static async open(primaryPath: string, stateDirectory = process.env.HATOPAD_STATE_DIR): Promise<WorkspaceRootRegistry> {
     const primary = await validateDirectory(primaryPath);
     const key = createHash("sha256").update(primary).digest("hex").slice(0, 20);
-    const directory = stateDirectory ? path.resolve(stateDirectory) : path.join(os.homedir(), ".remote-ide", "workspace-groups");
+    const directory = stateDirectory ? path.resolve(stateDirectory) : path.join(stateHome(), "workspace-groups");
     const registry = new WorkspaceRootRegistry(primary, path.join(directory, `roots-${key}.json`));
     await registry.load();
     return registry;

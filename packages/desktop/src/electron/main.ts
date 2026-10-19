@@ -1,4 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import { startManagedConnection, type ManagedDesktopConnection } from "./managed-connection.js";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SettingsStore } from "./settings-store.js";
@@ -6,14 +7,20 @@ import { registerProjectTransferIpc } from "./project-transfer.js";
 import { restoreWindowInputFocus } from "./window-focus.js";
 import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js";
 import { connectionToken } from "./connection-token.js";
+import { legacyUserDataPath } from "./legacy-user-data.js";
+import { applyLegacyEnvironmentWithWarning } from "@hatopad/protocol";
+
+applyLegacyEnvironmentWithWarning(process.env);
 
 const bundleSmokeTest = (app.isPackaged && process.argv.includes("--bundle-smoke-test")) || (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
-if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `vibe-desktop-bundle-smoke-${process.pid}`));
+if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `hatopad-desktop-bundle-smoke-${process.pid}`));
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const rendererFilePath = path.resolve(directory, "../dist-renderer/index.html");
 let hasDirtyTabs = false;
 let allowClose = false;
+let managedConnection: ManagedDesktopConnection | undefined;
+app.on("will-quit", () => managedConnection?.stop());
 
 function launchOption(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
@@ -22,14 +29,17 @@ function launchOption(name: string): string | undefined {
 
 const launchConfig = {
   host: launchOption("host"),
-  port: launchOption("port")
+  port: launchOption("port"),
+  rootId: launchOption("root-id"),
+  cloudOrigin: launchOption("cloud-origin")
 };
 
-process.title = "Vibe Editor";
-app.name = "Vibe Editor";
-app.setName("Vibe Editor");
-app.setAppUserModelId("com.vibe-editor.desktop");
-app.commandLine.appendSwitch("class", "VibeEditor");
+if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));
+process.title = "HatoPad";
+app.name = "HatoPad";
+app.setName("HatoPad");
+app.setAppUserModelId("com.hatopad.desktop");
+app.commandLine.appendSwitch("class", "HatoPad");
 
 const settings = new SettingsStore(path.join(app.getPath("userData"), "settings.json"));
 function assertTrustedIpcSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
@@ -52,7 +62,7 @@ function isTrustedIpcEvent(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   return isTrustedIpcFrame(frame ? { url: frame.url, isMainFrame: frame.parent === null } : null, Boolean(BrowserWindow.fromWebContents(event.sender)), rendererFilePath, process.env.VITE_DEV_SERVER_URL);
 }
 registerProjectTransferIpc(assertTrustedIpcSender);
-handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) => connectionToken(host, port, launchConfig));
+handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) => managedConnection && host === managedConnection.host && String(port) === managedConnection.port ? managedConnection.token : connectionToken(host, port, launchConfig));
 onIpc("desktop:settings-load", (event) => { event.returnValue = settings.all(); });
 onIpc("desktop:settings-write", (_event, key: unknown, value: unknown) => settings.set(key, value));
 app.on("before-quit", () => settings.flush());
@@ -88,7 +98,7 @@ onIpc("editor:open-window", (_event, options: unknown) => {
 
 function createWindow(extraQuery: Record<string, string> = {}): void {
   const window = new BrowserWindow({
-    title: extraQuery.detached === "1" ? (extraQuery.path?.split("/").pop() ?? "Vibe Editor") : "Vibe Editor",
+    title: extraQuery.detached === "1" ? (extraQuery.path?.split("/").pop() ?? "HatoPad") : "HatoPad",
     icon: appIcon,
     show: !bundleSmokeTest,
     width: 1280,
@@ -157,10 +167,17 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
   void load.catch((error: unknown) => console.error("[desktop] page load failed", error));
 }
 
-app.whenReady().then(() => {
-  app.setName("Vibe Editor"); process.title = "Vibe Editor";
+app.whenReady().then(async () => {
+  powerMonitor.on("resume", () => managedConnection?.reconnect?.());
+  const handoff = launchOption("connection-file");
+  if (handoff) {
+    managedConnection = await startManagedConnection(handoff);
+    launchConfig.host = managedConnection.host; launchConfig.port = managedConnection.port;
+    launchConfig.rootId = managedConnection.rootId; launchConfig.cloudOrigin = managedConnection.cloudOrigin;
+  }
+  app.setName("HatoPad"); process.title = "HatoPad";
   if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
   createWindow();
-});
+}).catch((error: unknown) => { dialog.showErrorBox("Could not connect Desktop", error instanceof Error ? error.message : "Desktop connection failed."); app.quit(); });
 app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });

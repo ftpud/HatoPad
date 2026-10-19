@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { SkillFile } from "@remote-ide/protocol";
+import type { SkillFile } from "@hatopad/protocol";
 
 type SkillSelectionProps = { skills: SkillFile[]; selected: string[]; disabled?: boolean; onChange(ids: string[]): Promise<void> };
 

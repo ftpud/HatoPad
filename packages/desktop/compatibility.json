@@ -1,4 +1,5 @@
 {
   "compatibility": { "minimum": 19, "maximum": 19 },
-  "clientVersion": "0.1.0"
+  "clientVersion": "0.1.0",
+  "connectionHandoff": 1
 }

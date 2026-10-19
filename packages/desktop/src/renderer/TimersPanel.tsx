@@ -1,6 +1,6 @@
 import { Bot, Clock, Pause, Play, RefreshCw, Square, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AgentFile, AiModel, AiContinuationTimer, AiProviderDescriptor, HarnessDefinition, HarnessRun, ScheduleInput, WorkspaceRoot, WorkspaceSchedule, WorkspaceTask } from "@remote-ide/protocol";
+import type { AgentFile, AiModel, AiContinuationTimer, AiProviderDescriptor, HarnessDefinition, HarnessRun, ScheduleInput, WorkspaceRoot, WorkspaceSchedule, WorkspaceTask } from "@hatopad/protocol";
 
 import { ScheduleForm } from "./ScheduleForm";
 

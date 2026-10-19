@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { GitStatusEntry } from "@remote-ide/protocol";
+import type { GitStatusEntry } from "@hatopad/protocol";
 import { GitToolbarActions, RollbackSelectedDialog, executeRollbackSelection, selectedGitEntries, shouldApplyGitStatus } from "./GitRollbackControls";
 
 const noop = () => {};

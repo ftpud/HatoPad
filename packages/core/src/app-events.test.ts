@@ -29,7 +29,7 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 describe("AppEventBridge", () => {
   it("hides incomplete command and response writes from readers", async () => {
-    const state = await createState("vibe-atomic-bridge-");
+    const state = await createState("hatopad-atomic-bridge-");
     const bridge = new AppEventBridge("/workspace", state);
     let release!: () => void;
     const hold = () => {
@@ -61,7 +61,7 @@ describe("AppEventBridge", () => {
   });
 
   it("restricts legacy directories and published event files to the owner", async () => {
-    const state = await createState("vibe-private-events-");
+    const state = await createState("hatopad-private-events-");
     const bridge = new AppEventBridge("/workspace", state);
     const directories = [bridge.directory, bridge.commandsDirectory, bridge.responsesDirectory];
     await Promise.all(directories.map(async (directory) => {
@@ -81,11 +81,11 @@ describe("AppEventBridge", () => {
   });
 
   it("isolates workflow commands from other Core processes for the same workspace", async () => {
-    const state = await createState("vibe-editor-command-owners-");
+    const state = await createState("hatopad-command-owners-");
     const server = appToolServer("/workspace", "/workflow/session", "codex", "/workspace", { runId: "run", blockId: "agent", flow: true });
     if (!("command" in server)) throw new Error("Expected a stdio MCP server");
-    expect(server.env?.VIBE_EDITOR_BRIDGE_INSTANCE_ID).toBe(appBridgeInstanceId);
-    const caller = new AppEventBridge("/workspace", state, server.env?.VIBE_EDITOR_BRIDGE_INSTANCE_ID);
+    expect(server.env?.HATOPAD_BRIDGE_INSTANCE_ID).toBe(appBridgeInstanceId);
+    const caller = new AppEventBridge("/workspace", state, server.env?.HATOPAD_BRIDGE_INSTANCE_ID);
     const owner = new AppEventBridge("/workspace", state, appBridgeInstanceId);
     const other = new AppEventBridge("/workspace", state, "other-core");
     const legacy = new AppEventBridge("/workspace", state, "");
@@ -108,7 +108,7 @@ describe("AppEventBridge", () => {
   });
 
   it("passes an event between processes and consumes its marker", async () => {
-    const state = await createState("vibe-editor-events-");
+    const state = await createState("hatopad-events-");
     const writer = new AppEventBridge("/workspace", state);
     const reader = new AppEventBridge("/workspace", state);
     await writer.emit({ type: "ai.changed", workspace: "/workspace/task" });
@@ -119,7 +119,7 @@ describe("AppEventBridge", () => {
   });
 
   it("routes a command to the process that owns the live services", async () => {
-    const state = await createState("vibe-editor-commands-");
+    const state = await createState("hatopad-commands-");
     const caller = new AppEventBridge("/workspace", state);
     const owner = new AppEventBridge("/workspace", state);
     await owner.ready();
@@ -139,7 +139,7 @@ describe("AppEventBridge", () => {
   });
 
   it("passes commit message changes with their task workspace", async () => {
-    const state = await createState("vibe-editor-events-");
+    const state = await createState("hatopad-events-");
     const bridge = new AppEventBridge("/workspace", state);
     await bridge.emit({ type: "commit-message.changed", workspace: "/workspace/task", message: "Subject\n\nBody" });
     const [file] = await readdir(bridge.directory);

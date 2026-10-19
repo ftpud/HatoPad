@@ -1,13 +1,15 @@
-import { AcpProvider, type AiProviderDescriptor, type AiProviderInstallation } from "@remote-ide/acp";
+import { AcpProvider, type AiProviderDescriptor, type AiProviderInstallation, type AiProviderOrigin } from "@hatopad/acp";
 import { CoreError } from "../errors.js";
 
 /** Runtime registry: new providers are added by registering one AcpProvider plugin. */
 export class AcpRegistry {
   private readonly providers = new Map<string, AcpProvider>();
+  private readonly origins = new Map<string, AiProviderOrigin>();
 
-  register(provider: AcpProvider): this {
+  register(provider: AcpProvider, origin: AiProviderOrigin = "built-in"): this {
     if (this.providers.has(provider.descriptor.id)) throw new Error(`ACP provider '${provider.descriptor.id}' is already registered`);
     this.providers.set(provider.descriptor.id, provider);
+    this.origins.set(provider.descriptor.id, origin);
     return this;
   }
 
@@ -20,7 +22,7 @@ export class AcpRegistry {
     return states.filter(({ state }) => state?.status === "installed" || !!state?.version).map(({ provider }) => provider.descriptor);
   }
 
-  installations(checkLatest = false): Promise<AiProviderInstallation[]> { return Promise.all([...this.providers.values()].map((provider) => provider.installation(checkLatest))); }
+  installations(checkLatest = false): Promise<AiProviderInstallation[]> { return Promise.all([...this.providers.values()].map(async (provider) => ({ ...await provider.installation(checkLatest), origin: this.origins.get(provider.descriptor.id) }))); }
 
   async shutdown(): Promise<void> {
     const results = await Promise.allSettled([...this.providers.values()].map((provider) => provider.shutdown()));
@@ -28,12 +30,20 @@ export class AcpRegistry {
     if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Could not shut down AI providers");
   }
 
-  get(id = "codex"): AcpProvider {
+  /** The provider used when a request names none: the first one registered. */
+  get defaultId(): string {
+    const first = this.providers.keys().next();
+    if (first.done) throw new CoreError("INVALID_REQUEST", "No AI provider is registered");
+    return first.value;
+  }
+
+  get(requested?: string): AcpProvider {
+    const id = requested || this.defaultId;
     const provider = this.providers.get(id);
     if (!provider) throw new CoreError("INVALID_REQUEST", `Unknown AI provider '${id}'`);
     return provider;
   }
 }
 
-export { AcpProvider, applyConfiguration, mergeConfiguration } from "@remote-ide/acp";
-export type { AcpSendRequest } from "@remote-ide/acp";
+export { AcpProvider, applyConfiguration, mergeConfiguration } from "@hatopad/acp";
+export type { AcpSendRequest } from "@hatopad/acp";

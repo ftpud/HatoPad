@@ -33,24 +33,24 @@ describe("Core access policy", () => {
   });
 
   it("atomically creates one private token shared by concurrent starts", async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-auth-")); directories.push(directory);
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-auth-")); directories.push(directory);
     const file = path.join(directory, "tokens", "core.token");
-    const values = await Promise.all(Array.from({ length: 8 }, () => loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN_FILE: file })));
+    const values = await Promise.all(Array.from({ length: 8 }, () => loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN_FILE: file })));
     expect(new Set(values.map((value) => value.token)).size).toBe(1);
     expect(values[0]!.token).toMatch(/^[a-f0-9]{64}$/);
     expect((await readFile(file, "utf8")).trim()).toBe(values[0]!.token);
     if (process.platform !== "win32") expect((await lstat(file)).mode & 0o777).toBe(0o600);
-    expect((await loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN_FILE: file })).token).toBe(values[0]!.token);
+    expect((await loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN_FILE: file })).token).toBe(values[0]!.token);
     const alias = path.join(directory, "alias.token"); await symlink(file, alias);
-    await expect(loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN_FILE: alias })).rejects.toThrow("private regular file");
+    await expect(loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN_FILE: alias })).rejects.toThrow("private regular file");
     if (process.platform !== "win32") {
       await chmod(file, 0o644);
-      await expect(loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN_FILE: file })).rejects.toThrow("private regular file");
+      await expect(loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN_FILE: file })).rejects.toThrow("private regular file");
     }
   });
 
   it("uses an explicitly configured token without creating files", async () => {
-    expect(await loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN: token })).toEqual({ token });
-    await expect(loadCoreSessionToken(7331, { REMOTE_IDE_SESSION_TOKEN: "unsafe" })).rejects.toThrow("32–256");
+    expect(await loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN: token })).toEqual({ token });
+    await expect(loadCoreSessionToken(7331, { HATOPAD_SESSION_TOKEN: "unsafe" })).rejects.toThrow("32–256");
   });
 });

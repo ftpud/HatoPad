@@ -16,7 +16,7 @@ if (compile.status !== 0) process.exit(compile.status ?? 1);
 
 const vite = spawn(executable("vite"), [], { cwd: packageRoot, stdio: "inherit" });
 await waitOn({ resources: ["tcp:5173"], timeout: 30_000 });
-const electronRuntime = await electronExecutable({ packageRoot, productName: "Vibe Editor", bundleId: "com.vibe-editor.desktop" });
+const electronRuntime = await electronExecutable({ packageRoot, productName: "HatoPad", bundleId: "com.hatopad.desktop" });
 const electron = spawn(electronRuntime, [packageRoot, ...process.argv.slice(2)], {
   cwd: packageRoot,
   env: { ...process.env, VITE_DEV_SERVER_URL: "http://localhost:5173" },

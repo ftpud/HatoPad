@@ -1,6 +1,6 @@
 import { RefreshCw, Square, SquareTerminal } from "lucide-react";
 import { useState } from "react";
-import type { ManagedWorkflowApp } from "@remote-ide/protocol";
+import type { ManagedWorkflowApp } from "@hatopad/protocol";
 
 export function ProcessesPanel({ processes, loading, error, disabled, onRefresh, onKill }: {
   processes: ManagedWorkflowApp[]; loading: boolean; error?: string; disabled: boolean;

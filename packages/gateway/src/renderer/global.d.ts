@@ -1,6 +1,11 @@
+type GatewayCloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string; source?: "git" | "bundle"; tag?: string; branch?: string };
+type GatewayAutostart = { state: "on" | "off" | "unsupported" | "unknown"; detail?: string };
+type GatewayCloudRoot = { id: string; alias: string; path: string; primary: boolean };
+type GatewayCloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
+type GatewayCloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: GatewayCloudCore[] };
 type GatewayConnection = { id: string; kind: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod: "password" | "privateKey" | "agent"; privateKeyPath?: string; hostKeyFingerprint?: string };
 type GatewayWorkspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
-type GatewayPortTunnel = { id: string; connectionId: string; port: number };
+type GatewayPortTunnel = { id: string; connectionId: string; port: number; remotePort?: number; cloudOrigin?: string };
 type GatewayState = { connections: GatewayConnection[]; workspaces: GatewayWorkspace[]; portTunnels: GatewayPortTunnel[] };
 type GatewayRuntime = { status: "idle" | "working" | "server" | "client" | "error"; message: string; updatedAt?: string; stage?: string; logs?: string[]; retryable?: boolean; repairable?: boolean };
 type GatewayTunnelRuntime = { status: "idle" | "working" | "running" | "error"; message: string; updatedAt?: string; stage?: string };
@@ -9,9 +14,21 @@ type GatewayRepositorySettings = { repository: string; branch: string; autoUpdat
 
 interface Window {
   gateway: {
+    cloudSaveOrigin(origin: string): Promise<string>;
+    cloudGet(): Promise<GatewayCloudAccount | undefined>;
+    cloudCancelSignIn(): Promise<void>;
+    cloudConnect(origin: string): Promise<GatewayCloudAccount>;
+    cloudDisconnect(): Promise<void>;
+    cloudCoreUpdateInfo(id: string): Promise<GatewayCloudCoreUpdateInfo>;
+    cloudUpdateCore(id: string, release: string): Promise<GatewayCloudCoreUpdateInfo>;
+    cloudAutostartInfo(id: string): Promise<GatewayAutostart>;
+    cloudSetAutostart(id: string, enabled: boolean): Promise<GatewayAutostart>;
+    cloudListCores(id: string): Promise<GatewayCloudRoot[]>;
+    cloudOpen(id: string, rootId: string): Promise<void>;
+    cloudAddServer(workspaceId: string): Promise<GatewayCloudAccount>;
     platform?: string;
     onFullscreenChange?(listener: (fullscreen: boolean) => void): () => void;
-    get(): Promise<{ state: GatewayState; distribution?: "source" | "bundled"; repository: GatewayRepositorySettings; runtimes: Record<string, GatewayRuntime>; tunnelRuntimes: Record<string, GatewayTunnelRuntime>; connectionRuntimes: Record<string, GatewayConnectionRuntime> }>;
+    get(): Promise<{ cloudOrigin?: string; state: GatewayState; distribution?: "source" | "bundled"; repository: GatewayRepositorySettings; runtimes: Record<string, GatewayRuntime>; tunnelRuntimes: Record<string, GatewayTunnelRuntime>; connectionRuntimes: Record<string, GatewayConnectionRuntime> }>;
     saveRepository(value: GatewayRepositorySettings): Promise<GatewayRepositorySettings>;
     refreshStatuses(connectionId?: string): Promise<void>;
     copyDiagnostics(connectionId: string): Promise<{ copiedAt: string }>;
@@ -37,3 +54,4 @@ interface Window {
     onConnectionStatus(listener: (id: string, status: GatewayConnectionRuntime) => void): () => void;
   };
 }
+

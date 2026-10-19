@@ -39,7 +39,7 @@ if (mode === "hold") {
 let directory: string;
 let stateFile: string;
 beforeEach(async () => {
-  directory = await mkdtemp(path.join(os.tmpdir(), "vibe-state-lock-"));
+  directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-state-lock-"));
   stateFile = path.join(directory, "nested", "state.json");
   await mkdir(path.dirname(stateFile), { recursive: true });
 });

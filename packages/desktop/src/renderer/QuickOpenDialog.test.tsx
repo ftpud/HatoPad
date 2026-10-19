@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { FileTreeNode } from "@remote-ide/protocol";
+import type { FileTreeNode } from "@hatopad/protocol";
 import { QuickOpenDialog, rankQuickOpenFiles, workspaceFiles } from "./QuickOpenDialog";
 
 const tree: FileTreeNode[] = [

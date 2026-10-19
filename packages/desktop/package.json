@@ -1,7 +1,7 @@
 {
-  "name": "@remote-ide/desktop",
-  "productName": "Vibe Editor",
-  "description": "Vibe Editor desktop application",
+  "name": "@hatopad/desktop",
+  "productName": "HatoPad",
+  "description": "HatoPad desktop application",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -19,8 +19,8 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@monaco-editor/react": "^4.6.0",
-    "@remote-ide/acp": "0.1.0",
-    "@remote-ide/protocol": "0.1.0",
+    "@hatopad/acp": "0.1.0",
+    "@hatopad/protocol": "0.1.0",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
@@ -31,7 +31,9 @@
     "react-dom": "^18.3.1",
     "react-markdown": "^9.0.3",
     "remark-gfm": "^4.0.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@hatopad/client": "0.1.0",
+    "ssh2": "^1.16.0"
   },
   "devDependencies": {
     "@testing-library/react": "^16.3.0",
@@ -46,6 +48,7 @@
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
     "vitest": "^4.1.11",
-    "wait-on": "^8.0.1"
+    "wait-on": "^8.0.1",
+    "@types/ssh2": "^1.15.5"
   }
 }

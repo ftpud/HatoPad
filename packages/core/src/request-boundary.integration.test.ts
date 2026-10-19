@@ -6,14 +6,14 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import { AiTimerService } from "./ai-timers.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { createServer, shutdownCore } from "./server.js";
 
 it("rejects malformed mutations and unknown providers before creating tasks, cancelling timers or moving files", async () => {
   const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "request-boundary-")));
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: Awaited<ReturnType<typeof createServer>> | undefined;
   let socket: WebSocket | undefined;
   const createTask = vi.spyOn(WorkspaceTaskStore.prototype, "createRandom");

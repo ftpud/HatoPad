@@ -32,8 +32,8 @@ const duration = options.minutes === undefined ? Infinity : positiveOption("minu
 const pauseMs = positiveOption("pause-ms", 250, 0);
 const requestTimeoutMs = positiveOption("request-timeout-ms", 30_000);
 if (!Number.isSafeInteger(requestTimeoutMs) || requestTimeoutMs > 120_000) throw new Error("--request-timeout-ms must be an integer from 1 to 120000");
-const reportPath = path.resolve(options.output ?? path.join(os.tmpdir(), `vibe-release-soak-${Date.now()}-${process.pid}.json`));
-const sandbox = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-release-soak-")));
+const reportPath = path.resolve(options.output ?? path.join(os.tmpdir(), `hatopad-release-soak-${Date.now()}-${process.pid}.json`));
+const sandbox = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-release-soak-")));
 const runtime = path.join(sandbox, "runtime");
 const workspace = path.join(sandbox, "workspace");
 const tokenFile = path.join(sandbox, "credentials", "core.token");
@@ -55,7 +55,7 @@ async function bounded(promise, milliseconds, message) {
 async function linkDependencies(source, destination) {
   const entries = await readdir(source).catch((error) => { if (error.code === "ENOENT") return []; throw error; });
   await mkdir(destination, { recursive: true });
-  await Promise.all(entries.filter((name) => name !== "@remote-ide").map((name) => symlink(path.join(source, name), path.join(destination, name))));
+  await Promise.all(entries.filter((name) => name !== "@hatopad").map((name) => symlink(path.join(source, name), path.join(destination, name))));
 }
 async function snapshotRuntime() {
   for (const name of ["acp", "protocol", "core"]) {
@@ -68,12 +68,12 @@ async function snapshotRuntime() {
     await linkDependencies(path.join(source, "node_modules"), path.join(destination, "node_modules"));
   }
   await linkDependencies(path.join(root, "node_modules"), path.join(runtime, "node_modules"));
-  const scope = path.join(runtime, "node_modules", "@remote-ide");
+  const scope = path.join(runtime, "node_modules", "@hatopad");
   await mkdir(scope, { recursive: true });
   for (const name of ["acp", "protocol"]) await symlink(path.join(runtime, "packages", name), path.join(scope, name));
   // Local workspace dependency links must resolve to the same frozen code too.
   for (const name of ["acp", "protocol", "core"]) {
-    const localScope = path.join(runtime, "packages", name, "node_modules", "@remote-ide");
+    const localScope = path.join(runtime, "packages", name, "node_modules", "@hatopad");
     await mkdir(localScope, { recursive: true });
     for (const dependency of ["acp", "protocol"]) await symlink(path.join(runtime, "packages", dependency), path.join(localScope, dependency));
   }
@@ -131,7 +131,7 @@ function rpc(socket) {
 async function startCore(port, log, compatibility) {
   const child = spawn(process.execPath, [path.join(runtime, "packages/core/dist/index.js"), "--host", "127.0.0.1", "--port", String(port), "--workspace", workspace], {
     cwd: workspace,
-    env: { ...process.env, REMOTE_IDE_STATE_DIR: path.join(sandbox, "state"), REMOTE_IDE_SESSION_TOKEN: "", REMOTE_IDE_SESSION_TOKEN_FILE: tokenFile },
+    env: { ...process.env, HATOPAD_STATE_DIR: path.join(sandbox, "state"), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: tokenFile },
     stdio: ["ignore", log.fd, log.fd],
   });
   const exited = new Promise((resolve, reject) => { child.once("exit", (code, signal) => resolve({ code, signal })); child.once("error", reject); });

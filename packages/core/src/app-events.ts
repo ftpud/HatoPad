@@ -1,3 +1,4 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
@@ -26,7 +27,7 @@ export class AppEventBridge {
   readonly commandsDirectory: string;
   readonly responsesDirectory: string;
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces"), instanceId = process.env.VIBE_EDITOR_BRIDGE_INSTANCE_ID) {
+  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"), instanceId = process.env.HATOPAD_BRIDGE_INSTANCE_ID) {
     const key = crypto.createHash("sha256").update(instanceId ? JSON.stringify([rootWorkspace, instanceId]) : rootWorkspace).digest("hex");
     this.directory = path.join(stateDirectory, `${key}-events`);
     this.commandsDirectory = path.join(stateDirectory, `${key}-commands`);
@@ -66,14 +67,14 @@ export class AppEventBridge {
       try {
         const response = JSON.parse(await readFile(responseFile, "utf8")) as { ok: boolean; result?: unknown; error?: string };
         await rm(responseFile, { force: true });
-        if (!response.ok) throw new Error(response.error ?? "Vibe Editor command failed");
+        if (!response.ok) throw new Error(response.error ?? "HatoPad command failed");
         return response.result;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
     }
-    throw new Error("Timed out waiting for the Vibe Editor core process");
+    throw new Error("Timed out waiting for the HatoPad core process");
   }
 
   async consumeCommand(file: string, execute: (command: AppCommand) => Promise<unknown>): Promise<void> {
@@ -81,7 +82,7 @@ export class AppEventBridge {
     let response: { ok: boolean; result?: unknown; error?: string };
     try {
       const command = JSON.parse(await readFile(file, "utf8")) as AppCommand;
-      if (!command || typeof command.name !== "string" || !command.args || typeof command.args !== "object") throw new Error("Invalid Vibe Editor command");
+      if (!command || typeof command.name !== "string" || !command.args || typeof command.args !== "object") throw new Error("Invalid HatoPad command");
       response = { ok: true, result: await execute(command) };
     } catch (error) {
       response = { ok: false, error: error instanceof Error ? error.message : String(error) };

@@ -1,23 +1,17 @@
 # Release operations
 
-This guide describes the implemented Core and Gateway deployment behavior. The
-project is still in release hardening: passing focused tests or CI jobs does not
-certify a stable release. Review [release readiness](../rediness.md) before
-promoting a build.
+This guide describes Core and Gateway deployment, authentication, shutdown, and
+state recovery. For packaging and publishing, see [Early Access bundles](EARLY_ACCESS.md).
 
 ## Runtime and protocol compatibility
 
 Core and Gateway hosts require Node.js **22.12 or newer**. Gateway checks the
 remote SSH user's Node version before provisioning. CI is configured for Node
-22 and 24 on Linux and macOS; use `npm ci`, build, both typechecks, dependency
-audit, and the full tests when validating a candidate. The implementation at
-`36181e0` passed all four hosted combinations, including twelve restart cycles
-per job: [verification run](https://github.com/ftpud/VibeEditor/actions/runs/38700222350).
-See [the final report](../report.md) for soak evidence and remaining release gates.
+22 and 24 on Linux and macOS; see [CI](CI.md) for validation commands.
 
-The current Core wire compatibility range is **protocol 16–16**. A client is
-accepted only when its declared range overlaps Core's range. A protocol 15-only
-Desktop therefore cannot connect. Gateway reads the remote compatibility
+The Core wire compatibility range is defined by `protocolCompatibility` in
+`packages/protocol/src/index.ts`. A client is accepted only when its declared
+range overlaps Core's range. Gateway reads the remote compatibility
 metadata and uses a compatible cached Desktop when possible; otherwise it
 downloads and verifies the Desktop artifacts from the selected release. If a
 verified compatible cached Desktop is available, Gateway can offer it as a
@@ -25,10 +19,10 @@ rollback choice when the current client is incompatible.
 
 ## Core session credentials and origins
 
-Core starts with a session token. Set `REMOTE_IDE_SESSION_TOKEN` to provide one
-directly, or set `REMOTE_IDE_SESSION_TOKEN_FILE` to choose the token file. If
+Core starts with a session token. Set `HATOPAD_SESSION_TOKEN` to provide one
+directly, or set `HATOPAD_SESSION_TOKEN_FILE` to choose the token file. If
 neither is set, Core stores a token at
-`~/.remote-ide/core-tokens/<port>.token`. It creates the containing directory
+`~/.hatopad/core-tokens/<port>.token`. It creates the containing directory
 with mode `0700`, publishes a complete token file exclusively, and checks that
 the file is regular, private, and owned by the current user. Tokens must contain
 32–256 URL-safe characters. Keep token files private; never paste tokens into
@@ -36,7 +30,7 @@ logs, tickets, or source control.
 
 Gateway uses a per-workspace token file in its local application data directory
 for a locally launched Core. For a remote workspace, the remote token is kept
-in `~/.vibe-server-<workspace-id>.token` on the SSH host. The activation script
+in `~/.hatopad-server-<workspace-id>.token` on the SSH host. The activation script
 creates it under a restrictive umask, rejects a symlink, and validates its
 format. Gateway reads that file over the authenticated SSH connection and
 passes the token to the local Desktop process for its authenticated Core
@@ -50,10 +44,10 @@ starts the listener. Native clients that omit the HTTP `Origin` header are
 allowed through the origin check but still need the token at the protocol
 handshake. Opaque Electron origins (`null` or `file://`) are accepted only when
 a token is configured. Browser origins must be explicitly listed in
-`REMOTE_IDE_ALLOWED_ORIGINS` as comma-separated, exact origins, for example:
+`HATOPAD_ALLOWED_ORIGINS` as comma-separated, exact origins, for example:
 
 ```sh
-REMOTE_IDE_ALLOWED_ORIGINS='https://editor.example.test,http://localhost:5173'
+HATOPAD_ALLOWED_ORIGINS='https://editor.example.test,http://localhost:5173'
 ```
 
 Do not add broad or untrusted origins. Restart Core after changing the
@@ -62,7 +56,7 @@ environment.
 ## Remote release provisioning and activation
 
 Gateway keeps remote source caches and installed builds below
-`~/.vibe-deploy/`. Installed builds live in `~/.vibe-deploy/releases/` and are
+`~/.hatopad-deploy/`. Installed builds live in `~/.hatopad-deploy/releases/` and are
 keyed by Git commit and Node module ABI, with the target platform and
 architecture recorded in the build marker. Provisioning stages a fresh
 directory, runs `npm ci`, builds the required workspaces, performs import and
@@ -78,7 +72,7 @@ fetch. Gateway reports the verified commit and release key after provisioning.
 Starting a remote server stops the old per-workspace server, starts Core from
 the candidate release on loopback, then performs an authenticated protocol
 handshake health check. Gateway updates
-`~/.vibe-server-<workspace-id>.release` only after the candidate passes. The
+`~/.hatopad-server-<workspace-id>.release` only after the candidate passes. The
 previous selection is saved as a `.previous` sidecar. If candidate health
 verification fails, the activation script stops it and restores the previous
 release selection, then attempts to start and health-check the previous
@@ -100,13 +94,13 @@ retrying. For `node-pty` build errors, the SSH host needs a C/C++ compiler,
 
 Useful remote diagnostics are:
 
-- `~/.vibe-server-<workspace-id>.log` — current server startup/runtime output.
-- `~/.vibe-server-<workspace-id>.log.previous` — log copied before activation.
-- `~/.vibe-server-<workspace-id>.pid` — selected server process ID.
-- `~/.vibe-server-<workspace-id>.release` and `.previous` — current and prior
+- `~/.hatopad-server-<workspace-id>.log` — current server startup/runtime output.
+- `~/.hatopad-server-<workspace-id>.log.previous` — log copied before activation.
+- `~/.hatopad-server-<workspace-id>.pid` — selected server process ID.
+- `~/.hatopad-server-<workspace-id>.release` and `.previous` — current and prior
   release selections.
-- `~/.vibe-deploy/releases/` — immutable normal and repair builds.
-- `~/.vibe-deploy/sources/` — repository and branch keyed source caches.
+- `~/.hatopad-deploy/releases/` — immutable normal and repair builds.
+- `~/.hatopad-deploy/sources/` — repository and branch keyed source caches.
 
 Treat logs and state as operational data. Review them before removing anything;
 do not delete a release directory that is currently selected by a workspace.
@@ -114,7 +108,7 @@ do not delete a release directory that is currently selected by a workspace.
 ## Lock diagnosis and recovery
 
 Provisioning serializes remote builds with
-`~/.vibe-deploy/provision.lock`. Its owner record contains a PID, host name, and
+`~/.hatopad-deploy/provision.lock`. Its owner record contains a PID, host name, and
 random identity. A waiting provisioner can reclaim the lock only when the owner
 is on the same host and the process is confirmed dead, with a second ownership
 check to avoid removing a lock that changed during recovery. Otherwise it waits
@@ -122,7 +116,7 @@ up to five minutes and reports the PID/host. If the owner is missing or
 unrecognized, the timeout says the owner is unknown and asks for inspection.
 
 Activation uses a separate
-`~/.vibe-deploy/activate-<workspace-id>.lock`. A live PID is reported
+`~/.hatopad-deploy/activate-<workspace-id>.lock`. A live PID is reported
 immediately; a dead local PID can be reclaimed after checking the recorded PID
 again. An empty or malformed owner is reported as unknown and is not removed
 automatically.
@@ -167,33 +161,14 @@ from Desktop; transfer resumption is not implemented. Do not assume
 terminal or app processes survive a graceful Core shutdown. Restart Core before
 expecting scheduled or recovered work to continue.
 
-## Verification and remaining release gates
-
-Automated coverage currently exercises Core token/origin checks, signal-handler
-success, failure and timeout behavior, workspace writes draining during
-shutdown, SIGTERM/SIGINT child-process shutdown, and persistence after those
-signals. Gateway tests exercise release identity validation, generated Bash
-syntax, provisioning into immutable release directories, reuse and repair,
-failure preservation, authenticated protocol health checks, successful
-activation, rollback after failed health checks, and lock contention/unknown
-owner diagnostics. The CI workflow is configured to run clean installs, builds,
-typechecks, audit, and workspace tests on Linux and macOS with Node 22 and 24.
-
-Treat those tests as automated regression coverage, not release certification.
-The configured macOS jobs still need to pass on the hosted platform. Signed and
-platform-appropriate packaged artifacts, signing/notarization checks, and
-extended crash/restart and workflow/timer soak tests remain release gates. The
-project has not certified a stable release; see the readiness document for the
-current status and broader outstanding work.
-
 ## Isolated restart soak
 
 Build the application first, then run the restart check against a private fixture:
 
 ```sh
 npm run build
-npm run test:release-soak -- --cycles 20 --output /tmp/vibe-soak.json
-npm run test:release-soak -- --minutes 30 --pause-ms 1000 --output /tmp/vibe-soak-30min.json
+npm run test:release-soak -- --cycles 20 --output /tmp/hatopad-soak.json
+npm run test:release-soak -- --minutes 30 --pause-ms 1000 --output /tmp/hatopad-soak-30min.json
 ```
 
 The check snapshots built Core, ACP, and Protocol code and uses a separate Git

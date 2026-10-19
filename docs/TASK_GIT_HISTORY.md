@@ -18,7 +18,7 @@ filesystem point can overlap.
 
 ## Where snapshots are stored
 
-Snapshots are owned by Core under `REMOTE_IDE_STATE_DIR` (normally `~/.remote-
+Snapshots are owned by Core under `HATOPAD_STATE_DIR` (normally `~/.remote-
 ide/workspaces`). They use content-addressed raw-file blobs and JSON manifests
 outside the task worktree and `.git`; no commits, hidden refs, stashes, or index
 entries are created. Tracked files and non-ignored untracked files are captured,
@@ -43,7 +43,7 @@ in that task is active. Stop the agent and save any editor buffers before restor
 Core serializes capture and restore per workspace. It retains the newest 100
 completed prompt checkpoints plus all running checkpoints per workspace. Older
 manifests and blobs no longer referenced by retained checkpoints are removed.
-Deleting a Vibe task removes its task state directory, including prompt history,
+Deleting a HatoPad task removes its task state directory, including prompt history,
 through the existing task cleanup. If Core restarts during a turn, it closes the
 orphaned running checkpoint as interrupted using the filesystem state found at
 startup.

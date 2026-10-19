@@ -1,3 +1,11 @@
+import { PortTunnels } from './port-tunnels.js';
+import { CoreUpdates } from './core-update.js';
+import { boundedNote } from "./bounded-note.js";
+import { workflowTemplateCatalog } from "./workflow-templates.js";
+import { SupervisionFeed } from "./supervision-feed.js";
+import { inventoryPage, inventoryKinds } from "./inventory-page.js";
+import { stateHome } from "./state-home.js";
+import { runLanguageInTerminal, hasLanguageTerminalRun, stopLanguageTerminalRun } from "./language/terminal.js";
 import { validateRequestPayload } from "./request-validation.js";
 import { coreAccessPolicy, type CoreAccessOptions } from "./access-policy.js";
 import { executeTerminalControlAsync } from "./workflow-terminal.js";
@@ -17,15 +25,25 @@ import crypto from "node:crypto";
 import { mkdir, realpath, stat, symlink } from "node:fs/promises";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { protocolCompatibility, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@remote-ide/protocol";
+import { type CoreCapability, coreCapabilities, overviewLimits, terminalWatchLimits, serverProtocolVersion, requestTypes, type FileTreeNode, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent, type WorkspaceOptions, type WorkspaceRoot } from "@hatopad/protocol";
+import { workflowOutputPage } from "./workflow-inspection.js";
+import { MetadataHintBatcher } from "./metadata-hints.js";
+import { workPage, workText, triggerIssueKind, type WorkTarget } from "./overview-work.js";
+import { TerminalWatchers } from "./terminal-watchers.js";
+import { watchSnapshot, watchSummary } from "./terminal-watch.js";
+import { automationPage, summarizeSchedule, summarizeTrigger } from "./automation-page.js";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { TerminalSessionHost } from "./process-manager.js";
 import { GitService } from "./git.js";
 import { WorkspaceStateStore, flushWorkspaceStateWrites } from "./workspace-state.js";
 import { WorkspaceSearch } from "./search.js";
-import { JavaProjectService } from "./java.js";
-import { JdtLanguageService } from "./jdtls.js";
+import { LanguageRegistry, LanguageSessions } from "./language/registry.js";
+import type { LanguageServiceEvents } from "./language/service.js";
+import { BUILT_IN_LANGUAGES, JavaLanguageService } from "./plugins/builtin.js";
+import type { PluginStatus } from "@hatopad/protocol";
+import { loadPlugins, pluginsDirectory } from "./plugins/loader.js";
+import { handleLanguageRequest } from "./language/routes.js";
 import { toolInstallations } from "./tools.js";
 import { watchGitState } from "./git-watch.js";
 import { WorkspaceTaskStore } from "./tasks.js";
@@ -54,8 +72,13 @@ import { AppToolService, appToolServer, withAppTools } from "./app-tools.js";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 import { RemoteTransferService } from "./remote-transfer.js";
 import { WorkspaceRootRegistry } from "./workspace-roots.js";
-import type { ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@remote-ide/protocol";
-import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@remote-ide/acp";
+import { pageMessages } from "./ai/message-page.js";
+import { MAX_FILE_SIZE } from "./filesystem.js";
+import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
+import { projectBlockDetail, projectProgress } from "./harness-progress.js";
+import { boundPermission, boundQuestion, boundSessionsInResult, limitSessionMessages, pageSessions, validSessionMessageLimit } from "./ai/session-bounds.js";
+import type { OverviewRootCounts, ScheduledAction, AiProvider, AiSession, HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
+import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiConfiguration, type AiOption, type AiProtocolVersion } from "@hatopad/acp";
 
 const execFileAsync = promisify(execFile);
 const delay = (milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
@@ -65,8 +88,8 @@ type SessionServices = {
   filesystem: WorkspaceFileSystem;
   search: WorkspaceSearch;
   git: GitService;
-  java: JavaProjectService;
-  jdt: JdtLanguageService;
+  languages: LanguageSessions;
+  plugins: PluginStatus[];
   workspaceState: WorkspaceStateStore;
   checkpoints: TaskCheckpointStore;
 };
@@ -95,7 +118,7 @@ export async function transactionalRootSelection<T>(prepare: () => Promise<T>, c
   catch (error) { if (candidate !== undefined) await dispose(candidate); throw error; }
 }
 
-const coreProtocolCompatibility = protocolCompatibility;
+const coreProtocolCompatibility = { minimum: serverProtocolVersion, maximum: serverProtocolVersion };
 
 /** Collapses noisy watcher streams into a bounded, state-reconciliation signal. */
 export class WorkspaceWatchBatcher {
@@ -133,11 +156,11 @@ export class WorkspaceWatchBatcher {
   private schedule(): void { if (!this.timer) this.timer = setTimeout(() => this.flush(), this.delay); }
 }
 
-export function protocolHandshake(compatibility: { minimum: number; maximum: number }): { compatibility: typeof coreProtocolCompatibility; compatible: boolean; message?: string } {
+export function protocolHandshake(compatibility: { minimum: number; maximum: number }): { compatibility: typeof coreProtocolCompatibility; compatible: boolean; message?: string; capabilities?: CoreCapability[] } {
   const valid = Number.isInteger(compatibility.minimum) && Number.isInteger(compatibility.maximum) && compatibility.minimum > 0 && compatibility.minimum <= compatibility.maximum;
   const compatible = valid && compatibility.minimum <= coreProtocolCompatibility.maximum && coreProtocolCompatibility.minimum <= compatibility.maximum;
   return compatible
-    ? { compatible, compatibility: coreProtocolCompatibility }
+    ? { compatible, compatibility: coreProtocolCompatibility, capabilities: [...coreCapabilities] }
     : { compatible, compatibility: coreProtocolCompatibility, message: `Core supports protocol ${coreProtocolCompatibility.minimum}-${coreProtocolCompatibility.maximum}; this Desktop supports ${compatibility.minimum}-${compatibility.maximum}` };
 }
 
@@ -147,13 +170,15 @@ export function shutdownCore(server: WebSocketServer): Promise<void> {
   return shutdown ? shutdown() : new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 
-export type CoreConnectionOptions = WebSocketLivenessOptions & { outbound?: WebSocketOutboundOptions; admission?: RequestAdmissionOptions; access?: CoreAccessOptions };
+export type CoreConnectionOptions = WebSocketLivenessOptions & { updates?: CoreUpdates; outbound?: WebSocketOutboundOptions; admission?: RequestAdmissionOptions; access?: CoreAccessOptions };
 
 export async function createServer(host: string, port: number, workspacePath: string, options: CoreConnectionOptions = {}): Promise<WebSocketServer> {
+  const updates = options.updates ?? new CoreUpdates();
   const access = coreAccessPolicy(host, options.access);
   const liveness = websocketLivenessThresholds(options);
   const outbound = websocketOutboundLimits(options.outbound);
   const admissionLimit = requestAdmissionLimit(options.admission);
+  const portTunnelBudget = { active: 0 };
   await ensureSelfConfiguration();
   const rootWorkspace = workspacePath;
   const roots = await WorkspaceRootRegistry.open(rootWorkspace);
@@ -167,6 +192,23 @@ export async function createServer(host: string, port: number, workspacePath: st
     let context = rootContexts.get(rootId);
     if (!context) { const root = roots.get(rootId); context = { tasks: new WorkspaceTaskStore(root.path), usefulFiles: new UsefulFilesStore(root.path), agents: new AgentsStore(root.path), harnesses: new HarnessStore(root.path) }; rootContexts.set(rootId, context); }
     return context;
+  };
+  const feed = new SupervisionFeed();
+  const taskStates = new Map<string, Map<string, import("@hatopad/protocol").WorkspaceTask>>();
+  for (const root of roots.list()) taskStates.set(root.id, new Map((await contextFor(root.id).tasks.list()).tasks.map(task => [task.id, task])));
+  const taskScans = new Map<string, Promise<void>>();
+  const recordTaskChanges = (rootId: string) => {
+    const scan = (taskScans.get(rootId) ?? Promise.resolve()).catch(() => undefined).then(async () => {
+      const next = new Map((await contextFor(rootId).tasks.list()).tasks.map(task => [task.id, task])), previous = taskStates.get(rootId); taskStates.set(rootId, next);
+      if (!previous) return;
+      for (const [id, task] of next) {
+        const prior = previous.get(id);
+        if (!prior) feed.push("task-created", rootId, { taskId: id });
+        else if (task.status !== prior.status) feed.push(task.status === "finished" ? "task-finished" : "task-reopened", rootId, { taskId: id });
+        else if (task.archived && !prior.archived) feed.push("task-archived", rootId, { taskId: id });
+      }
+      for (const id of previous.keys()) if (!next.has(id)) feed.push("task-deleted", rootId, { taskId: id });
+    }); taskScans.set(rootId, scan); void scan.catch(() => undefined);
   };
   const savedTasks = await tasks.list();
   const workspaceOwners = new Map<string, string>([[path.resolve(rootWorkspace), roots.primary().id], ...savedTasks.tasks.map((task) => [path.resolve(tasks.taskPath(task.id)), roots.primary().id] as const)]);
@@ -183,7 +225,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   const validation = new WorkspaceFileSystem();
   await validation.initialize(workspacePath);
   const workspace = validation.getWorkspace();
-  const workspaceState = new WorkspaceStateStore(workspace, process.env.REMOTE_IDE_STATE_DIR);
+  const workspaceState = new WorkspaceStateStore(workspace, process.env.HATOPAD_STATE_DIR);
   const watcher = chokidar.watch(workspace, await workspaceWatchOptions(workspace));
   // A large initial scan must not block protocol health or crash Core on a
   // native watch limit. The filesystem is queried directly by workspace.open.
@@ -192,6 +234,12 @@ export async function createServer(host: string, port: number, workspacePath: st
   let inFlight = 0;
   const idleWaiters = new Set<() => void>();
   const sessionCleanups = new Set<Promise<void>>();
+  /** Runs a cleanup in the background but keeps it visible to shutdown and logs failures instead of leaving them unhandled. */
+  const trackCleanup = (cleanup: Promise<void>) => {
+    const tracked = cleanup.catch((error) => console.error("[core] Language service cleanup failed", error));
+    sessionCleanups.add(tracked);
+    void tracked.finally(() => sessionCleanups.delete(tracked));
+  };
   const bridgeCommands = new Set<Promise<void>>();
   const socketMonitors = new Set<() => void>();
   const remoteTransfers = new RemoteTransferService();
@@ -200,7 +248,18 @@ export async function createServer(host: string, port: number, workspacePath: st
   const rootWatchSubscriptionsForServer = new Map<string, Set<SwitchedWatch>>();
   const rootWatchOwnersForServer = new Map<SwitchedWatch, () => void>();
   const removingRoots = new Set<string>();
+  const metadataHints = new MetadataHintBatcher(event => {
+    if (draining) return;
+    if (event.type === "tasks.changed" && event.payload.rootId) recordTaskChanges(event.payload.rootId);
+    if (event.type === "harness.changed") { const runner = harnessRunners.get(event.payload.rootId); if (runner) void runner.readRun(event.payload.runId).then(run => {
+      if (run && ["succeeded", "failed", "blocked"].includes(run.status)) feed.push(run.status === "succeeded" ? "workflow-completed" : "workflow-failed", event.payload.rootId, { runId: run.id, ...(run.binding?.taskId ? { taskId: run.binding.taskId } : {}) }, `${event.payload.rootId}:${run.id}:${run.status}:${run.completedAt ?? ""}`);
+    }).catch(() => undefined); }
+    const rootId = (event.payload as { rootId?: string }).rootId;
+    const encoded = JSON.stringify(event);
+    for (const socket of activeSessions) if (!rootId || liveRootSelections.selected(socket) === rootId) sendWebSocketData(socket, encoded);
+  });
   const terminalSubscriptions = new Map<WebSocket, { rootId: string; workspace: string; terminalIds: Set<string> }>();
+  const terminalWatchers = new TerminalWatchers<WebSocket>((socket, event) => sendWebSocketData(socket, JSON.stringify(event)));
   const terminalOwners = new Map<string, { socket: WebSocket; rootId: string; workspace: string }>();
   const processesChanged = () => { const encoded = JSON.stringify({ type: "processes.changed", payload: {} } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
   managedProcesses.on("changed", processesChanged); managedProcesses.start();
@@ -217,6 +276,8 @@ export async function createServer(host: string, port: number, workspacePath: st
       }).catch((error) => console.error("[core] Could not announce terminal", error));
       return;
     }
+    if (event.type === "output") terminalWatchers.output(event.workspace, event.terminalId, event.data);
+    else terminalWatchers.exit(event.workspace, event.terminalId, event.exitCode);
     runConfigs?.onTerminalEvent(event);
     const owner = terminalOwners.get(event.terminalId);
     if (owner && owner.workspace === event.workspace) {
@@ -245,6 +306,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     void appEvents.consume(file).then(async (event) => {
       if (!event) return;
       const rootId = event.type === "tasks.changed" ? roots.primary().id : await ownerRootId(event.workspace) ?? roots.primary().id;
+      if (event.type === "tasks.changed") recordTaskChanges(rootId);
       const message: ServerEvent = event.type === "tasks.changed" ? { type: "tasks.changed", payload: { rootId } }
         : event.type === "ai.changed" ? { type: "ai.changed", payload: { rootId } }
         : { type: "commit-message.changed", payload: { rootId, workspace: event.workspace, message: event.message } };
@@ -259,10 +321,99 @@ export async function createServer(host: string, port: number, workspacePath: st
   const checkpointStore = (target: string) => { const key = path.resolve(target); let store = checkpointStores.get(key); if (!store) { store = new TaskCheckpointStore(key); checkpointStores.set(key, store); } return store; };
   await Promise.all([rootWorkspace, ...savedTasks.tasks.map((task) => tasks.taskPath(task.id))].map((target) => checkpointStore(target).recover()));
   const taskGitChanged = (changedWorkspace: string) => { void ownerRootId(changedWorkspace).then((rootId) => { if (!rootId) return; const encoded = JSON.stringify({ type: "taskGit.changed", payload: { rootId } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); }); };
+  const plugins = await loadPlugins(undefined, { builtInLanguages: new Set(BUILT_IN_LANGUAGES.map((language) => language.descriptor.id)) });
+  for (const plugin of plugins.status) if (plugin.state === "failed") console.warn(`Plugin ${plugin.id} not loaded: ${plugin.error}`);
   const acp = createAcpRegistry(aiChanged, {
     begin: async (target, provider, prompt, sessionId, provenance) => { const id = await checkpointStore(target).begin(provider as AiProvider, prompt, sessionId, undefined, provenance); taskGitChanged(target); return id; },
     complete: async (target, ids, status, provenance) => { await Promise.all(ids.map((id) => checkpointStore(target).complete(id, status, provenance))); taskGitChanged(target); }
-  }, async (target) => { const rootId = await ownerRootId(target); return rootId ? roots.get(rootId).path : rootWorkspace; }, rootWorkspace);
+  }, async (target) => { const rootId = await ownerRootId(target); return rootId ? roots.get(rootId).path : rootWorkspace; }, rootWorkspace, plugins.providers);
+  // Read-only across every root: uses provider `get` on explicit workspace paths and never selects a root/task.
+  const overviewSummary = async (payload: { limit?: number; cursor?: string }) => {
+    const sources: OverviewSource[] = [];
+    let truncated = false;
+    const allRoots = roots.list();
+    if (allRoots.length > overviewLimits.maxRoots) truncated = true;
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const store = contextFor(root.id).tasks;
+      const registry = await store.list();
+      const visible = registry.tasks.filter((task) => task.status === "active" && !task.archived);
+      if (visible.length > overviewLimits.maxTasksPerRoot) truncated = true;
+      const targets = [{ taskId: undefined as string | undefined, workspace: root.path }, ...visible.slice(0, overviewLimits.maxTasksPerRoot).map((task) => ({ taskId: task.id as string | undefined, workspace: store.taskPath(task.id) }))];
+      for (const target of targets) {
+        const sessions = await Promise.all(acp.list().map(async (item) => ({ provider: item.id as AiProvider, session: await acp.get(item.id).get(target.workspace) })));
+        sources.push({ rootId: root.id, alias: root.alias, taskId: target.taskId, sessions });
+      }
+    }
+    const workflows: WorkflowSource[] = [];
+    const counts = new Map<string, OverviewRootCounts>();
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const registry = await contextFor(root.id).tasks.list();
+      const summaries = await contextFor(root.id).harnesses.summaries();
+      counts.set(root.id, {
+        tasks: registry.tasks.filter((task) => task.status === "active" && !task.archived).length,
+        finishedTasks: registry.tasks.filter((task) => task.status === "finished" && !task.archived).length,
+        schedules: schedules.list().filter((item) => item.rootId === root.id && item.enabled).length,
+        triggers: triggers.list().filter((item) => item.rootId === root.id && item.enabled).length,
+        workflowsActive: summaries.filter((run) => !["succeeded", "failed", "cancelled", "blocked"].includes(run.status)).length
+      });
+    }
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const store = contextFor(root.id).harnesses;
+      const waiting = (await store.summaries()).filter((run) => run.status === "awaiting_permission" || run.status === "awaiting_user_input").slice(0, overviewLimits.maxWorkflowRunsPerRoot);
+      if (!waiting.length) continue;
+      const stored = await store.runs();
+      for (const summary of waiting) {
+        // Prefer the live execution (newer than disk) but never create a runner just to look.
+        const run = (await harnessRunners.get(root.id)?.readRun(summary.id)) ?? stored.find((item) => item.id === summary.id);
+        if (run) workflows.push({ rootId: root.id, alias: root.alias, run });
+      }
+    }
+    return pageOverview(buildOverview(sources, truncated, workflows, counts), payload);
+  };
+  const overviewWork = async (payload: ProtocolOperations["overview.work"]["payload"]): Promise<ProtocolOperations["overview.work"]["result"]> => {
+    const allRoots = roots.list(); const targets: WorkTarget[] = []; let truncated = allRoots.length > overviewLimits.maxRoots;
+    const workflowLists = new Map<string, Awaited<ReturnType<HarnessStore["summaries"]>>>();
+    for (const root of allRoots.slice(0, overviewLimits.maxRoots)) {
+      const context = contextFor(root.id), registry = await context.tasks.list();
+      const tasks = [...registry.tasks].sort((a, b) => a.id.localeCompare(b.id));
+      if (tasks.length > overviewLimits.maxTasksPerRoot) truncated = true;
+      targets.push({ rootId: root.id, rootAlias: workText(root.alias), name: workText(root.alias), status: "root", archived: false, workspace: root.path });
+      for (const task of tasks.slice(0, overviewLimits.maxTasksPerRoot)) targets.push({ rootId: root.id, rootAlias: workText(root.alias), taskId: task.id, name: workText(task.name), branch: workText(task.branch, 200), status: task.status, archived: task.archived, workspace: context.tasks.taskPath(task.id) });
+    }
+    targets.sort((a, b) => a.rootId.localeCompare(b.rootId) || (a.taskId ?? "").localeCompare(b.taskId ?? ""));
+    const page = workPage(targets, payload, truncated);
+    const timers = await aiTimers.list(), allSchedules = schedules.list(), allTriggers = triggers.list(true);
+    const providers = acp.list().slice(0, 32); if (acp.list().length > providers.length) page.result.truncated = true;
+    for (const target of page.targets) {
+      const { workspace, ...identity } = target;
+      const row: import("@hatopad/protocol").OverviewWorkRow = { ...identity, sessions: [], terminals: terminalHost.list(workspace).filter(terminal => terminal.status === "running").length, workflowsActive: 0, workflowRunIds: [], schedules: 0, triggers: 0, timers: [], timerCount: 0, issues: [] };
+      for (const item of providers) {
+        try {
+          const session = await acp.get(item.id).get(workspace);
+          const last = session.messages.at(-1), preview = session.messages.slice(-100).reverse().find(message => message.role === "assistant" || message.role === "activity") ?? last;
+          row.sessions.push({ provider: item.id, ...(session.id ? { sessionId: session.id } : {}), status: session.status, preview: workText(preview?.text), ...(last?.timestamp ?? session.updatedAt ? { updatedAt: last?.timestamp ?? session.updatedAt } : {}), pendingQuestion: Boolean(session.pendingQuestion), pendingPermission: Boolean(session.pendingPermission), ...(session.failure ? { failure: { ...session.failure, message: workText(session.failure.message) } } : {}) });
+          if (session.failure || session.status === "error") row.issues.push({ id: `ai:${item.id}:${session.id ?? ""}`, kind: session.failure?.kind === "quota_exhausted" ? "quota" : session.failure?.kind === "permission_required" ? "provider-setup" : "task-error", title: workText(session.failure?.message || "Agent task failed"), provider: item.id, ...(session.updatedAt ? { at: session.updatedAt } : {}) });
+        } catch { row.issues.push({ id: `provider:${item.id}`, kind: "provider-setup", title: "Provider state unavailable", provider: item.id }); }
+      }
+      try { const git = await new GitService(workspace).summary(1); row.git = { additions: git.additions, deletions: git.deletions, unknownCounts: git.unknownCounts, totalFiles: git.totalFiles, conflicts: git.conflicts, branch: workText(git.branch, 200), ...(git.upstream ? { upstream: git.upstream } : {}) }; if (git.conflicts) row.issues.push({ id: "git:conflicts", kind: "merge-conflict", title: `${git.conflicts} files have merge conflicts` }); } catch { row.gitUnavailable = true; }
+      let runs = workflowLists.get(target.rootId);
+      if (!runs) { runs = await contextFor(target.rootId).harnesses.summaries(); workflowLists.set(target.rootId, runs); }
+      const ownedRuns = runs.filter(run => (run.binding?.taskId ?? undefined) === target.taskId);
+      const ownedRunIds = new Set(ownedRuns.map(run => run.id));
+      const activeRuns = ownedRuns.filter(run => !["succeeded", "failed", "blocked", "cancelled"].includes(run.status)); row.workflowsActive = activeRuns.length; row.workflowRunIds = activeRuns.slice(0, 10).map(run => run.id);
+      for (const run of ownedRuns.filter(run => run.status === "failed" || run.status === "blocked").slice(0, 10)) row.issues.push({ id: `workflow:${run.id}`, kind: "workflow-failed", title: workText(run.error || "Workflow failed or was interrupted"), runId: run.id, at: run.completedAt ?? run.createdAt });
+      const ownedTimers = timers.filter(timer => path.resolve(timer.workspace) === path.resolve(workspace) || (timer.workflowRunId !== undefined && ownedRunIds.has(timer.workflowRunId)));
+      row.timerCount = ownedTimers.length; row.timers = ownedTimers.slice(0, 10).map(timer => ({ id: timer.id, provider: timer.provider, dueAt: timer.dueAt, ...(timer.workflowRunId ? { workflowRunId: timer.workflowRunId } : {}), ...(timer.workflowBlockId ? { workflowBlockId: timer.workflowBlockId } : {}) }));
+      for (const timer of ownedTimers.filter(timer => Date.parse(timer.dueAt) < Date.now()).slice(0, 10)) row.issues.push({ id: `timer:${timer.id}`, kind: "timer-overdue", title: "Continuation timer is overdue", timerId: timer.id, at: timer.dueAt });
+      const ownSchedules = allSchedules.filter(schedule => schedule.rootId === target.rootId && schedule.taskId === target.taskId); row.schedules = ownSchedules.filter(schedule => schedule.enabled).length;
+      for (const schedule of ownSchedules.filter(schedule => schedule.lastError).slice(0, 10)) row.issues.push({ id: `schedule:${schedule.id}`, kind: "schedule-failed", title: workText(schedule.lastError), scheduleId: schedule.id, ...(schedule.lastRunAt ? { at: schedule.lastRunAt } : {}) });
+      const ownTriggers = allTriggers.filter(trigger => trigger.rootId === target.rootId && trigger.taskId === target.taskId); row.triggers = ownTriggers.filter(trigger => trigger.enabled).length;
+      for (const trigger of ownTriggers.filter(trigger => trigger.lastError || trigger.lastSkipped).slice(0, 10)) row.issues.push({ id: `trigger:${trigger.id}`, kind: triggerIssueKind(trigger.lastError, trigger.lastSkipped), title: workText(trigger.lastSkipped ?? trigger.lastError), triggerId: trigger.id, ...(trigger.lastFiredAt ? { at: trigger.lastFiredAt } : {}) });
+      page.result.rows.push(row);
+    }
+    if (Buffer.byteLength(JSON.stringify(page.result)) > 900_000) throw new CoreError("INVALID_REQUEST", "Work overview exceeds the response budget; use a smaller page");
+    return page.result;
+  };
   const harnessRunners = new Map<string, HarnessRunner>();
   const storage = new ServerStorage({
     roots: () => roots.list().map((root) => root.path),
@@ -276,18 +427,17 @@ export async function createServer(host: string, port: number, workspacePath: st
     },
     changed: () => { for (const root of roots.list()) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: root.id } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); } }
   });
-  const harnessRunner = (rootId: string) => {
+  const harnessRunner = (rootId: string): HarnessRunner => {
     if (draining) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
     let runner = harnessRunners.get(rootId);
     if (!runner) {
       runner = new HarnessRunner(contextFor(rootId).harnesses, (runId) => {
-        const harnessEvent = JSON.stringify({ type: "harness.changed", payload: { rootId, runId } } satisfies ServerEvent);
-        const tasksEvent = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent);
-        for (const socket of activeSessions) { sendWebSocketData(socket, harnessEvent); sendWebSocketData(socket, tasksEvent); }
+        metadataHints.enqueue({ type: "harness.changed", payload: { rootId, runId } });
+        metadataHints.enqueue({ type: "tasks.changed", payload: { rootId } });
       }, 4, undefined, (document) => {
         const event = JSON.stringify({ type: "workflow.document", payload: { rootId, ...document } } satisfies ServerEvent);
         for (const socket of activeSessions) sendWebSocketData(socket, event);
-      }, (provider, workspace, input) => acp.get(provider).steer(workspace, input));
+      }, (provider, workspace, input) => steerWorkflowSession(acp.get(provider), workspace, input, aiTimers, roots.get(rootId).path, rootWorkspace));
       harnessRunners.set(rootId, runner);
     }
     return runner;
@@ -298,7 +448,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     for (const socket of activeSessions) sendWebSocketData(socket, encoded);
   }, async (timer, effect, reconcile) => {
     if (!timer.workflowRunId || !timer.workflowBlockId) return effect();
-    let owner: { rootId: string; run: import("@remote-ide/protocol").HarnessRun } | undefined;
+    let owner: { rootId: string; run: import("@hatopad/protocol").HarnessRun } | undefined;
     for (const candidate of roots.list()) {
       const run = await harnessRunner(candidate.id).readRun(timer.workflowRunId);
       if (run) { owner = { rootId: candidate.id, run }; break; }
@@ -307,6 +457,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     const boundRoot = roots.get(owner.rootId).path;
     await validateWorkflowTarget(owner.run, timer.workspace, { tasks: contextFor(owner.rootId).tasks, rootWorkspace: boundRoot, workspacePath: boundRoot });
     return harnessRunner(owner.rootId).runTimerOperation(timer.workflowRunId, timer.workflowBlockId, `timer-fire:${timer.workflowOperationKey ?? timer.id}`, { timerId: timer.id, dueAt: timer.dueAt }, effect, reconcile);
+  }, timer => {
+    void (async () => { const rootId = await ownerRootId(timer.workspace); if (!rootId) return; const context = contextFor(rootId); const task = (await context.tasks.list()).tasks.find(task => context.tasks.taskPath(task.id) === timer.workspace); feed.push("timer-fired", rootId, { ...(task ? { taskId: task.id } : {}), ...(timer.workflowRunId ? { runId: timer.workflowRunId } : {}) }); })().catch(() => undefined);
   });
   const recoveryBridgeWorkspace = rootWorkspace;
   for (const recoveryRoot of roots.list()) {
@@ -321,13 +473,13 @@ export async function createServer(host: string, port: number, workspacePath: st
       if (block.type === "script") return executeFlowScript(block, prompt, workspace, runtime.assertActive, { rootWorkspace, workflowRunId: runtime.runId, workflowBlockId: runtime.blockId });
       if (block.type === "terminal_control") return executeTerminalControlAsync(prompt, workspace, workflowApps.terminals, runtime.assertActive);
       if (block.type === "run_app") return workflowApps.execute(block, prompt, workspace, runtime.assertActive, { rootWorkspace, workflowRunId: runtime.runId, workflowBlockId: runtime.blockId });
-      if (block.type === "task_controls") return executeTaskControls(block, prompt, { acp, tasks, agents, harnessRunner: recoveryRunner, aiTimers, rootWorkspace, bridgeWorkspace: recoveryBridgeWorkspace, workspacePath: workspace, defaultProvider: "codex" }, runtime);
+      if (block.type === "task_controls") return executeTaskControls(block, prompt, { acp, tasks, agents, harnessRunner: recoveryRunner, aiTimers, rootWorkspace, bridgeWorkspace: recoveryBridgeWorkspace, workspacePath: workspace, defaultProvider: acp.defaultId }, runtime);
       if (block.type === "verification") return runWorkflowVerification(block, workspace, recoveryRunner, runtime);
       if (block.type === "review") {
         const evidence = await collectWorkflowReviewEvidence(block, workspace, recoveryRunner, runtime);
         prompt += `\n\nCore-recorded review evidence:\nCommit: ${evidence.revision}\nBase: ${evidence.baseRevision}\nChanged files: ${evidence.files.join(", ")}\n\nDiff:\n${evidence.diff}`;
       }
-      const provider = acp.get(block.provider ?? "codex");
+      const provider = acp.get(block.provider);
       await assertWorkflowModelAvailable(provider, block.model, block.reasoning);
       if (block.watchdog) return recoveryRunner.watch(runtime.runId, runtime.blockId, () => provider.usage());
       const sessionWorkspace = await workflowSessionWorkspace(workspace, runtime.runId, runtime.blockId); await runtime.started(sessionWorkspace);
@@ -348,14 +500,14 @@ export async function createServer(host: string, port: number, workspacePath: st
       if (!recovered) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
       const binding = await resolveWorkflowBinding(recovered, undefined, { tasks, rootWorkspace, workspacePath: rootWorkspace });
       if (await availableWorkflowWorkspace(runtime.workspace) !== binding.workspace) throw new CoreError("INVALID_REQUEST", "Workflow recovery session worktree changed");
-      const provider = acp.get(block.provider ?? "codex"); if (!recoveryRunner.isActive(runtime.runId)) throw new Error("Workflow is no longer active"); const current = await provider.get(runtime.workspace);
+      const provider = acp.get(block.provider); if (!recoveryRunner.isActive(runtime.runId)) throw new Error("Workflow is no longer active"); const current = await provider.get(runtime.workspace);
       const workflowTools = appToolServer(rootWorkspace, runtime.workspace, provider.descriptor.id, recoveryBridgeWorkspace, { runId: runtime.runId, blockId: runtime.blockId, flow: ["ai", "chatbox"].includes(block.type) });
       if (current.status === "in_progress" || current.status === "user_prompt") await provider.steer(runtime.workspace, prompt);
       else await provider.send(runtime.workspace, { prompt, configuration: { ...current.configuration ?? { model: current.model, reasoning: current.reasoning }, ...workflowFeatureOptions(provider.descriptor.options, block) }, mcpServers: [workflowTools], captureSnapshots: workflowCapturesSnapshots(recovered, block.id) });
       if (!recoveryRunner.isActive(runtime.runId)) throw new Error("Workflow is no longer active");
       return settleWorkflowSession(provider, runtime.workspace, aiTimers, undefined, () => recoveryRunner.isActive(runtime.runId), runtime.activity);
     });
-    await recoveryRunner.recover(recoveryDispatch, "codex", recoveryAppend, {
+    await recoveryRunner.recover(recoveryDispatch, acp.defaultId, recoveryAppend, {
       binding: async (run) => { run.binding ??= await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath: rootWorkspace }); run.workspace = run.binding.workspace; await validateWorkflowBinding(run.binding, tasks, rootWorkspace); },
       session: async (provider, target) => acp.get(provider).get(target).catch(() => undefined),
       timer: async (runId, blockId, provider, target) => { const timer = await aiTimers.next(target, provider); return timer?.workflowRunId === runId && timer.workflowBlockId === blockId; },
@@ -395,18 +547,19 @@ export async function createServer(host: string, port: number, workspacePath: st
   };
   const schedules = new ScheduleService(rootWorkspace, (schedule, active) => deliverAction(schedule, active, "schedule paused"), () => {
     const encoded = JSON.stringify({ type: "timers.changed", payload: {} } satisfies ServerEvent);
-    for (const socket of activeSessions) sendWebSocketData(socket, encoded);
+    for (const socket of activeSessions) { sendWebSocketData(socket, encoded); sendWebSocketData(socket, JSON.stringify({ type: "automation.changed", payload: { kind: "schedule" } } satisfies ServerEvent)); }
   });
   const triggers = new TriggerService(rootWorkspace, async (trigger, event, active) => {
     const note = `\n\n[Started by trigger "${trigger.name}": ${event.description}]${event.data ? `\n\`\`\`\n${event.data}\n\`\`\`` : ""}`;
-    try { return await deliverAction(trigger, active, "trigger skipped", note); }
+    try { const result = await deliverAction(trigger, active, "trigger skipped", note); if (active()) feed.push("trigger-fired", trigger.rootId, { ...(trigger.taskId ? { taskId: trigger.taskId } : {}), ...(result.workflowRunId ? { runId: result.workflowRunId } : {}) }); return result; }
     catch (error) { if (error instanceof DeliveryBusy) return { skipped: error.message }; throw error; }
   }, () => {
     const encoded = JSON.stringify({ type: "timers.changed", payload: {} } satisfies ServerEvent);
-    for (const socket of activeSessions) sendWebSocketData(socket, encoded);
+    for (const socket of activeSessions) { sendWebSocketData(socket, encoded); sendWebSocketData(socket, JSON.stringify({ type: "automation.changed", payload: { kind: "trigger" } } satisfies ServerEvent)); }
   });
   await aiTimers.start();
   const onTasksChanged = async () => {
+    recordTaskChanges(roots.primary().id);
     const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: roots.primary().id } } satisfies ServerEvent);
     for (const socket of activeSessions) sendWebSocketData(socket, encoded);
   };
@@ -422,7 +575,7 @@ export async function createServer(host: string, port: number, workspacePath: st
       const currentWorkspace = command.currentWorkspace ?? rootWorkspace;
       const workflowRootId = command.workflowRunId ? [...harnessRunners].find(([, runner]) => runner.isActive(command.workflowRunId!))?.[0] : undefined;
       const rootId = workflowRootId ?? await ownerRootId(currentWorkspace) ?? roots.primary().id; const root = roots.get(rootId); const context = contextFor(rootId);
-      const changed = async () => { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
+      const changed = async () => { recordTaskChanges(rootId); const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId } } satisfies ServerEvent); for (const socket of activeSessions) sendWebSocketData(socket, encoded); };
       if (command.workflowRunId && command.workflowBlockId && ["workflow_connections", "workflow_use_block", "workflow_block_output", "workflow_block_messages", "workflow_choose_path"].includes(command.name)) return harnessRunner(rootId).flowTool(command.workflowRunId, command.workflowBlockId, command.name, command.args);
       const workflow = command.workflowRunId && command.workflowBlockId ? { runId: command.workflowRunId, blockId: command.workflowBlockId, resumeFailed: () => harnessRunner(rootId).resumeFailed(command.workflowRunId!, command.workflowBlockId!), runStack: (inputs: string[], path?: string) => harnessRunner(rootId).runStack(command.workflowRunId!, command.workflowBlockId!, inputs, path) } : undefined;
       const ownedWorkflow = workflow ? {
@@ -437,16 +590,25 @@ export async function createServer(host: string, port: number, workspacePath: st
         operation: <T>(kind: "timer_create" | "task_create" | "prompt_delivery" | "merge", key: string, input: unknown, effect: () => Promise<T>, reconcile?: () => Promise<T | null | undefined>) => harnessRunner(rootId).runOperation(workflow.runId, workflow.blockId, kind, key, input, effect, reconcile),
         recordTool: (name: string, args: Record<string, unknown>, result?: unknown, error?: unknown) => harnessRunner(rootId).recordTool(workflow.runId, workflow.blockId, name, args, result, error)
       } : undefined;
-      const configuration = new ConfigurationService(root.path, currentWorkspace, { agents: context.agents, skills: new SkillsStore(undefined, root.path), useful: context.usefulFiles, workflows: context.harnesses, tasks: context.tasks, triggers: { service: triggers, rootId: root.id } }, acp, async (resource, global) => {
+      const configurationFilesystem = new WorkspaceFileSystem();
+      await configurationFilesystem.initialize(currentWorkspace);
+      const configurationRegistry = new LanguageRegistry();
+      const configurationEvents: LanguageServiceEvents = { output() {}, exit() {}, debugState() {}, semanticChanged() {} };
+      const configurationState = new WorkspaceStateStore(currentWorkspace, process.env.HATOPAD_STATE_DIR);
+      for (const language of BUILT_IN_LANGUAGES) configurationRegistry.register(language.descriptor, (workspace) => language.create({ workspace, filesystem: configurationFilesystem, state: configurationState, events: configurationEvents, rootId, emit() {} }));
+      for (const language of plugins.languages) configurationRegistry.register(language.descriptor, (workspace) => language.create(workspace, configurationEvents));
+      const configurationLanguages = new LanguageSessions(configurationRegistry, currentWorkspace);
+      runConfigs.registerWorkspace(currentWorkspace, root.path);
+      const configuration = new ConfigurationService(root.path, currentWorkspace, { agents: context.agents, skills: new SkillsStore(undefined, root.path), useful: context.usefulFiles, workflows: context.harnesses, tasks: context.tasks, triggers: { service: triggers, rootId: root.id }, languages: configurationLanguages, runs: runConfigs }, acp, async (resource, global) => {
         const encoded = JSON.stringify({ type: "configuration.changed", payload: { rootId, resource, global } } satisfies ServerEvent);
         for (const socket of activeSessions) sendWebSocketData(socket, encoded);
         if (resource.startsWith("tasks/")) await changed();
       });
-      return new AppToolService(context.tasks, acp, currentWorkspace, changed, onCommitMessageChanged, command.currentProvider, context.agents, root.path, aiTimers, rootWorkspace, ownedWorkflow, configuration, async (id) => {
+      try { return await new AppToolService(context.tasks, acp, currentWorkspace, changed, onCommitMessageChanged, command.currentProvider, context.agents, root.path, aiTimers, rootWorkspace, ownedWorkflow, configuration, async (id) => {
         if (!command.currentProvider) throw new CoreError("INVALID_REQUEST", "Skill loading requires a provider conversation");
         const session = await acp.get(command.currentProvider).get(currentWorkspace);
         return new SkillsStore(undefined, root.path).load(currentWorkspace, id, session);
-      }).call(command.name, command.args);
+      }).call(command.name, command.args); } finally { await configurationLanguages.dispose(); }
     });
     bridgeCommands.add(pending);
     void pending.finally(() => bridgeCommands.delete(pending)).catch((error) => console.error("[core] App command cleanup failed", error));
@@ -483,7 +645,7 @@ export async function createServer(host: string, port: number, workspacePath: st
     await storage.drain();
     managedProcesses.off("changed", processesChanged);
     if (!managedProcesses.listenerCount("changed")) managedProcesses.close();
-    rootBatcher.dispose(); terminalHost.closeAll();
+    metadataHints.dispose(); rootBatcher.dispose(); terminalHost.closeAll();
     const results = await Promise.allSettled([schedules.close(), triggers.close(), remoteTransfers.close(), workflowApps.closeAll(), watcher.close(), gitIndexWatcher.close(), runConfigWatcher.close(), appEventWatcher.close(), appCommandWatcher.close()]);
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Core services could not be closed");
@@ -491,7 +653,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   server.on("close", () => { void cleanupServices().catch((error) => console.error("[core] Service cleanup failed", error)); });
   let shutdownPromise: Promise<void> | undefined;
   shutdownHandlers.set(server, () => shutdownPromise ??= (async () => {
-    draining = true;
+    draining = true; metadataHints.dispose();
     const schedulesStopped = schedules.close(); const triggersStopped = triggers.close(); const timersStopped = aiTimers.suspend();
     void schedulesStopped.catch(() => undefined);
     void triggersStopped.catch(() => undefined);
@@ -521,12 +683,32 @@ export async function createServer(host: string, port: number, workspacePath: st
       });
       return;
     }
+    const portTunnels = new PortTunnels((server.address() as { port: number }).port, portTunnelBudget);
+    socket.once("close", () => portTunnels.close());
     const admission = new RequestAdmission(admissionLimit, () => socket.readyState === WebSocket.OPEN);
     socket.once("close", () => admission.close());
     const disposeMonitor = monitorWebSocket(socket, liveness);
     socketMonitors.add(disposeMonitor);
     socket.once("close", () => socketMonitors.delete(disposeMonitor));
     let protocolAccepted = false;
+    let maintenanceOnly = false;
+    let updateCompatibility = { minimum: serverProtocolVersion, maximum: serverProtocolVersion };
+    let sessionMessageLimit: number | undefined;
+    // The durable registry selection is only the default for a new connection. Each connection pins its own
+    // task per root on first use so another client's switch can never change what this one reports or runs.
+    const taskPins = new Map<string, string | null>();
+    const effectiveTaskId = (rootId: string, registry: { tasks: { id: string }[]; selectedTaskId?: string }): string | undefined => {
+      if (!taskPins.has(rootId)) taskPins.set(rootId, registry.selectedTaskId ?? null);
+      const pinned = taskPins.get(rootId);
+      return pinned && registry.tasks.some((task) => task.id === pinned) ? pinned : undefined;
+    };
+    const withConnectionSelection = <T>(rootId: string, result: T): T => {
+      const record = result as unknown as { tasks?: { id: string }[]; selectedTaskId?: string };
+      if (!record || !Array.isArray(record.tasks)) return result;
+      const { selectedTaskId: _durable, ...rest } = record;
+      const taskId = effectiveTaskId(rootId, record as { tasks: { id: string }[]; selectedTaskId?: string });
+      return (taskId ? { ...rest, selectedTaskId: taskId } : rest) as T;
+    };
     let selectedRoot = roots.primary();
     liveRootSelections.connect(socket, selectedRoot.id);
     const makeServices = async (nextWorkspace: string, ownerRootId = selectedRoot.id): Promise<SessionServices> => {
@@ -536,23 +718,28 @@ export async function createServer(host: string, port: number, workspacePath: st
       workspaceOwners.set(path.resolve(nextWorkspace), ownerRootId);
       runConfigs.registerWorkspace(nextWorkspace, roots.get(ownerRootId).path);
       runConfigWatcher.add(runConfigs.directory(nextWorkspace, "local"));
-      const workspaceState = new WorkspaceStateStore(nextWorkspace, process.env.REMOTE_IDE_STATE_DIR);
+      const workspaceState = new WorkspaceStateStore(nextWorkspace, process.env.HATOPAD_STATE_DIR);
       const search = new WorkspaceSearch(filesystem);
       const git = new GitService(nextWorkspace);
-      const jdt = new JdtLanguageService(filesystem);
-      const java = new JavaProjectService(filesystem, workspaceState, (event) => {
-      if (socket.readyState !== WebSocket.OPEN) return;
-      const message: ServerEvent = event.type === "output" ? { type: "java.output", payload: { rootId: ownerRootId, data: event.data } }
-        : event.type === "debug" ? { type: "java.debug.state", payload: { ...event.state, rootId: ownerRootId } }
-        : { type: "java.exit", payload: { rootId: ownerRootId, exitCode: event.exitCode, signal: event.signal } };
-      sendWebSocketData(socket, JSON.stringify(message));
-      }, async () => {
-        try { await jdt.rebuild(); }
-        finally { if (socket.readyState === WebSocket.OPEN) sendWebSocketData(socket, JSON.stringify({ type: "java.semantic.changed", payload: { rootId: ownerRootId } } satisfies ServerEvent)); }
+      const send = (message: ServerEvent) => { if (socket.readyState === WebSocket.OPEN) sendWebSocketData(socket, JSON.stringify(message)); };
+      const eventsFor = (language: string): LanguageServiceEvents => ({
+        output: (data, stream) => send({ type: "language.output", payload: { rootId: ownerRootId, language, data, stream } }),
+        exit: (exitCode, signal) => send({ type: "language.exit", payload: { rootId: ownerRootId, language, exitCode, signal } }),
+        debugState: (state) => send({ type: "language.debug.state", payload: { ...state, rootId: ownerRootId, language } }),
+        semanticChanged: () => send({ type: "language.semantic.changed", payload: { rootId: ownerRootId, language } })
       });
+      const languageRegistry = new LanguageRegistry();
+      for (const language of BUILT_IN_LANGUAGES) {
+        languageRegistry.register(language.descriptor, (workspace) => language.create({ workspace, filesystem, state: workspaceState, events: eventsFor(language.descriptor.id), rootId: ownerRootId, emit: send }));
+      }
+      for (const contribution of plugins.languages) {
+        const language = contribution.descriptor.id;
+        languageRegistry.register(contribution.descriptor, (workspace) => contribution.create(workspace, eventsFor(language)));
+      }
+      const languages = new LanguageSessions(languageRegistry, nextWorkspace);
       const checkpoints = checkpointStore(nextWorkspace); await checkpoints.recover();
-      if (socket.readyState !== WebSocket.OPEN) { java.close(); jdt.close(); throw new CoreError("INVALID_REQUEST", "Session closed while services were being prepared"); }
-      return { workspacePath: nextWorkspace, filesystem, search, git, java, jdt, workspaceState, checkpoints };
+      if (socket.readyState !== WebSocket.OPEN) { await languages.dispose(); throw new CoreError("INVALID_REQUEST", "Session closed while services were being prepared"); }
+      return { workspacePath: nextWorkspace, filesystem, search, git, languages, plugins: plugins.status, workspaceState, checkpoints };
     };
     let servicesPromise: Promise<SessionServices> | undefined;
     /** Resolves once no task switch is in flight for this connection. */
@@ -605,7 +792,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     const initializeServices = async () => {
       const registry = await tasks.list();
       admission.assertOpen();
-      const selectedWorkspace = registry.selectedTaskId ? tasks.taskPath(registry.selectedTaskId) : rootWorkspace;
+      const pinnedTaskId = effectiveTaskId(selectedRoot.id, registry);
+      const selectedWorkspace = pinnedTaskId ? tasks.taskPath(pinnedTaskId) : rootWorkspace;
       terminalSubscriptions.set(socket, { rootId: selectedRoot.id, workspace: selectedWorkspace, terminalIds: new Set() });
       await commitSwitchedWatch(selectedRoot.id, await prepareSwitchedWatch(selectedWorkspace));
       return makeServices(selectedWorkspace);
@@ -624,22 +812,46 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (parsed.rootId !== undefined && (typeof parsed.rootId !== "string" || !parsed.rootId)) throw new CoreError("INVALID_REQUEST", "rootId must be a nonempty string");
         validateRequestPayload(parsed.type, parsed.payload);
         console.log(`[core] request ${parsed.id}: ${parsed.type}`);
-        if (parsed.type === "protocol.handshake") {
+        if (parsed.type === "protocol.handshake" || parsed.type === "protocol.maintenance") {
           if (protocolAccepted) throw new CoreError("INVALID_REQUEST", "Protocol handshake has already completed");
           try { access.authenticate(parsed.payload.token); }
           catch (error) { setTimeout(() => socket.close(1008, "Authentication failed"), 0); throw error; }
+          const limitRequested = validSessionMessageLimit(parsed.payload.sessionMessageLimit);
           const result = protocolHandshake(parsed.payload.compatibility);
           const compatible = result.compatible;
+          maintenanceOnly = parsed.type === "protocol.maintenance";
+          updateCompatibility = parsed.payload.compatibility;
+          if (maintenanceOnly) {
+            protocolAccepted = true;
+            sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { ...result, maintenance: true } }));
+            return;
+          }
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result } satisfies Response));
           if (!compatible) setTimeout(() => socket.close(1008, "Incompatible protocol"), 0);
           else {
             protocolAccepted = true;
+            sessionMessageLimit = limitRequested;
             servicesPromise = initializeServices();
             void servicesPromise.catch(() => undefined);
           }
           return;
         }
         if (!protocolAccepted) throw new CoreError("INVALID_REQUEST", "Complete protocol.handshake before sending requests");
+        if (parsed.type.startsWith("portTunnel.")) {
+          if (!protocolHandshake(updateCompatibility).compatible) throw new CoreError("INVALID_REQUEST", "Port tunnels require compatible Core and Gateway versions");
+          releaseAdmission = admission.acquire();
+          const result = await portTunnels.handle(parsed.type, parsed.payload);
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result })); return;
+        }
+        if (maintenanceOnly) {
+          if (!["core.update.check", "core.update.apply", "protocol.keepAlive"].includes(parsed.type)) throw new CoreError("INVALID_REQUEST", "Maintenance connections only allow Core updates");
+          if (parsed.type !== "protocol.keepAlive") releaseAdmission = admission.acquire();
+          const result = parsed.type === "core.update.check" ? await updates.check(parsed.payload, false, updateCompatibility)
+            : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload, updateCompatibility)
+            : parsed.type === "protocol.keepAlive" ? {} : undefined;
+          if (result === undefined) throw new CoreError("INVALID_REQUEST", "Maintenance connections only allow Core updates");
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result })); return;
+        }
         // Browser-compatible liveness probe must not wait for workspace services or switches.
         if (parsed.type === "protocol.keepAlive") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: {} } satisfies Response<"protocol.keepAlive">));
@@ -648,6 +860,12 @@ export async function createServer(host: string, port: number, workspacePath: st
         releaseAdmission = admission.acquire();
         if (parsed.type === "workspace.roots") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { roots: roots.list(), selectedRootId: selectedRoot.id } }));
+          return;
+        }
+        if (parsed.type === "overview.events") { if (parsed.payload.rootId) roots.get(parsed.payload.rootId); sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: feed.page(parsed.payload) } satisfies Response<"overview.events">)); return; }
+        if (parsed.type === "overview.work") { sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewWork(parsed.payload) } satisfies Response<"overview.work">)); return; }
+        if (parsed.type === "overview.summary") {
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: await overviewSummary(parsed.payload) } satisfies Response<"overview.summary">));
           return;
         }
         if (parsed.type === "workspace.addRoot") {
@@ -661,7 +879,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           const target = roots.get(parsed.payload.rootId);
           const targetContext = contextFor(target.id);
           if (workflowApps.hasWorkspace(target.path)) throw new CoreError("INVALID_REQUEST", "Kill running workflow apps before removing this root");
-          const [targetTasks, targetOptions] = await Promise.all([targetContext.tasks.list(), new WorkspaceStateStore(target.path, process.env.REMOTE_IDE_STATE_DIR).load()]);
+          const [targetTasks, targetOptions] = await Promise.all([targetContext.tasks.list(), new WorkspaceStateStore(target.path, process.env.HATOPAD_STATE_DIR).load()]);
           const blocker = rootRemovalBlocker({ tasks: targetTasks.tasks.length, openFiles: targetOptions.openFiles.length, terminals: terminalHost.hasWorkspace(target.path), transfers: remoteTransfers.hasWorkspace(target.path) });
           if (blocker) throw new CoreError("INVALID_REQUEST", blocker);
           admission.assertOpen();
@@ -680,14 +898,14 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (parsed.type === "filesystem.searchRoots") {
           const rootIds = [...new Set(parsed.payload.rootIds)]; if (!rootIds.length || rootIds.length > 16) throw new CoreError("INVALID_REQUEST", "Search must name between 1 and 16 registered roots");
           const results = await Promise.all(rootIds.map(async (rootId) => {
-            const root = roots.get(rootId); const context = contextFor(rootId); const taskRegistry = await context.tasks.list(); const target = taskRegistry.selectedTaskId ? context.tasks.taskPath(taskRegistry.selectedTaskId) : root.path;
+            const root = roots.get(rootId); const context = contextFor(rootId); const taskRegistry = await context.tasks.list(); const pinned = effectiveTaskId(rootId, taskRegistry); const target = pinned ? context.tasks.taskPath(pinned) : root.path;
             const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(target); const result = await new WorkspaceSearch(filesystem).search(parsed.payload.query, parsed.payload.path, parsed.payload.matchCase, { include: parsed.payload.include, exclude: parsed.payload.exclude });
             return { matches: result.matches.map((match) => ({ ...match, rootId })), truncated: result.truncated };
           }));
           const matches = results.flatMap((result) => result.matches).slice(0, 500); sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: { matches, truncated: results.some((result) => result.truncated) || results.reduce((count, result) => count + result.matches.length, 0) > matches.length } })); return;
         }
         if (parsed.type === "filesystem.readRootFile") {
-          const root = roots.get(parsed.payload.targetRootId); const context = contextFor(root.id); const taskRegistry = await context.tasks.list(); const target = taskRegistry.selectedTaskId ? context.tasks.taskPath(taskRegistry.selectedTaskId) : root.path;
+          const root = roots.get(parsed.payload.targetRootId); const context = contextFor(root.id); const taskRegistry = await context.tasks.list(); const pinned = effectiveTaskId(root.id, taskRegistry); const target = pinned ? context.tasks.taskPath(pinned) : root.path;
           const filesystem = new WorkspaceFileSystem(); await filesystem.initialize(target); const file = await filesystem.read(parsed.payload.path); sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: { rootId: root.id, path: parsed.payload.path, ...file } })); return;
         }
         // Requests are handled concurrently, so anything that arrives while a task switch is
@@ -713,46 +931,63 @@ export async function createServer(host: string, port: number, workspacePath: st
             try { candidate = await transactionalRootSelection(async () => {
               const selectedTasks = parsed.payload.preserveTaskSelection ? await rootContext.tasks.list() : undefined;
               admission.assertOpen();
-              const nextWorkspace = selectedTasks?.selectedTaskId ? rootContext.tasks.taskPath(selectedTasks.selectedTaskId) : nextRoot.path;
+              const preservedTaskId = selectedTasks ? effectiveTaskId(nextRoot.id, selectedTasks) : undefined;
+              const nextWorkspace = preservedTaskId ? rootContext.tasks.taskPath(preservedTaskId) : nextRoot.path;
               const nextServices = await makeServices(nextWorkspace, nextRoot.id);
               let nextWatch: SwitchedWatch | undefined;
               try {
                 nextWatch = await prepareSwitchedWatch(nextServices.workspacePath, nextRoot.id);
-                const result = { root: nextRoot, workspace: nextServices.workspacePath, projectName: nextRoot.alias, tree: await nextServices.filesystem.listTree(parsed.payload.includeIgnored === true), options: await nextServices.workspaceState.load() };
+                const result = { root: nextRoot, workspace: nextServices.workspacePath, projectName: nextRoot.alias, tree: parsed.payload.includeTree === false ? [] : await nextServices.filesystem.listTree(parsed.payload.includeIgnored === true), options: await nextServices.workspaceState.load() };
                 return { nextServices, nextWatch, result };
-              } catch (error) { nextServices.java.close(); nextServices.jdt.close(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch); throw error; }
+              } catch (error) { await nextServices.languages.dispose(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch); throw error; }
             }, async ({ nextServices, nextWatch }) => {
               admission.assertOpen();
               await commitSwitchedWatch(nextRoot.id, nextWatch);
               admission.assertOpen();
-              if (!parsed.payload.preserveTaskSelection) await selectRootWorkspace(rootContext.tasks);
+              if (!parsed.payload.preserveTaskSelection) { await selectRootWorkspace(rootContext.tasks); taskPins.set(nextRoot.id, null); }
               admission.assertOpen();
               selectedRoot = nextRoot; liveRootSelections.select(socket, nextRoot.id);
               servicesPromise = Promise.resolve(nextServices);
+              terminalWatchers.disconnect(socket);
               terminalSubscriptions.set(socket, { rootId: nextRoot.id, workspace: nextServices.workspacePath, terminalIds: new Set() });
-              previousServices.java.close(); previousServices.jdt.close();
+              trackCleanup(previousServices.languages.dispose());
             }, async ({ nextServices, nextWatch }) => {
-              nextServices.java.close(); nextServices.jdt.close(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch);
+              await nextServices.languages.dispose(); if (nextWatch) await closeSwitchedWatch(nextRoot.id, nextWatch);
             }); } catch (error) { liveRootSelections.cancelSelection(socket); throw error; }
             services = candidate.nextServices; rootSelectionResult = candidate.result;
-          } else if (parsed.type === "tasks.switch" || (parsed.type === "tasks.delete" && (await rootContext.tasks.list()).selectedTaskId === parsed.payload.taskId)) {
+          } else if (parsed.type === "tasks.switch" || (parsed.type === "tasks.delete" && effectiveTaskId(requestRoot.id, await rootContext.tasks.list()) === parsed.payload.taskId)) {
             admission.assertOpen();
             const selected = await rootContext.tasks.select(parsed.type === "tasks.switch" ? parsed.payload.taskId : undefined);
-            services.java.close(); services.jdt.close();
+            taskPins.set(requestRoot.id, parsed.type === "tasks.switch" ? parsed.payload.taskId ?? null : null);
+            trackCleanup(services.languages.dispose());
             servicesPromise = makeServices(selected.workspace);
             services = await servicesPromise!;
+            terminalWatchers.disconnect(socket);
             terminalSubscriptions.set(socket, { rootId: selectedRoot.id, workspace: selected.workspace, terminalIds: new Set() });
             await commitSwitchedWatch(selectedRoot.id, await prepareSwitchedWatch(selected.workspace));
           }
         } finally { release?.(); }
         admission.assertOpen();
-        const result = parsed.type === "workspace.selectRoot"
+        if (parsed.type === "terminal.watch.ack" || parsed.type === "terminal.watch.detach") {
+          const scope = { rootId: requestRoot.id, workspace: services.workspacePath };
+          if (typeof parsed.payload.watchId !== "string") throw new CoreError("INVALID_REQUEST", "watchId must be a string");
+          if (parsed.type === "terminal.watch.ack") terminalWatchers.acknowledge(socket, scope, parsed.payload.watchId, parsed.payload.sequence);
+          else terminalWatchers.detach(socket, scope, parsed.payload.watchId);
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: {} })); return;
+        }
+        let result = parsed.type === "workspace.selectRoot"
           ? rootSelectionResult!
           : parsed.type === "storage.scan" ? storage.scan()
           : parsed.type === "storage.status" ? storage.status()
           : parsed.type === "storage.cleanup" ? storage.cleanup(parsed.payload)
-          : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
-        if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
+          : parsed.type === "core.update.check" ? await updates.check(parsed.payload, false, updateCompatibility) : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload, updateCompatibility) : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
+        if (parsed.type === "terminal.watch.attach" && parsed.payload.follow === true && (result as { state: string }).state === "available") {
+          const watchId = terminalWatchers.attach(socket, { rootId: requestRoot.id, workspace: services.workspacePath }, parsed.payload.terminalId);
+          result = { ...(result as object), watchId };
+        }
+        if (parsed.type === "tasks.list" || parsed.type === "tasks.switch" || parsed.type === "tasks.delete") result = withConnectionSelection(requestRoot.id, result);
+        if (parsed.type === "git.commit") feed.push("commit-made", selectedRoot.id);
+        if (["tasks.create", "tasks.createFromPrompt", "tasks.status", "tasks.rename", "tasks.archive", "tasks.delete"].includes(parsed.type)) { recordTaskChanges(selectedRoot.id); const encoded = JSON.stringify({ type: "tasks.changed", payload: { rootId: selectedRoot.id } } satisfies ServerEvent); for (const session of activeSessions) sendWebSocketData(session, encoded); }
         const terminalSubscription = terminalSubscriptions.get(socket);
         if (terminalSubscription && parsed.type === "terminal.create") { const terminalId = (result as { terminalId: string }).terminalId; terminalSubscription.terminalIds.add(terminalId); terminalOwners.set(terminalId, { socket, rootId: parsed.rootId, workspace: services.workspacePath }); }
         if (terminalSubscription && parsed.type === "terminal.attach" && (result as { state: string }).state === "available") { terminalSubscription.terminalIds.add(parsed.payload.terminalId); terminalOwners.set(parsed.payload.terminalId, { socket, rootId: parsed.rootId, workspace: services.workspacePath }); }
@@ -761,7 +996,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           const terminalId = (result as { config: { terminalId?: string } }).config.terminalId; if (terminalId) terminalSubscription.terminalIds.add(terminalId);
         }
         if (parsed.type === "workspace.open") activeSessions.add(socket);
-        sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result }));
+        sendWebSocketData(socket, JSON.stringify({ id, ok: true, rootId: parsed.rootId, result: boundSessionsInResult(result, sessionMessageLimit) }));
       } catch (error) {
         const coreError = error instanceof CoreError ? error : new CoreError("INVALID_REQUEST", error instanceof Error ? error.message : "Invalid request");
         console.error(`[core] error ${id}: ${coreError.code} ${coreError.message}`);
@@ -774,12 +1009,13 @@ export async function createServer(host: string, port: number, workspacePath: st
     socket.on("close", () => {
       activeSessions.delete(socket);
       liveRootSelections.disconnect(socket);
+      terminalWatchers.disconnect(socket);
       terminalSubscriptions.delete(socket);
       for (const [id, owner] of terminalOwners) if (owner.socket === socket) terminalOwners.delete(id);
       const cleanup = (async () => {
         await Promise.all([...switchedWatches].map(([rootId, subscription]) => closeSwitchedWatch(rootId, subscription)));
         const services = await servicesPromise?.catch(() => undefined);
-        services?.java.close(); services?.jdt.close();
+        await services?.languages.dispose();
       })();
       sessionCleanups.add(cleanup);
       void cleanup.finally(() => sessionCleanups.delete(cleanup)).catch((error) => console.error("[core] Session cleanup failed", error));
@@ -806,8 +1042,16 @@ function parseRequest(data: RawData): Request {
   return value as Request;
 }
 
+/** Optional per-request cap for phone-sized reads; never exceeds the Core-wide file limit. */
+function optionalByteLimit(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > MAX_FILE_SIZE) throw new CoreError("INVALID_REQUEST", `maxBytes must be an integer from 1 to ${MAX_FILE_SIZE}`);
+  return value;
+}
+
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
-  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot") return;
+  if (request.type.startsWith("portTunnel.")) return;
+  if (request.type === "protocol.maintenance" || request.type === "core.update.check" || request.type === "core.update.apply" || request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }
@@ -844,7 +1088,30 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (!(await agents.list(task ? tasks.taskPath(task.id) : rootWorkspace)).some((item) => item.scope === preset.scope && item.name === preset.name)) throw new CoreError("FILE_NOT_FOUND", "Agent preset does not exist in the selected task");
     }
   };
-  const { filesystem, search, git, java, jdt, workspaceState, workspacePath, checkpoints } = services;
+  const assertAutomationOwner = (kind: "schedule" | "trigger", id: string) => {
+    const item = kind === "schedule" ? schedules.list().find(item => item.id === id) : triggers.list().find(item => item.id === id);
+    if (!item || item.rootId !== request.rootId) throw new CoreError("FILE_NOT_FOUND", "Automation no longer exists in this root");
+  };
+  const ownedTimers = async () => {
+    const workspaces = new Set([path.resolve(rootWorkspace), ...(await tasks.list()).tasks.map(task => path.resolve(tasks.taskPath(task.id)))]);
+    const workflowIds = new Set((await harnesses.summaries()).map(run => run.id));
+    return (await aiTimers.list()).filter(timer => workspaces.has(path.resolve(timer.workspace)) || (timer.workflowRunId !== undefined && workflowIds.has(timer.workflowRunId)));
+  };
+  const assertTimerOwner = async (id: string) => {
+    if (!(await ownedTimers()).some(timer => timer.id === id)) throw new CoreError("FILE_NOT_FOUND", "Timer no longer exists in this root");
+  };
+  const automationInput = (input: unknown, kind: "schedule" | "trigger") => {
+    if (!input || typeof input !== "object" || Array.isArray(input)) throw new CoreError("INVALID_REQUEST", "Automation input must be an object");
+    const keys = kind === "schedule" ? ["name", "dueAt", "intervalSeconds", "taskId", "action"] : ["name", "source", "taskId", "action", "debounceSeconds", "maxFiresPerHour"];
+    if (Object.keys(input).some(key => !keys.includes(key))) throw new CoreError("INVALID_REQUEST", "Unknown automation input field");
+  };
+  if (["timers.list", "timers.cancel", "timers.fire"].includes(request.type)) {
+    const scoped = (request.payload as { rootScoped?: unknown }).rootScoped;
+    if (scoped !== undefined && typeof scoped !== "boolean") throw new CoreError("INVALID_REQUEST", "rootScoped must be boolean");
+  }
+  const { filesystem, search, git, workspaceState, workspacePath, checkpoints } = services;
+  // Legacy java.* requests resolve the Java service through the registry; language.* is the generic path.
+  const javaOf = () => services.languages.get("java") as JavaLanguageService;
   if (request.type !== "workspace.open") filesystem.getWorkspace();
   if (request.type === "filesystem.remoteTransferBegin") return remoteTransfers.begin(workspacePath, request.payload);
   if (request.type === "filesystem.remoteTransferCancel") return { cancelled: remoteTransfers.cancel(request.payload.token) };
@@ -859,12 +1126,56 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
   }
   switch (request.type) {
     case "workspace.open": {
-      const tree = await filesystem.open(workspacePath, request.payload.includeIgnored === true);
+      const tree = request.payload.includeTree === false ? (await filesystem.initialize(workspacePath), [] as FileTreeNode[]) : await filesystem.open(workspacePath, request.payload.includeIgnored === true);
       return { workspace: filesystem.getWorkspace(), projectName: path.basename(path.resolve(rootWorkspace)), tree, options: await workspaceState.load() };
     }
     case "workspace.saveOptions": {
       await workspaceState.save(request.payload.options);
       return {};
+    }
+    case "inventory.page": {
+      const { kind } = request.payload;
+      if (!inventoryKinds.includes(kind)) throw new CoreError("INVALID_REQUEST", "Choose an inventory kind");
+      inventoryPage(request.rootId!, kind, [], request.payload);
+      let rows: import("@hatopad/protocol").InventoryRow[] = [], truncated = false;
+      const registry = await tasks.list();
+      const targets = [{ workspace: rootWorkspace, taskId: undefined as string | undefined }, ...registry.tasks.slice(0, 500).map(task => ({ workspace: tasks.taskPath(task.id), taskId: task.id }))];
+      switch (kind) {
+        case "tasks": rows = registry.tasks.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch, taskId: task.id })); break;
+        case "workflows": {
+          const [definitions, runs] = await Promise.all([harnesses.list(), harnesses.summaries()]); const latest = new Map<string, string>();
+          for (const run of [...runs].sort((a, b) => b.createdAt.localeCompare(a.createdAt))) if (!latest.has(run.harnessId)) latest.set(run.harnessId, run.status);
+          rows = definitions.map(item => ({ id: item.id, name: item.name, detail: `${item.blocks.length} blocks`, ...(latest.has(item.id) ? { state: latest.get(item.id) } : {}) })); break;
+        }
+        case "runs": { const names = new Map((await harnesses.list()).map(item => [item.id, item.name])); rows = (await harnesses.summaries()).map(item => ({ id: item.id, runId: item.id, harnessId: item.harnessId, name: names.get(item.harnessId) ?? item.harnessId, state: item.status, detail: item.createdAt, createdAt: item.createdAt, startedAt: item.startedAt, completedAt: item.completedAt, ...(item.binding?.taskId ? { taskId: item.binding.taskId } : {}) })); break; }
+        case "schedules": rows = schedules.list().filter(item => item.rootId === request.rootId).map(item => ({ id: item.id, name: item.name, state: item.enabled ? "enabled" : "disabled", detail: item.dueAt, ...(item.taskId ? { taskId: item.taskId } : {}) })); break;
+        case "triggers": rows = triggers.list().filter(item => item.rootId === request.rootId).map(item => ({ id: item.id, name: item.name, state: item.firing ? "firing" : item.enabled ? "armed" : "disabled", detail: item.lastError ?? item.lastSkipped ?? `${item.fireCount} fires`, ...(item.taskId ? { taskId: item.taskId } : {}) })); break;
+        case "timers": rows = (await ownedTimers()).map(item => ({ id: item.id, name: item.provider, detail: item.dueAt, ...(item.workflowRunId ? { runId: item.workflowRunId } : {}), ...(targets.find(target => target.workspace === item.workspace)?.taskId ? { taskId: targets.find(target => target.workspace === item.workspace)!.taskId } : {}) })); break;
+        case "terminals":
+          truncated = registry.tasks.length > 500;
+          rows = targets.flatMap(target => terminalHost.list(target.workspace).map(terminal => { const item = watchSummary(terminal); return { id: item.terminalId, terminalId: item.terminalId, name: item.displayName ?? "Terminal", state: item.status, ...(target.taskId ? { taskId: target.taskId } : {}) }; })); break;
+        case "runConfigs": rows = (await runConfigs.list(workspacePath)).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, state: item.status, detail: item.scope, ...(item.terminalId ? { terminalId: item.terminalId } : {}) })); break;
+        case "useful": rows = (await usefulFiles.list()).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, detail: item.scope })); break;
+        case "agents": rows = (await agents.list(workspacePath)).map(item => ({ id: `${item.scope}/${item.name}`, name: item.name, detail: `${item.scope}${item.agent.mcpServers?.length ? ` · MCP: ${item.agent.mcpServers.join(", ").slice(0, 300)}` : ""}` })); break;
+        case "skills": { const catalog = await new SkillsStore(undefined, rootWorkspace).list(workspacePath); rows = catalog.skills.map(item => ({ id: item.id, name: item.title || item.name, state: catalog.policy.allowed.includes(item.id) ? "allowed" : "disabled", detail: item.description })); break; }
+      }
+      return inventoryPage(request.rootId!, kind, rows, request.payload, truncated);
+    }
+    case "tasks.page": {
+      const registry = await tasks.list(), status = request.payload.status ?? "all";
+      if (request.payload.sort !== undefined && !["name", "branch"].includes(request.payload.sort)) throw new CoreError("INVALID_REQUEST", "Choose a task sort order");
+      if (!["active", "finished", "archived", "all"].includes(status)) throw new CoreError("INVALID_REQUEST", "Choose a task state");
+      inventoryPage(`${request.rootId}:${status}`, "tasks", [], request.payload);
+      const query = (request.payload.query ?? "").toLowerCase();
+      const filtered = registry.tasks.filter(task => (status === "all" || (status === "archived" ? task.archived : !task.archived && task.status === status)) && (!query || `${task.name} ${task.branch}`.toLowerCase().includes(query)));
+      const page = inventoryPage(`${request.rootId}:${status}`, "tasks", filtered.map(task => ({ id: task.id, name: task.name, state: task.archived ? "archived" : task.status, detail: task.branch })), { ...request.payload, query: undefined, order: request.payload.sort === "branch" ? "detail" : "name" });
+      const byId = new Map(filtered.map(task => [task.id, task]));
+      return { tasks: page.rows.map(row => { const task = byId.get(row.id)!; return { ...task, name: task.name.slice(0, 180), branch: task.branch.slice(0, 4096), baseBranch: task.baseBranch.slice(0, 4096) }; }), total: page.total, ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}), ...(page.restarted ? { restarted: true } : {}) };
+    }
+    case "tasks.read": {
+      if (typeof request.payload.taskId !== "string" || !request.payload.taskId || request.payload.taskId.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a task");
+      const task = (await tasks.list()).tasks.find(task => task.id === request.payload.taskId);
+      if (!task) throw new CoreError("FILE_NOT_FOUND", "Task is unavailable in this root"); return { task };
     }
     case "tasks.list": return tasks.list();
     case "tasks.create": return { task: await tasks.create(request.payload.branch, request.payload.existing, request.payload.remote) };
@@ -895,30 +1206,74 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (request.payload.taskId && !task) throw new CoreError("FILE_NOT_FOUND", "Task no longer exists");
       return { agents: await agents.list(task ? tasks.taskPath(task.id) : rootWorkspace) };
     }
-    case "schedules.list": return { schedules: schedules.list() };
+    case "schedules.page": return automationPage("schedules", request.rootId!, schedules.list(true).filter(item => item.rootId === request.rootId), summarizeSchedule, request.payload);
+    case "schedules.read": {
+      const id = request.payload.scheduleId; if (typeof id !== "string" || !id || id.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a schedule");
+      const schedule = schedules.list(true).find(item => item.id === id && item.rootId === request.rootId); if (!schedule) throw new CoreError("FILE_NOT_FOUND", "Schedule is unavailable in this root");
+      return { schedule };
+    }
+    case "triggers.page": return automationPage("triggers", request.rootId!, triggers.list(true).filter(item => item.rootId === request.rootId), summarizeTrigger, request.payload);
+    case "triggers.read": {
+      const id = request.payload.triggerId; if (typeof id !== "string" || !id || id.length > 128) throw new CoreError("INVALID_REQUEST", "Choose a trigger");
+      const trigger = triggers.list(true).find(item => item.id === id && item.rootId === request.rootId); if (!trigger) throw new CoreError("FILE_NOT_FOUND", "Trigger is unavailable in this root");
+      return { trigger };
+    }
+    case "schedules.list": return { schedules: schedules.list(true).filter(item => item.rootId === request.rootId) };
     case "schedules.create": {
+      automationInput(request.payload, "schedule");
       validateSchedule(request.payload);
       await validateActionTarget(request.payload);
       return { schedule: await schedules.create(request.rootId!, request.payload) };
     }
-    case "schedules.enabled": return { schedule: await schedules.setEnabled(request.payload.scheduleId, request.payload.enabled) };
-    case "schedules.delete": return { deleted: await schedules.delete(request.payload.scheduleId) };
-    case "triggers.list": return { triggers: triggers.list() };
+    case "schedules.update": {
+      automationInput(request.payload.input, "schedule");
+      validateSchedule(request.payload.input); await validateActionTarget(request.payload.input);
+      return { schedule: await schedules.update(request.payload.scheduleId, request.rootId!, request.payload.input, request.payload.enabled, request.payload.expectedRevision) };
+    }
+    case "triggers.update": {
+      automationInput(request.payload.input, "trigger");
+      validateTrigger(request.payload.input); await validateActionTarget(request.payload.input);
+      assertAutomationOwner("trigger", request.payload.triggerId);
+      if (typeof request.payload.expectedRevision !== "string" || !request.payload.expectedRevision) throw new CoreError("INVALID_REQUEST", "Expected revision is required");
+      const input = request.payload.input;
+      return { trigger: await triggers.update(request.payload.triggerId, { ...input, source: { ...input.source, path: path.resolve(rootWorkspace, input.source.path) } }, request.payload.enabled, request.payload.expectedRevision, request.rootId!) };
+    }
+    case "schedules.enabled": { assertAutomationOwner("schedule", request.payload.scheduleId); return { schedule: await schedules.setEnabled(request.payload.scheduleId, request.payload.enabled) }; }
+    case "schedules.delete": { assertAutomationOwner("schedule", request.payload.scheduleId); return { deleted: await schedules.delete(request.payload.scheduleId) }; }
+    case "triggers.history": { assertAutomationOwner("trigger", request.payload.triggerId); return triggers.history(request.payload.triggerId, request.payload.limit, request.payload.before); }
+    case "triggers.list": return { triggers: triggers.list(true).filter(item => item.rootId === request.rootId) };
     case "triggers.create": {
+      automationInput(request.payload, "trigger");
       validateTrigger(request.payload);
       await validateActionTarget(request.payload);
       const source = { ...request.payload.source, path: path.resolve(rootWorkspace, request.payload.source.path) };
       return { trigger: await triggers.create(request.rootId!, { ...request.payload, source }) };
     }
-    case "triggers.enabled": return { trigger: await triggers.setEnabled(request.payload.triggerId, request.payload.enabled) };
-    case "triggers.delete": return { deleted: await triggers.delete(request.payload.triggerId) };
-    case "triggers.fire": return { fired: await triggers.fire(request.payload.triggerId) };
-    case "schedules.fire": return { fired: await schedules.fire(request.payload.scheduleId, true) };
+    case "triggers.enabled": { assertAutomationOwner("trigger", request.payload.triggerId); return { trigger: await triggers.setEnabled(request.payload.triggerId, request.payload.enabled) }; }
+    case "triggers.delete": { assertAutomationOwner("trigger", request.payload.triggerId); return { deleted: await triggers.delete(request.payload.triggerId) }; }
+    case "triggers.fire": { assertAutomationOwner("trigger", request.payload.triggerId); return { fired: await triggers.fire(request.payload.triggerId) }; }
+    case "schedules.fire": { assertAutomationOwner("schedule", request.payload.scheduleId); return { fired: await schedules.fire(request.payload.scheduleId, true) }; }
     case "processes.list": return { processes: await listProjectApps(rootWorkspace, tasks) };
     case "processes.kill": return { killed: await killProjectApp(rootWorkspace, request.payload.processId) };
-    case "timers.list": return { timers: await aiTimers.list() };
-    case "timers.cancel": return { cancelled: await aiTimers.cancel(request.payload.timerId) };
-    case "timers.fire": return { fired: await aiTimers.fireById(request.payload.timerId) };
+    case "timers.create": {
+      const { provider, prompt, seconds, dueAt, taskId } = request.payload;
+      if (typeof provider !== "string" || !provider || typeof prompt !== "string" || !prompt.trim() || prompt.length > 64_000 || (seconds === undefined) === (dueAt === undefined)) throw new CoreError("INVALID_REQUEST", "Choose a provider, prompt and exactly one timer time");
+      acp.get(provider);
+      if (dueAt !== undefined && typeof dueAt !== "string") throw new CoreError("INVALID_REQUEST", "Timer time must be an ISO timestamp");
+      const due = seconds !== undefined ? Date.now() + seconds * 1000 : Date.parse(dueAt!);
+      if (seconds !== undefined && (!Number.isInteger(seconds) || seconds < 1 || seconds > 604_800)) throw new CoreError("INVALID_REQUEST", "Timer delay must be 1 second to 7 days");
+      if (!Number.isFinite(due) || due <= Date.now() || due > Date.now() + 604_800_000) throw new CoreError("INVALID_REQUEST", "Timer time must be in the next 7 days");
+      const target = await permissionTargetWorkspace(tasks, rootWorkspace, taskId);
+      return { timer: await aiTimers.scheduleAt(target, provider, prompt, new Date(due).toISOString()) };
+    }
+    case "timers.list": {
+      if (request.payload.rootScoped !== undefined && typeof request.payload.rootScoped !== "boolean") throw new CoreError("INVALID_REQUEST", "rootScoped must be boolean");
+      if (!request.payload.rootScoped) return { timers: await aiTimers.list() };
+      const registry = await tasks.list(), timerTargets = new Map(registry.tasks.map(task => [tasks.taskPath(task.id), task.id]));
+      return { timers: (await ownedTimers()).map(timer => ({ ...timer, ...(timerTargets.get(timer.workspace) ? { taskId: timerTargets.get(timer.workspace) } : {}) })) };
+    }
+    case "timers.cancel": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { cancelled: await aiTimers.cancel(request.payload.timerId) }; }
+    case "timers.fire": { if (request.payload.rootScoped === true) await assertTimerOwner(request.payload.timerId); return { fired: await aiTimers.fireById(request.payload.timerId) }; }
     case "timers.cancelAll": {
       let pausedSchedules = 0;
       for (const schedule of schedules.list()) if (schedule.enabled) { await schedules.setEnabled(schedule.id, false); pausedSchedules += 1; }
@@ -944,7 +1299,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "tasks.switch": {
       const registry = await tasks.list();
-      return { workspace: workspacePath, projectName: path.basename(path.resolve(rootWorkspace)), tree: await filesystem.listTree(request.payload.includeIgnored === true), options: await workspaceState.load(), ...registry };
+      return { workspace: workspacePath, projectName: path.basename(path.resolve(rootWorkspace)), tree: request.payload.includeTree === false ? [] : await filesystem.listTree(request.payload.includeIgnored === true), options: await workspaceState.load(), ...registry };
     }
     case "skills.list": return new SkillsStore(undefined, rootWorkspace).list(workspacePath);
     case "skills.read": return { content: await new SkillsStore(undefined, rootWorkspace).readResource(request.payload.id, workspacePath, request.payload.path) };
@@ -971,15 +1326,45 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (request.payload.credentials !== "environment" && request.payload.credentials !== "login") throw new CoreError("INVALID_REQUEST", "Credentials must be environment or login");
       return { installation: await acp.get(request.payload.provider).setCredentials(request.payload.credentials) };
     }
-    case "ai.get": return { session: await acp.get(request.payload.provider).get(workspacePath) };
+    case "ai.get": {
+      if (request.payload.summary !== undefined && typeof request.payload.summary !== "boolean") throw new CoreError("INVALID_REQUEST", "summary must be a boolean");
+      const session = await acp.get(request.payload.provider).get(workspacePath);
+      return { session: request.payload.summary === true ? limitSessionMessages(session, 0) : session };
+    }
+    case "ai.messages": {
+      const session = await acp.get(request.payload.provider).get(workspacePath);
+      return { ...(session.id ? { sessionId: session.id } : {}), status: session.status, ...(session.pendingPermission ? { pendingPermission: boundPermission(session.pendingPermission) } : {}), ...(session.pendingQuestion ? { pendingQuestion: boundQuestion(session.pendingQuestion) } : {}), ...pageMessages(session, request.payload) };
+    }
     case "ai.auth.get": return { authentication: await acp.get(request.payload.provider).authentication(workspacePath, request.payload.discover) };
     case "ai.auth.start": return { authentication: await acp.get(request.payload.provider).authenticate(workspacePath, request.payload.methodId) };
     case "ai.auth.input": return { authentication: await acp.get(request.payload.provider).authenticationInput(workspacePath, request.payload) };
     case "ai.models": return { models: await acp.get(request.payload.provider).models() };
+    case "ai.configureNext": {
+      const configuration = request.payload.configuration;
+      if (!configuration || typeof configuration !== "object" || Array.isArray(configuration) || Object.keys(configuration).some(key => !["model", "reasoning"].includes(key)) || Object.values(configuration).some(value => typeof value !== "string" || value.length > 200)) throw new CoreError("INVALID_REQUEST", "Choose valid next-turn model and reasoning values");
+      const provider = acp.get(request.payload.provider);
+      if (!Object.keys(configuration).length) return { session: await provider.configureNext(workspacePath, configuration) };
+      const session = await provider.get(workspacePath);
+      const models = await provider.models();
+      const selected = models.find(model => model.id === (configuration.model ?? session.model));
+      if (configuration.model !== undefined && (!configuration.model || !selected || selected.available === false)) throw new CoreError("INVALID_REQUEST", "Choose an available model");
+      if (configuration.reasoning !== undefined && configuration.reasoning !== "" && selected && !selected.reasoningLevels.includes(configuration.reasoning)) throw new CoreError("INVALID_REQUEST", "Choose a supported reasoning level");
+      return { session: await provider.configureNext(workspacePath, configuration) };
+    }
     case "ai.configure": return { session: await acp.get(request.payload.provider).configure(workspacePath, { ...request.payload.configuration, ...(request.payload.model ? { model: request.payload.model } : {}), ...(request.payload.reasoning ? { reasoning: request.payload.reasoning } : {}) }) };
     case "ai.send": {
       const appTools = withAppTools(rootWorkspace, workspacePath, request.payload.mcpServers, request.payload.agent, request.payload.provider, bridgeWorkspace);
       return { session: await acp.get(request.payload.provider).send(workspacePath, { prompt: request.payload.prompt, content: request.payload.content, configuration: { ...request.payload.configuration, ...(request.payload.model ? { model: request.payload.model } : {}), ...(request.payload.reasoning ? { reasoning: request.payload.reasoning } : {}) }, mcpServers: appTools.servers, agent: appTools.agent, agentPreset: request.payload.agentPreset }) };
+    }
+    case "attention.read": {
+      const { provider, taskId, sessionId, requestId } = request.payload;
+      if (typeof provider !== "string" || !provider || typeof requestId !== "string" || !requestId || requestId.length > 512 || (sessionId !== undefined && (typeof sessionId !== "string" || !sessionId || sessionId.length > 512))) throw new CoreError("INVALID_REQUEST", "Choose a valid attention target");
+      const target = await permissionTargetWorkspace(tasks, rootWorkspace, taskId);
+      const session = await acp.get(provider).get(target);
+      if (sessionId !== undefined && session.id !== sessionId) return { state: "resolved" };
+      if (session.pendingPermission?.id === requestId) return { state: "pending", ...(session.id ? { sessionId: session.id } : {}), permission: boundPermission(session.pendingPermission) };
+      if (session.pendingQuestion?.id === requestId) return { state: "pending", ...(session.id ? { sessionId: session.id } : {}), question: boundQuestion(session.pendingQuestion) };
+      return { state: "resolved" };
     }
     case "ai.permission.resolve": {
       // Permission cards can remain mounted while the user changes tasks. A target supplied by the
@@ -1016,7 +1401,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       await assertSessionChangeAllowed(aiTimers, workspacePath, provider.descriptor.id);
       return { session: await provider.clear(workspacePath) };
     }
-    case "ai.sessions": return { sessions: await acp.get(request.payload.provider).sessions(workspacePath) };
+    case "ai.sessions": return pageSessions(await acp.get(request.payload.provider).sessions(workspacePath), request.payload);
     case "ai.restore": {
       const provider = acp.get(request.payload.provider);
       await assertSessionChangeAllowed(aiTimers, workspacePath, provider.descriptor.id);
@@ -1039,7 +1424,11 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       return { root: await summarize(rootWorkspace), tasks: Object.fromEntries(entries) };
     }
     case "useful.list": return { files: await usefulFiles.list() };
-    case "useful.read": return { content: await usefulFiles.read(request.payload.scope, request.payload.name) };
+    case "useful.read": {
+      if (request.payload.maxBytes !== undefined) boundedNote("", request.payload.maxBytes);
+      const content = await usefulFiles.read(request.payload.scope, request.payload.name);
+      return request.payload.maxBytes === undefined ? { content } : boundedNote(content, request.payload.maxBytes);
+    }
     case "useful.create": await usefulFiles.create(request.payload.scope, request.payload.name); return {};
     case "useful.write": await usefulFiles.write(request.payload.scope, request.payload.name, request.payload.content); return {};
     case "useful.rename": await usefulFiles.rename(request.payload.scope, request.payload.name, request.payload.newName); return {};
@@ -1060,6 +1449,7 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "agents.write": await agents.write(request.payload.scope, request.payload.name, request.payload.content, workspacePath); return {};
     case "agents.rename": return { name: await agents.rename(request.payload.scope, request.payload.name, request.payload.newName, workspacePath) };
     case "agents.delete": await agents.delete(request.payload.scope, request.payload.name, workspacePath); return {};
+    case "harnesses.templates": return { templates: workflowTemplateCatalog() };
     case "harnesses.list": return { harnesses: await harnesses.list(), diagnostics: await harnesses.diagnostics() };
     case "harnesses.read": return { harness: await harnesses.read(request.payload.id) };
     case "harnesses.create": return { harness: await harnesses.create(request.payload.name, request.payload.template) };
@@ -1070,6 +1460,51 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     }
     case "harnesses.delete": await harnesses.delete(request.payload.id); return {};
     case "harnesses.validate": return validateHarness(request.payload.harness);
+    case "harnesses.messages": {
+      const empty = pageMessages({ messages: [] }, { limit: request.payload.limit, maxTextLength: request.payload.maxTextLength });
+      if (request.payload.before !== undefined && (typeof request.payload.before !== "string" || !request.payload.before || request.payload.before.length > 128)) throw new CoreError("INVALID_REQUEST", "before must be a message id");
+      if (typeof request.payload.runId !== "string" || !request.payload.runId || typeof request.payload.blockId !== "string" || !request.payload.blockId) throw new CoreError("INVALID_REQUEST", "Choose a workflow run and block");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      const block = run?.blocks.find(block => block.blockId === request.payload.blockId);
+      if (!run || !block) throw new CoreError("FILE_NOT_FOUND", "Workflow block is unavailable in this root");
+      if (!block.workspace || !block.provider) return { available: false, status: "idle", ...empty };
+      const binding = await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      if (await availableWorkflowWorkspace(block.workspace) !== await availableWorkflowWorkspace(binding.workspace)) throw new CoreError("INVALID_REQUEST", "Workflow session no longer belongs to its bound worktree");
+      const session = await acp.get(block.provider).get(block.workspace);
+      if (block.sessionId && block.sessionId !== session.id) return { available: false, status: "idle", ...empty };
+      const page = { available: true, ...(session.id ? { sessionId: session.id } : {}), status: session.status, ...pageMessages(session, request.payload) };
+      if (Buffer.byteLength(JSON.stringify(page)) > 900_000) throw new CoreError("INVALID_REQUEST", "Transcript page exceeds its byte budget; use a smaller page");
+      return page;
+    }
+    case "harnesses.output": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "Choose a workflow run");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run is unavailable in this root");
+      return workflowOutputPage(run, request.payload.blockId, request.payload);
+    }
+    case "harnesses.invoke": {
+      const { runId, callerBlockId, targetBlockId, input } = request.payload;
+      if ([runId, callerBlockId, targetBlockId].some(id => typeof id !== "string" || !id || id.length > 128) || typeof input !== "string" || !input.trim() || input.length > 64_000) throw new CoreError("INVALID_REQUEST", "Choose a connected AI block and input");
+      const run = await harnessRunner.readRun(runId), caller = run?.definition?.blocks.find(block => block.id === callerBlockId), target = run?.definition?.blocks.find(block => block.id === targetBlockId);
+      if (!run || !caller || !target) throw new CoreError("FILE_NOT_FOUND", "Workflow block is unavailable in this root");
+      await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      if (!["ai", "chatbox"].includes(caller.type) || !["ai", "chatbox"].includes(target.type) || !run.definition?.edges.some(edge => edge.from === callerBlockId && edge.to === targetBlockId && (edge.type === "use" || caller.type === "chatbox"))) throw new CoreError("INVALID_REQUEST", "Choose a directly connected AI Agent or Chatbox");
+      if (!harnessRunner.isActive(runId) || run.blocks.find(block => block.blockId === callerBlockId)?.status !== "running") throw new CoreError("INVALID_REQUEST", "Send a follow-up to activate this Chatbox before invoking a connected block");
+      const result = await harnessRunner.flowTool(runId, callerBlockId, "workflow_use_block", { block_id: targetBlockId, action: "start", input });
+      return { output: JSON.stringify(result).slice(0, 8000) };
+    }
+    case "harnesses.blockDetail": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      return { block: projectBlockDetail(run, request.payload.blockId, request.payload) };
+    }
+    case "harnesses.progress": {
+      if (typeof request.payload.runId !== "string" || !request.payload.runId) throw new CoreError("INVALID_REQUEST", "runId must be a non-empty string");
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      return { run: projectProgress(run, request.payload.logLimit) };
+    }
     case "harnesses.runs": {
       const selectedRun = request.payload.runId ? await harnessRunner.readRun(request.payload.runId) : undefined;
       const runs = request.payload.runId
@@ -1120,20 +1555,42 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       if (!option) throw new CoreError("INVALID_REQUEST", "This provider does not support Autopilot");
       return provider.configure(target, { [option.option.id]: enabled ? option.on : option.off });
     }) };
-    case "harnesses.steer": return { run: await harnessRunner.steerChat(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.input, (provider, target, input) => acp.get(provider).steer(target, input)) };
+    case "harnesses.steer": return { run: await harnessRunner.steerChat(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.input, (provider, target, input) => steerWorkflowSession(acp.get(provider), target, input, aiTimers, rootWorkspace, bridgeWorkspace)) };
     case "harnesses.append": return { run: await harnessRunner.appendInput(request.payload.runId, request.payload.input) };
     case "harnesses.permission.resolve": return { run: await harnessRunner.resolvePermission(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.pauseId, request.payload.requestId, request.payload.optionId, async (provider, target, requestId, optionId) => acp.get(provider).resolvePermission(target, requestId, optionId)) };
     case "harnesses.answer": return { run: await harnessRunner.answerQuestion(request.payload.runId, request.payload.blockId, request.payload.sessionId, request.payload.pauseId, request.payload.input, async (provider, target, input) => acp.get(provider).steer(target, input)) };
     case "harnesses.pause.resume": return { run: await harnessRunner.resumeTimer(request.payload.runId, request.payload.blockId, request.payload.pauseId, (provider, target) => aiTimers.fireNext(target, provider)) };
     case "harnesses.pause.retry": return { run: await harnessRunner.retryPause(request.payload.runId, request.payload.blockId, request.payload.pauseId) };
     case "harnesses.pause.cancel": return { run: await harnessRunner.cancelPause(request.payload.runId, request.payload.blockId, request.payload.pauseId, async (provider, runtime) => { const target = runtime.workspace ?? await workflowSessionWorkspace(await workflowRunWorkspace(await harnessRunner.readRun(runtime.runId), rootWorkspace), runtime.runId, runtime.blockId); await aiTimers.cancelWorkspace(target); await acp.get(provider).interrupt(target); }) };
+    case "harnesses.control.pause": {
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath });
+      return { run: summarizeHarnessRun(await harnessRunner.setPaused(request.payload.runId, request.payload.paused)) };
+    }
+    case "harnesses.control.retryFailed": {
+      const run = await harnessRunner.readRun(request.payload.runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      for (const block of run.blocks.filter(block => block.workspace && ["failed", "retry_scheduled", "blocked", "cancelled"].includes(block.status))) {
+        const session = await acp.get(block.provider).get(block.workspace!);
+        if (session.status === "in_progress" || session.status === "user_prompt") throw new CoreError("INVALID_REQUEST", "A workflow session is still active; inspect it before retrying");
+      }
+      return { run: summarizeHarnessRun(await startWorkflow({ harnessId: run.harnessId, input: run.input, retryRunId: run.id }, { acp, tasks, agents, harnessRunner, workflowApps, aiTimers, rootWorkspace, bridgeWorkspace, workspacePath })) };
+    }
     case "harnesses.cancel": return { run: await harnessRunner.cancel(request.payload.runId, async (provider, runtime) => { const target = runtime.workspace ?? await workflowSessionWorkspace(await workflowRunWorkspace(await harnessRunner.readRun(runtime.runId), rootWorkspace), runtime.runId, runtime.blockId); await aiTimers.cancelWorkspace(target); await acp.get(provider).interrupt(target); }) };
     case "http.execute": return executeHttpRequest(request.payload.method, request.payload.url, request.payload.headers, request.payload.body);
     case "filesystem.listTree": return { tree: await filesystem.listTree(request.payload.includeIgnored === true) };
     case "filesystem.snapshot": return { entries: await filesystem.snapshot(request.payload.paths) };
+    case "filesystem.listDirectory": {
+      const { path: directoryPath = "", limit = 50, cursor } = request.payload;
+      if (typeof directoryPath !== "string" || directoryPath.length > 4096 || directoryPath.includes("\0")) throw new CoreError("INVALID_REQUEST", "path must be a workspace-relative string");
+      if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new CoreError("INVALID_REQUEST", "limit must be an integer from 1 to 100");
+      if (cursor !== undefined && (typeof cursor !== "string" || cursor.length > 1024)) throw new CoreError("INVALID_REQUEST", "cursor must be a short string");
+      return filesystem.listDirectory(directoryPath, limit, cursor);
+    }
     case "filesystem.readFile": {
       if (typeof request.payload.path !== "string") throw new CoreError("INVALID_REQUEST", "path must be a string");
-      const file = await filesystem.read(request.payload.path);
+      const file = await filesystem.read(request.payload.path, optionalByteLimit(request.payload.maxBytes));
       return { path: request.payload.path, ...file };
     }
     case "filesystem.writeFile": {
@@ -1187,6 +1644,17 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "terminal.create": {
       return terminalHost.create(workspacePath, request.payload.cols, request.payload.rows, workspacePath, request.payload.displayName);
     }
+    case "terminal.watch.ack": case "terminal.watch.detach": throw new CoreError("INVALID_REQUEST", "Terminal watcher requires a connection");
+    case "terminal.watch.list": return { terminals: terminalHost.list(workspacePath).map(watchSummary) };
+    case "terminal.watch.attach": {
+      const { terminalId, maxBytes, follow } = request.payload;
+      if (follow !== undefined && typeof follow !== "boolean") throw new CoreError("INVALID_REQUEST", "follow must be a boolean");
+      if (typeof terminalId !== "string") throw new CoreError("INVALID_REQUEST", "terminalId must be a string");
+      if (maxBytes !== undefined && (!Number.isSafeInteger(maxBytes) || maxBytes < terminalWatchLimits.minBytes || maxBytes > terminalWatchLimits.maxBytes)) throw new CoreError("INVALID_REQUEST", `maxBytes must be an integer from ${terminalWatchLimits.minBytes} to ${terminalWatchLimits.maxBytes}`);
+      const session = terminalHost.attach(workspacePath, terminalId);
+      if (!session) return { state: "stale" as const, reason: "session-unavailable" as const };
+      return { state: "available" as const, terminal: watchSnapshot(session, maxBytes ?? terminalWatchLimits.defaultBytes) };
+    }
     case "terminal.attach": {
       if (typeof request.payload.terminalId !== "string") throw new CoreError("INVALID_REQUEST", "terminalId must be a string");
       const session = terminalHost.attach(workspacePath, request.payload.terminalId);
@@ -1208,10 +1676,26 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
       terminalHost.close(workspacePath, request.payload.terminalId);
       return {};
     }
+    case "git.summary": return git.summary(request.payload.limit, request.payload.offset);
+    case "taskGit.summary": return checkpoints.summary(request.payload.limit, request.payload.offset);
+    case "tasks.commitMessage.get": return tasks.getCommitMessage(request.payload.taskId);
+    case "tasks.commitMessage.set": {
+      await tasks.getCommitMessage(request.payload.taskId);
+      const result = await tasks.setCommitMessage(tasks.taskPath(request.payload.taskId), request.payload.message);
+      await new AppEventBridge(bridgeWorkspace).emit({ type: "commit-message.changed", workspace: tasks.taskPath(request.payload.taskId), message: result.message });
+      return { message: result.message };
+    }
+    case "tasks.commitMessage.update": {
+      if (typeof request.payload.expectedHead !== "string" || !/^[0-9a-f]{40,64}$/.test(request.payload.expectedHead)) throw new CoreError("INVALID_REQUEST", "Expected task HEAD is required");
+      return tasks.updateGitCommitMessage(request.payload.taskId, request.payload.message, request.payload.expectedHead);
+    }
     case "git.status": return git.status();
     case "git.diff": {
       if (typeof request.payload.path !== "string") throw new CoreError("INVALID_REQUEST", "path must be a string");
-      return git.diff(request.payload.path, filesystem);
+      const limit = optionalByteLimit(request.payload.maxBytes);
+      const diff = await git.diff(request.payload.path, filesystem);
+      if (limit !== undefined && Buffer.byteLength(diff.originalContent) + Buffer.byteLength(diff.modifiedContent) > limit) return { path: diff.path, originalContent: "", modifiedContent: "", hunks: [], tooLarge: true };
+      return diff;
     }
     case "git.stage": await git.stage(request.payload.path, request.payload.hunk); return {};
     case "git.unstage": await git.unstage(request.payload.path, request.payload.hunk); return {};
@@ -1275,57 +1759,76 @@ async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStor
     case "git.rebasePreview": return git.rebasePreview();
     case "git.rebaseStart": return git.rebaseStart(request.payload.expectedHead, request.payload.expectedUpstreamHead, request.payload.base, request.payload.items);
     case "git.rebaseAbort": return git.rebaseAbort();
+    case "taskGit.files": return checkpoints.files(request.payload.checkpointId, request.payload.direction, request.payload.limit, request.payload.offset);
+    case "taskGit.revert": {
+      const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
+      if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before reverting a checkpoint");
+      return checkpoints.revert(request.payload.checkpointId, request.payload.paths);
+    }
     case "taskGit.history": return { checkpoints: await checkpoints.history() };
     case "taskGit.diff": return checkpoints.diff(request.payload.checkpointId, request.payload.path);
-    case "taskGit.review": return checkpoints.review(request.payload.checkpointId, request.payload.paths);
+    case "taskGit.review": {
+      const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
+      if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before applying a checkpoint");
+      return checkpoints.review(request.payload.checkpointId, request.payload.paths);
+    }
     case "taskGit.restore": {
       const sessions = await Promise.all(acp.list().map((provider) => acp.get(provider.id).get(workspacePath)));
       if (sessions.some((session) => session.status === "in_progress" || session.status === "user_prompt")) throw new CoreError("INVALID_REQUEST", "Stop the running task agent before restoring a checkpoint");
       return checkpoints.restore(request.payload.checkpointId);
     }
+    case "language.options": return { options: { ...await services.languages.get(request.payload.language).options(), terminalRunning: hasLanguageTerminalRun(terminalHost, workspacePath, request.payload.language) } };
+    case "language.stop": {
+      if (stopLanguageTerminalRun(terminalHost, workspacePath, request.payload.language)) return {};
+      return handleLanguageRequest(services.languages.registry, services.languages, request.rootId, request);
+    }
+    case "language.run": return runLanguageInTerminal(services.languages.require(request.payload.language, "run"), terminalHost, workspacePath);
+    case "plugins.list": return { enabled: pluginsDirectory() !== undefined, plugins: services.plugins };
+    case "language.list": case "language.load": case "language.configuration.read": case "language.configuration.save": case "language.tools.check": case "language.addSourceRoot": case "language.projectTree": case "language.symbols": case "language.listRunTargets": case "language.addRunConfiguration": case "language.selectRunConfiguration": case "language.removeRunConfiguration": case "language.build": case "language.debug.setBreakpoints": case "language.debug.start": case "language.debug.applyChanges": case "language.debug.variables": case "language.debug.command": case "language.check": case "language.lsp.completion": case "language.lsp.definition": case "language.lsp.references": case "language.lsp.semanticTokens":
+      return handleLanguageRequest(services.languages.registry, services.languages, request.rootId, request);
     case "java.loadMavenProject": {
       if (typeof request.payload.pomPath !== "string") throw new CoreError("INVALID_REQUEST", "pomPath must be a string");
-      return java.loadMavenProject(request.payload.pomPath);
+      return javaOf().java.loadMavenProject(request.payload.pomPath);
     }
-    case "java.configuration.read": return java.readConfiguration();
-    case "java.configuration.save": return java.saveConfiguration(request.payload.content, request.payload.expectedRevision);
-    case "java.tools.check": return { checks: await java.checkTools(request.payload.content) };
-    case "java.getOptions": return { options: await java.getOptions() };
+    case "java.configuration.read": return javaOf().java.readConfiguration();
+    case "java.configuration.save": return javaOf().java.saveConfiguration(request.payload.content, request.payload.expectedRevision);
+    case "java.tools.check": return { checks: await javaOf().java.checkTools(request.payload.content) };
+    case "java.getOptions": return { options: await javaOf().java.getOptions() };
     case "java.addSourceRoot": {
       if (typeof request.payload.path !== "string") throw new CoreError("INVALID_REQUEST", "path must be a string");
-      return java.addSourceRoot(request.payload.path);
+      return javaOf().java.addSourceRoot(request.payload.path);
     }
-    case "java.getProjectTree": return { tree: await java.getProjectTree() };
+    case "java.getProjectTree": return { tree: await javaOf().java.getProjectTree() };
     case "java.workspaceSymbols": {
-      const result = await jdt.workspaceSymbols(request.payload.query, request.payload.limit);
+      const result = await javaOf().jdt.workspaceSymbols(request.payload.query, request.payload.limit);
       return { ...result, symbols: result.symbols.map((symbol) => ({ ...symbol, rootId: request.rootId })) };
     }
-    case "java.listMainClasses": return { classes: await java.listMainClasses() };
+    case "java.listMainClasses": return { classes: await javaOf().java.listMainClasses() };
     case "java.addRunConfiguration": {
       if (typeof request.payload.name !== "string" || typeof request.payload.mainClass !== "string") throw new CoreError("INVALID_REQUEST", "name and mainClass must be strings");
-      return { options: await java.addRunConfiguration(request.payload.name, request.payload.mainClass) };
+      return { options: await javaOf().java.addRunConfiguration(request.payload.name, request.payload.mainClass) };
     }
     case "java.selectRunConfiguration": {
       if (typeof request.payload.id !== "string") throw new CoreError("INVALID_REQUEST", "id must be a string");
-      return { options: await java.selectRunConfiguration(request.payload.id) };
+      return { options: await javaOf().java.selectRunConfiguration(request.payload.id) };
     }
-    case "java.build": await java.build(); return {};
-    case "java.run": await java.run(); return {};
-    case "java.stop": java.stop(); return {};
-    case "java.debug.setBreakpoints": await java.setDebugBreakpoints(request.payload.breakpoints); return {};
-    case "java.debug.start": await java.debug(request.payload.breakpoints); return {};
-    case "java.debug.applyChanges": return java.applyDebugChanges();
-    case "java.debug.variables": return java.debugVariables(request.payload.reference, request.payload.start);
-    case "java.debug.command": java.debugCommand(request.payload.command); return {};
-    case "java.check": return { diagnostics: (await java.check()).map((diagnostic) => ({ ...diagnostic, rootId: request.rootId })) };
+    case "java.build": await javaOf().java.build(); return {};
+    case "java.run": await javaOf().java.run(); return {};
+    case "java.stop": javaOf().java.stop(); return {};
+    case "java.debug.setBreakpoints": await javaOf().java.setDebugBreakpoints(request.payload.breakpoints); return {};
+    case "java.debug.start": await javaOf().java.debug(request.payload.breakpoints); return {};
+    case "java.debug.applyChanges": return javaOf().java.applyDebugChanges();
+    case "java.debug.variables": return javaOf().java.debugVariables(request.payload.reference, request.payload.start);
+    case "java.debug.command": javaOf().java.debugCommand(request.payload.command); return {};
+    case "java.check": return { diagnostics: (await javaOf().java.check()).map((diagnostic) => ({ ...diagnostic, rootId: request.rootId })) };
     case "java.completeType": {
       if (typeof request.payload.prefix !== "string") throw new CoreError("INVALID_REQUEST", "prefix must be a string");
-      return { suggestions: await java.completeType(request.payload.prefix) };
+      return { suggestions: await javaOf().java.completeType(request.payload.prefix) };
     }
-    case "java.completion": return { items: await jdt.completion(request.payload.path, request.payload.content, request.payload.line, request.payload.column) };
-    case "java.definition": return { locations: (await jdt.definition(request.payload.path, request.payload.content, request.payload.line, request.payload.column)).map((location) => ({ ...location, rootId: request.rootId })) };
-    case "java.references": return { locations: (await jdt.references(request.payload.path, request.payload.content, request.payload.line, request.payload.column)).map((location) => ({ ...location, rootId: request.rootId })) };
-    case "java.semanticTokens": return { tokens: await jdt.semanticTokens(request.payload.path, request.payload.content) };
+    case "java.completion": return { items: await javaOf().jdt.completion(request.payload.path, request.payload.content, request.payload.line, request.payload.column) };
+    case "java.definition": return { locations: (await javaOf().jdt.definition(request.payload.path, request.payload.content, request.payload.line, request.payload.column)).map((location) => ({ ...location, rootId: request.rootId })) };
+    case "java.references": return { locations: (await javaOf().jdt.references(request.payload.path, request.payload.content, request.payload.line, request.payload.column)).map((location) => ({ ...location, rootId: request.rootId })) };
+    case "java.semanticTokens": return { tokens: await javaOf().jdt.semanticTokens(request.payload.path, request.payload.content) };
   }
 }
 
@@ -1379,12 +1882,12 @@ async function resolveWorkflowCommit(workspace: string, reference: string): Prom
 
 function boundedWorkflowOutput(value: string, limit = 200_000): string { return value.length <= limit ? value : `${value.slice(0, limit)}\n… output truncated by Core`; }
 
-export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { chatRunId?: string; chatSettings?: import("@remote-ide/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
+export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["payload"] & { retryRunId?: string; chatRunId?: string; chatSettings?: import("@hatopad/protocol").HarnessChatSettings; testDefinition?: HarnessDefinition }, context: {
   acp: AcpRegistry; tasks: WorkspaceTaskStore; agents: AgentsStore; harnessRunner: HarnessRunner; workflowApps: WorkflowAppService;
   aiTimers: AiTimerService; rootWorkspace: string; bridgeWorkspace: string; workspacePath: string;
-}): Promise<import("@remote-ide/protocol").HarnessRun> {
+}): Promise<import("@hatopad/protocol").HarnessRun> {
   const { acp, tasks, agents, harnessRunner, workflowApps, aiTimers, rootWorkspace, bridgeWorkspace } = context;
-  const previousRunId = input.chatRunId ?? input.rerunRunId;
+  const previousRunId = input.retryRunId ?? input.chatRunId ?? input.rerunRunId;
   const previousRun = previousRunId ? await harnessRunner.readRun(previousRunId) : undefined;
   if (previousRunId && !previousRun) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
   const binding = await resolveWorkflowBinding(previousRun, input.target, context);
@@ -1395,7 +1898,7 @@ export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["
       if (block.type === "script") return executeFlowScript(block, prompt, workspacePath, runtime.assertActive, { rootWorkspace, workflowRunId: runtime.runId, workflowBlockId: runtime.blockId });
       if (block.type === "terminal_control") return executeTerminalControlAsync(prompt, workspacePath, workflowApps.terminals, runtime.assertActive);
       if (block.type === "run_app") return workflowApps.execute(block, prompt, workspacePath, runtime.assertActive, { rootWorkspace, workflowRunId: runtime.runId, workflowBlockId: runtime.blockId });
-      if (block.type === "task_controls") return executeTaskControls(block, prompt, { ...context, workspacePath, defaultProvider: input.provider ?? "codex" }, runtime);
+      if (block.type === "task_controls") return executeTaskControls(block, prompt, { ...context, workspacePath, defaultProvider: input.provider ?? acp.defaultId }, runtime);
       if (block.type === "verification") return runWorkflowVerification(block, workspacePath, harnessRunner, runtime);
       if (block.type === "review") {
         const evidence = await collectWorkflowReviewEvidence(block, workspacePath, harnessRunner, runtime);
@@ -1452,9 +1955,10 @@ export async function startWorkflow(input: ProtocolOperations["harnesses.run"]["
       if (!harnessRunner.isActive(runtime.runId)) throw new Error("Workflow is no longer active");
       return settleWorkflowSession(provider, runtime.workspace, aiTimers, block.watchdog ? runtime : undefined, () => harnessRunner.isActive(runtime.runId), runtime.activity);
     });
+  if (input.retryRunId) return harnessRunner.retryFailedRun(input.retryRunId, dispatch, input.provider ?? acp.defaultId, append);
   return input.chatRunId
-    ? harnessRunner.continueChat(input.chatRunId, input.startBlockId!, input.input, dispatch, input.provider ?? "codex", append, binding, input.chatSettings)
-    : harnessRunner.start(input.harnessId, input.input, dispatch, input.provider, append, input.startBlockId, input.rerunRunId, input.testDefinition, workspacePath, (definition) => prepareWorkflowSkills(definition, new SkillsStore(undefined, rootWorkspace), workspacePath), binding, input.chatSettings && input.startBlockId ? { blockId: input.startBlockId, settings: input.chatSettings } : undefined);
+    ? harnessRunner.continueChat(input.chatRunId, input.startBlockId!, input.input, dispatch, input.provider ?? acp.defaultId, append, binding, input.chatSettings)
+    : harnessRunner.start(input.harnessId, input.input, dispatch, input.provider ?? acp.defaultId, append, input.startBlockId, input.rerunRunId, input.testDefinition, workspacePath, (definition) => prepareWorkflowSkills(definition, new SkillsStore(undefined, rootWorkspace), workspacePath), binding, input.chatSettings && input.startBlockId ? { blockId: input.startBlockId, settings: input.chatSettings } : undefined);
 }
 
 /**
@@ -1468,11 +1972,11 @@ export function workflowTurnInstructions(protocol: AiProtocolVersion | undefined
 }
 
 /** Helpers connected through use edges share the lead's workspace snapshot coverage. */
-export function workflowCapturesSnapshots(run: import("@remote-ide/protocol").HarnessRun | undefined, blockId: string): boolean {
+export function workflowCapturesSnapshots(run: import("@hatopad/protocol").HarnessRun | undefined, blockId: string): boolean {
   return !run?.definition?.edges.some((edge) => edge.type === "use" && edge.to === blockId);
 }
 
-export async function workflowRunWorkspace(run: import("@remote-ide/protocol").HarnessRun | undefined, fallback: string): Promise<string> {
+export async function workflowRunWorkspace(run: import("@hatopad/protocol").HarnessRun | undefined, fallback: string): Promise<string> {
   if (!run) return availableWorkflowWorkspace(fallback);
   const recorded = run.binding?.workspace ?? run.workspace;
   if (recorded) return availableWorkflowWorkspace(recorded);
@@ -1493,7 +1997,7 @@ async function availableWorkflowWorkspace(workspace: string): Promise<string> {
   } catch { throw new CoreError("FILE_NOT_FOUND", `Workflow worktree is unavailable: ${workspace}`); }
 }
 
-export async function validateWorkflowBinding(binding: import("@remote-ide/protocol").HarnessWorkspaceBinding, tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">, rootWorkspace: string): Promise<void> {
+export async function validateWorkflowBinding(binding: import("@hatopad/protocol").HarnessWorkspaceBinding, tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">, rootWorkspace: string): Promise<void> {
   if (!binding || typeof binding.rootWorkspace !== "string" || typeof binding.workspace !== "string" || (binding.taskId !== undefined && (typeof binding.taskId !== "string" || !binding.taskId))) throw new CoreError("INVALID_REQUEST", "Workflow has an invalid recorded worktree binding");
   if (path.resolve(binding.rootWorkspace) !== path.resolve(rootWorkspace)) throw new CoreError("INVALID_REQUEST", "Workflow run belongs to a different root");
   if (binding.taskId) {
@@ -1504,7 +2008,7 @@ export async function validateWorkflowBinding(binding: import("@remote-ide/proto
   if (await availableWorkflowWorkspace(binding.workspace) !== binding.workspace) throw new CoreError("INVALID_REQUEST", "Workflow bound worktree was redirected");
 }
 
-export async function resolveWorkflowBinding(run: import("@remote-ide/protocol").HarnessRun | undefined, target: import("@remote-ide/protocol").HarnessTaskTarget | undefined, context: { tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">; rootWorkspace: string; workspacePath: string }): Promise<import("@remote-ide/protocol").HarnessWorkspaceBinding> {
+export async function resolveWorkflowBinding(run: import("@hatopad/protocol").HarnessRun | undefined, target: import("@hatopad/protocol").HarnessTaskTarget | undefined, context: { tasks: Pick<WorkspaceTaskStore, "list" | "taskPath">; rootWorkspace: string; workspacePath: string }): Promise<import("@hatopad/protocol").HarnessWorkspaceBinding> {
   if (target !== undefined && (!target || typeof target !== "object" || (target.taskId !== undefined && (typeof target.taskId !== "string" || !target.taskId)))) throw new CoreError("INVALID_REQUEST", "Workflow target must identify a task or explicitly select the root workspace");
   if (run?.binding) { await validateWorkflowBinding(run.binding, context.tasks, context.rootWorkspace); return run.binding; }
   const workspace = run ? await workflowRunWorkspace(run, context.rootWorkspace)
@@ -1518,7 +2022,7 @@ export async function resolveWorkflowBinding(run: import("@remote-ide/protocol")
   return { rootWorkspace: context.rootWorkspace, workspace, ...(task ? { taskId: task.id, taskName: task.name } : {}) };
 }
 
-export async function validateWorkflowTarget(run: import("@remote-ide/protocol").HarnessRun, workspace: string, context: Parameters<typeof resolveWorkflowBinding>[2]): Promise<void> {
+export async function validateWorkflowTarget(run: import("@hatopad/protocol").HarnessRun, workspace: string, context: Parameters<typeof resolveWorkflowBinding>[2]): Promise<void> {
   const binding = await resolveWorkflowBinding(run, undefined, context);
   const resolved = await availableWorkflowWorkspace(workspace);
   if (resolved === binding.workspace) return;
@@ -1529,7 +2033,7 @@ export async function validateWorkflowTarget(run: import("@remote-ide/protocol")
 }
 
 async function workflowSessionWorkspace(workspace: string, runId: string, blockId: string): Promise<string> {
-  const stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces");
+  const stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces");
   const workspaceKey = crypto.createHash("sha256").update(path.resolve(workspace)).digest("hex");
   const sessionKey = crypto.createHash("sha256").update(`${runId}:${blockId}`).digest("hex");
   const directory = path.join(stateDirectory, "workflow-sessions", workspaceKey); const alias = path.join(directory, sessionKey);
@@ -1551,6 +2055,18 @@ export function workflowConfiguration(options: AiOption[], block: Pick<HarnessBl
   return { ...(block.model ? { model: block.model } : {}), ...(block.reasoning ? { reasoning: block.reasoning } : {}), ...workflowFeatureOptions(options, block), ...(autopilot ? { [autopilot.option.id]: block.autopilot === false ? autopilot.off : autopilot.on } : {}) };
 }
 
+/** Timer-paused workflows can own an idle provider turn; resume that same conversation. */
+export async function steerWorkflowSession(provider: ReturnType<AcpRegistry["get"]>, workspace: string, input: string, timers: Pick<AiTimerService, "next">, rootWorkspace: string, bridgeWorkspace: string) {
+  const session = await provider.get(workspace);
+  if (session.status === "in_progress" || session.status === "user_prompt") return provider.steer(workspace, input);
+  const timer = await timers.next(workspace, provider.descriptor.id);
+  if (!timer?.workflowRunId || !timer.workflowBlockId) throw new CoreError("INVALID_REQUEST", "Workflow session is no longer working or waiting for a timer");
+  return provider.send(workspace, {
+    prompt: input, configuration: session.configuration ?? { model: session.model, reasoning: session.reasoning },
+    mcpServers: [appToolServer(rootWorkspace, workspace, provider.descriptor.id, bridgeWorkspace, { runId: timer.workflowRunId, blockId: timer.workflowBlockId, flow: timer.workflowFlow })],
+  });
+}
+
 export async function settleWorkflowSession(provider: ReturnType<AcpRegistry["get"]>, workspace: string, timers: Pick<AiTimerService, "next" | "scheduleAt">, watchdog?: { runId: string; blockId: string }, active: () => boolean = () => true, activity?: (session: AiSession, waitingUntil?: string) => Promise<void>) {
   let session = await provider.get(workspace);
   for (;;) {
@@ -1566,7 +2082,12 @@ export async function settleWorkflowSession(provider: ReturnType<AcpRegistry["ge
     await activity?.(session, timer?.dueAt);
     if (session.status === "user_prompt" && !timer && activity) { await delay(250); session = await provider.get(workspace); continue; }
     if (!timer) return session;
-    while (active() && await timers.next(workspace, provider.descriptor.id)) await delay(Math.min(250, Math.max(10, new Date(timer.dueAt).getTime() - Date.now())));
+    while (active() && (timer = await timers.next(workspace, provider.descriptor.id))) {
+      await delay(Math.min(250, Math.max(10, new Date(timer.dueAt).getTime() - Date.now())));
+      session = await provider.get(workspace);
+      if (session.status === "in_progress" || session.pendingPermission) break;
+      await activity?.(session, timer.dueAt);
+    }
     await delay(250); session = await provider.get(workspace);
   }
 }

@@ -10,6 +10,18 @@ contextBridge.exposeInMainWorld("gateway", {
     void ipcRenderer.invoke("gateway:window-fullscreen").then((fullscreen: unknown) => { if (!disposed && !receivedEvent && typeof fullscreen === "boolean") listener(fullscreen); }).catch(() => undefined);
     return () => { disposed = true; ipcRenderer.removeListener("gateway:fullscreen-changed", handler); };
   },
+  cloudSaveOrigin: (origin: string) => ipcRenderer.invoke("gateway:cloudSaveOrigin", origin),
+  cloudGet: () => ipcRenderer.invoke("gateway:cloudGet"),
+  cloudCancelSignIn: () => ipcRenderer.invoke("gateway:cloudCancelSignIn"),
+  cloudConnect: (origin: string) => ipcRenderer.invoke("gateway:cloudConnect", origin),
+  cloudDisconnect: () => ipcRenderer.invoke("gateway:cloudDisconnect"),
+  cloudCoreUpdateInfo: (id: string) => ipcRenderer.invoke("gateway:cloudCoreUpdateInfo", id),
+  cloudUpdateCore: (id: string, release: string) => ipcRenderer.invoke("gateway:cloudUpdateCore", id, release),
+  cloudAutostartInfo: (id: string) => ipcRenderer.invoke("gateway:cloudAutostartInfo", id),
+  cloudSetAutostart: (id: string, enabled: boolean) => ipcRenderer.invoke("gateway:cloudSetAutostart", id, enabled),
+  cloudListCores: (id: string) => ipcRenderer.invoke("gateway:cloudListCores", id),
+  cloudOpen: (id: string, rootId: string) => ipcRenderer.invoke("gateway:cloudOpen", id, rootId),
+  cloudAddServer: (id: string) => ipcRenderer.invoke("gateway:cloudAddServer", id),
   get: () => ipcRenderer.invoke("gateway:get"),
   saveRepository: (value: unknown) => ipcRenderer.invoke("gateway:saveRepository", value),
   refreshStatuses: (connectionId?: string) => ipcRenderer.invoke("gateway:refreshStatuses", connectionId),

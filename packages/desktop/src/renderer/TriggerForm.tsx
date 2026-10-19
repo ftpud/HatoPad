@@ -1,7 +1,7 @@
 import { Plus, X, Zap } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, TriggerFileEvent, TriggerInput, WorkspaceTask } from "@remote-ide/protocol";
+import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, TriggerFileEvent, TriggerInput, WorkspaceTask } from "@hatopad/protocol";
 
 import { ActionModelFields } from "./ActionModelFields";
 
@@ -60,7 +60,7 @@ export function TriggerForm({ tasks, workflows, providers, selectedTaskId, defau
     <header className="schedule-form-heading"><Zap size={15} aria-hidden="true" /><strong>New trigger</strong><button type="button" aria-label="Close new trigger" title="Close new trigger" disabled={saving} onClick={onCancel}><X size={14} aria-hidden="true" /></button></header>
     <label>Name<input placeholder="e.g. Review when build log changes" required maxLength={180} value={name} onChange={(event) => setName(event.target.value)} /></label>
     <label>Watch<select value={sourceType} onChange={(event) => setSourceType(event.target.value as typeof sourceType)}><option value="file">A file or folder</option><option value="fifo">A named pipe (FIFO)</option></select></label>
-    <label>{sourceType === "file" ? "File or folder path" : "Pipe path"}<input required placeholder={sourceType === "file" ? "logs/build.log or /var/log/app.log" : "/tmp/vibe-events (created if missing)"} value={path} onChange={(event) => setPath(event.target.value)} /></label>
+    <label>{sourceType === "file" ? "File or folder path" : "Pipe path"}<input required placeholder={sourceType === "file" ? "logs/build.log or /var/log/app.log" : "/tmp/hatopad-events (created if missing)"} value={path} onChange={(event) => setPath(event.target.value)} /></label>
     {sourceType === "file" ? <fieldset className="trigger-events"><legend>Fire when it is</legend>{FILE_EVENTS.map((item) => <label key={item.id}><input type="checkbox" checked={events.includes(item.id)} onChange={() => toggleEvent(item.id)} />{item.label}</label>)}</fieldset> : <p className="timers-help">Each write to the pipe (for example <code>echo "build failed" &gt; pipe</code>) starts the action, and the text received is added to the prompt.</p>}
     <label>Action<select value={type} onChange={(event) => setType(event.target.value as typeof type)}><option value="prompt">Send a prompt</option><option value="workflow">Start a workflow</option></select></label>
     <label>Target task<select value={taskId} onChange={(event) => setTaskId(event.target.value)}><option value="">Root workspace</option>{tasks.filter((task) => task.status !== "finished" && !task.archived).map((task) => <option key={task.id} value={task.id}>{task.name}</option>)}</select></label>

@@ -9,10 +9,10 @@ const temporary: string[] = [];
 afterEach(async () => { await Promise.all(temporary.splice(0).map((entry) => rm(entry, { recursive: true, force: true }))); });
 async function fixture() {
   // macOS temp paths may use /var, a symlink; keep the cleanup fixtures canonical.
-  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-versions-"))); temporary.push(home);
-  const runtimeDirectory = path.join(home, ".remote-ide", "codex-runtime");
+  const home = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-versions-"))); temporary.push(home);
+  const runtimeDirectory = path.join(home, ".hatopad", "codex-runtime");
   const currentRuntime = path.join(runtimeDirectory, "installation-current"), oldRuntime = path.join(runtimeDirectory, "installation-old");
-  const deployment = path.join(home, ".vibe-deploy");
+  const deployment = path.join(home, ".hatopad-deploy");
   const currentRelease = path.join(deployment, "releases", `${"a".repeat(40)}-node137`), oldRelease = path.join(deployment, "releases", `${"b".repeat(40)}-node137`);
   const source = path.join(deployment, "sources", "c".repeat(64));
   for (const directory of [currentRuntime, oldRuntime, currentRelease, oldRelease, source]) { await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, "payload"), "stored version"); }
@@ -37,7 +37,7 @@ describe("version retention", () => {
   });
   it("stops peers before deleting old versions and keeps the actual loaded runtime and release", async () => {
     const f = await fixture();
-    await writeFile(path.join(f.home, ".vibe-server-other.release.previous"), path.basename(f.oldRelease));
+    await writeFile(path.join(f.home, ".hatopad-server-other.release.previous"), path.basename(f.oldRelease));
     const entries = await f.service.entries(); expect(entries.filter((entry) => entry.current)).toHaveLength(2);
     f.closeOtherSessions.mockImplementation(async () => { await expect(access(f.oldRelease)).resolves.toBeUndefined(); });
     await f.service.keepCurrent(entries.filter((entry) => !entry.current).map((entry) => entry.path), async () => [], () => {});
@@ -45,7 +45,7 @@ describe("version retention", () => {
     for (const file of [f.currentRuntime, f.currentRelease]) await expect(access(file)).resolves.toBeUndefined();
     for (const file of [f.oldRuntime, f.oldRelease, f.source]) await expect(access(file)).rejects.toThrow();
     expect(JSON.parse(await readFile(path.join(f.runtimeDirectory, "current.json"), "utf8")).directory).toBe(f.currentRuntime);
-    await expect(access(path.join(f.home, ".vibe-server-other.release.previous"))).rejects.toThrow();
+    await expect(access(path.join(f.home, ".hatopad-server-other.release.previous"))).rejects.toThrow();
   });
   it("preserves everything if peer shutdown fails or deployment is in progress", async () => {
     const f = await fixture(); f.closeOtherSessions.mockRejectedValue(new Error("peer did not stop"));

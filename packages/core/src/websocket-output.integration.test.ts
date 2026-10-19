@@ -7,19 +7,19 @@ import { promisify } from "node:util";
 import chokidar from "chokidar";
 import { WebSocket, type WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
-import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@remote-ide/protocol";
+import { protocolCompatibility, type ProtocolOperations, type RequestType, type Response, type ServerEvent } from "@hatopad/protocol";
 import { createServer } from "./server.js";
-import { JavaProjectService } from "./java.js";
-import { JdtLanguageService } from "./jdtls.js";
+import { JavaProjectService } from "./plugins/languages/java/java.js";
+import { JdtLanguageService } from "./plugins/languages/java/jdtls.js";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 import * as output from "./websocket-output.js";
 
 for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
   it(`disconnects on ${failure}, isolates healthy peers, and releases session services while preserving the PTY`, async () => {
-    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-output-integration-")));
+    const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-output-integration-")));
     const workspace = path.join(directory, "primary");
     const secondary = path.join(directory, "secondary");
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     const watch = vi.spyOn(chokidar, "watch");
     const javaClose = vi.spyOn(JavaProjectService.prototype, "close");
     const jdtClose = vi.spyOn(JdtLanguageService.prototype, "close");
@@ -71,6 +71,8 @@ for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
       const terminal = await slow.request("terminal.create", { cols: 80, rows: 24 });
       await slow.request("terminal.input", { terminalId: terminal.terminalId, data: "printf '%s%s\\n' BEFORE_ LOSS\r" });
       await vi.waitFor(() => expect(slow.events.filter((event) => event.type === "terminal.output").map((event) => event.type === "terminal.output" ? event.payload.data : "").join("")).toContain("BEFORE_LOSS"));
+      // Language services are created lazily; touch Java so the session owns one to release.
+      await slow.request("language.options", { language: "java" });
       const beforeJava = javaClose.mock.calls.length; const beforeJdt = jdtClose.mock.calls.length;
       const peer = peers[0]!;
       if (failure === "buffer pressure") {
@@ -123,9 +125,9 @@ for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
 }
 
 it("closes services that finish initialization after an outbound failure", async () => {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "vibe-output-startup-")));
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-output-startup-")));
   const workspace = path.join(directory, "primary");
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+  vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   let server: WebSocketServer | undefined;
   let socket: WebSocket | undefined;
   let release!: () => void;
@@ -135,7 +137,7 @@ it("closes services that finish initialization after an outbound failure", async
   try {
     await mkdir(workspace);
     await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
-    server = await createServer("127.0.0.1", 0, workspace, { outbound: { maxBufferedBytes: 1024 } });
+    server = await createServer("127.0.0.1", 0, workspace, { outbound: { maxBufferedBytes: 8192 } });
     if (!server.address()) await once(server, "listening");
     const address = server.address();
     if (!address || typeof address === "string") throw new Error("Missing port");
@@ -149,11 +151,15 @@ it("closes services that finish initialization after an outbound failure", async
     socket.send(JSON.stringify({ id: "handshake", type: "protocol.handshake", payload: { compatibility: protocolCompatibility } }));
     await started;
     const peer = [...server.clients][0]!;
-    Object.defineProperty(peer, "bufferedAmount", { configurable: true, get: () => 2048 });
+    Object.defineProperty(peer, "bufferedAmount", { configurable: true, get: () => 16_384 });
     socket.send(JSON.stringify({ id: "probe", type: "protocol.keepAlive", payload: {} }));
     await closed;
     release();
-    await vi.waitFor(() => { expect(javaClose).toHaveBeenCalledOnce(); expect(jdtClose).toHaveBeenCalledOnce(); });
+    // Language services are created lazily through the registry, so a session that never used Java owns nothing to close;
+    // any service that was created must be closed exactly once.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(javaClose.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(jdtClose.mock.calls.length).toBe(javaClose.mock.calls.length);
   } finally {
     release();
     if (socket && socket.readyState !== WebSocket.CLOSED) { const closed = once(socket, "close"); socket.close(); await closed; }

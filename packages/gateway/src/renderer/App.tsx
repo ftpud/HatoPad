@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Cable, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowUpCircle, Cable, Cloud, CloudUpload, LogOut, PlugZap, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
+
+type CloudCoreList = { roots: GatewayCloudRoot[]; loading: boolean; failure: string };
+type CloudCoreUpdate = { info?: GatewayCloudCoreUpdateInfo; checking: boolean };
 
 const emptyState: GatewayState = { connections: [], workspaces: [], portTunnels: [] };
 
@@ -22,6 +25,47 @@ export function GatewayErrorNotice({ message, onDismiss }: { message: string; on
 }
 
 export function App() {
+  const [cloud, setCloud] = useState<GatewayCloudAccount>();
+  const [cloudLists, setCloudLists] = useState<Record<string, CloudCoreList>>({});
+  const cloudGeneration = useRef(0);
+  const cloudListOrigin = useRef<string>();
+  const [cloudListRevision, setCloudListRevision] = useState(0);
+  const loadCloudList = useCallback(async (coreId: string, generation = cloudGeneration.current) => {
+    setCloudLists(current => ({ ...current, [coreId]: { roots: current[coreId]?.roots ?? [], loading: true, failure: "" } }));
+    try {
+      const roots = await window.gateway.cloudListCores(coreId);
+      if (generation === cloudGeneration.current) setCloudLists(current => ({ ...current, [coreId]: { roots, loading: false, failure: "" } }));
+    } catch (reason) {
+      if (generation === cloudGeneration.current) setCloudLists(current => ({ ...current, [coreId]: { roots: current[coreId]?.roots ?? [], loading: false, failure: gatewayErrorMessage(reason) } }));
+    }
+  }, []);
+  useEffect(() => {
+    const generation = ++cloudGeneration.current;
+    if (cloudListOrigin.current !== cloud?.origin) setCloudLists({});
+    cloudListOrigin.current = cloud?.origin;
+    for (const core of cloud?.cores ?? []) if (core.status === "online") void loadCloudList(core.id, generation);
+    return () => { ++cloudGeneration.current; };
+  }, [cloud, cloudListRevision, loadCloudList]);
+  const [cloudUpdates, setCloudUpdates] = useState<Record<string, CloudCoreUpdate>>({});
+  const checkCloudUpdate = useCallback(async (coreId: string, generation = cloudGeneration.current) => {
+    setCloudUpdates(current => ({ ...current, [coreId]: { info: current[coreId]?.info, checking: true } }));
+    let info: GatewayCloudCoreUpdateInfo;
+    try { info = await window.gateway.cloudCoreUpdateInfo(coreId); }
+    catch (reason) { info = { available: false, updateNeeded: false, reason: gatewayErrorMessage(reason) }; }
+    if (generation === cloudGeneration.current) setCloudUpdates(current => ({ ...current, [coreId]: { info, checking: false } }));
+  }, []);
+  useEffect(() => {
+    // One background pass per cloud connection/refresh; switching servers only reads the cached result.
+    const generation = cloudGeneration.current;
+    const owned = (cloud?.cores ?? []).filter(core => core.access === "owner");
+    setCloudUpdates(current => Object.fromEntries(owned.map(core => [core.id, current[core.id] ?? { checking: true }])));
+    void (async () => { for (const core of owned) { if (generation !== cloudGeneration.current) return; await checkCloudUpdate(core.id, generation); } })();
+  }, [cloud, cloudListRevision, checkCloudUpdate]);
+  const [cloudDialog, setCloudDialog] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState("");
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [cloudSigningIn, setCloudSigningIn] = useState(false);
+  const [addingToCloud, setAddingToCloud] = useState<string>();
   const [state, setState] = useState(emptyState);
   const [selected, setSelected] = useState<string>();
   const [runtimes, setRuntimes] = useState<Record<string, GatewayRuntime>>({});
@@ -47,7 +91,8 @@ export function App() {
   const bridgeReady = Boolean(window.gateway);
   useEffect(() => {
     if (!window.gateway) { showError("Gateway preload failed to initialize. Rebuild and restart the application."); return; }
-    void window.gateway.get().then((result) => { setState(result.state); setRepository(result.repository); setDistribution(result.distribution ?? "source"); setRuntimes(result.runtimes); setTunnelRuntimes(result.tunnelRuntimes); setConnectionRuntimes(result.connectionRuntimes); setSelected(result.state.connections[0]?.id); }).catch(showError);
+    void window.gateway.get().then((result) => { setState(result.state); setCloudUrl(result.cloudOrigin ?? ""); setRepository(result.repository); setDistribution(result.distribution ?? "source"); setRuntimes(result.runtimes); setTunnelRuntimes(result.tunnelRuntimes); setConnectionRuntimes(result.connectionRuntimes); setSelected(result.state.connections[0]?.id); }).catch(showError);
+    if (window.gateway.cloudGet) void window.gateway.cloudGet().then((value) => { setCloud(value); if (value) setCloudUrl(value.origin); }).catch(showError);
     const stopStatusListener = window.gateway.onStatus((id, status) => setRuntimes((current) => ({ ...current, [id]: status })));
     const stopTunnelListener = window.gateway.onTunnelStatus((id, status) => setTunnelRuntimes((current) => ({ ...current, [id]: status })));
     const stopConnectionListener = window.gateway.onConnectionStatus((id, status) => setConnectionRuntimes((current) => ({ ...current, [id]: status })));
@@ -56,6 +101,7 @@ export function App() {
     window.addEventListener("error", onWindowError); window.addEventListener("unhandledrejection", onUnhandledRejection);
     return () => { stopStatusListener(); stopTunnelListener(); stopConnectionListener(); window.removeEventListener("error", onWindowError); window.removeEventListener("unhandledrejection", onUnhandledRejection); };
   }, [showError]);
+  const cloudCore = cloud?.cores.find((item) => `cloud:${item.id}` === selected);
   const connection = state.connections.find((item) => item.id === selected);
   const workspaces = useMemo(() => state.workspaces.filter((item) => item.connectionId === selected), [state.workspaces, selected]);
   const connectionTunnels = useMemo(() => state.portTunnels.filter((item) => item.connectionId === selected), [state.portTunnels, selected]);
@@ -95,22 +141,64 @@ export function App() {
     catch (reason) { showError(reason); }
   };
 
+  const closeCloudDialog = useCallback(() => {
+    if (cloudSigningIn) { void window.gateway.cloudCancelSignIn().catch(showError); setCloudDialog(false); }
+    else if (!cloudBusy) setCloudDialog(false);
+  }, [cloudBusy, cloudSigningIn, showError]);
+  const saveCloudUrl = async () => {
+    clearError(); setCloudBusy(true);
+    try {
+      const origin = await window.gateway.cloudSaveOrigin(cloudUrl);
+      setCloudUrl(origin);
+      if (cloud && cloud.origin !== origin) { setCloud(undefined); if (selected?.startsWith("cloud:")) setSelected(state.connections[0]?.id); }
+      setCloudDialog(false);
+    } catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const connectCloud = async (event: FormEvent) => {
+    event.preventDefault(); clearError(); setCloudBusy(true);
+    try {
+      const origin = await window.gateway.cloudSaveOrigin(cloudUrl);
+      setCloudUrl(origin);
+      if (cloud && cloud.origin !== origin) { setCloud(undefined); if (selected?.startsWith("cloud:")) setSelected(state.connections[0]?.id); }
+      setCloudSigningIn(true);
+      const account = await window.gateway.cloudConnect(origin); setCloud(account); setCloudDialog(false);
+    }
+    catch (reason) { if (gatewayErrorMessage(reason) !== "Cloud sign-in was cancelled.") showError(reason); } finally { setCloudSigningIn(false); setCloudBusy(false); }
+  };
+  const refreshCloud = async () => {
+    setCloudBusy(true); clearError();
+    try { setCloud(await window.gateway.cloudGet()); setCloudListRevision(value => value + 1); } catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const disconnectCloud = async () => {
+    setCloudBusy(true); clearError();
+    try { await window.gateway.cloudDisconnect(); setCloud(undefined); if (selected?.startsWith("cloud:")) setSelected(state.connections[0]?.id); }
+    catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const addToCloud = async (workspace: GatewayWorkspace) => {
+    if (!confirm(`Add ${workspace.name} to ${cloud?.user.email}? This account will be able to access the server's workspaces and run commands. Core will restart to connect to cloud.`)) return;
+    clearError(); setAddingToCloud(workspace.id);
+    try { setCloud(await window.gateway.cloudAddServer(workspace.id)); }
+    catch (reason) { showError(reason); } finally { setAddingToCloud(undefined); }
+  };
+
   return <div className="gateway-shell">
     <div className="gateway-window-drag" aria-hidden="true" />
     <aside className="gateway-sidebar">
-      <div className="gateway-brand"><img src={new URL("../../assets/app-icon.svg", import.meta.url).href} alt="" /><div><strong>Vibe Gateway</strong><span>Workspace launcher</span></div></div>
+      <div className="gateway-brand"><img src={new URL("../../assets/app-icon.png", import.meta.url).href} alt="" /><div><strong>HatoPad Gateway</strong><span>Workspace launcher</span></div></div>
+      <div className="cloud-account"><Cloud size={16} aria-hidden="true" /><span title={cloud ? `${cloud.user.email} · ${cloud.origin}` : cloudUrl || "Cloud"}>{cloud?.user.name ?? "Cloud"}</span><div>{cloud ? <><button className="icon-button" title="Cloud settings" aria-label="Cloud settings" disabled={cloudBusy || Boolean(addingToCloud)} onClick={() => setCloudDialog(true)}><Settings size={14} /></button><button className="icon-button" title="Refresh cloud" aria-label="Refresh cloud" disabled={cloudBusy} onClick={() => void refreshCloud()}><RefreshCw size={14} /></button><button className="icon-button" title="Disconnect cloud" aria-label="Disconnect" disabled={cloudBusy || Boolean(addingToCloud)} onClick={() => void disconnectCloud()}><LogOut size={14} /></button></> : <button className="icon-button" title="Connect to cloud" aria-label="Connect to cloud" disabled={!bridgeReady} onClick={() => setCloudDialog(true)}><PlugZap size={15} /></button>}</div></div>
       <header><div><Network size={17} /><strong>Connections</strong></div><button title="Add connection" aria-label="Add connection" onClick={() => { clearError(); setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" }); }}><Plus size={15} /></button></header>
       <div className="connection-list" aria-label="Connections">{state.connections.map((item) => { const current = connectionRuntimes[item.id] ?? { status: "unknown" }; const local = item.kind === "local"; return <button key={item.id} className={item.id === selected ? "selected" : ""} aria-pressed={item.id === selected} aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`} onClick={() => { clearError(); setSelected(item.id); }}><div className={`status-dot connection-${current.status}`} aria-hidden="true" />{local ? <HardDrive size={16} /> : <Server size={16} />}<span><strong>{item.name}</strong><small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small></span></button>; })}</div>
+      {cloud && <div className="connection-list cloud-connections" aria-label="Cloud servers"><strong className="cloud-list-label">Cloud servers</strong>{cloud.cores.map((item) => <button key={item.id} className={selected === `cloud:${item.id}` ? "selected" : ""} aria-pressed={selected === `cloud:${item.id}`} onClick={() => { clearError(); setSelected(`cloud:${item.id}`); }}><Server size={16} /><span><strong>{item.name}</strong><small>Cloud · {item.status}</small></span></button>)}{!cloud.cores.length && <small>No cloud servers configured.</small>}</div>}
       {distribution === "source" && <div className="gateway-sidebar-footer"><button title="Gateway repository settings" aria-label="Gateway repository settings" onClick={() => { if (repository) { clearError(); setRepositoryDialog(repository); } }}><Settings size={15} /><span>Repository settings</span></button></div>}
     </aside>
     <main className="gateway-main">
 
-      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage Vibe Editor workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
+      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : cloudCore ? <CloudServerView key={`${cloud!.origin}/${cloudCore.id}`} core={cloudCore} list={cloudLists[cloudCore.id]} update={cloudUpdates[cloudCore.id]} onUpdated={(info) => setCloudUpdates(current => ({ ...current, [cloudCore.id]: { info, checking: false } }))} cloudBusy={cloudBusy} onRefresh={refreshCloud} onFailure={showError} ports={<CloudPortTunnels core={cloudCore} tunnels={state.portTunnels.filter(item => item.connectionId === `cloud:${cloudCore.id}` && item.cloudOrigin === cloud!.origin)} runtimes={tunnelRuntimes} onSave={async (port, remotePort) => setState(await window.gateway.savePortTunnel({ connectionId: `cloud:${cloudCore.id}`, cloudOrigin: cloud!.origin, port, remotePort }))} onAction={tunnelAction} onRemove={removePortTunnel} onFailure={showError} />} /> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage HatoPad workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
         <header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">{connection.kind === "local" ? "ON THIS MAC" : "SSH CONNECTION"}</span><h1>{connection.name}</h1><p>{connection.kind === "local" ? "Projects stored on this Mac" : `${connection.username}@${connection.host}`}</p></div><div className="connection-actions">{connection && <><span className={`connection-health ${connectionRuntime!.status}`} title={connectionRuntime!.message} role="status" aria-live="polite">{connection.kind === "local" ? "Local" : connectionHealthName(connectionRuntime!.status)}{connection.kind !== "local" && connectionRuntime!.latencyMs !== undefined && ` · ${connectionRuntime!.latencyMs} ms`}</span><button title="Refresh connection and Core status" aria-label="Refresh connection and Core status" onClick={() => void refreshConnection(connection.id)}><RefreshCw size={14} /></button><DiagnosticsCopyButton onCopy={() => window.gateway.copyDiagnostics(connection.id)} onFailure={(reason) => showError(reason, "Could not copy diagnostics: ")} /><button title="Edit connection" aria-label={`Edit connection ${connection.name}`} onClick={() => { clearError(); setConnectionDialog({ ...connection, password: "", passphrase: "" }); }}><Pencil size={14} /></button><button title="Delete connection" aria-label={`Delete connection ${connection.name}`} onClick={() => void removeConnection(connection)}><Trash2 size={14} /></button></>}</div><div className="workspace-header-actions">{connection.kind !== "local" && <button className="secondary" onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(true); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Search size={15} /> Discover workspaces</button>}<button onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(false); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Plus size={15} /> Add workspace</button></div></header>
         <div className="gateway-content"><section className="workspace-collection"><header className="section-heading"><div><h2 id="workspace-list-heading">Workspaces</h2><span>{workspaces.length} {workspaces.length === 1 ? "project" : "projects"}</span></div></header>
         <div className="workspace-list" role="region" aria-label="Workspaces" tabIndex={0}>{workspaces.map((workspace) => { const current = runtimes[workspace.id] ?? { status: "idle", message: "Not running" }; const busy = current.status === "working"; const serverRunning = current.status === "server" || current.status === "client"; return <article key={workspace.id}>
           <div className="workspace-info"><div className={`status-dot ${current.status}`} aria-hidden="true" /><div><div className="workspace-title-row"><h2>{workspace.name}</h2><div className="workspace-management"><button className="icon-button" title="Edit workspace" aria-label={`Edit workspace ${workspace.name}`} onClick={() => setWorkspaceDialog(workspace)}><Pencil size={14} /></button><button className="icon-button" title="Delete workspace" aria-label={`Delete workspace ${workspace.name}`} onClick={() => void removeWorkspace(workspace)}><Trash2 size={14} /></button></div></div><code>{workspace.directory}</code><span>{connection.kind === "local" ? "Core" : "Remote"} port {workspace.remotePort}</span></div><div className="status" role="status" aria-live="polite"><strong>{statusName(current.status)}</strong><small>{current.message}</small></div></div>
-          <div className="workspace-buttons"><button title={serverRunning ? "Server is already running" : "Start server"} disabled={busy || serverRunning} onClick={() => void action(workspace, "startServer")}><Play size={14} /> Start server</button>{busy && <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}><CircleStop size={14} /> Cancel</button>}{current.status === "error" && current.retryable && <button onClick={() => void action(workspace, "startServer")}><RefreshCw size={14} /> Retry</button>}{current.status === "error" && current.repairable && <button onClick={() => void action(workspace, "repairServer")}><RefreshCw size={14} /> Repair</button>}<button disabled={busy} onClick={() => void action(workspace, "startClient")}><Laptop size={14} /> Start client</button><button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}><CircleStop size={14} /> Stop server</button><button className={`workspace-log-button${logWorkspace?.id === workspace.id ? " selected" : ""}`} aria-pressed={logWorkspace?.id === workspace.id} aria-label={`View provisioning log for ${workspace.name}`} onClick={() => setLogWorkspaceId(workspace.id)}><SquareTerminal size={14} /> Logs</button></div>
+          <div className="workspace-buttons"><button title={serverRunning ? "Server is already running" : "Start server"} disabled={busy || serverRunning} onClick={() => void action(workspace, "startServer")}><Play size={14} /> Start server</button>{busy && <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}><CircleStop size={14} /> Cancel</button>}{current.status === "error" && current.retryable && <button onClick={() => void action(workspace, "startServer")}><RefreshCw size={14} /> Retry</button>}{current.status === "error" && current.repairable && <button onClick={() => void action(workspace, "repairServer")}><RefreshCw size={14} /> Repair</button>}<button disabled={busy} onClick={() => void action(workspace, "startClient")}><Laptop size={14} /> Start client</button><button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}><CircleStop size={14} /> Stop server</button>{cloud && <button disabled={busy || Boolean(addingToCloud) || !serverRunning} className="icon-button" aria-label={addingToCloud === workspace.id ? "Adding to cloud" : "Add to cloud"} title={!serverRunning ? "Start the server before adding it to cloud" : "Add this server to your cloud account"} onClick={() => void addToCloud(workspace)}><CloudUpload size={14} className={addingToCloud === workspace.id ? "cloud-spinning" : undefined} /></button>}<button className={`workspace-log-button${logWorkspace?.id === workspace.id ? " selected" : ""}`} aria-pressed={logWorkspace?.id === workspace.id} aria-label={`View provisioning log for ${workspace.name}`} onClick={() => setLogWorkspaceId(workspace.id)}><SquareTerminal size={14} /> Logs</button></div>
         </article>; })}{workspaces.length === 0 && <div className="workspace-empty">No workspaces configured for this connection.</div>}</div>
         </section><div className="gateway-inspector"><ProvisioningLog workspace={logWorkspace} workspaces={workspaces} runtime={logWorkspace ? runtimes[logWorkspace.id] : undefined} onSelect={setLogWorkspaceId} />
         {connection.kind !== "local" && <section className="tunnel-section">
@@ -120,6 +208,7 @@ export function App() {
         </div></div>
       </section>}
     </main>
+    {bridgeReady && cloudDialog && <CloudDialog onClose={closeCloudDialog}><form className="dialog" onSubmit={(event) => void connectCloud(event)}><header><strong>Connect to cloud</strong><button type="button" disabled={cloudBusy && !cloudSigningIn} onClick={closeCloudDialog} aria-label="Close cloud connection"><X size={15} /></button></header><p className="dialog-help">Sign-in opens your default browser. Gateway remembers this cloud URL on this device.</p><label>Cloud URL<input type="url" required placeholder="https://your-hub.example" value={cloudUrl} disabled={cloudBusy} onChange={(event) => setCloudUrl(event.target.value)} /></label><footer><button type="button" disabled={cloudBusy && !cloudSigningIn} onClick={closeCloudDialog}>Cancel</button><button type="button" disabled={cloudBusy || !cloudUrl.trim()} onClick={() => void saveCloudUrl()}>Save URL</button><button className="primary" disabled={cloudBusy}>{cloudBusy ? "Waiting in your browser…" : "Sign in"}</button></footer></form></CloudDialog>}
     {bridgeReady && connectionDialog && <ConnectionDialog allowLocal={distribution !== "bundled" || window.gateway.platform !== "win32"} value={connectionDialog} onClose={() => setConnectionDialog(undefined)} onFailure={showError} onSave={async (value) => { const next = await window.gateway.saveConnection(value); setState(next); setSelected(value.id ?? next.connections.at(-1)?.id); setConnectionDialog(undefined); clearError(); }} />}
     {bridgeReady && workspaceDialog && connection && <WorkspaceDialog value={workspaceDialog} connectionId={connection.id} local={connection.kind === "local"} discoverOnOpen={discoverWorkspaceOnOpen} configuredDirectories={workspaces.map((item) => item.directory)} onClose={() => setWorkspaceDialog(undefined)} onFailure={showError} onSave={async (value) => { setState(await window.gateway.saveWorkspace(value)); setWorkspaceDialog(undefined); clearError(); }} />}
     {bridgeReady && distribution === "source" && repositoryDialog && <RepositoryDialog value={repositoryDialog} onClose={() => setRepositoryDialog(undefined)} onFailure={showError} onSave={async (value) => { const saved = await window.gateway.saveRepository(value); setRepository(saved); setRepositoryDialog(undefined); clearError(); }} />}
@@ -148,6 +237,74 @@ export function DiagnosticsCopyButton({ onCopy, onFailure }: { onCopy(): Promise
   const [status, setStatus] = useState<"idle" | "copying" | "success" | "error">("idle");
   const copy = async () => { setStatus("copying"); try { await onCopy(); setStatus("success"); } catch (reason) { setStatus("error"); onFailure(reason); } };
   return <><button title="Copy connection diagnostics" aria-label="Copy connection diagnostics" disabled={status === "copying"} onClick={() => void copy()}>{status === "success" ? <Check size={14} /> : <Copy size={14} />}</button><span className="visually-hidden" role="status" aria-live="polite">{status === "copying" ? "Copying connection diagnostics" : status === "success" ? "Connection diagnostics copied" : status === "error" ? "Connection diagnostics could not be copied" : ""}</span></>;
+}
+
+function CloudServerView({ core, list, update, cloudBusy, onRefresh, onUpdated, onFailure, ports }: { core: GatewayCloudCore; ports?: ReactNode; list?: CloudCoreList; update?: CloudCoreUpdate; cloudBusy: boolean; onRefresh(): Promise<void>; onUpdated(info: GatewayCloudCoreUpdateInfo): void; onFailure(reason: unknown): void }) {
+  const { roots = [], loading = core.status === "online", failure = "" } = list ?? {};
+  const [connecting, setConnecting] = useState<string>();
+  const [updating, setUpdating] = useState(false);
+  const [updateDone, setUpdateDone] = useState(false);
+  const updateInfo = update?.info;
+  const checking = core.access === "owner" && (update?.checking ?? true) && !updateInfo;
+  const connect = async (root: GatewayCloudRoot) => {
+    setConnecting(root.id);
+    try { await window.gateway.cloudOpen(core.id, root.id); }
+    catch (reason) { onFailure(reason); } finally { setConnecting(undefined); }
+  };
+  const label = updateInfo?.tag ?? `Gateway bundle ${updateInfo?.bundledVersion}`;
+  const install = async () => {
+    if (!updateInfo?.available || !updateInfo.updateNeeded || !updateInfo.bundledRelease) return;
+    if (!confirm(`Replace this server's Core with ${label} (${updateInfo.bundledRelease.slice(0, 12)})? Core will restart and active clients will reconnect.`)) return;
+    setUpdating(true); setUpdateDone(false);
+    try {
+      onUpdated(await window.gateway.cloudUpdateCore(core.id, updateInfo.bundledRelease));
+      setUpdateDone(true); await onRefresh();
+    } catch (reason) { onFailure(reason); } finally { setUpdating(false); }
+  };
+  const chip: { text: string; tone: string; title: string } = core.access !== "owner" ? { text: "Updates: owner only", tone: "muted", title: "Only the Core owner can install updates." }
+    : updating ? { text: "Installing…", tone: "busy", title: "Installing compatible Core…" }
+    : checking || (update?.checking && !updateInfo) ? { text: "Checking for updates…", tone: "busy", title: "Checking compatible Core release…" }
+    : !updateInfo ? { text: "Update status unknown", tone: "muted", title: "Not checked yet" }
+    : updateInfo.available && updateInfo.updateNeeded ? { text: updateInfo.tag ? `Update available: ${updateInfo.tag}` : "Update available", tone: "available", title: `Download and run ${label} (${updateInfo.bundledRelease?.slice(0, 12)})` }
+    : updateInfo.available ? { text: "Up to date", tone: "current", title: updateInfo.reason ?? "Core is already using the selected compatible release." }
+    : { text: "Update check failed", tone: "error", title: updateInfo.reason ?? "No compatible release found." };
+  return <section className="workspace-view cloud-server-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{core.name}</h1><p>{core.status} · {core.access}<span className={`update-chip ${chip.tone}`} role="status" aria-live="polite" title={chip.title}>{chip.text}</span></p></div><div className="connection-actions"><button title={chip.title} aria-label="Update cloud Core" disabled={cloudBusy || updating || Boolean(connecting) || !updateInfo?.available || !updateInfo.updateNeeded} onClick={() => void install()}><ArrowUpCircle size={14} className={updating ? "cloud-spinning" : undefined} /></button><button title="Refresh cloud Cores and check for updates" aria-label="Refresh cloud Cores" disabled={cloudBusy || updating} onClick={() => { void onRefresh(); }}><RefreshCw size={14} /></button></div></header>{core.access === "owner" ? <AutostartControl core={core} onFailure={onFailure} /> : null}<section className="workspace-collection cloud-core-collection"><header className="section-heading"><div><h2>Cores</h2><span>{updating ? "Installing compatible Core…" : updateDone ? "Core updated" : `${roots.length} available`}</span></div></header><div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>{core.status === "online" && loading && !roots.length ? <div className="workspace-empty" role="status">Loading Cores…</div> : failure ? <div className="workspace-empty" role="alert">{failure}</div> : core.status !== "online" ? <div className="workspace-empty">Server is {core.status}. Reconnect the server and refresh to see its Cores.</div> : roots.length === 0 ? <div className="workspace-empty">No Cores available on this server.</div> : roots.map((root) => <article key={root.id}><div className="workspace-info"><HardDrive size={17} /><div><h2>{root.alias}</h2><code>{root.path}</code></div><button className="icon-button cloud-core-connect" title={`Connect to ${root.alias}`} aria-label={`Connect to ${root.alias}`} disabled={Boolean(connecting) || updating} onClick={() => void connect(root)}><PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} /></button></div></article>)}</div></section>{ports}</section>;
+}
+
+export function CloudPortTunnels({ core, tunnels, runtimes, onSave, onAction, onRemove, onFailure }: {
+  core: GatewayCloudCore; tunnels: GatewayPortTunnel[]; runtimes: Record<string, GatewayTunnelRuntime>;
+  onSave(port: number, remotePort: number): Promise<unknown>; onAction(item: GatewayPortTunnel, action: "startPortTunnel" | "stopPortTunnel"): Promise<void>;
+  onRemove(item: GatewayPortTunnel): Promise<void>; onFailure(reason: unknown): void;
+}) {
+  const [local, setLocal] = useState(""); const [remote, setRemote] = useState(""); const [saving, setSaving] = useState(false);
+  const save = async (event: FormEvent) => { event.preventDefault(); setSaving(true); try { await onSave(Number(local), Number(remote || local)); setLocal(""); setRemote(""); } catch (reason) { onFailure(reason); } finally { setSaving(false); } };
+  return <section className="tunnel-section cloud-port-tunnels" aria-label="Cloud port tunnels"><header><div><Cable size={16} /><div><h2>Cloud port tunnels</h2><p>Local localhost → this Core’s localhost. TCP traffic flows both ways through cloud.</p></div></div><form onSubmit={event => void save(event)}><input aria-label="Local tunnel port" required type="number" min="1" max="65535" value={local} onChange={event => setLocal(event.target.value)} placeholder="Local port" /><input aria-label="Core tunnel port" type="number" min="1" max="65535" value={remote} onChange={event => setRemote(event.target.value)} placeholder="Core port (same)" /><button className="primary" disabled={saving || core.status !== "online"}><Plus size={14} /> Add port</button></form></header><div className="tunnel-list">{tunnels.map(item => {
+    const runtime = runtimes[item.id] ?? { status: "idle", message: "Stopped" };
+    return <div className="tunnel-row" key={item.id}><div className={`status-dot ${runtime.status}`} aria-hidden="true" /><div className="tunnel-address"><strong>localhost:{item.port}</strong><small>→ Core localhost:{item.remotePort ?? item.port}</small></div><div className="tunnel-status" role="status"><strong>{tunnelStatusName(runtime.status)}</strong><small>{runtime.message}</small></div><button disabled={runtime.status === "working" || runtime.status === "running" || core.status !== "online"} onClick={() => void onAction(item, "startPortTunnel")}><Play size={14} /> Run</button><button className="stop" disabled={runtime.status === "idle" || runtime.status === "error"} onClick={() => void onAction(item, "stopPortTunnel")}><CircleStop size={14} /> Stop</button><button aria-label={`Delete cloud tunnel on port ${item.port}`} onClick={() => void onRemove(item)}><Trash2 size={14} /></button></div>;
+  })}{!tunnels.length && <div className="tunnel-empty">No cloud ports configured. For example, local 3000 → Core 3000.</div>}</div></section>;
+}
+
+/** Owner-only: installs/removes a boot service on the Core's own machine, so a reboot or crash does not strand it. */
+function AutostartControl({ core, onFailure }: { core: GatewayCloudCore; onFailure(reason: unknown): void }) {
+  const [info, setInfo] = useState<GatewayAutostart>();
+  const [busy, setBusy] = useState(false);
+  useEffect(() => {
+    let current = true; setInfo(undefined);
+    void window.gateway.cloudAutostartInfo(core.id).then((value) => { if (current) setInfo(value); }, () => { if (current) setInfo({ state: "unknown", detail: "Could not read the start-on-boot state." }); });
+    return () => { current = false; };
+  }, [core.id]);
+  const change = async (enabled: boolean) => {
+    if (!confirm(enabled ? "Start this Core automatically when its machine boots or its user logs in? This installs a small service for your user on that machine." : "Stop starting this Core automatically? A running Core keeps running.")) return;
+    setBusy(true);
+    try { setInfo(await window.gateway.cloudSetAutostart(core.id, enabled)); } catch (reason) { onFailure(reason); } finally { setBusy(false); }
+  };
+  const known = info?.state === "on" || info?.state === "off";
+  return <div className="autostart-control"><label><input type="checkbox" role="switch" checked={info?.state === "on"} disabled={busy || !known} onChange={(event) => void change(event.target.checked)} /> Start on boot</label><span role="status" aria-live="polite">{busy ? "Applying…" : info?.detail ?? (info ? (info.state === "off" ? "Off. After a reboot this Core stays down until you start it here." : "") : "Checking…")}</span></div>;
+}
+
+function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): void }) {
+  useDialogKeyboard(onClose, "Connect to cloud");
+  return <div className="dialog-layer">{children}</div>;
 }
 
 function useDialogKeyboard(onClose: () => void, accessibleName: string) {
@@ -187,7 +344,7 @@ export function ConnectionDialog({ value, allowLocal = true, onClose, onSave, on
   const chooseKey = async () => { try { const privateKeyPath = await window.gateway.pickPrivateKey(); if (privateKeyPath) setForm({ ...form, privateKeyPath }); } catch (reason) { onFailure(reason); } };
   const testConnection = async () => { setTesting(true); setTestResult(""); try { const result = await window.gateway.testConnection({ id: form.id, kind: form.kind, host: form.host?.trim() ?? "", port: Number(form.port), username: form.username?.trim() ?? "", authenticationMethod: form.authenticationMethod ?? "password", password: form.password, privateKeyPath: form.privateKeyPath, passphrase: form.passphrase }); setForm((current) => ({ ...current, hostKeyFingerprint: result.hostKeyFingerprint })); setTestResult(result.message); } catch (reason) { onFailure(reason); } finally { setTesting(false); } };
   const keyAuthentication = form.authenticationMethod === "privateKey";
-  return <div className="dialog-layer"><form className="dialog" onSubmit={(event) => void submit(event)}><header><strong>{dialogName}</strong><button type="button" onClick={onClose} disabled={testing}><X size={15} /></button></header>{!form.id && <label>Connection type<select aria-label="Connection type" value={form.kind ?? "ssh"} onChange={(event) => setForm({ ...form, kind: event.target.value as "ssh" | "local" })}><option value="ssh">SSH host</option>{allowLocal && <option value="local">This Mac</option>}</select></label>}<label>Name<input required value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={local ? "My Mac" : "Production server"} /></label>{local ? <p className="dialog-help">Local workspaces run Core and Vibe Editor directly on this Mac. No SSH credentials or port tunnels are needed.</p> : <><div className="field-row"><label>Host<input required value={form.host ?? ""} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="192.168.1.50" /></label><label className="port">Port<input required type="number" min="1" max="65535" value={form.port ?? 22} onChange={(e) => setForm({ ...form, port: Number(e.target.value) })} /></label></div><label>Username<input required value={form.username ?? ""} onChange={(e) => setForm({ ...form, username: e.target.value })} /></label><label>Authentication<select value={form.authenticationMethod ?? "password"} onChange={(e) => setForm({ ...form, authenticationMethod: e.target.value as "password" | "privateKey" | "agent" })}><option value="password">Password</option><option value="privateKey">Private key</option><option value="agent">SSH agent</option></select></label>{keyAuthentication ? <><label>Private key file<div className="file-picker"><input required value={form.privateKeyPath ?? ""} onChange={(e) => setForm({ ...form, privateKeyPath: e.target.value })} placeholder="/Users/me/.ssh/id_ed25519" /><button type="button" onClick={() => void chooseKey()} disabled={testing}>Choose…</button></div></label><label>Key passphrase<input type="password" value={form.passphrase} onChange={(e) => setForm({ ...form, passphrase: e.target.value })} placeholder={form.id ? "Leave blank to keep saved passphrase" : "Optional"} /></label></> : form.authenticationMethod === "agent" ? <p className="dialog-help">Uses keys already loaded in your OS SSH agent. No private key or passphrase is saved by Gateway.</p> : <label>Password<input required={!form.id} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={form.id ? "Leave blank to keep saved password" : "SSH password"} /></label>}{form.hostKeyFingerprint && <p className="dialog-help">Trusted server host key: <code>{form.hostKeyFingerprint}</code></p>}</>}{testResult && <div className="form-success">{testResult}</div>}<footer><button type="button" onClick={onClose} disabled={testing}>Cancel</button>{!local && <button type="button" onClick={() => void testConnection()} disabled={saving || testing}>{testing ? "Testing..." : "Test connection"}</button>}<button className="primary" disabled={saving || testing}>{saving ? "Saving..." : "Save connection"}</button></footer></form></div>;
+  return <div className="dialog-layer"><form className="dialog" onSubmit={(event) => void submit(event)}><header><strong>{dialogName}</strong><button type="button" onClick={onClose} disabled={testing}><X size={15} /></button></header>{!form.id && <label>Connection type<select aria-label="Connection type" value={form.kind ?? "ssh"} onChange={(event) => setForm({ ...form, kind: event.target.value as "ssh" | "local" })}><option value="ssh">SSH host</option>{allowLocal && <option value="local">This Mac</option>}</select></label>}<label>Name<input required value={form.name ?? ""} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder={local ? "My Mac" : "Production server"} /></label>{local ? <p className="dialog-help">Local workspaces run Core and HatoPad directly on this Mac. No SSH credentials or port tunnels are needed.</p> : <><div className="field-row"><label>Host<input required value={form.host ?? ""} onChange={(e) => setForm({ ...form, host: e.target.value })} placeholder="192.168.1.50" /></label><label className="port">Port<input required type="number" min="1" max="65535" value={form.port ?? 22} onChange={(e) => setForm({ ...form, port: Number(e.target.value) })} /></label></div><label>Username<input required value={form.username ?? ""} onChange={(e) => setForm({ ...form, username: e.target.value })} /></label><label>Authentication<select value={form.authenticationMethod ?? "password"} onChange={(e) => setForm({ ...form, authenticationMethod: e.target.value as "password" | "privateKey" | "agent" })}><option value="password">Password</option><option value="privateKey">Private key</option><option value="agent">SSH agent</option></select></label>{keyAuthentication ? <><label>Private key file<div className="file-picker"><input required value={form.privateKeyPath ?? ""} onChange={(e) => setForm({ ...form, privateKeyPath: e.target.value })} placeholder="/Users/me/.ssh/id_ed25519" /><button type="button" onClick={() => void chooseKey()} disabled={testing}>Choose…</button></div></label><label>Key passphrase<input type="password" value={form.passphrase} onChange={(e) => setForm({ ...form, passphrase: e.target.value })} placeholder={form.id ? "Leave blank to keep saved passphrase" : "Optional"} /></label></> : form.authenticationMethod === "agent" ? <p className="dialog-help">Uses keys already loaded in your OS SSH agent. No private key or passphrase is saved by Gateway.</p> : <label>Password<input required={!form.id} type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} placeholder={form.id ? "Leave blank to keep saved password" : "SSH password"} /></label>}{form.hostKeyFingerprint && <p className="dialog-help">Trusted server host key: <code>{form.hostKeyFingerprint}</code></p>}</>}{testResult && <div className="form-success">{testResult}</div>}<footer><button type="button" onClick={onClose} disabled={testing}>Cancel</button>{!local && <button type="button" onClick={() => void testConnection()} disabled={saving || testing}>{testing ? "Testing..." : "Test connection"}</button>}<button className="primary" disabled={saving || testing}>{saving ? "Saving..." : "Save connection"}</button></footer></form></div>;
 }
 
 export function WorkspaceDialog({ value, connectionId, local = false, discoverOnOpen = false, configuredDirectories = [], onClose, onSave, onFailure }: { value: Partial<GatewayWorkspace>; connectionId: string; local?: boolean; discoverOnOpen?: boolean; configuredDirectories?: string[]; onClose(): void; onSave(value: Partial<GatewayWorkspace> & { connectionId: string; name: string; directory: string; remotePort: number }): Promise<void>; onFailure(reason: unknown): void }) {

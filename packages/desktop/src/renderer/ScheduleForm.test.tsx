@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ScheduleInput } from "@remote-ide/protocol";
+import type { ScheduleInput } from "@hatopad/protocol";
 import { ScheduleForm } from "./ScheduleForm";
 
 afterEach(cleanup);

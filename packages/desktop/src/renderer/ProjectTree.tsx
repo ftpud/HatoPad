@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, LocateFixed } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
-import type { FileColor, FileTreeNode, JavaFileType, JavaProjectNode } from "@remote-ide/protocol";
+import type { FileColor, FileTreeNode, JavaFileType, JavaProjectNode } from "@hatopad/protocol";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
 import { FileKindIcon } from "./FileKindIcon";
 

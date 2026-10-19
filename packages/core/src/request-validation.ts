@@ -1,4 +1,4 @@
-import type { RequestType } from "@remote-ide/protocol";
+import type { RequestType } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -18,6 +18,7 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       optionalBoolean(record, "discardChanges", "Discard changes flag must be a boolean");
       if (typeof record.category !== "string" || typeof record.age !== "string" || !["tasks", "sessions", "workflows", "checkpoints", "logs", "provider", "runtime", "other"].includes(record.category) || !["finished", "week", "older", "inactive", "versions"].includes(record.age)) invalid("Invalid storage cleanup selection");
       return;
+    case "protocol.maintenance":
     case "protocol.handshake": {
       const compatibility = requireRecord(record.compatibility, "Handshake compatibility must be an object");
       const minimum = compatibility.minimum;

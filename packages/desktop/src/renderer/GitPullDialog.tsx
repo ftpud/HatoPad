@@ -1,4 +1,4 @@
-import type { GitPullPreview, GitPullStrategy } from "@remote-ide/protocol";
+import type { GitPullPreview, GitPullStrategy } from "@hatopad/protocol";
 import { LoaderCircle, X } from "lucide-react";
 
 export function GitPullDialog({ preview, busy, error, onClose, onConfirm }: { preview: GitPullPreview; busy: boolean; error?: string; onClose(): void; onConfirm(strategy: GitPullStrategy): void }) {

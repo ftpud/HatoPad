@@ -12,7 +12,7 @@ function begin() {
 
 test("reports an unknown outcome when SSH drops after the activation marker", async () => {
   const { channel, client, result } = begin();
-  channel.emit("data", Buffer.from("VIBE_ACTIVATED:release\n"));
+  channel.emit("data", Buffer.from("HATOPAD_ACTIVATED:release\n"));
   client.emit("close");
   await assert.rejects(result, /SSH command interrupted: connection closed.*remote command may still be running/s);
   assert.equal(client.listenerCount("close"), 0);
@@ -50,7 +50,7 @@ test("retains remote command failure diagnostics", async () => {
 
 test("includes the exit status when activation output accompanies a nonzero close", async () => {
   const { channel, result } = begin();
-  channel.emit("data", Buffer.from("VIBE_ACTIVATED:release\n"));
+  channel.emit("data", Buffer.from("HATOPAD_ACTIVATED:release\n"));
   channel.emit("exit", 143); channel.emit("close", 143);
-  await assert.rejects(result, /Remote command exited with 143\nVIBE_ACTIVATED:release/);
+  await assert.rejects(result, /Remote command exited with 143\nHATOPAD_ACTIVATED:release/);
 });

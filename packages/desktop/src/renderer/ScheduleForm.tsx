@@ -1,7 +1,7 @@
 import { CalendarClock, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, ScheduleInput, WorkspaceTask } from "@remote-ide/protocol";
+import type { AgentFile, AiModel, AiProviderDescriptor, HarnessDefinition, ScheduleInput, WorkspaceTask } from "@hatopad/protocol";
 
 import { ActionModelFields } from "./ActionModelFields";
 

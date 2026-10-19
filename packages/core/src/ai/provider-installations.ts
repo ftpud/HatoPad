@@ -1,9 +1,10 @@
+import { stateHome } from "../state-home.js";
 import { execFile } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import type { AiProviderInstallation } from "@remote-ide/acp";
+import type { AiProviderInstallation } from "@hatopad/acp";
 import { serializedStateMutation } from "../root-mutation.js";
 
 /** An npm package whose `bin` file is the provider's ACP agent, started with Core's Node. */
@@ -40,7 +41,7 @@ type Current = { directory: string; specifier: string; version?: string };
 
 /**
  * Provider agents live outside the application bundle, under
- * `~/.remote-ide/provider-runtimes/<provider>/` on the Core host. Installs and
+ * `~/.hatopad/provider-runtimes/<provider>/` on the Core host. Installs and
  * updates download into a fresh directory and publish it only when complete, so
  * a failed update never replaces a working installation.
  */
@@ -48,7 +49,7 @@ export class ProviderInstallations {
   private readonly operations = new Map<string, { status: "installing" | "removing"; done: Promise<void> }>();
   private readonly errors = new Map<string, string>();
   private readonly latestVersions = new Map<string, { at: number; version?: string; pending?: Promise<string | undefined> }>();
-  constructor(private readonly root: () => string = () => process.env.REMOTE_IDE_PROVIDER_RUNTIME_DIR ?? path.join(os.homedir(), ".remote-ide", "provider-runtimes"), private readonly npm: Npm = defaultNpm) {}
+  constructor(private readonly root: () => string = () => process.env.HATOPAD_PROVIDER_RUNTIME_DIR ?? path.join(stateHome(), "provider-runtimes"), private readonly npm: Npm = defaultNpm) {}
 
   private directory(provider: string): string {
     if (!/^[a-z0-9-]+$/.test(provider)) throw new Error("Invalid provider identifier");
@@ -151,7 +152,7 @@ export class ProviderInstallations {
   }
 
   private run(provider: string, spec: InstallationSpec, status: "installing" | "removing", operation: (directory: string) => Promise<void>): Promise<void> {
-    if (spec.override?.()) throw new Error("This provider is configured by a Core-host override and cannot be managed from Vibe Editor");
+    if (spec.override?.()) throw new Error("This provider is configured by a Core-host override and cannot be managed from HatoPad");
     const active = this.operations.get(provider);
     if (active) { if (active.status === status) return active.done; throw new Error("Another installation change is already running for this provider"); }
     const directory = this.directory(provider);

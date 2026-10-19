@@ -1,6 +1,6 @@
 import { ArrowUp, Check, ChevronDown, GitBranch, GitCompareArrows, LoaderCircle, MoreVertical, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { GitBranch as Branch } from "@remote-ide/protocol";
+import type { GitBranch as Branch } from "@hatopad/protocol";
 
 type Props = {
   current: string;

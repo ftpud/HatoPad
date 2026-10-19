@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
-import type { GitPullPreview } from "@remote-ide/protocol";
+import type { GitPullPreview } from "@hatopad/protocol";
 import { GitPullDialog } from "./GitPullDialog";
 
 const preview: GitPullPreview = { branch: "main", upstream: "origin/main", head: "a".repeat(40), upstreamHead: "b".repeat(40), fetchedAt: "2026-08-31T10:00:00.000Z", ahead: 1, behind: 1, incoming: [{ hash: "b".repeat(40), shortHash: "bbbbbbb", author: "Test", date: "2026-08-31T09:00:00.000Z", subject: "incoming work" }], incomingTruncated: false, blockers: [], recovery: "Abort merge or rebase." };

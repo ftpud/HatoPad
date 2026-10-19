@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AiSession, AiUsage } from "@remote-ide/acp";
-import type { AgentFile } from "@remote-ide/protocol";
+import type { AiSession, AiUsage } from "@hatopad/acp";
+import type { AgentFile } from "@hatopad/protocol";
 import { AppToolService, appToolDefinitions } from "./app-tools.js";
 import { agentFingerprint } from "./agent-profile.js";
 
@@ -29,7 +29,7 @@ function harness() {
   return { service: new AppToolService(tasks as never, acp as never, "/tasks/parent/workspace", onTasksChanged, onCommitMessageChanged, undefined, agents as never, "/workspace"), tasks, provider, agents, task, onTasksChanged, onCommitMessageChanged };
 }
 
-describe("Vibe Editor app tools", () => {
+describe("HatoPad app tools", () => {
   it("records child ownership before sending and preserves the worktree on workflow startup errors", async () => {
     const { tasks, provider, agents, onTasksChanged, onCommitMessageChanged } = harness();
     const registerChild = vi.fn(async () => undefined);
@@ -130,12 +130,12 @@ describe("Vibe Editor app tools", () => {
 
   it("queues a context-empty session with a handoff prompt in the invoking workspace", async () => {
     const { tasks, provider, onTasksChanged, onCommitMessageChanged, agents } = harness();
-    const coordinator = { name: "Oleg", instructions: "Implement end to end.", mcpServers: ["vibe-editor"] };
+    const coordinator = { name: "Oleg", instructions: "Implement end to end.", mcpServers: ["hatopad"] };
     provider.get.mockResolvedValue({ ...await provider.get(), agent: { name: coordinator.name, fingerprint: agentFingerprint(coordinator) }, agentPreset: { scope: "local", name: "Oleg.md" } });
     agents.list.mockResolvedValue([{ scope: "local", name: "Oleg.md", agent: coordinator }]);
     const service = new AppToolService(tasks as never, { get: vi.fn(() => provider), list: vi.fn(() => []) } as never, "/tasks/parent/workspace", onTasksChanged, onCommitMessageChanged, "codex", agents as never, "/workspace");
     await expect(service.call("session_new", { prompt: "Continue from this handoff" })).resolves.toMatchObject({ provider: "codex", workspace: "/tasks/parent/workspace", transition: "queued" });
-    expect(provider.startFreshSession).toHaveBeenCalledWith("/tasks/parent/workspace", expect.objectContaining({ prompt: "Continue from this handoff", configuration: { model: "gpt-5", reasoning: "medium", mode: "agent-full-access" }, agent: coordinator, agentPreset: { scope: "local", name: "Oleg.md" }, mcpServers: [expect.objectContaining({ name: "vibe-editor" })] }));
+    expect(provider.startFreshSession).toHaveBeenCalledWith("/tasks/parent/workspace", expect.objectContaining({ prompt: "Continue from this handoff", configuration: { model: "gpt-5", reasoning: "medium", mode: "agent-full-access" }, agent: coordinator, agentPreset: { scope: "local", name: "Oleg.md" }, mcpServers: [expect.objectContaining({ name: "hatopad" })] }));
     expect(tasks.create).not.toHaveBeenCalled();
     expect(tasks.createRandom).not.toHaveBeenCalled();
   });
@@ -245,13 +245,13 @@ describe("Vibe Editor app tools", () => {
 
   it("inherits the invoking session's configured agent when agent is omitted", async () => {
     const { service, provider, agents } = harness();
-    const coordinator = { name: "Coordinator", instructions: "Coordinate tasks.", mcpServers: ["vibe-editor"] };
+    const coordinator = { name: "Coordinator", instructions: "Coordinate tasks.", mcpServers: ["hatopad"] };
     provider.get.mockResolvedValueOnce({ ...await provider.get(), agent: { name: coordinator.name, fingerprint: agentFingerprint(coordinator) } });
     agents.list.mockResolvedValueOnce([{ scope: "global", name: "coordinator.md", agent: coordinator }]);
 
     await service.call("task_create_and_start", { prompt: "Implement it", provider: "codex", model: "gpt-5" });
 
-    expect(provider.send).toHaveBeenCalledWith("/tasks/task-1/workspace", expect.objectContaining({ agent: coordinator, mcpServers: [expect.objectContaining({ name: "vibe-editor" })] }));
+    expect(provider.send).toHaveBeenCalledWith("/tasks/task-1/workspace", expect.objectContaining({ agent: coordinator, mcpServers: [expect.objectContaining({ name: "hatopad" })] }));
   });
 
   it("uses explicit null to suppress inherited agent instructions", async () => {

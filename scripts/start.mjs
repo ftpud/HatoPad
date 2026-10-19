@@ -36,9 +36,9 @@ try {
   } else {
     // Compile source on every launch, so deleted or stale dist trees cannot
     // silently run an older version. Gateway also launches Core and Desktop.
-    const packages = target === 'gateway' ? ['acp', 'protocol', 'core', 'desktop', 'gateway'] : ['acp', 'protocol', target];
-    for (const name of packages) await runNpm(['run', 'build', '-w', `@remote-ide/${name}`]);
-    if (target === 'core') await run(process.execPath, [path.join(root, 'packages/core/dist/index.js'), ...process.argv.slice(3)]);
+    const packages = target === 'gateway' ? ['acp', 'protocol', 'client', 'relay', 'connector', 'test-fixtures', 'core', 'desktop', 'gateway'] : target === 'core' ? ['acp', 'protocol', 'relay', 'connector', 'test-fixtures', 'core'] : ['acp', 'protocol', 'client', target];
+    for (const name of packages) await runNpm(['run', 'build', '-w', `@hatopad/${name}`]);
+    if (target === 'core') await run(process.execPath, [path.join(root, 'scripts/core-service.mjs'), ...process.argv.slice(3)]);
     else await run(process.execPath, [path.join(root, 'scripts/start-electron.mjs'), target, ...process.argv.slice(3)]);
   }
 } catch (error) {

@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -10,17 +11,17 @@ export async function connectionToken(
 ): Promise<string | undefined> {
   if (typeof host !== "string" || !Number.isInteger(port) || Number(port) < 1 || Number(port) > 65535) throw new Error("Invalid Core connection target");
   const launchTarget = validateLaunchTarget(target);
-  const explicitToken = process.env.REMOTE_IDE_SESSION_TOKEN;
-  const explicitTokenFile = process.env.REMOTE_IDE_SESSION_TOKEN_FILE;
+  const explicitToken = process.env.HATOPAD_SESSION_TOKEN;
+  const explicitTokenFile = process.env.HATOPAD_SESSION_TOKEN_FILE;
   if ((explicitToken || explicitTokenFile) && launchTarget && !sameTarget(host, Number(port), launchTarget.host, launchTarget.port)) {
     throw new Error("Configured Core session credential does not match the launch target");
   }
   if (explicitToken) return explicitToken;
   let file = explicitTokenFile;
-  if (!file && (host === "localhost" || host === "::1" || /^127(?:\.\d{1,3}){3}$/.test(host))) file = path.join(os.homedir(), ".remote-ide", "core-tokens", `${port}.token`);
+  if (!file && (host === "localhost" || host === "::1" || /^127(?:\.\d{1,3}){3}$/.test(host))) file = path.join(os.homedir(), existsSync(path.join(os.homedir(), ".remote-ide")) ? ".remote-ide" : ".hatopad", "core-tokens", `${port}.token`);
   if (!file) return undefined;
   try { return (await readFile(file, "utf8")).trim(); }
-  catch (error) { if (!process.env.REMOTE_IDE_SESSION_TOKEN_FILE && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
+  catch (error) { if (!process.env.HATOPAD_SESSION_TOKEN_FILE && (error as NodeJS.ErrnoException).code === "ENOENT") return undefined; throw error; }
 }
 
 function validateLaunchTarget(target?: { host?: string; port?: string }): { host: string; port: number } | undefined {

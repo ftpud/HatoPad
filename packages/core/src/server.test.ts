@@ -1,15 +1,73 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertWorkflowModelAvailable, settleWorkflowSession, workflowCapturesSnapshots, workflowConfiguration, workflowTurnInstructions } from "./server.js";
-import { ClaudeSessionManager } from "./ai/providers/claude.js";
+import { assertWorkflowModelAvailable, settleWorkflowSession, steerWorkflowSession, workflowCapturesSnapshots, workflowConfiguration, workflowTurnInstructions } from "./server.js";
+import { ClaudeSessionManager } from "./plugins/builtin.js";
 import { WebSocket } from "ws";
 import { assertRequestRoot, assertRootRemovalAllowed, assertSessionChangeAllowed, LiveRootSelections, permissionTargetWorkspace, protocolHandshake, renameWorkspacePaths, rootRemovalBlocker, selectRootWorkspace, sendWebSocketData, transactionalRootSelection, WorkspaceWatchBatcher } from "./server.js";
+
+describe("steering timer-paused workflow sessions", () => {
+  const timer = { id: "timer", workspace: "/workflow/chat", provider: "codex", dueAt: "2099-01-01T00:00:00.000Z", workflowRunId: "run", workflowBlockId: "chat", workflowFlow: true };
+  const session = { id: "owned", status: "done", model: "model", reasoning: "high", configuration: { model: "model", reasoning: "high", autopilot: true }, messages: [] };
+
+  it("starts another turn in the idle session and restores its workflow tools", async () => {
+    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => session), steer: vi.fn(async () => { throw new Error("not currently working"); }), send: vi.fn(async () => ({ ...session, status: "in_progress" })) };
+    const timers = { next: vi.fn(async () => timer) };
+    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    expect(provider.steer).not.toHaveBeenCalled();
+    expect(provider.send).toHaveBeenCalledWith("/workflow/chat", expect.objectContaining({ prompt: "Check now", configuration: session.configuration, mcpServers: [expect.objectContaining({ name: expect.any(String) })] }));
+    expect(JSON.stringify(provider.send.mock.calls)).toContain("chat");
+  });
+
+  it("uses live steering for an active turn and rejects an idle session without a workflow timer", async () => {
+    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => ({ ...session, status: "in_progress" })), steer: vi.fn(async () => session), send: vi.fn() };
+    const timers = { next: vi.fn(async () => undefined) };
+    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    expect(provider.steer).toHaveBeenCalledWith("/workflow/chat", "Check now");
+    expect(provider.send).not.toHaveBeenCalled();
+    provider.get.mockResolvedValue(session);
+    await expect(steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace")).rejects.toThrow("no longer working");
+  });
+
+  it("refreshes a short response even if the turn finishes between timer polls", async () => {
+    vi.useFakeTimers();
+    try {
+      let active = true;
+      const reply = { ...session, messages: [{ id: "reply", role: "assistant", text: "Checked", timestamp: "now" }] };
+      const provider = { descriptor: { id: "codex" }, get: vi.fn().mockResolvedValueOnce(session).mockResolvedValue(reply) };
+      const timers = { next: vi.fn(async () => timer) };
+      const activity = vi.fn(async (current) => { if (current === reply) active = false; });
+      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      await vi.advanceTimersByTimeAsync(1000);
+      await settled;
+      expect(activity).toHaveBeenCalledWith(reply, timer.dueAt);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("observes a steered turn before the existing timer fires", async () => {
+    vi.useFakeTimers();
+    try {
+      let current = session;
+      let active = true;
+      const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => current) };
+      const timers = { next: vi.fn(async () => timer) };
+      const activity = vi.fn(async (_session, waitingUntil) => { if (!waitingUntil) active = false; });
+      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(activity).toHaveBeenCalledWith(session, timer.dueAt);
+      current = { ...session, status: "in_progress" };
+      await vi.advanceTimersByTimeAsync(1000);
+      await settled;
+      expect(activity).toHaveBeenCalledWith(current);
+      expect(timers.next).toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
+});
 
 describe("workflow snapshot policy", () => {
   it("skips use-connected helpers while retaining lead and follow-block snapshots", () => {
     const run = { definition: { edges: [
       { from: "lead", to: "helper", type: "use" },
       { from: "lead", to: "review", type: "follow" }
-    ] } } as unknown as import("@remote-ide/protocol").HarnessRun;
+    ] } } as unknown as import("@hatopad/protocol").HarnessRun;
     expect(workflowCapturesSnapshots(run, "helper")).toBe(false);
     expect(workflowCapturesSnapshots(run, "lead")).toBe(true);
     expect(workflowCapturesSnapshots(run, "review")).toBe(true);
@@ -19,7 +77,7 @@ describe("workflow snapshot policy", () => {
 
 describe("workflow provider configuration", () => {
   it("forces interactive features off and keeps only non-blocking switches from the block", () => {
-    const options = new ClaudeSessionManager(() => undefined).descriptor.options;
+    const options = new ClaudeSessionManager({ onChanged: () => undefined }).descriptor.options;
     expect(workflowConfiguration(options, { model: "opus", options: { askQuestions: true, liveSteering: false, autopilot: false, unknown: true } })).toEqual({ model: "opus", liveSteering: false, askQuestions: false, autopilot: true });
     expect(workflowConfiguration(options, { autopilot: false })).toEqual({ askQuestions: false, autopilot: false });
     // Only ACP v2 agents can end a turn and resume on their own, so only they are told to wait inside the turn.
@@ -139,11 +197,11 @@ describe("built-in app tool access", () => {
     expect(withAppTools("/workspace", "/workspace/task", [], { name: "No tools", instructions: "", mcpServers: [] }).servers).toEqual([]);
   });
 
-  it("adds the Vibe Editor server when explicitly allowed", () => {
-    const result = withAppTools("/workspace", "/workspace/task", [], { name: "Coordinator", instructions: "", mcpServers: ["vibe-editor"] }, "codex");
+  it("adds the HatoPad server when explicitly allowed", () => {
+    const result = withAppTools("/workspace", "/workspace/task", [], { name: "Coordinator", instructions: "", mcpServers: ["hatopad"] }, "codex");
     expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]).toMatchObject({ name: "vibe-editor", transport: "stdio", env: { VIBE_EDITOR_ROOT_WORKSPACE: "/workspace", VIBE_EDITOR_CURRENT_WORKSPACE: "/workspace/task", VIBE_EDITOR_CURRENT_PROVIDER: "codex" } });
-    expect(result.agent?.mcpServers).toEqual(["vibe-editor"]);
+    expect(result.servers[0]).toMatchObject({ name: "hatopad", transport: "stdio", env: { HATOPAD_ROOT_WORKSPACE: "/workspace", HATOPAD_CURRENT_WORKSPACE: "/workspace/task", HATOPAD_CURRENT_PROVIDER: "codex" } });
+    expect(result.agent?.mcpServers).toEqual(["hatopad"]);
   });
 });
 

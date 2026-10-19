@@ -9,8 +9,8 @@ describe("editor highlighting themes", () => {
   });
 
   it("uses the workspace canvas for default light and dark editors", () => {
-    expect(monacoTheme("light", "default")).toBe("vibe-light");
-    expect(monacoTheme("dark", "default")).toBe("vibe-dark");
+    expect(monacoTheme("light", "default")).toBe("hatopad-light");
+    expect(monacoTheme("dark", "default")).toBe("hatopad-dark");
   });
 
   it("defines dark class backgrounds and bold function names", () => {

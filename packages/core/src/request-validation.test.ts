@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { RequestType } from "@remote-ide/protocol";
+import type { RequestType } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { validateRequestPayload } from "./request-validation.js";
 

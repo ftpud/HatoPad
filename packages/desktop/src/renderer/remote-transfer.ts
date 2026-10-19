@@ -1,4 +1,4 @@
-import type { FileTreeNode } from "@remote-ide/protocol";
+import type { FileTreeNode } from "@hatopad/protocol";
 
 export function remoteUploadDestination(node: Pick<FileTreeNode, "type" | "path">, localName: string): string {
   if (!localName || localName === "." || localName === ".." || /[\\/\0]/.test(localName)) throw new Error("The selected local file has an invalid name");

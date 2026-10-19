@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { AiSession } from "@remote-ide/acp";
+import type { AiSession } from "@hatopad/acp";
 import { captureContextInstructions, refreshContext } from "./context.js";
 
 const session = (): AiSession => ({ model: "test", reasoning: "", status: "done", messages: [] });

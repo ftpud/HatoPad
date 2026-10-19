@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import { recoveryFailureFeedback } from "./connection-recovery";
 import { CoalescedAsyncAction, CoreClient } from "./client";
 
@@ -87,7 +87,7 @@ describe("CoreClient streaming disconnects", () => {
       const id = JSON.parse(socket.sent.at(-1)!).id;
       socket.receive({ id, ok: false, error: { code: "WORKSPACE_TREE_TOO_LARGE", message: "Open a smaller workspace" } });
       const error = await pending;
-      expect(error).toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE", message: "WORKSPACE_TREE_TOO_LARGE: Open a smaller workspace" });
+      expect(error).toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE", requestType: "workspace.open", message: "WORKSPACE_TREE_TOO_LARGE: Open a smaller workspace [workspace.open]" });
       expect(recoveryFailureFeedback(error)).toMatchObject({ retry: false, kind: "error" });
       expect(client.isConnected()).toBe(true);
       await expect(client.request("protocol.keepAlive", {})).resolves.toEqual({});

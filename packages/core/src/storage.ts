@@ -1,10 +1,11 @@
+import { stateHome } from "./state-home.js";
 import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { lstat, readFile, readlink, readdir, rm, statfs } from "node:fs/promises";
-import type { StorageAge, StorageCategory, StorageCleanup, StorageSnapshot, StorageUsage } from "@remote-ide/protocol";
+import type { StorageAge, StorageCategory, StorageCleanup, StorageSnapshot, StorageUsage } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { HarnessStore } from "./harnesses.js";
@@ -21,7 +22,7 @@ const definitions: [StorageCategory, string, string][] = [
   ["checkpoints", "Checkpoints & file snapshots", "Complete snapshot stores for inactive finished tasks can be removed by age. Active and unidentified stores are retained."],
   ["logs", "Server & tool logs", "Old rotated server logs can be removed. Current logs and command bridge state are retained."],
   ["provider", "Provider data", "Native session logs, databases, settings and credentials. Retained: provider databases and their linked histories must be managed together."],
-  ["runtime", "Runtimes & deployments", "Keep current version removes obsolete agent runtimes, Core/Desktop releases and rebuildable source caches. It first closes other Vibe sessions for this SSH account. This connection and the current versions stay."],
+  ["runtime", "Runtimes & deployments", "Keep current version removes obsolete agent runtimes, Core/Desktop releases and rebuildable source caches. It first closes other HatoPad sessions for this SSH account. This connection and the current versions stay."],
   ["other", "Settings & other state", "Workspace settings, schedules, definitions and unrecognized state are retained."],
 ];
 export function storageCutoffs(now: number): { today: number; week: number } {
@@ -48,11 +49,11 @@ export class ServerStorage {
   private snapshot: StorageSnapshot;
   constructor(private readonly options: StorageOptions) {
     this.home = options.home ?? os.homedir();
-    this.stateDirectory = path.resolve(options.stateDirectory ?? process.env.REMOTE_IDE_STATE_DIR ?? path.join(this.home, ".remote-ide", "workspaces"));
+    this.stateDirectory = path.resolve(options.stateDirectory ?? process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(this.home), "workspaces"));
     this.providerDirectory = path.resolve((!options.home && process.env.CODEX_HOME) || path.join(this.home, ".codex"));
-    this.runtimeDirectory = path.resolve((!options.home && process.env.REMOTE_IDE_CODEX_RUNTIME_DIR) || path.join(this.home, ".remote-ide", "codex-runtime"));
+    this.runtimeDirectory = path.resolve((!options.home && process.env.HATOPAD_CODEX_RUNTIME_DIR) || path.join(stateHome(this.home), "codex-runtime"));
     this.versions = new StorageVersions({ home: this.home, runtimeDirectory: this.runtimeDirectory, ...options.versions });
-    this.snapshot = { id: "", phase: "idle", updatedAt: new Date().toISOString(), server: os.hostname(), paths: [this.stateDirectory, this.providerDirectory, this.runtimeDirectory, path.join(this.home, ".vibe-deploy"), path.join(this.home, ".vibe-server-*.log*")], categories: [], totalBytes: 0, scannedFiles: 0, message: "Open storage to calculate usage", warnings: [] };
+    this.snapshot = { id: "", phase: "idle", updatedAt: new Date().toISOString(), server: os.hostname(), paths: [this.stateDirectory, this.providerDirectory, this.runtimeDirectory, path.join(this.home, ".hatopad-deploy"), path.join(this.home, ".hatopad-server-*.log*")], categories: [], totalBytes: 0, scannedFiles: 0, message: "Open storage to calculate usage", warnings: [] };
   }
   status(): StorageSnapshot {
     const snapshot = structuredClone(this.snapshot);
@@ -69,7 +70,7 @@ export class ServerStorage {
     if (this.job || this.snapshot.phase !== "ready" || request.scanId !== this.snapshot.id) throw new CoreError("INVALID_REQUEST", "Refresh storage and wait for the current scan to finish");
     if (!definitions.some(([id]) => id === request.category) || !["finished", "week", "older", "inactive", "versions"].includes(request.age) || (request.category === "tasks") !== ["finished", "inactive"].includes(request.age) || (request.category === "runtime") !== (request.age === "versions")) throw new CoreError("INVALID_REQUEST", "Invalid storage cleanup selection");
     if (request.age === "inactive" && request.discardChanges !== true) throw new CoreError("INVALID_REQUEST", "Acknowledge discarding inactive workspace changes before removing them");
-    if (request.age === "versions" && request.closeOtherSessions !== true) throw new CoreError("INVALID_REQUEST", "Confirm closing other Vibe sessions before removing versions");
+    if (request.age === "versions" && request.closeOtherSessions !== true) throw new CoreError("INVALID_REQUEST", "Confirm closing other HatoPad sessions before removing versions");
     const cutoff = request.age === "older" ? storageCutoffs(Date.now()).week : storageCutoffs(Date.now()).today;
     const candidates = this.candidates.filter((item) => item.category === request.category && (item.mode ? item.mode === request.age : !["inactive", "versions"].includes(request.age) && (request.age === "finished" || item.stamp < cutoff)));
     if (!candidates.length) throw new CoreError("INVALID_REQUEST", "There is no eligible data in this selection");
@@ -132,10 +133,10 @@ export class ServerStorage {
     } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") this.warn(`Could not measure ${file}: ${this.message(error)}`); return 0; }
   }
   private async assertSafe(file: string): Promise<void> {
-    const allowed = [this.stateDirectory, this.providerDirectory, this.runtimeDirectory, path.join(this.home, ".vibe-deploy")];
+    const allowed = [this.stateDirectory, this.providerDirectory, this.runtimeDirectory, path.join(this.home, ".hatopad-deploy")];
     const absolute = path.resolve(file);
     const root = allowed.find((base) => absolute === path.resolve(base) || absolute.startsWith(`${path.resolve(base)}${path.sep}`));
-    if (!root && !(path.dirname(absolute) === this.home && /^\.vibe-server-[\w-]+\.log(?:\.previous)?$/.test(path.basename(absolute)))) throw new Error("Path is outside managed storage");
+    if (!root && !(path.dirname(absolute) === this.home && /^\.hatopad-server-[\w-]+\.log(?:\.previous)?$/.test(path.basename(absolute)))) throw new Error("Path is outside managed storage");
     // Reject substituted ancestors as well as symlink leaves. No directory traversal through aliases.
     let cursor = absolute;
     while (cursor !== path.dirname(cursor)) { if ((await lstat(cursor)).isSymbolicLink()) throw new Error("Symbolic links are retained"); cursor = path.dirname(cursor); }
@@ -214,7 +215,7 @@ export class ServerStorage {
       const index = row.argv.indexOf("--workspace"); const workspace = row.argv[index + 1];
       if (index >= 0 && workspace && path.isAbsolute(workspace)) roots.add(path.resolve(workspace));
     }
-    for (const directory of [this.stateDirectory, path.join(this.home, ".remote-ide", "workspace-groups")]) {
+    for (const directory of [this.stateDirectory, path.join(stateHome(this.home), "workspace-groups")]) {
       for (const name of (await this.names(directory)).filter((name) => /^roots-[a-f0-9]+\.json$/.test(name))) {
         const value = JSON.parse(await readFile(path.join(directory, name), "utf8"));
         if (!Array.isArray(value.roots)) throw new Error("Cannot verify workspace root registry");
@@ -362,14 +363,14 @@ export class ServerStorage {
       if (!entry.current && !isRoot) { obsolete.push(entry.path); obsoleteBytes += bytes; }
     }
     // Metadata and unrecognized files remain visible and protected, without measuring version trees twice.
-    for (const directory of [this.runtimeDirectory, path.join(this.home, ".vibe-deploy")]) for (const name of await this.names(directory)) {
+    for (const directory of [this.runtimeDirectory, path.join(this.home, ".hatopad-deploy")]) for (const name of await this.names(directory)) {
       const file = path.join(directory, name);
       if (versionEntries.some((entry) => entry.path === file)) continue;
-      if (["releases", "sources"].includes(name) && directory.endsWith(".vibe-deploy")) { for (const child of await this.names(file)) if (!versionEntries.some((entry) => entry.path === path.join(file, child))) await this.retain(path.join(file, child), "runtime", "retained"); }
+      if (["releases", "sources"].includes(name) && directory.endsWith(".hatopad-deploy")) { for (const child of await this.names(file)) if (!versionEntries.some((entry) => entry.path === path.join(file, child))) await this.retain(path.join(file, child), "runtime", "retained"); }
       else await this.retain(file, "runtime", "retained");
     }
     if (obsolete.length && this.versions.supported) this.candidate({ category: "runtime", mode: "versions", bytes: obsoleteBytes, stamp: 0, remove: () => this.versions.keepCurrent(obsolete, () => this.rootPaths(), (message) => { this.snapshot.message = message; }) });
-    for (const name of await this.names(this.home)) if (/^\.vibe-server-[\w-]+\.log(?:\.previous)?$/.test(name)) await this.removableFile(path.join(this.home, name), "logs", name.endsWith(".previous"));
+    for (const name of await this.names(this.home)) if (/^\.hatopad-server-[\w-]+\.log(?:\.previous)?$/.test(name)) await this.removableFile(path.join(this.home, name), "logs", name.endsWith(".previous"));
     this.snapshot.phase = "ready"; this.snapshot.updatedAt = new Date().toISOString();
     this.snapshot.message = "Usage calculated. Cleanup rechecks eligibility and refreshes totals.";
   }

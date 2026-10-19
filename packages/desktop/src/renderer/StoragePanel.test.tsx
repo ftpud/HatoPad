@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { StorageSnapshot } from "@remote-ide/protocol";
+import type { StorageSnapshot } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { StoragePanel } from "./StoragePanel";
 
@@ -18,7 +18,7 @@ describe("server storage panel", () => {
     render(<StoragePanel client={{ request } as unknown as CoreClient} onClose={vi.fn()} />); await act(async () => {});
     fireEvent.click(screen.getByRole("button", { name: "Keep current version" }));
     expect(screen.getByRole("button", { name: "Remove data" }).hasAttribute("disabled")).toBe(true);
-    fireEvent.click(screen.getByRole("checkbox", { name: "Close other Vibe sessions for this SSH account" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "Close other HatoPad sessions for this SSH account" }));
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remove data" })); });
     expect(request).toHaveBeenCalledWith("storage.cleanup", { scanId: "scan-1", category: "runtime", age: "versions", closeOtherSessions: true });
     fireEvent.click(screen.getByRole("button", { name: "Keep root & active" }));
@@ -34,7 +34,7 @@ describe("server storage panel", () => {
     const view = render(<StoragePanel client={client} onClose={vi.fn()} />);
     await act(async () => {});
     expect(request).toHaveBeenCalledWith("storage.scan", {});
-    expect(screen.getByText("remote-server · Shared Vibe storage for this SSH account")).toBeTruthy();
+    expect(screen.getByText("remote-server · Shared HatoPad storage for this SSH account")).toBeTruthy();
     expect(view.baseElement.querySelector(".storage-active")).toBeTruthy();
     expect(view.baseElement.querySelector(".storage-finished")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Remove older than 7 days" }));

@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import type { AiSession, HarnessBlock } from "@remote-ide/protocol";
+import type { AiSession, HarnessBlock } from "@hatopad/protocol";
 import { AppEventBridge, appBridgeInstanceId } from "./app-events.js";
 import { AppToolService } from "./app-tools.js";
 import type { AcpRegistry } from "./ai/index.js";

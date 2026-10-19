@@ -1,12 +1,12 @@
-# Vibe Editor technical guide
+# HatoPad technical guide
 
 For the shortest path to your first workspace, start with the [README](../README.md).
 This guide covers detailed requirements, deployment, development, architecture, and limitations.
 Run the commands below from the repository root.
 
-## Quick start: Vibe Gateway (recommended)
+## Quick start: HatoPad Gateway (recommended)
 
-Use Gateway for the normal remote-first workflow. It installs and runs Core next to your project on the remote machine, then opens the Desktop UI locally through a private SSH tunnel. You do not need to manually clone Vibe Editor or start Core on the remote host.
+Use Gateway for the normal remote-first workflow. It installs and runs Core next to your project on the remote machine, then opens the Desktop UI locally through a private SSH tunnel. You do not need to manually clone HatoPad or start Core on the remote host.
 
 Before starting, make sure the two machines have the following:
 
@@ -18,8 +18,8 @@ Before starting, make sure the two machines have the following:
 On the **local client**, clone this repository, install dependencies, build, and launch Gateway:
 
 ```bash
-git clone https://github.com/ftpud/VibeEditor.git
-cd VibeEditor
+git clone https://github.com/ftpud/HatoPad.git HatoPad
+cd HatoPad
 npm install
 npm run build
 npm run gateway
@@ -28,14 +28,14 @@ npm run gateway
 In Gateway's first run:
 
 1. Add an SSH connection with host, port, and username. Choose **Password**, **SSH agent** (for keys already loaded in your OS agent), or **Private key** with a local key file and optional passphrase. The matching public key must already be in the remote user's `~/.ssh/authorized_keys`; Gateway does not install or copy public keys. Use **Test connection** to verify the current form values before saving.
-2. Review **Gateway repository settings**. The default repository is `https://github.com/ftpud/VibeEditor` on branch `main`; choose a different repository or branch if needed. Auto-update is enabled by default.
+2. Review **Gateway repository settings**. The default repository is `https://github.com/ftpud/HatoPad` on branch `main`; choose a different repository or branch if needed. Auto-update is enabled by default.
 3. Add a remote workspace using the absolute path to an existing project directory on that server.
-4. Click **Start server**. Gateway clones the selected repository and branch into `~/.vibe`, installs/builds what changed, and starts remote Core on loopback.
+4. Click **Start server**. Gateway clones the selected repository and branch into `~/.hatopad-deploy`, installs/builds what changed, and starts remote Core on loopback.
 5. Click **Start client** and keep Gateway open while using the editor; it owns the SSH tunnel.
 
 Gateway also supports a **This Mac** connection: select a local project directory, then start Core and Desktop from the existing local build without SSH.
 
-For deployment details, caching behavior, and lifecycle notes, see [Vibe Gateway](#vibe-gateway). Use the direct Core/Desktop commands below only for local development, debugging, or when you intentionally manage Core and its connection yourself.
+For deployment details, caching behavior, and lifecycle notes, see [HatoPad Gateway](#hatopad-gateway). Use the direct Core/Desktop commands below only for local development, debugging, or when you intentionally manage Core and its connection yourself.
 
 ## Optional capabilities
 
@@ -47,7 +47,7 @@ Optional features have additional requirements:
 - Copilot: an authenticated Copilot account. `COPILOT_CLI_PATH` can point to an existing `copilot` CLI instead of installing one.
 - Claude: a Claude Code login on the Core host (`claude` then `/login`), or `ANTHROPIC_API_KEY` in Core's environment. The installed ACP adapter bundles its CLI.
 
-Settings → Tools downloads the pinned, checksum-verified Java tools into `~/.remote-ide/tools/` on the Core host (`REMOTE_IDE_TOOLS_DIR` relocates it), shared by all projects. Installing the language server also installs the runtime when it is missing. A failed download keeps the previous installation. Neither `npm install`, Gateway provisioning nor Early Access bundles download Java anymore.
+Settings → Tools downloads the pinned, checksum-verified Java tools into `~/.hatopad/tools/` on the Core host (`HATOPAD_TOOLS_DIR` relocates it), shared by all projects. Installing the language server also installs the runtime when it is missing. A failed download keeps the previous installation. Neither `npm install`, Gateway provisioning nor Early Access bundles download Java anymore.
 
 ## Development
 
@@ -63,7 +63,7 @@ Then start Desktop in another terminal:
 npm run dev:desktop -- --host 127.0.0.1 --port 7331
 ```
 
-Desktop connects automatically only when both options are supplied; otherwise it opens the connection screen. Core defaults to `127.0.0.1:7331`, but `--workspace` has no default. The development launchers compile Electron code, start Vite (`5173` for Desktop and `5174` for Gateway), and launch Electron. Core uses `tsx watch`. Its development launcher allows the exact Desktop origins `http://localhost:5173` and `http://127.0.0.1:5173` in addition to any configured `REMOTE_IDE_ALLOWED_ORIGINS`; session authentication remains required.
+Desktop connects automatically only when both options are supplied; otherwise it opens the connection screen. Core defaults to `127.0.0.1:7331`, but `--workspace` has no default. The development launchers compile Electron code, start Vite (`5173` for Desktop and `5174` for Gateway), and launch Electron. Core uses `tsx watch`. Its development launcher allows the exact Desktop origins `http://localhost:5173` and `http://127.0.0.1:5173` in addition to any configured `HATOPAD_ALLOWED_ORIGINS`; session authentication remains required.
 
 Run Gateway in development with:
 
@@ -98,7 +98,7 @@ Useful checks are:
 
 ```bash
 npm run typecheck
-npm run typecheck -w @remote-ide/gateway
+npm run typecheck -w @hatopad/gateway
 npm test
 npm run build
 ```
@@ -108,7 +108,7 @@ The root `typecheck` script builds ACP and Protocol, then checks Core and Deskto
 ## Remote connections
 
 Gateway loads the remote user's NVM without activating its default alias, then
-selects an installed Node 24 for Vibe's builds, Core launches, and health checks.
+selects an installed Node 24 for HatoPad's builds, Core launches, and health checks.
 If Node 24 is absent, it tries NVM's newest installed Node and requires 22.12+.
 Your default can remain Node 20: Gateway changes only the environment of its own
 remote commands and never changes NVM aliases or installs Node automatically.
@@ -122,7 +122,9 @@ For direct network access, bind Core beyond loopback only on a trusted private n
 npm run core -- --host 0.0.0.0 --port 7331 --workspace /srv/projects/example
 ```
 
-Core has no authentication or TLS. An SSH tunnel is the safer default:
+Core uses a session token for authentication. SSH tunnelling keeps its listener
+on remote loopback; see [release operations](RELEASE_OPERATIONS.md#core-session-credentials-and-origins)
+for token handling and origin checks:
 
 ```bash
 # Run Core on 127.0.0.1:7331 on the remote host, then tunnel it locally.
@@ -130,17 +132,17 @@ ssh -N -L 8733:127.0.0.1:7331 user@remote-host
 npm run desktop -- --host 127.0.0.1 --port 8733
 ```
 
-### Vibe Gateway
+### HatoPad Gateway
 
-Vibe Gateway automates both deployment and connection setup while preserving the remote-first model:
+HatoPad Gateway automates both deployment and connection setup while preserving the remote-first model:
 
 ```text
-local Vibe Gateway
+local HatoPad Gateway
     |
     | SSH: provision, start, stop, and transfer client artifacts
     v
 remote host
-    +-- ~/.vibe                         VibeEditor application checkout
+    +-- ~/.hatopad-deploy/releases/       immutable HatoPad Core builds
     +-- configured project directory    repository and development state
     +-- Core on 127.0.0.1:<remote-port>
     |
@@ -152,28 +154,30 @@ remote host
 local Electron/Monaco Desktop
 ```
 
-The deployment flow is:
+Gateway saves SSH credentials and an explicitly trusted host-key fingerprint.
+Source-mode provisioning builds immutable releases under `~/.hatopad-deploy/`;
+packaged Gateway uploads a matching bundled Core archive. Activation verifies
+an authenticated protocol handshake and can roll back a failed candidate.
+Desktop runs locally and reaches remote Core through Gateway's SSH tunnel.
+Filesystem access, terminals, Git, builds, language services and durable state
+remain on Core.
 
-1. **Save a connection and workspace.** Gateway supports password, a local SSH private-key file, or keys already loaded in the OS SSH agent. Private keys remain local and are read only by Electron while connecting; agent authentication saves no key material. Passwords and passphrases are encrypted with Electron `safeStorage` and are not shown after saving. Use **Test connection** before saving to review and trust the server's SHA-256 host-key fingerprint; Gateway pins it and rejects changed keys until you explicitly test and trust the replacement.
-2. **Provision the remote application.** **Start server** connects over SSH and clones the repository and branch saved in Gateway repository settings into `~/.vibe`. The defaults are `https://github.com/ftpud/VibeEditor` and `main`. With auto-update enabled (the default), an existing checkout is updated and force-reset to the configured branch; with it disabled, Gateway retains the existing checkout. This is the application installation; the configured project workspace remains in its own remote directory.
-3. **Build only when needed.** Gateway records the deployed Git revision in `~/.vibe-build`. If the revision changed, dependencies or build outputs are missing, or `node_modules` is absent, it runs `npm install` and builds ACP, Protocol, Core, and Desktop. Otherwise it reuses the existing build.
-4. **Start remote Core.** Gateway tries the configured Core port and chooses a free fallback when it is occupied. It launches Core with `nohup`, bound only to remote loopback, and passes the configured project directory as the workspace root. Each Gateway workspace gets its own PID and log files in the remote home directory.
-5. **Prepare the local client.** **Start client** identifies the remote deployment by Git revision. If that Desktop build is not already cached locally, Gateway archives the remotely built Electron main process and renderer, downloads them over SFTP, and extracts them under Gateway's application-data directory.
-6. **Create the private connection.** Gateway opens an SSH connection and exposes a temporary port on local `127.0.0.1`. Connections to that port are forwarded to Core's remote loopback port, so Core does not need a public listener, authentication layer, or TLS endpoint.
-7. **Launch the UI locally.** Gateway starts the downloaded Desktop code with the local Electron runtime and passes the tunnel's host and port. The UI is rendered locally; filesystem access, terminals, Git, builds, language services, agents, and durable task state continue to run remotely.
+Keep Gateway open while using a client because it owns the SSH tunnel. Closing
+Gateway closes its tunnels but leaves remote Core running; **Stop server** stops
+the selected workspace's server. Source deployment uses committed code from the
+configured repository/branch and does not copy uncommitted local changes.
 
-Keep Gateway open while using a client because it owns the SSH tunnel. Closing Gateway closes its tunnels but leaves remote Core running; **Stop server** closes the tunnel and terminates the Core process recorded for that workspace.
-
-Gateway deploys committed code from the repository and branch saved in its settings. With auto-update enabled, it resets the remote application checkout to the configured branch; it never copies uncommitted local source changes.
+See [release operations](RELEASE_OPERATIONS.md) for provisioning, repair and
+rollback, and [Early Access bundles](EARLY_ACCESS.md) for packaged runtime behavior.
 
 ## Features
 
 - **Editor:** Monaco editing and diffs, autosave, external-change handling, detached windows, tab reordering, recursive search, Git gutter markers and block rollback, Markdown preview, and persisted themes/fonts/layout.
-- **Terminal:** multiple workspace-specific `node-pty` terminals with restored tab metadata. Live Core-owned processes reattach after reconnect or task switching. If the previous session is unavailable, restoration can create a new shell; it does not reconstruct the old process environment or working directory.
+- **Terminal:** multiple workspace-specific `node-pty` terminals with restored tab metadata. Live Core-owned processes reattach after reconnect or task switching. If the previous session is unavailable during recovery, Desktop reports it and requires an explicit replacement; it does not reconstruct the old process environment or working directory.
 - **Git:** status and diffs, selective commits, push, checkout and branch rename, searchable graph/history, file/selection history, compare-with-ref, cherry-pick, and file or hunk rollback.
 - **Task workspaces:** isolated Git worktrees on new, existing, or remote branches. A new task copies the root's staged, unstaged, untracked, ignored, and deleted-file state but excludes `node_modules`. Tasks can be compared with their recorded base and merged back with normal or smart merge.
 - **AI:** a shared AI Capability Provider layer with Codex ACP, Copilot ACP, and Claude ACP adapters, model/configuration discovery, resumable sessions, permission prompts, usage data, attachments, steering, MCP servers, and global/local/workspace agent presets. See [docs/ACP.md](ACP.md).
-- **Vibe MCP tools:** agents can manage task worktrees, merge completed work, inspect usage, schedule continuations, hand off to a fresh session, and call connected workflow blocks. Enable the built-in `vibe-editor` server through an agent preset. See the [tool reference and examples](MCP.md).
+- **HatoPad MCP tools:** agents can manage task worktrees, merge completed work, inspect usage, schedule continuations, hand off to a fresh session, and call connected workflow blocks. Enable the built-in `hatopad` server through an agent preset. See the [tool reference and examples](MCP.md).
 - **Java/Maven:** Maven project loading, source roots, JDT LS completion/navigation/diagnostics/semantic tokens, editable launch profiles and tool settings, `jdb` debugging with object/array inspection, and paused-session HotSwap. See [Java debugging](JAVA_DEBUGGING.md).
 - **HTTP and notes:** executable requests in `.http` files, executable shell blocks in Markdown, and global or workspace-local Useful Files.
 - **Multiple roots:** register remote project directories with aliases in one Core connection, retaining root-owned editor and terminal tabs. See [Multi-root protocol boundary](MULTI_ROOT.md).
@@ -187,24 +191,24 @@ See [FEATURES.md](../FEATURES.md) for the detailed feature inventory.
 
 The npm workspaces are:
 
-- `@remote-ide/acp`: provider-neutral AI capability/session types, provider base class, and configuration helpers.
-- `@remote-ide/protocol`: typed WebSocket requests, responses, events, and DTOs shared by Core and Desktop.
-- `@remote-ide/core`: the backend managing registered workspace roots, task worktrees, and their services.
-- `@remote-ide/desktop`: the Electron/React/Monaco IDE client.
-- `@remote-ide/gateway`: the Electron SSH provisioner, tunnel owner, and Desktop launcher.
+- `@hatopad/acp`: provider-neutral AI capability/session types, provider base class, and configuration helpers.
+- `@hatopad/protocol`: typed WebSocket requests, responses, events, and DTOs shared by Core and Desktop.
+- `@hatopad/core`: the backend managing registered workspace roots, task worktrees, and their services.
+- `@hatopad/desktop`: the Electron/React/Monaco IDE client.
+- `@hatopad/gateway`: the Electron SSH provisioner, tunnel owner, and Desktop launcher.
 
 This split follows the project's core rule: **the server owns the state; the client owns the interaction**. Core starts with one primary workspace root; Desktop can register additional directories on the Core host and switch between them. Each client selects a registered root and its root or task-worktree context. Root-owned requests and events carry Core-issued identities; ordinary operations cannot submit an arbitrary workspace path. Chokidar watches workspace and Git changes and Core sends typed refresh events to Desktop.
 
 Core state defaults to:
 
 ```text
-~/.remote-ide/workspaces
+~/.hatopad/workspaces
 ```
 
 Override it before starting Core:
 
 ```bash
-REMOTE_IDE_STATE_DIR=/var/lib/vibe-editor npm run core -- --workspace /srv/project
+HATOPAD_STATE_DIR=/var/lib/hatopad npm run core -- --workspace /srv/project
 ```
 
 Core stores task registries/worktrees, workspace options, useful files, managed agent presets, AI session data, terminal restoration metadata, file colors, and commit drafts there. Workspace `.agents/*.md` presets remain in the project. Desktop stores UI settings in `settings.json` under its Electron application-data directory.
@@ -213,13 +217,13 @@ Task Git prompt checkpoints are also stored there as content-addressed snapshots
 
 ### Server storage cleanup
 
-Open **Settings → Storage…** to calculate allocated disk usage across the connected SSH account's shared Vibe state directory. Core scans in the background and refreshes totals after removal. The panel inventories tasks, sessions, workflow records, snapshots, provider data, agent runtimes, Gateway releases and source caches. It does not scan other users' accounts or unrelated custom state directories. Workflow aliases do not count as additional workspace copies; shared hardlinks across separately measured units may count more than once.
+Open **Settings → Storage…** to calculate allocated disk usage across the connected SSH account's shared HatoPad state directory. Core scans in the background and refreshes totals after removal. The panel inventories tasks, sessions, workflow records, snapshots, provider data, agent runtimes, Gateway releases and source caches. It does not scan other users' accounts or unrelated custom state directories. Workflow aliases do not count as additional workspace copies; shared hardlinks across separately measured units may count more than once.
 
 Task bars distinguish active (red), finished (blue), and unregistered (amber) workspaces. Unregistered folders are leftovers missing from a task registry, including interrupted task creation and integration worktrees; they can still contain recoverable changes. **Remove finished** preserves branches and skips dirty, selected and busy tasks. **Keep root & active** additionally removes inactive unregistered folders and associated checkpoints, and requires explicit acknowledgement that uncommitted changes will be discarded. Registered project roots, active tasks, ongoing integrations and workspaces used by processes or active workflows remain protected. The expandable inventory lists the paths and states before removal. Legacy independent task repositories have their HEAD and branches imported under `recovered/<task-id>/` in the root repository before deletion.
 
 History bars distinguish today, the preceding seven days excluding today, and older data. **Remove older than 7 days** removes eligible old records; **Keep today only** keeps everything from server-local midnight onward. Archived AI conversations, ended workflow runs, inactive finished-task checkpoint stores, abandoned workflow temporary files and rotated server logs can be removed. Workflow totals measure allocated bytes; their per-run age shares and reclaimable sizes are estimates. Workflow cleanup rewrites both current records and their recovery backup. File removal rechecks previewed identities, sizes, modification times and symlink ancestors.
 
-On Linux, **Keep current version** keeps the connected Core's actual release and selected agent runtime, removes obsolete versions and rebuildable deployment source caches, and updates runtime/rollback metadata. The preview requires acknowledgement that other Vibe sessions for the same SSH account will close. Core verifies process ownership, script identity and process birth before signaling other Core instances and their descendants, plus workers using obsolete runtimes. The current Core connection, its ancestors, unrelated processes and other users are preserved. Processes that do not shut down gracefully are terminated; versions still in use by an unrelated process are retained. Version maintenance locks runtime installation and Gateway provisioning/activation so builds cannot overlap removal. Future Gateway connections may download or build again.
+On Linux, **Keep current version** keeps the connected Core's actual release and selected agent runtime, removes obsolete versions and rebuildable deployment source caches, and updates runtime/rollback metadata. The preview requires acknowledgement that other HatoPad sessions for the same SSH account will close. Core verifies process ownership, script identity and process birth before signaling other Core instances and their descendants, plus workers using obsolete runtimes. The current Core connection, its ancestors, unrelated processes and other users are preserved. Processes that do not shut down gracefully are terminated; versions still in use by an unrelated process are retained. Version maintenance locks runtime installation and Gateway provisioning/activation so builds cannot overlap removal. Future Gateway connections may download or build again.
 
 Current conversations, active workflows, command bridge state, unidentified checkpoint stores, provider databases and their linked native histories, settings and credentials remain protected and visible. Previews are tied to server scan identities; clients cannot provide deletion paths. Cleanup continues if the panel closes, and graceful Core shutdown waits for the job.
 
@@ -227,7 +231,7 @@ Workflow errors appear as one-line disclosures with a scrollable full diagnostic
 
 ## Current limitations and security
 
-- Core can register multiple workspace roots per process and has no authentication, authorization, or TLS. Anyone who can reach its port can modify files and run commands with Core's operating-system permissions. Do not expose it to the public internet.
+- Core supports multiple workspace roots and authenticates clients with a session token. Authenticated clients operate with the Core user's filesystem and process permissions; there is no per-user authorization sandbox. Gateway uses SSH tunnelling, and Core has no native TLS endpoint. See [release operations](RELEASE_OPERATIONS.md#core-session-credentials-and-origins) for deployment controls.
 - Filesystem methods reject parent traversal and symlinks escaping the active workspace, but this boundary does not make an exposed Core safe. Text files, useful files, agent files, HTTP bodies, and HTTP responses are limited to 2 MB where applicable; HTTP requests time out after 30 seconds.
 - Task workspaces require the root to be a Git repository. Each task has an independent dependency tree, so run its package installation after switching when needed. Deleting a task forcibly removes its worktree and local task branch. Merging first commits all task changes; smart merge may stash and restore root changes.
 - Gateway supports password, local private-key, and OS SSH-agent authentication. It pins the explicitly trusted server SHA-256 host-key fingerprint, deploys the saved repository and branch, and owns non-persistent tunnels. Closing Gateway closes its tunnels but does not stop remote Core unless **Stop server** is used.
@@ -239,10 +243,10 @@ Workflow errors appear as one-line disclosures with a scrollable full diagnostic
 
 ## Early Access bundles and provider installations
 
-Portable Core bundles contain Vibe's runtime and provider-neutral ACP transport,
+Portable Core bundles contain HatoPad's runtime and provider-neutral ACP transport,
 not vendor ACP adapters, Codex/Claude/Copilot CLIs, or vendor SDKs; neither does a
 source checkout. Providers are installed, updated and deleted from **Settings → AI
-providers** into `~/.remote-ide/provider-runtimes/` on the Core host, are cached across
+providers** into `~/.hatopad/provider-runtimes/` on the Core host, are cached across
 projects and Core restarts, and only installed providers can be used. Failed downloads
 never replace a working installation. Nothing is downloaded just to start Core. See
 [ACP](ACP.md#installing-providers) for overrides such as `CODEX_ACP_COMMAND`,

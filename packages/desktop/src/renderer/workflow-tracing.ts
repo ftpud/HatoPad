@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import type { HarnessConnectionTrace, HarnessRun } from "@remote-ide/protocol";
+import type { HarnessConnectionTrace, HarnessRun } from "@hatopad/protocol";
 
 export type AnimatedWorkflowTrace = HarnessConnectionTrace & { receivedAt: number; delayMs: number };
 const durationMs = 900;

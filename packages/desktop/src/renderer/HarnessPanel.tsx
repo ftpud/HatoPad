@@ -1,9 +1,11 @@
+import { useWorkflowTranscript, workflowWriterColor } from "./workflow-transcript";
+import "./workflow-transcript.css";
 import { AiAuthentication } from "./AiAuthentication";
 import { WorkflowError } from "./WorkflowError";
 import { useCallback, useEffect, useLayoutEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type SetStateAction } from "react";
 import { CopyPlus, Spline, SquareStack, ArrowLeftRight, ArrowUpDown, AlignStartHorizontal, AlignCenterHorizontal, AlignEndHorizontal, AlignStartVertical, AlignCenterVertical, AlignEndVertical, Bot, ClipboardPaste, Clock, Copy, Download, Eye, FileText, GripHorizontal, LayoutGrid, List, Map as MapIcon, Maximize, MessageSquare, PanelTop, Pencil, Play, Plus, Redo2, RotateCcw, Save, Send, Settings2, Square, Terminal, Trash2, Undo2, Upload, Workflow, X, ZoomIn, ZoomOut } from "lucide-react";
-import { findAutopilotOption } from "@remote-ide/acp";
-import type { AgentFile, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, HarnessBlock, HarnessChatSettings, HarnessOperation, HarnessAppState, HarnessDataSchema, HarnessDefinition, HarnessRun, HarnessLogEntry, HarnessStateDiagnostic, HarnessValidationIssue, SkillCatalog } from "@remote-ide/protocol";
+import { findAutopilotOption } from "@hatopad/acp";
+import type { AgentFile, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, HarnessBlock, HarnessChatSettings, HarnessOperation, HarnessAppState, HarnessDataSchema, HarnessDefinition, HarnessRun, HarnessLogEntry, HarnessStateDiagnostic, HarnessValidationIssue, SkillCatalog } from "@hatopad/protocol";
 import { transferDashStyle, useWorkflowTraces } from "./workflow-tracing";
 import { ContextInspector, ContextUsageIndicator } from "./ContextInspector";
 import { ModelPicker } from "./ModelPicker";
@@ -604,12 +606,12 @@ export function HarnessPanel({ onOpenWorkflow, designOnly = false, harnesses, ru
           {(block.app?.actions ?? [block.app?.action ?? "start"]).includes("start") && <label>Start script<textarea aria-label="Run App script" placeholder="e.g. npm run dev" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label>}
           {(block.app?.actions ?? [block.app?.action ?? "start"]).includes("tail") && <label>Last N lines<input aria-label="Run App tail lines" type="number" min="1" max="10000" value={block.app?.lines ?? 100} onChange={(event) => updateBlock({ app: { ...block.app!, lines: Number(event.target.value) } })} /></label>}
           <small>Connected agents choose from the checked actions. Direct runs start the app when Run is checked; otherwise they use the single checked action or the action supplied in the input.</small>
-          <small>Runs in an interactive terminal in the task workspace. Workflow input is available in VIBE_WORKFLOW_INPUT. Keep the app in the foreground (no &amp;). Apps with the same name are shared within this workspace and stay alive after the workflow finishes. An already running app is reused.</small>
+          <small>Runs in an interactive terminal in the task workspace. Workflow input is available in HATOPAD_WORKFLOW_INPUT. Keep the app in the foreground (no &amp;). Apps with the same name are shared within this workspace and stay alive after the workflow finishes. An already running app is reused.</small>
         </>}
         {["ai", "chatbox"].includes(block.type) && <label className="harness-autopilot" title="Approve tool permission requests automatically"><input type="checkbox" aria-label="Block Autopilot" checked={block.autopilot ?? true} onChange={(event) => updateBlock({ autopilot: event.target.checked })} /> Autopilot</label>}
         {block.type === "meeting" && <small>Connect AI Agents and Chatboxes to this Meeting with Use. Participants can publish messages, read the recent tail, read a diff since their own last read, or wait for new messages without polling. The shared transcript belongs to each workflow run. Keeps the latest 1,000 messages; publishing does not start other agents.</small>}
         {block.type === "terminal_control" && <small>Use only for long-running apps and services. Do not spawn agents in terminals. List terminals first and reuse an existing terminal whenever possible; avoid spawning new terminals unnecessarily. Runs in the task workspace. Supply JSON input: {'{"action":"list"}'}, {'{"action":"open","name":"Server"}'}, {'{"action":"open_and_run","name":"Server","command":"npm run dev"}'}, {'{"action":"write","terminal_id":"ID","data":"npm run dev\\n"}'}, or {'{"action":"read","terminal_id":"ID","lines":100}'}. open_and_run starts a terminal and runs the command in one call, adding a newline automatically. Connect with Use to make these actions available to an agent.</small>}
-        {block.type === "script" && <><label>Shell script<textarea placeholder="e.g. git status --short" aria-label="Shell script" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label><small>Runs in the Core workspace. Input arrives on stdin and in VIBE_WORKFLOW_INPUT. Stdout becomes this block’s output.</small></>}
+        {block.type === "script" && <><label>Shell script<textarea placeholder="e.g. git status --short" aria-label="Shell script" rows={6} value={block.command ?? ""} onChange={(event) => updateBlock({ command: event.target.value })} /></label><small>Runs in the Core workspace. Input arrives on stdin and in HATOPAD_WORKFLOW_INPUT. Stdout becomes this block’s output.</small></>}
         {!(block.type === "skill" && block.skillId) && !["task_controls", "terminal_control", "meeting", "timer", "script", "run_app", "start_input"].includes(block.type) && <label>{block.type === "markdown" ? "Markdown (blank uses input)" : block.type === "text" ? "Text" : ["user_prompt", "yes_no_prompt"].includes(block.type) ? "Question" : block.type === "start_button" ? "Start prompt" : "Instructions"}<textarea placeholder={block.type === "skill" ? "Write the instructions the agent should follow when using this skill…" : block.type === "markdown" ? "Write Markdown, or leave blank to use the incoming text…" : block.type === "text" ? "Enter text to pass to the next block…" : ["user_prompt", "yes_no_prompt"].includes(block.type) ? "What would you like to ask?" : block.type === "start_button" ? "Enter the prompt that starts this workflow…" : "Describe what this agent should do. Use {{input}} for incoming text…"} aria-label="Block prompt" rows={5} value={block.prompt} onChange={(event) => updateBlock({ prompt: event.target.value })} /></label>}
         {onTestBlock && <><label>Test input<textarea aria-label="Block test input" value={testInput} onChange={(event) => setTestInput(event.target.value)} /></label><small>Tests the current draft with connected tools. Follow steps are skipped.</small></>}
         <details><summary>Data schemas</summary><SchemaEditor title="Input schema" schema={block.inputSchema} onChange={(inputSchema) => updateBlock({ inputSchema })} /><SchemaEditor title="Output schema" schema={block.outputSchema} onChange={(outputSchema) => updateBlock({ outputSchema })} /></details>
@@ -630,14 +632,14 @@ export function HarnessPanel({ onOpenWorkflow, designOnly = false, harnesses, ru
 }
 
 export function workflowBlockClipboardPayload(block: HarnessBlock) {
-  return JSON.stringify({ type: "vibe-workflow-block", version: 1, block });
+  return JSON.stringify({ type: "hatopad-workflow-block", version: 1, block });
 }
 
 function parseWorkflowBlockClipboard(value: string): HarnessBlock | undefined {
   try {
     const parsed = JSON.parse(value) as { type?: unknown; version?: unknown; block?: Partial<HarnessBlock> };
     const block = parsed.block;
-    if (parsed.type !== "vibe-workflow-block" || parsed.version !== 1 || !block || typeof block.id !== "string" || typeof block.label !== "string" || typeof block.type !== "string" || typeof block.prompt !== "string" || !block.position || typeof block.position.x !== "number" || typeof block.position.y !== "number") return undefined;
+    if (parsed.type !== "hatopad-workflow-block" || parsed.version !== 1 || !block || typeof block.id !== "string" || typeof block.label !== "string" || typeof block.type !== "string" || typeof block.prompt !== "string" || !block.position || typeof block.position.x !== "number" || typeof block.position.y !== "number") return undefined;
     return block as HarnessBlock;
   } catch { return undefined; }
 }
@@ -731,13 +733,7 @@ export function BlockRunDetails({ providers, defaultProvider, onLoadModels, bloc
   const [killing, setKilling] = useState(false);
   const [killError, setKillError] = useState("");
   const [appRefresh, setAppRefresh] = useState(0);
-  if (block.type === "meeting") return <section className="harness-run-details workflow-chatbox" aria-label={`${block.label} run details`}>
-    <header><div><MessageSquare size={16} aria-hidden="true" /><strong>{block.label}</strong><small>Meeting</small></div><button aria-label="Close run details" onClick={onClose}><X size={16} /></button></header>
-    <div className="workflow-chat-messages" role="log" aria-label={`${block.label} conversation`} aria-live="off">
-      {!state?.meeting?.messages.length && <p>Connected agents can publish messages here and read the discussion.</p>}
-      {state?.meeting?.messages.map((message) => <article className="workflow-chat-message assistant" key={message.sequence}><strong>{message.author}</strong><small> #{message.sequence} · {message.model ?? message.provider} · {new Date(message.timestamp).toLocaleTimeString()}</small><p style={{ whiteSpace: "pre-wrap" }}>{message.text}</p></article>)}
-    </div>
-  </section>;
+  if (block.type === "meeting") return <WorkflowMeetingTranscript block={block} run={run} state={state} onClose={onClose} />;
   if (block.type === "chatbox") return <WorkflowChatbox providers={providers} defaultProvider={defaultProvider} onLoadModels={onLoadModels} block={block} run={run} state={state} onClose={onClose} onSend={onChat} onSteer={onSteer} onStop={onCancelChat} onAutopilot={onAutopilot} definition={definition} />;
   const totalTokens = run?.blocks.reduce((total, item) => total + (item.tokens?.total ?? 0), 0) ?? 0;
   const tokenBudget = run?.definition?.settings?.tokenBudget;
@@ -764,6 +760,19 @@ export function BlockRunDetails({ providers, defaultProvider, onLoadModels, bloc
 
       </div></details>
     </>}</div>
+  </section>;
+}
+
+function WorkflowMeetingTranscript({ block, run, state, onClose }: { block: HarnessBlock; run?: HarnessRun; state?: HarnessRun["blocks"][number]; onClose(): void }) {
+  const transcript = useRef<HTMLDivElement>(null);
+  const messages = state?.meeting?.messages ?? [];
+  const { onScroll } = useWorkflowTranscript(transcript, `${run?.id ?? "draft"}:${block.id}`, `${messages.length}:${messages.at(-1)?.sequence ?? ""}:${messages.at(-1)?.text ?? ""}`);
+  return <section className="harness-run-details workflow-chatbox" aria-label={`${block.label} run details`}>
+    <header><div><MessageSquare size={16} aria-hidden="true" /><strong>{block.label}</strong><small>Meeting</small></div><button aria-label="Close run details" onClick={onClose}><X size={16} /></button></header>
+    <div className="workflow-chat-messages" ref={transcript} role="log" aria-label={`${block.label} conversation`} aria-live="off" onScroll={onScroll}>
+      {!messages.length && <p>Connected agents can publish messages here and read the discussion.</p>}
+      {messages.map((message) => <article className="workflow-chat-message assistant" style={{ borderInlineStartColor: workflowWriterColor(message.author) }} key={message.sequence}><strong>{message.author}</strong><small> #{message.sequence} · {message.model ?? message.provider} · {new Date(message.timestamp).toLocaleTimeString()}</small><p style={{ whiteSpace: "pre-wrap" }}>{message.text}</p></article>)}
+    </div>
   </section>;
 }
 
@@ -823,19 +832,18 @@ function WorkflowChatbox({ providers = [], defaultProvider, onLoadModels, block,
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const transcript = useRef<HTMLDivElement>(null);
-  const followMessages = useRef(true);
   const messages = state?.chatMessages ?? [];
   const busy = sending || !!state && ["queued", "running", "waiting", "awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"].includes(state.status);
   const graph = run?.definition ?? definition;
   const connected = (graph?.edges ?? []).filter((edge) => edge.from === block.id).map((edge) => graph?.blocks.find((item) => item.id === edge.to)?.label).filter(Boolean);
-  useLayoutEffect(() => { if (followMessages.current && transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight; }, [messages.length, messages.at(-1)?.text, busy]);
+  const { onScroll: onTranscriptScroll, followLatest } = useWorkflowTranscript(transcript, `${run?.id ?? "draft"}:${block.id}:${state?.sessionId ?? ""}`, `${messages.length}:${messages.at(-1)?.id ?? ""}:${messages.at(-1)?.text ?? ""}:${busy}`);
   const send = async () => {
-    const action = busy ? (state?.status === "running" ? onSteer : undefined) : onSend;
+    const action = busy ? (["running", "waiting_timer"].includes(state?.status ?? "") ? onSteer : undefined) : onSend;
     if (!action || sending || !message.trim()) return;
     const input = message;
     const revision = messageRevision.current;
     setMessage("");
-    setSending(true); setError(""); followMessages.current = true;
+    setSending(true); setError(""); followLatest();
     try {
       if (busy) await onSteer!(input);
       else await onSend!(input, { provider: effectiveProvider, model: modelOverride || (effectiveProvider !== (block.provider || defaultProvider || state?.provider) ? "" : block.model ?? ""), autopilot, ...(Object.keys(optionOverrides).length ? { options: optionOverrides } : {}) });
@@ -859,7 +867,7 @@ function WorkflowChatbox({ providers = [], defaultProvider, onLoadModels, block,
       <small>Overrides apply to this Chatbox on the next message. Changing provider or model starts a fresh session. Autopilot approves tool permission requests automatically.</small>
     </div>}
     {!!connected.length && <div className="workflow-chat-tools" aria-label="Connected chat tools"><span>Connected</span>{connected.map((label, index) => <span className="workflow-chat-tool" key={`${label}:${index}`}>{label}</span>)}</div>}
-    <div className="workflow-chat-messages" ref={transcript} role="log" aria-label={`${block.label} conversation`} aria-live="off" onScroll={() => { const element = transcript.current; if (element) followMessages.current = element.scrollHeight - element.scrollTop - element.clientHeight < 60; }}>
+    <div className="workflow-chat-messages" ref={transcript} role="log" aria-label={`${block.label} conversation`} aria-live="off" onScroll={onTranscriptScroll}>
       {!messages.length && <div className="workflow-chat-empty"><MessageSquare size={28} aria-hidden="true" /><strong>Start a conversation</strong><p>Ask a question or put the connected blocks to work.</p></div>}
       {messages.map((item) => <article key={item.id} className={`workflow-chat-message ${item.role}`}><strong>{item.role === "user" ? "You" : block.label}</strong>{item.text ? item.role === "assistant" ? <WorkflowMarkdown>{item.text}</WorkflowMarkdown> : <p>{item.text}</p> : <span className="workflow-chat-thinking">{busy ? "Thinking…" : "No response"}</span>}</article>)}
       {state?.error && <WorkflowError message={state.error} />}
@@ -867,7 +875,7 @@ function WorkflowChatbox({ providers = [], defaultProvider, onLoadModels, block,
     <WorkflowChatActivity block={block} run={run} state={state} busy={busy} />
     <form className="workflow-chat-composer" onSubmit={(event) => { event.preventDefault(); void send(); }}>
       <textarea aria-label={`Message ${block.label}`} placeholder={busy ? "Steer this Chatbox while it works…" : "Message this Chatbox…"} rows={3} value={message} disabled={!onSend && !onSteer} onChange={(event) => { messageRevision.current++; setMessage(event.target.value); }} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); void send(); } }} />
-      <div><span role="status">{busy ? "Working with your workflow…" : "Enter to send · Shift+Enter for a new line"}</span>{busy && onStop ? <button type="button" aria-label="Stop chat response" onClick={() => { setError(""); void onStop().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not stop response")); }}><Square size={13} aria-hidden="true" /> Stop</button> : null}<button type="submit" aria-label={busy ? "Steer chat response" : "Send chat message"} disabled={sending || !message.trim() || (busy ? !onSteer || state?.status !== "running" : !onSend)}><Send size={14} aria-hidden="true" /> {busy ? "Steer" : "Send"}</button></div>
+      <div><span role="status">{busy ? "Working with your workflow…" : "Enter to send · Shift+Enter for a new line"}</span>{busy && onStop ? <button type="button" aria-label="Stop chat response" onClick={() => { setError(""); void onStop().catch((reason) => setError(reason instanceof Error ? reason.message : "Could not stop response")); }}><Square size={13} aria-hidden="true" /> Stop</button> : null}<button type="submit" aria-label={busy ? "Steer chat response" : "Send chat message"} disabled={sending || !message.trim() || (busy ? !onSteer || !["running", "waiting_timer"].includes(state?.status ?? "") : !onSend)}><Send size={14} aria-hidden="true" /> {busy ? "Steer" : "Send"}</button></div>
       {error && <WorkflowError message={error} />}
     </form>
   </section>;
@@ -1020,14 +1028,14 @@ export function responsePreview(output?: string, status?: HarnessRun["blocks"][n
 }
 
 export function workflowDefinitionExport(definition: HarnessDefinition): string {
-  return `${JSON.stringify({ format: "vibe-workflow", version: 1, definition }, redactWorkflowExportValue, 2)}\n`;
+  return `${JSON.stringify({ format: "hatopad-workflow", version: 1, definition }, redactWorkflowExportValue, 2)}\n`;
 }
 
 export function parseWorkflowDefinitionImport(value: string): HarnessDefinition {
   const parsed: unknown = JSON.parse(value);
   if (!parsed || typeof parsed !== "object") throw new Error("This file is not a supported workflow definition");
   const envelope = parsed as { format?: unknown; version?: unknown; definition?: unknown; harness?: unknown };
-  const definition = envelope.format === "vibe-workflow"
+  const definition = envelope.format === "hatopad-workflow"
     ? envelope.version === 1 ? envelope.definition : envelope.version === 0 ? envelope.harness ?? envelope.definition : undefined
     : envelope;
   if (!isWorkflowDefinitionImport(definition)) throw new Error("This file is not a supported workflow definition");

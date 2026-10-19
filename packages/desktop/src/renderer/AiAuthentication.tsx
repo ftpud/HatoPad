@@ -1,8 +1,8 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { Check, CircleAlert, ExternalLink, LoaderCircle, LogIn, RefreshCw, X } from "lucide-react";
+import { Check, CircleAlert, ClipboardPaste, ExternalLink, LoaderCircle, LogIn, RefreshCw, X } from "lucide-react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import type { AiAuthentication as Authentication, AiAuthInput } from "@remote-ide/protocol";
+import type { AiAuthentication as Authentication, AiAuthInput } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import "@xterm/xterm/css/xterm.css";
 
@@ -84,7 +84,7 @@ export function AiAuthentication({ provider, disabled = false, checkOnMount = fa
       {!active && !loading && !state.methods.length && <p>This agent has not advertised sign-in methods. Check its installation or Core-host authentication.</p>}
       {state.message && <p className="ai-authentication-message">{state.message}</p>}
       {links.map(url => <button type="button" className="ai-authentication-link" key={url} onClick={() => { void window.desktop?.openExternal(url).catch(reason => setError(String(reason))); }}><ExternalLink size={13} /><span>{url}</span></button>)}
-      {active && state.terminal && <AuthenticationTerminal key={state.requestId} output={state.output ?? ""} onInput={data => { void input({ data }); }} onResize={(cols, rows) => { void input({ cols, rows }); }} />}
+      {active && state.terminal && <AuthenticationTerminal key={`${root}:${provider}:${state.requestId}`} output={state.output ?? ""} onInput={data => { void input({ data }); }} onResize={(cols, rows) => { void input({ cols, rows }); }} />}
       {!state.terminal && state.output && <pre className="ai-authentication-output">{state.output}</pre>}
       {(error || state.error) && <div className="ai-authentication-error" role="alert">{error || state.error}</div>}
       {active && <div className="ai-authentication-actions">{state.awaitingConfirmation && <button type="button" onClick={() => { void input({ action: "accept" }); }}>Continue after signing in</button>}<button type="button" onClick={() => { void input({ action: "cancel" }); }}><X size={13} />Cancel sign-in</button></div>}
@@ -92,20 +92,48 @@ export function AiAuthentication({ provider, disabled = false, checkOnMount = fa
   </section>;
 }
 
-function AuthenticationTerminal({ output, onInput, onResize }: { output: string; onInput(data: string): void; onResize(cols: number, rows: number): void }) {
+export function AuthenticationTerminal({ output, onInput, onResize }: { output: string; onInput(data: string): void; onResize(cols: number, rows: number): void }) {
   const element = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal>();
+  const response = useRef<HTMLInputElement>(null);
+  const [pasteError, setPasteError] = useState("");
+  const alive = useRef(false);
   const previous = useRef("");
   const handlers = useRef({ onInput, onResize }); handlers.current = { onInput, onResize };
+  const paste = (text: string) => {
+    if (!alive.current) return;
+    const value = text.replace(/(?:\r\n|\r|\n)+$/, "");
+    if (value.length > 10000) { setPasteError("Sign-in input is too long."); return; }
+    setPasteError("");
+    if (value) terminal.current?.paste(value);
+    terminal.current?.focus();
+  };
+  const pasteClipboard = async () => {
+    try {
+      const text = window.desktop ? await window.desktop.readClipboard() : await navigator.clipboard.readText();
+      paste(text);
+    } catch { if (alive.current) setPasteError("Could not read the clipboard. Paste into the sign-in code field instead."); }
+  };
   useEffect(() => {
     if (!element.current) return;
-    const style = getComputedStyle(element.current);
+    alive.current = true;
+    const container = element.current;
+    const style = getComputedStyle(container);
     const view = new Terminal({ cursorBlink: true, convertEol: true, fontSize: 12, fontFamily: "Menlo, Monaco, Consolas, monospace", theme: { background: style.getPropertyValue("--surface-base").trim() || "#171c28", foreground: style.getPropertyValue("--text-primary").trim() || "#dce2ef" } });
     const fit = new FitAddon(); view.loadAddon(fit); view.open(element.current); terminal.current = view;
+    view.attachCustomKeyEventHandler(event => {
+      if (event.type !== "keydown" || (!event.ctrlKey && !event.metaKey) || event.altKey || event.key.toLowerCase() !== "v") return true;
+      event.preventDefault(); void pasteClipboard(); return false;
+    });
+    const handlePaste = (event: ClipboardEvent) => {
+      event.preventDefault(); event.stopImmediatePropagation();
+      paste(event.clipboardData?.getData("text/plain") ?? "");
+    };
+    container.addEventListener("paste", handlePaste, true);
     const data = view.onData(value => handlers.current.onInput(value));
     const resize = () => { try { fit.fit(); handlers.current.onResize(view.cols, view.rows); } catch { /* Wait for the chat panel to be laid out. */ } };
     const observer = new ResizeObserver(resize); observer.observe(element.current); resize(); view.focus();
-    return () => { observer.disconnect(); data.dispose(); view.dispose(); terminal.current = undefined; previous.current = ""; };
+    return () => { alive.current = false; container.removeEventListener("paste", handlePaste, true); observer.disconnect(); data.dispose(); view.dispose(); terminal.current = undefined; previous.current = ""; };
   }, []);
   useEffect(() => {
     const view = terminal.current;
@@ -114,5 +142,20 @@ function AuthenticationTerminal({ output, onInput, onResize }: { output: string;
     else { view.reset(); view.write(output); }
     previous.current = output;
   }, [output]);
-  return <div className="ai-authentication-terminal" role="group" aria-label="Interactive provider sign-in terminal" ref={element} />;
+  return <div className="ai-authentication-interactive">
+    <div className="ai-authentication-terminal" role="group" aria-label="Interactive provider sign-in terminal" ref={element} />
+    <button type="button" className="ai-authentication-paste" onClick={() => void pasteClipboard()}><ClipboardPaste size={13} />Paste into terminal</button>
+    <form className="ai-authentication-response" onSubmit={event => {
+      event.preventDefault();
+      const value = response.current?.value ?? "";
+      if (!value || value.length >= 10000) return;
+      if (response.current) response.current.value = "";
+      handlers.current.onInput(value + "\r"); terminal.current?.focus();
+    }}>
+      <label>Sign-in code or response<input ref={response} type="password" autoComplete="off" spellCheck={false} autoCapitalize="none" maxLength={9999} placeholder="Paste the code here" /></label>
+      <button type="submit">Send response</button>
+    </form>
+    <small>Paste a code or reply, then choose Send response. Keyboard paste also works in the terminal.</small>
+    {pasteError && <div className="ai-authentication-error" role="alert">{pasteError}</div>}
+  </div>;
 }

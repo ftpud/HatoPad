@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import { expect, it, vi } from "vitest";
-import type { AiSession } from "@remote-ide/protocol";
+import type { AiSession } from "@hatopad/protocol";
 import { HarnessRunner } from "./harness-runner.js";
 import { HarnessStore } from "./harnesses.js";
 

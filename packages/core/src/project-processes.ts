@@ -1,6 +1,6 @@
 import path from "node:path";
 import { realpath } from "node:fs/promises";
-import type { WorkspaceTask } from "@remote-ide/protocol";
+import type { WorkspaceTask } from "@hatopad/protocol";
 import { managedProcesses, type ManagedProcesses } from "./managed-processes.js";
 
 /** Scope by the registered project identity, never by host PID or selected task. */

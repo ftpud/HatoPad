@@ -6,7 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { once } from "node:events";
 import { WebSocket, type WebSocketServer } from "ws";
-import { protocolCompatibility } from "@remote-ide/protocol";
+import { protocolCompatibility } from "@hatopad/protocol";
 import net from "node:net";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 import { createServer, shutdownCore } from "./server.js";
@@ -14,7 +14,7 @@ import { WorkspaceFileSystem } from "./filesystem.js";
 
 const exec = promisify(execFile);
 it("authenticates before session initialization and rejects untrusted browser origins", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-access-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-access-"));
   const workspace = path.join(directory, "project");
   const token = "a".repeat(64);
   const sockets: WebSocket[] = [];
@@ -23,7 +23,7 @@ it("authenticates before session initialization and rejects untrusted browser or
   try {
     await mkdir(workspace); await writeFile(path.join(workspace, "file.txt"), "content");
     await exec("git", ["init", workspace]);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     server = await createServer("127.0.0.1", 0, workspace, { access: { token } });
     if (!server.address()) await once(server, "listening");
     const port = (server.address() as { port: number }).port;
@@ -58,7 +58,7 @@ it("authenticates before session initialization and rejects untrusted browser or
 
 
 it("does not expose its listener until startup can accept protocol handshakes", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-startup-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-startup-"));
   const workspace = path.join(directory, "project");
   const reservation = net.createServer();
   await new Promise<void>((resolve) => reservation.listen(0, "127.0.0.1", resolve));
@@ -76,7 +76,7 @@ it("does not expose its listener until startup can accept protocol handshakes", 
   let socket: WebSocket | undefined;
   try {
     await mkdir(workspace); await exec("git", ["init", workspace]);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     startup = createServer("127.0.0.1", port, workspace);
     await blocked;
     const acceptsEarly = await new Promise<boolean>((resolve) => {
@@ -100,12 +100,12 @@ it("does not expose its listener until startup can accept protocol handshakes", 
 }, 15_000);
 
 it("reports an occupied listener port as a startup failure and cleans up services", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "vibe-startup-port-"));
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-startup-port-"));
   const workspace = path.join(directory, "project");
   const occupied = net.createServer();
   try {
     await mkdir(workspace); await exec("git", ["init", workspace]);
-    vi.stubEnv("REMOTE_IDE_STATE_DIR", path.join(directory, "state"));
+    vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
     await new Promise<void>((resolve) => occupied.listen(0, "127.0.0.1", resolve));
     const port = (occupied.address() as net.AddressInfo).port;
     await expect(createServer("127.0.0.1", port, workspace)).rejects.toMatchObject({ code: "EADDRINUSE" });

@@ -7,7 +7,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { afterEach, expect, it, vi } from "vitest";
-import { protocolCompatibility, type WorkspaceOptions } from "@remote-ide/protocol";
+import { protocolCompatibility, type WorkspaceOptions } from "@hatopad/protocol";
 import { WebSocket, type WebSocketServer } from "ws";
 import { createServer, shutdownCore } from "./server.js";
 import { WorkspaceStateStore } from "./workspace-state.js";
@@ -85,7 +85,7 @@ it("drains a gated workspace options write before shutdown and closes its WebSoc
   const directory = await mkdtemp(path.join(os.tmpdir(), "core-shutdown-drain-"));
   const workspace = await makeGitWorkspace(directory);
   const stateDirectory = path.join(directory, "state");
-  vi.stubEnv("REMOTE_IDE_STATE_DIR", stateDirectory);
+  vi.stubEnv("HATOPAD_STATE_DIR", stateDirectory);
   const sockets: WebSocket[] = [];
   let server: WebSocketServer | undefined;
   const enteredSave = deferred<void>();
@@ -173,8 +173,8 @@ it.each(["SIGTERM", "SIGINT"] as const)("flushes saved workspace state and exits
   const tokenFile = path.join(directory, "private", "session.token");
   const port = await freePort();
   const index = fileURLToPath(new URL("./index.ts", import.meta.url));
-  const environment: NodeJS.ProcessEnv = { ...process.env, REMOTE_IDE_STATE_DIR: stateDirectory, REMOTE_IDE_SESSION_TOKEN_FILE: tokenFile };
-  delete environment.REMOTE_IDE_SESSION_TOKEN;
+  const environment: NodeJS.ProcessEnv = { ...process.env, HATOPAD_STATE_DIR: stateDirectory, HATOPAD_SESSION_TOKEN_FILE: tokenFile };
+  delete environment.HATOPAD_SESSION_TOKEN; delete environment.REMOTE_IDE_SESSION_TOKEN; // the legacy name is still honored
   const child = spawn(process.execPath, ["--import", "tsx", index, "--host", "127.0.0.1", "--port", String(port), "--workspace", workspace], {
     cwd: path.resolve(path.dirname(index), ".."), env: environment, stdio: ["ignore", "pipe", "pipe"]
   });

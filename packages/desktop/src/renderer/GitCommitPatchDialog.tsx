@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { editor } from "monaco-editor";
 import { X } from "lucide-react";
-import type { FileRevision, GitCommitPatch } from "@remote-ide/protocol";
+import type { FileRevision, GitCommitPatch } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { applyBlock } from "./conflict-merge";
 import { buildCommitResultPreview, commitResultStates, hasConflictMarkers, type CommitResultPreview } from "./commit-result-preview";

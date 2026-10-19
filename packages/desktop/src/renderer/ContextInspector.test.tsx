@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { AiContextSnapshot, AiSession } from "@remote-ide/protocol";
+import type { AiContextSnapshot, AiSession } from "@hatopad/protocol";
 import { AiPanel } from "./AiPanel";
 import { BlockRunDetails } from "./HarnessPanel";
 import { ContextInspector } from "./ContextInspector";

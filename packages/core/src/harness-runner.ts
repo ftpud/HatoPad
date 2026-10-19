@@ -1,11 +1,11 @@
 import crypto from "node:crypto";
-import { MeetingUpdates, useMeeting } from "./workflow-meeting.js";
-import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@remote-ide/protocol";
-import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@remote-ide/acp";
+import { MeetingUpdates, useMeeting, publishMeetingStatusChanges } from "./workflow-meeting.js";
+import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@hatopad/protocol";
+import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@hatopad/acp";
 import { CoreError } from "./errors.js";
 import { harnessExecutionEdges, isHarnessFlow, HarnessSchemaError, parseHarnessData, validateHarness, renderHarnessPrompt } from "./harness-graph.js";
 import type { HarnessStore } from "./harnesses.js";
-import type { AiUsage } from "@remote-ide/acp";
+import type { AiUsage } from "@hatopad/acp";
 import { takeUnfetchedText, rememberFetch, type FetchCursors } from "./workflow-fetch.js";
 import { contextHash, contextPreview, contextResult, contextOutputs, WORKFLOW_CONTEXT_CHARS } from "./workflow-context.js";
 
@@ -26,6 +26,7 @@ export type HarnessRecoveryInspector = {
 };
 
 export class HarnessRunner {
+  private readonly meetingParticipantStatuses = new WeakMap<HarnessRun, Map<string, string>>();
   private readonly meetingUpdates = new MeetingUpdates();
   private readonly flowInvocations = new Map<string, (id: string, input: string, ancestors?: string[]) => Promise<string>>();
   private readonly appToolCalls = new Map<string, Promise<unknown>>();
@@ -40,6 +41,8 @@ export class HarnessRunner {
   private chatAdmissionQueue = Promise.resolve();
   private readonly flowAnswers = new Map<string, (answer: string) => void>();
   private readonly cancelled = new Set<string>();
+  private readonly retryAdmissions = new Set<string>();
+  private readonly retryEntries = new Map<string, string[]>();
   private suspended = false;
   private readonly executionTasks = new Set<Promise<void>>();
   /** Freeze durable snapshots so restart recovery sees in-flight operations, not a false cancellation. */
@@ -208,6 +211,7 @@ export class HarnessRunner {
       while (this.isActive(runId) && !this.deliveryIsTerminal(execution) && Date.now() < Date.parse(state.waitingUntil)) await new Promise((resolve) => setTimeout(resolve, 250));
       if (!this.isActive(runId)) break;
       if (this.deliveryIsTerminal(execution)) break;
+      await this.schedulingReady(runId);
       await recoverChildren();
       if (!this.isActive(runId)) break;
       const { resumed } = await this.resumeFailed(runId, blockId);
@@ -229,7 +233,7 @@ export class HarnessRunner {
     return live ? structuredClone(live) : (await this.store.runs()).find((run) => run.id === runId);
   }
 
-  async start(harnessId: string, input: string, dispatch: Dispatch, defaultProvider = "codex", append?: Append, startBlockId?: string, rerunRunId?: string, testDefinition?: HarnessDefinition, workspace?: string, prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>, binding?: HarnessRun["binding"], chatSettings?: { blockId: string; settings: import("@remote-ide/protocol").HarnessChatSettings }): Promise<HarnessRun> {
+  async start(harnessId: string, input: string, dispatch: Dispatch, defaultProvider = "codex", append?: Append, startBlockId?: string, rerunRunId?: string, testDefinition?: HarnessDefinition, workspace?: string, prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>, binding?: HarnessRun["binding"], chatSettings?: { blockId: string; settings: import("@hatopad/protocol").HarnessChatSettings }): Promise<HarnessRun> {
     if (this.suspended) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
     const source = rerunRunId ? (await this.store.runs()).find((run) => run.id === rerunRunId) : undefined;
     if (rerunRunId && !source) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
@@ -266,7 +270,7 @@ export class HarnessRunner {
     return run;
   }
 
-  async continueChat(runId: string, blockId: string, input: string, dispatch: Dispatch, defaultProvider: string, append: Append, binding?: HarnessRun["binding"], settings?: import("@remote-ide/protocol").HarnessChatSettings): Promise<HarnessRun> {
+  async continueChat(runId: string, blockId: string, input: string, dispatch: Dispatch, defaultProvider: string, append: Append, binding?: HarnessRun["binding"], settings?: import("@hatopad/protocol").HarnessChatSettings): Promise<HarnessRun> {
     const key = `${runId}:${blockId}`;
     if (this.resumingChats.has(key)) throw new CoreError("INVALID_REQUEST", "Wait for the current workflow turn on this Chatbox to finish before sending another message");
     this.resumingChats.add(key);
@@ -372,6 +376,73 @@ export class HarnessRunner {
     return recovered;
   }
 
+  /** Pause future scheduling; already-running provider/tool calls may finish. */
+  async setPaused(runId: string, paused: boolean): Promise<HarnessRun> {
+    if (typeof paused !== "boolean") throw new CoreError("INVALID_REQUEST", "paused must be boolean");
+    const execution = this.executions.get(runId);
+    if (!execution || !this.isActive(runId) || !isActiveStatus(execution.run.status)) throw new CoreError("INVALID_REQUEST", "Only an active workflow can be paused or resumed");
+    execution.run.paused = paused;
+    await this.update(execution.run);
+    return structuredClone(execution.run);
+  }
+
+  private async schedulingReady(runId: string): Promise<void> {
+    this.assertActive(runId);
+    while (this.executions.get(runId)?.run.paused) {
+      await new Promise(resolve => setTimeout(resolve, 50)); this.assertActive(runId);
+    }
+  }
+
+  /** Explicitly continue safe failed stages in the same frozen run, never completed stages. */
+  async retryFailedRun(runId: string, dispatch: Dispatch, defaultProvider: string, append: Append): Promise<HarnessRun> {
+    if (this.retryAdmissions.has(runId)) throw new CoreError("INVALID_REQUEST", "A workflow retry is already pending");
+    this.retryAdmissions.add(runId);
+    try {
+      if (this.suspended) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
+      const execution = this.executions.get(runId);
+      const run = execution?.run ?? (await this.store.runs()).find(item => item.id === runId);
+      if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
+      if (execution && !isActiveStatus(run.status)) throw new CoreError("INVALID_REQUEST", "Workflow is finishing; refresh before retrying");
+      if (!execution && !["failed", "blocked"].includes(run.status)) throw new CoreError("INVALID_REQUEST", "Only a failed workflow can be retried");
+      const definition = run.definition, validation = definition ? validateHarness(definition) : undefined;
+      if (!definition || !run.executionPlan || !validation?.valid || run.executionPlan.definitionVersion !== run.harnessVersion) throw new CoreError("INVALID_REQUEST", "Workflow has no valid frozen execution plan");
+      if (run.executionPlan.order.length !== definition.blocks.length || new Set(run.executionPlan.order).size !== definition.blocks.length || run.executionPlan.order.some(id => !definition.blocks.some(block => block.id === id))) throw new CoreError("INVALID_REQUEST", "Workflow has an invalid frozen execution plan");
+      const failed = run.blocks.filter(state => ["failed", "retry_scheduled", "blocked"].includes(state.status));
+      if (!failed.length) throw new CoreError("INVALID_REQUEST", "There are no failed workflow stages to retry");
+      if (execution?.flowBusy && failed.some(state => execution.flowBusy!.has(state.blockId))) throw new CoreError("INVALID_REQUEST", "Workflow block is finishing; refresh before retrying");
+      const attempted = run.blocks.filter(state => failed.includes(state) || (state.status === "cancelled" && (state.startedAt !== undefined || (state.attempts?.length ?? 0) > 0)));
+      if (attempted.some(state => !["ai", "chatbox", "prompt", "task", "review"].includes(definition.blocks.find(block => block.id === state.blockId)?.type ?? ""))) throw new CoreError("INVALID_REQUEST", "An interrupted script, process or mutation stage has an uncertain outcome; inspect it before starting new work");
+      const attemptedIds = new Set(attempted.map(state => state.blockId));
+      const bookkeeping = new Set(["block_attempt", "dependency_decision", "route_selection", "prompt_delivery", "session_binding", "terminal_outcome"]);
+      if (run.operations?.some(operation => operation.blockId && attemptedIds.has(operation.blockId) && operation.status !== "succeeded" && !bookkeeping.has(operation.kind))) throw new CoreError("INVALID_REQUEST", "A recorded workflow mutation has an uncertain outcome; inspect it before retrying");
+      const continued = structuredClone(run);
+      continued.status = "queued"; continued.completedAt = undefined; continued.error = undefined;
+      for (const state of continued.blocks) if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status)) {
+        state.status = "queued"; state.error = undefined; state.completedAt = undefined; state.retryAt = undefined; state.pauseId = undefined; state.pendingPermission = undefined; state.question = undefined;
+      }
+      if (execution) {
+        // Running peers retain their state object references; only failed stages change.
+        const flow = isHarnessFlow(definition), invoke = this.flowInvocations.get(runId);
+        if (flow && !invoke) throw new CoreError("INVALID_REQUEST", "Workflow is finishing; refresh before retrying");
+        for (const state of run.blocks) if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status)) Object.assign(state, continued.blocks.find(item => item.blockId === state.blockId)!);
+        run.status = this.runActivityStatus(run); run.error = undefined; run.completedAt = undefined;
+        await this.update(run);
+        if (flow && invoke) {
+          this.retryEntries.set(runId, failed.map(state => state.blockId));
+          let task!: Promise<void>;
+          task = Promise.allSettled(failed.map(state => invoke(state.blockId, connectedInput(state.blockId, run.input, execution.blocks, execution.edges, execution.outputs)))).then(() => undefined).finally(() => execution.background.delete(task));
+          execution.background.add(task);
+        }
+        return structuredClone(run);
+      }
+      await this.store.createRun(continued, definition.settings?.maxActiveRuns ?? 4, true);
+      this.retryEntries.set(runId, validation.order.filter(id => failed.some(state => state.blockId === id)));
+      this.cancelled.delete(runId); this.activeRuns.add(runId); this.changed(runId);
+      this.launchExecution(continued, definition.blocks, definition.edges, run.executionPlan.order, dispatch, defaultProvider, append, false);
+      return structuredClone(continued);
+    } finally { this.retryAdmissions.delete(runId); }
+  }
+
   async cancel(runId: string, interrupt: Interrupt): Promise<HarnessRun> {
     const persisted = (await this.store.runs()).find((item) => item.id === runId);
     const execution = this.executions.get(runId); const run = execution?.run ?? persisted;
@@ -422,19 +493,19 @@ export class HarnessRunner {
     const execution = this.executions.get(runId);
     const state = execution?.run.blocks.find((item) => item.blockId === blockId);
     if (!execution || !this.isActive(runId) || execution.blocks.find((item) => item.id === blockId)?.type !== "chatbox"
-      || state?.status !== "running" || !state.workspace || !state.provider || !sessionId || state.sessionId !== sessionId) {
+      || !state || !["running", "waiting_timer"].includes(state.status) || !state.workspace || !state.provider || !sessionId || state.sessionId !== sessionId) {
       throw new CoreError("INVALID_REQUEST", "Chatbox session is no longer running");
     }
     await execution.scheduler.control(blockId, async () => {
       this.assertActive(runId);
-      if (state.status !== "running" || state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
+      if (!["running", "waiting_timer"].includes(state.status) || state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
       // Publish the input while provider acknowledgement is still pending.
       this.appendChatSteering(state, value);
       this.log(state, "prompt", `User steering: ${value}`);
       await this.update(execution.run);
       const startedAt = state.startedAt; const provider = state.provider!; const workspace = state.workspace!;
       const delivery = (this.chatSteeringDeliveries.get(state) ?? Promise.resolve()).then(async () => {
-        if (!this.isActive(runId) || state.sessionId !== sessionId || state.startedAt !== startedAt || state.status !== "running") throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
+        if (!this.isActive(runId) || state.sessionId !== sessionId || state.startedAt !== startedAt || !["running", "waiting_timer"].includes(state.status)) throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
         await steer(provider, workspace, value);
       }).catch(async (error) => {
         this.log(state, "error", `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -679,7 +750,7 @@ export class HarnessRunner {
     const outputs = new Map(run.blocks.flatMap((state) => state.status === "succeeded" && state.output !== undefined ? [[state.blockId, state.output] as const] : []));
     for (const state of run.blocks) state.activeToolCalls = undefined;
     const concurrency = run.definition?.settings?.concurrency ?? this.concurrency;
-    run.status = this.runActivityStatus(run); run.startedAt ??= new Date().toISOString(); const background = new Set<Promise<void>>(); this.executions.set(run.id, { run, blocks, edges, outputs, dispatch, append, defaultProvider, background, stackInvocations: new Map(), loopInvocations: new Map(), turnClaims: new Map(), scheduler: new ExecutionScheduler(concurrency, () => this.assertActive(run.id)) });
+    run.status = this.runActivityStatus(run); run.startedAt ??= new Date().toISOString(); const background = new Set<Promise<void>>(); this.executions.set(run.id, { run, blocks, edges, outputs, dispatch, append, defaultProvider, background, stackInvocations: new Map(), loopInvocations: new Map(), turnClaims: new Map(), scheduler: new ExecutionScheduler(concurrency, () => this.assertActive(run.id), () => this.schedulingReady(run.id)) });
     if (recovering) for (const state of run.blocks) if (isActiveStatus(state.status)) this.log(state, "lifecycle", "Core restarted and reconciled this workflow stage");
     const running = new Map<string, Promise<{ blockId: string; error?: unknown }>>();
     try {
@@ -691,6 +762,7 @@ export class HarnessRunner {
       while (running.size || background.size || run.blocks.some((block) => isActiveStatus(block.status))) {
         if (this.suspended || this.cancelled.has(run.id)) throw new Cancelled();
         let changed = false;
+        if (run.paused) { await this.schedulingReady(run.id); }
         for (const blockId of order) {
           if (running.size >= concurrency) break;
           const state = run.blocks.find((item) => item.blockId === blockId)!;
@@ -749,7 +821,7 @@ export class HarnessRunner {
         await this.update(run);
       }
       this.meetingUpdates.cancel(run.id);
-      this.flowInvocations.delete(run.id); this.cancelled.delete(run.id); this.activeRuns.delete(run.id); this.activeProviders.delete(run.id); this.executions.delete(run.id);
+      this.retryEntries.delete(run.id); this.flowInvocations.delete(run.id); this.cancelled.delete(run.id); this.activeRuns.delete(run.id); this.activeProviders.delete(run.id); this.executions.delete(run.id);
     }
   }
 
@@ -782,7 +854,7 @@ export class HarnessRunner {
       await this.update(execution.run);
       return result;
     };
-    const meetingRead = name === "workflow_use_block" && execution.blocks.some((block) => block.id === args.block_id && block.type === "meeting") && ["tail", "diff", "fetch", "wait"].includes(String(args.action ?? "diff"));
+    const meetingRead = name === "workflow_use_block" && execution.blocks.some((block) => block.id === args.block_id && block.type === "meeting") && ["tail", "diff", "fetch", "wait", "status"].includes(String(args.action ?? "diff"));
     if (meetingRead || (name === "workflow_use_block" && args.action === "fetch") || name === "workflow_connections" || name === "workflow_block_output" || name === "workflow_block_messages" || (name === "workflow_use_block" && ["status", "tail"].includes(String(args.action)) && ["ai", "chatbox"].includes(execution.blocks.find((item) => item.id === args.block_id)?.type ?? ""))) return project(await this.callFlowTool(runId, blockId, name, args));
     const { run } = this.activeExecution(runId);
     const operation = await this.beginOperation(run, "tool_command", `flow-tool:${crypto.randomUUID()}`, blockId, { name, args });
@@ -879,6 +951,48 @@ export class HarnessRunner {
     }
     if (target.type === "meeting") {
       if (["terminal_id", "name", "data", "command", "task_id", "branch", "status", "idempotency_key"].some((key) => args[key] !== undefined)) throw new Error("Meeting accepts action, message, input, lines and after");
+      if (args.action === "status" || args.action === "shake") {
+        if (["lines", "after"].some((key) => args[key] !== undefined)) throw new Error("Meeting status/shake does not accept lines or after");
+        const peers = execution.blocks.filter((peer) => execution.edges.some((connection) => connection.to === target.id && connection.from === peer.id && (connection.type === "use" || peer.type === "chatbox")));
+        if (args.action === "status") {
+          if (["peer_block_id", "message", "input"].some((key) => args[key] !== undefined)) throw new Error("Meeting status accepts only the room block_id and action");
+          return { blockId: target.id, meeting: { peers: peers.map((peer) => {
+            const live = execution.run.blocks.find((item) => item.blockId === peer.id)!;
+            const starting = this.agentStarts.has(`${runId}:${peer.id}`);
+            return { blockId: peer.id, name: peer.label, type: peer.type, self: peer.id === blockId, online: live.status === "running" || starting, block_status: live.status, hasSession: !!live.sessionId, provider: live.provider ?? peer.provider ?? execution.defaultProvider, ...(live.error ? { error: live.error } : {}) };
+          }) } };
+        }
+        const peer = peers.find((item) => item.id === args.peer_block_id);
+        if (!peer || peer.id === blockId || !["ai", "chatbox"].includes(peer.type)) throw new Error("Shake requires peer_block_id of another AI Agent or Chatbox connected to this Meeting");
+        const message = args.message ?? args.input ?? "Please check the Meeting room and respond.";
+        if (typeof message !== "string" || !message.trim() || message.length > 10000) throw new Error("Meeting shake message must contain 1 to 10000 characters");
+        const caller = execution.blocks.find((item) => item.id === blockId)!;
+        const input = `Shake from ${caller.label} in Meeting "${target.label}" (${target.id}):\n${message}`;
+        const child = execution.run.blocks.find((item) => item.blockId === peer.id)!;
+        const key = `${runId}:${peer.id}`;
+        if (["running", "waiting_timer"].includes(child.status) || execution.flowBusy?.has(peer.id) || this.agentStarts.has(key)) {
+          if (!child.workspace || !child.provider || !this.steerAgent) throw new Error("Peer is starting or cannot receive live messages; check status and retry once ready");
+          await execution.scheduler.control(peer.id, async () => {
+            this.assertActive(runId);
+            if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Peer turn ended; check status and shake again");
+            this.chargeContext(execution.run, child, input.length);
+            if (peer.type === "chatbox") this.appendChatSteering(child, input);
+            this.log(child, "prompt", input);
+            await this.update(execution.run);
+            await this.steerAgent!(child.provider!, child.workspace!, input);
+            this.assertActive(runId);
+          });
+          return { blockId: target.id, meeting: { shake: { blockId: peer.id, delivery: "steered" } } };
+        }
+        const invoke = this.flowInvocations.get(runId);
+        if (!invoke) throw new Error("Flow is unavailable");
+        this.agentStarts.add(key);
+        const result = invoke(peer.id, input, [blockId]);
+        const pending = result.then(() => {}, () => {}).finally(() => { execution.background.delete(pending); this.agentStarts.delete(key); });
+        execution.background.add(pending);
+        return { blockId: target.id, meeting: { shake: { blockId: peer.id, delivery: "started" } } };
+      }
+      if (args.peer_block_id !== undefined) throw new Error("peer_block_id is only available for Meeting shake");
       // The transcript mutation is synchronous; save through the run update queue.
       // It needs no execution permit, even when several callers publish at once.
       this.assertActive(runId);
@@ -914,6 +1028,7 @@ export class HarnessRunner {
       if (args.action === "publish") this.meetingUpdates.publish(runId, target.id);
       return { blockId: target.id, meeting: result };
     }
+    if (args.peer_block_id !== undefined) throw new Error("peer_block_id is only available for Meeting shake");
     if (args.after !== undefined) throw new Error("after is only available for Meeting blocks");
     if (target.type !== "task_controls" && ["task_id", "branch", "status", "message", "idempotency_key"].some((key) => args[key] !== undefined)) throw new Error("Task arguments are only available for Task controls blocks");
     if (target.type !== "terminal_control" && ["terminal_id", "name", "data", "command"].some((key) => args[key] !== undefined)) throw new Error("Terminal arguments are only available for Terminal Control blocks");
@@ -925,11 +1040,11 @@ export class HarnessRunner {
       if (args.action === "status" || args.action === "tail") return this.flowBlockMessages(execution.run, target.id, args.action === "status" ? 0 : (args.lines as number | undefined) ?? 6);
       if (args.action === "steer") {
         const child = execution.run.blocks.find((item) => item.blockId === target.id)!;
-        if (!textInput.trim() || child.status !== "running" || !child.workspace || !child.provider || !this.steerAgent) throw new Error("Steering requires a running connected AI session and nonempty input");
+        if (!textInput.trim() || !["running", "waiting_timer"].includes(child.status) || !child.workspace || !child.provider || !this.steerAgent) throw new Error("Steering requires a running connected AI session and nonempty input");
         const steeringInput = contextPreview(textInput, WORKFLOW_CONTEXT_CHARS);
         await execution.scheduler.control(target.id, async () => {
           this.assertActive(runId);
-          if (child.status !== "running") throw new Error("Connected AI session is no longer running");
+          if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Connected AI session is no longer running");
           this.chargeContext(execution.run, child, steeringInput.length);
           if (target.type === "chatbox") {
             this.appendChatSteering(child, steeringInput);
@@ -1107,6 +1222,9 @@ export class HarnessRunner {
     const timers = new Map<string, string>();
     let steps = 0;
     const invoke = async (id: string, input: string, ancestors: string[] = []): Promise<string> => {
+      await this.schedulingReady(run.id);
+      const prior = run.blocks.find(state => state.blockId === id);
+      if (this.retryEntries.has(run.id) && prior?.status === "succeeded") return prior.output ?? "";
       this.assertActive(run.id);
       if (busy.has(id)) throw new Error("This block is already active; recursive tool calls are not allowed");
       if (++steps > 1000) throw new Error("Flow exceeded 1000 block executions");
@@ -1207,11 +1325,11 @@ export class HarnessRunner {
       return output;
     };
     this.flowInvocations.set(run.id, invoke);
-    const roots = startBlockId ? [startBlockId] : blocks.filter((block) => !edges.some((edge) => edge.to === block.id)).map((block) => block.id);
+    const roots = this.retryEntries.get(run.id) ?? (startBlockId ? [startBlockId] : blocks.filter((block) => !edges.some((edge) => edge.to === block.id)).map((block) => block.id));
     if (!roots.length && blocks.length) roots.push(blocks[0]!.id);
     let entryError: unknown;
     for (const id of roots) {
-      try { await invoke(id, run.input); } catch (error) {
+      try { await invoke(id, this.retryEntries.has(run.id) ? connectedInput(id, run.input, blocks, edges, execution.outputs) : run.input); } catch (error) {
         // A failed entry turn must not cancel unrelated Chatboxes still working.
         if (!this.isActive(run.id)) throw error;
         entryError ??= error;
@@ -1238,7 +1356,7 @@ export class HarnessRunner {
     // terminal outcome on its next microtask. No late turn may revive this flow.
     this.flowInvocations.delete(run.id);
     this.assertActive(run.id);
-    if (entryError) throw entryError;
+    if (entryError && !this.retryEntries.has(run.id)) throw entryError;
     const failed = run.blocks.find((state) => state.status === "failed");
     if (failed) throw new Error(failed.error ?? "A connected workflow block failed");
     for (const state of run.blocks) if (state.status === "queued") state.status = "skipped";
@@ -1387,10 +1505,16 @@ export class HarnessRunner {
 
   private async update(run: HarnessRun): Promise<void> {
     if (this.suspended) return;
+    let statuses = this.meetingParticipantStatuses.get(run);
+    if (!statuses) { statuses = new Map(); this.meetingParticipantStatuses.set(run, statuses); }
+    const changedRooms = publishMeetingStatusChanges(run, statuses);
+    const execution = this.executions.get(run.id);
+    for (const roomId of changedRooms) execution?.outputs.set(roomId, run.blocks.find((block) => block.blockId === roomId)!.output!);
     const limit = run.definition?.settings?.logLimitEntries ?? 500;
     for (const block of run.blocks) if (block.log && block.log.length > limit) block.log = block.log.slice(-limit);
     const snapshot = structuredClone(run); const next = this.updateQueue.then(async () => { await this.store.saveRun(snapshot); this.changed(run.id); });
     this.updateQueue = next.catch(() => undefined); await next;
+    for (const roomId of changedRooms) this.meetingUpdates.publish(run.id, roomId);
   }
 
   private activeExecution(runId: string): ActiveExecution {
@@ -1609,7 +1733,7 @@ class ExecutionScheduler {
   private readonly serial = new Map<string, Promise<void>>();
   private readonly owners = new Map<string, { permit: boolean }>();
 
-  constructor(private readonly limit: number, private readonly assertActive: () => void) {}
+  constructor(private readonly limit: number, private readonly assertActive: () => void, private readonly schedulingReady: () => Promise<void> = async () => {}) {}
 
   async turn<T>(blockId: string, work: () => Promise<T>): Promise<T> {
     const previous = this.serial.get(blockId) ?? Promise.resolve();
@@ -1617,13 +1741,12 @@ class ExecutionScheduler {
     const gate = new Promise<void>((resolve) => { unlock = resolve; });
     const tail = previous.catch(() => undefined).then(() => gate);
     this.serial.set(blockId, tail);
-    await previous.catch(() => undefined);
-    this.assertActive();
-    await this.acquire();
-    const owner = { permit: true };
-    this.owners.set(blockId, owner);
+    const owner = { permit: false };
     try {
-      this.assertActive();
+      await previous.catch(() => undefined);
+      this.assertActive(); await this.schedulingReady(); await this.acquire();
+      owner.permit = true; this.owners.set(blockId, owner);
+      this.assertActive(); await this.schedulingReady();
       return await work();
     } finally {
       if (owner.permit) this.release();
@@ -1658,6 +1781,7 @@ class ExecutionScheduler {
     this.owners.set(blockId, owner);
     try {
       this.assertActive();
+      await this.schedulingReady();
       return await work();
     } finally {
       if (owner.permit) this.release();
@@ -1820,7 +1944,7 @@ export function isolatedBlockDefinition(definition: HarnessDefinition, blockId: 
 
 /** Skill catalogues expose when to use a skill; its instructions load on demand. */
 function workflowBlockDescription(block: HarnessBlock | undefined): string | undefined {
-  const description = block?.type === "meeting" ? 'Shared meeting chat for this workflow run. Use action publish with message (or input) to post; tail with lines (1–50) to read recent messages; diff to read new messages since your own last read; wait to sleep until unread messages arrive (timeout_seconds defaults to the connection timeout). Optional after selects a sequence. Wait returns messages with status updated or timed_out. Read pages while hasMore is true. Messages include author and sequence; each participant has an independent durable cursor. Keeps the latest 1000 messages and reports historyTruncated if older unread messages were removed. Publishing does not invoke other agents.' : block?.type === "skill" ? block.description : block?.type === "terminal_control" ? 'Only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. Control terminals in this task workspace. Pass JSON in input: {"action":"list"}, {"action":"open","name":"Server"}, {"action":"open_and_run","name":"Server","command":"npm run dev"}, {"action":"write","terminal_id":"ID","data":"command\\n"}, or {"action":"read","terminal_id":"ID","lines":100}. open_and_run appends a newline automatically and returns the terminalId immediately. Writes are raw input; include a newline to execute commands.' : block?.type === "task_controls" ? "Create tasks, check task and AI status, send prompts with the designed AI settings, set tasks active or finished, set commit-message drafts, and rewrite the latest unpushed commit message." : block?.description ?? block?.prompt;
+  const description = block?.type === "meeting" ? 'Shared meeting chat for this workflow run. Use action publish with message (or input) to post; tail with lines (1–50) to read recent messages; diff to read new messages since your own last read; wait to sleep until unread messages arrive (timeout_seconds defaults to the connection timeout). Optional after selects a sequence. Wait returns messages with status updated or timed_out. Read pages while hasMore is true. Messages include author and sequence; each participant has an independent durable cursor. Keeps the latest 1000 messages and reports historyTruncated if older unread messages were removed. Publishing does not invoke other agents. Use status to list connected peers and their online/block status. Use shake with peer_block_id and optional message to notify an active AI peer or start an idle peer turn; only peers connected to this room can be shaken.' : block?.type === "skill" ? block.description : block?.type === "terminal_control" ? 'Only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. Control terminals in this task workspace. Pass JSON in input: {"action":"list"}, {"action":"open","name":"Server"}, {"action":"open_and_run","name":"Server","command":"npm run dev"}, {"action":"write","terminal_id":"ID","data":"command\\n"}, or {"action":"read","terminal_id":"ID","lines":100}. open_and_run appends a newline automatically and returns the terminalId immediately. Writes are raw input; include a newline to execute commands.' : block?.type === "task_controls" ? "Create tasks, check task and AI status, send prompts with the designed AI settings, set tasks active or finished, set commit-message drafts, and rewrite the latest unpushed commit message." : block?.description ?? block?.prompt;
   return description && description.length > 512 ? `${description.slice(0, 512)}… (preview; use the block to load its content)` : description;
 }
 

@@ -1,9 +1,10 @@
+import { stateHome } from "./state-home.js";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { AiProvider } from "@remote-ide/acp";
-import type { AiContinuationTimer as TimerSummary } from "@remote-ide/protocol";
+import type { AiProvider } from "@hatopad/acp";
+import type { AiContinuationTimer as TimerSummary } from "@hatopad/protocol";
 import type { AcpRegistry } from "./ai/index.js";
 import { appToolServer } from "./app-tools.js";
 import { CoreError } from "./errors.js";
@@ -27,7 +28,7 @@ export class AiTimerStore {
     return next;
   }
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.REMOTE_IDE_STATE_DIR ?? path.join(os.homedir(), ".remote-ide", "workspaces")) {
+  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")) {
     const key = crypto.createHash("sha256").update(rootWorkspace).digest("hex");
     this.file = path.join(stateDirectory, `${key}-ai-timers.json`);
     this.backup = `${this.file}.bak`;
@@ -156,7 +157,7 @@ export class AiTimerService {
   private readonly timerCancellationEpochs = new Map<string, number>();
   private readonly cancellationEpochs = new Map<string, number>();
 
-  constructor(private readonly store: AiTimerStore, private readonly acp: AcpRegistry, private readonly rootWorkspace: string, private readonly onChanged: (workspace: string) => void, private readonly workflowOperation?: <T>(timer: AiContinuationTimer, effect: () => Promise<T>, reconcile: () => Promise<T | null | undefined>) => Promise<T>) {}
+  constructor(private readonly store: AiTimerStore, private readonly acp: AcpRegistry, private readonly rootWorkspace: string, private readonly onChanged: (workspace: string) => void, private readonly workflowOperation?: <T>(timer: AiContinuationTimer, effect: () => Promise<T>, reconcile: () => Promise<T | null | undefined>) => Promise<T>, private readonly onDelivered?: (timer: AiContinuationTimer) => void) {}
 
   async start(): Promise<void> { for (const timer of await this.store.list()) this.arm(timer); }
 
@@ -280,6 +281,7 @@ export class AiTimerService {
       if (cancelled()) return { delivered: true };
       if (session.status === "in_progress" || session.status === "user_prompt") await manager.steer(timer.workspace, timer.prompt);
       else await manager.send(timer.workspace, { prompt: timer.prompt, configuration: session.configuration ?? { model: session.model, reasoning: session.reasoning }, mcpServers: [appToolServer(this.rootWorkspace, timer.workspace, timer.provider, this.rootWorkspace, timer.workflowRunId && timer.workflowBlockId ? { runId: timer.workflowRunId, blockId: timer.workflowBlockId, flow: timer.workflowFlow } : undefined)] });
+      this.onDelivered?.(timer);
       if (cancelled()) { await manager.interrupt(timer.workspace); return { delivered: true }; }
       return { delivered: true };
     } finally { this.delivering.delete(timer.id); this.onChanged(timer.workspace); }

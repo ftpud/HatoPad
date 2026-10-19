@@ -3,13 +3,13 @@ import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type { AiAgentPreset } from "@remote-ide/protocol";
+import type { AiAgentPreset } from "@hatopad/protocol";
 import { SkillsStore } from "./skills.js";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 async function setup() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "vibe-skills-")); roots.push(root);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-skills-")); roots.push(root);
   const workspace = path.join(root, "project"); await mkdir(workspace);
   return { root, workspace, store: new SkillsStore(path.join(root, "state"), workspace) };
 }
@@ -19,7 +19,7 @@ async function loadedInstructions(store: SkillsStore, workspace: string, ids: st
   const entries = await store.available(workspace, ids, agentPreset);
   const session = { model: "test", reasoning: "", status: "in_progress" as const, messages: [], threadId: "thread", skillCatalogue: { threadId: "thread", entries }, ...(agentPreset ? { agentPreset } : {}) };
   const loaded = await Promise.all(entries.map((entry) => store.load(workspace, entry.id, session)));
-  return loaded.length ? loaded.map((skill) => skill.content).join("\n") : "No Vibe skills are enabled";
+  return loaded.length ? loaded.map((skill) => skill.content).join("\n") : "No HatoPad skills are enabled";
 }
 
 describe("project skills", () => {
@@ -77,7 +77,7 @@ describe("project skills", () => {
     await store.writePolicy(workspace, { allowed: [], defaults: [] });
     const instructions = await loadedInstructions(store, workspace, ["local/review"]);
     expect(instructions).not.toContain("Updated workflow");
-    expect(instructions).toContain("No Vibe skills are enabled");
+    expect(instructions).toContain("No HatoPad skills are enabled");
   });
 
   it("keeps global skills shared and project-local skills/defaults isolated", async () => {

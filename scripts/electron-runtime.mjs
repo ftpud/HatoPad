@@ -46,3 +46,16 @@ export async function electronExecutable({ packageRoot, productName, bundleId })
   }
   return executable;
 }
+
+/** LaunchServices makes the app, rather than its terminal/editor parent, responsible for macOS privacy prompts. */
+export function macFinderLaunch(executable, packageRoot, args, env) {
+  const bundle = path.resolve(path.dirname(executable), '../..');
+  if (!bundle.endsWith('.app')) throw new Error('Finder launch requires an Electron application bundle');
+  const options = ['-n', '-a', bundle];
+  // Forward only launch configuration. Passing the entire environment here could expose secrets in argv.
+  for (const key of ['HATOPAD_NODE_EXECUTABLE', 'HATOPAD_DESKTOP_EXECUTABLE', 'HATOPAD_DESKTOP_ICON']) {
+    if (env[key] !== undefined) options.push('--env', `${key}=${env[key]}`);
+  }
+  options.push('--env', 'ELECTRON_RUN_AS_NODE=', '--env', 'VITE_DEV_SERVER_URL=', '--args', packageRoot, ...args);
+  return { command: '/usr/bin/open', args: options };
+}

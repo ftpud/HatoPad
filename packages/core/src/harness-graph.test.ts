@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { HarnessBlock, HarnessDefinition } from "@remote-ide/protocol";
+import type { HarnessBlock, HarnessDefinition } from "@hatopad/protocol";
 import { parseHarnessData, renderHarnessPrompt, validateHarness } from "./harness-graph.js";
 
 const harness = (edges: HarnessDefinition["edges"]): HarnessDefinition => ({ id: "h", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
-import type { ToolInstallation } from "@remote-ide/protocol";
+import type { ToolInstallation } from "@hatopad/protocol";
 import type { CoreClient } from "./client";
 import { ToolsPanel } from "./ToolsPanel";
 
