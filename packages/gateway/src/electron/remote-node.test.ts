@@ -82,3 +82,17 @@ test("supports hosts without NVM when PATH already provides a supported Node", a
   try { assert.equal((await fixture.run()).stdout, "24.5.0\nnpm:24.5.0"); }
   finally { await rm(fixture.directory, { recursive: true, force: true }); }
 });
+
+test('portable Core runtime works without usable system Node or NVM',async()=>{
+  const {installedNodeEnvironment}=await import('./remote-node.js');
+  const fixture=await setup(['20.19.0']);
+  const release='a'.repeat(40)+'-node137-bundle-test';
+  try {
+    const bin=path.join(fixture.directory,'.hatopad-deploy/releases',release,'bin');await mkdir(bin,{recursive:true});
+    await writeFile(path.join(bin,'node'),`#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`,{mode:0o755});
+    await writeFile(path.join(bin,'npm'),'#!/bin/sh\nprintf portable-npm\n',{mode:0o755});
+    const {stdout}=await execute('/bin/bash',['-eu','-c',`${installedNodeEnvironment(release)}\nnode -p 'process.versions.node'\nnpm --version`],{env:{...process.env,HOME:fixture.directory,NVM_DIR:fixture.nvm}});
+    assert.equal(stdout,`${process.versions.node}\nportable-npm`);
+    assert.throws(()=>installedNodeEnvironment('../../other;command'),/Invalid/);
+  } finally {await rm(fixture.directory,{recursive:true,force:true});}
+});

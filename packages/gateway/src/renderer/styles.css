@@ -177,3 +177,7 @@ button, input, select, a, [tabindex], .connection-actions { -webkit-app-region: 
 .cloud-spinning { animation: cloud-spin 1s linear infinite; }
 @keyframes cloud-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .cloud-spinning { animation: none; } }
+
+.cloud-update-status { display: flex; align-items: center; gap: 10px; margin: -4px 0 12px; }
+.cloud-update-status p { flex: 1; min-width: 0; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
+.cloud-update-status .icon-button { flex: 0 0 30px; width: 30px; min-height: 30px; padding: 0; }

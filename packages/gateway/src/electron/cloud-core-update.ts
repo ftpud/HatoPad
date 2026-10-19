@@ -3,6 +3,16 @@ import type { BundleManifest } from "./bundled-runtime.js";
 
 export type ManagedCloudCore = { workspaceId: string; target: string; release?: string };
 export type CloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string; source?: "git" | "bundle"; tag?: string; branch?: string };
+export class CoreUpdateCheckError extends Error {}
+/** Only fixed, locally classified messages cross IPC; remote command output stays private. */
+export function coreUpdateCheckReason(error: unknown, branch?: string): string {
+  const text = error instanceof Error ? error.message : "";
+  const channel = branch ? ` on ${branch}` : "";
+  if (/No (?:protocol-compatible|compatible tagged) Core/.test(text)) return `No compatible Core release tag is available${channel}. A compatible release must be tagged before this Core can update.`;
+  if (/Node.js and npm were not found|No installed NVM Node|requires Node.js|Could not select the NVM Node/.test(text)) return "The SSH host has no usable Node/npm runtime. Reconnect its portable Core runtime or install Node 24 for this SSH user.";
+  if (/git: (?:command )?not found|git: command not found/.test(text)) return "Git is missing on the SSH host. Install Git, then retry the update check.";
+  return `The compatible Git release check failed${channel}. Check the saved SSH connection and Git access, then retry.`;
+}
 export class CloudCoreUpdates {
   constructor(private readonly options: {
     bundle?: BundleManifest;
@@ -13,6 +23,7 @@ export class CloudCoreUpdates {
   }) {}
   private inspect(core?: ManagedCloudCore): CloudCoreUpdateInfo {
     const bundle = this.options.bundle;
+    if (!core && this.options.git) return { available: false, updateNeeded: false, reason: "No matching saved local/SSH workspace was found. Reconnect the management connection originally paired with this Core, then refresh." };
     if (!bundle) return { available: false, updateNeeded: false, reason: "Core updates require a packaged Gateway with bundled Core releases." };
     if (!core) return { available: false, updateNeeded: false, bundledVersion: bundle.version, reason: "No matching saved local/SSH server is reachable. Add or reconnect its management connection to update this Core." };
     const shipped = bundle.cores[core.target];
@@ -23,7 +34,13 @@ export class CloudCoreUpdates {
   }
   private async inspectLatest(core: ManagedCloudCore | undefined, origin: string): Promise<CloudCoreUpdateInfo> {
     if (core && this.options.git) {
-      const latest = await this.options.git.check(core, origin);
+      let latest;
+      try { latest = await this.options.git.check(core, origin); }
+      catch (error) {
+        const fallback = this.inspect(core);
+        const reason = error instanceof CoreUpdateCheckError ? error.message : coreUpdateCheckReason(error);
+        return { ...fallback, reason: fallback.available ? `${reason} ${fallback.updateNeeded ? "A compatible bundled Core is available." : "The compatible bundled Core is already selected."}` : `${reason} ${fallback.reason ?? ""}`.trim() };
+      }
       if (latest) return { available: true, source: "git", branch: latest.branch, tag: latest.tag, bundledRelease: latest.commit, currentRelease: core.release, updateNeeded: !core.release?.startsWith(`${latest.commit}-node`) };
     }
     return this.inspect(core);

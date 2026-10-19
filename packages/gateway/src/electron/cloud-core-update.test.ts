@@ -77,3 +77,24 @@ test('downloads the latest compatible Git release once and refuses a changed sel
   assert.equal((await service.update('origin','core',commit)).updateNeeded,false); assert.equal(calls,1);
   await service.update('origin','core',commit); assert.equal(calls,1);
 });
+
+test('a failed Git check still offers a compatible bundle and deploys it only once',async()=>{
+  let current='old-release',calls=0;
+  const service=new CloudCoreUpdates({bundle,resolve:async()=>({workspaceId:'ssh',target:'linux-x64',release:current}),git:{check:async()=>{throw Error('Node.js and npm were not found on the SSH host');},deploy:async()=>{throw Error('must not deploy Git');}},deploy:async()=>{calls++;current=release;},run:async(_id,action)=>action()});
+  const info=await service.info('origin','core');assert.equal(info.available,true);assert.equal(info.source,'bundle');assert.match(info.reason!,/compatible bundled Core/);
+  await service.update('origin','core',release);assert.equal(calls,1);
+});
+test('Git lookup failures return a useful result instead of rejecting the update-info IPC',async()=>{
+  const unknown=structuredClone(bundle);unknown.cores['linux-x64']!.protocol=undefined;
+  const service=new CloudCoreUpdates({bundle:unknown,resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),git:{check:async()=>{throw Error('SSH command failed at 23:24; password=PRIVATE');},deploy:async()=>{throw Error('must not deploy');}},deploy:async()=>{throw Error('must not deploy');},run:async(_id,action)=>action()});
+  const info=await service.info('origin','core');assert.equal(info.available,false);assert.match(info.reason!,/Git release check failed/);assert.equal(info.reason!.includes('PRIVATE'),false);
+});
+test('source Gateways explain missing management connections without requiring a bundle',async()=>{
+  const service=new CloudCoreUpdates({resolve:async()=>undefined,git:{check:async()=>undefined,deploy:async()=>{}},deploy:async()=>{},run:async(_id,action)=>action()});
+  assert.match((await service.info('origin','core')).reason!,/matching saved local\/SSH workspace/);
+});
+test('a failed Git deployment is never retried through the bundle fallback',async()=>{
+  let gitCalls=0,bundleCalls=0;const commit='d'.repeat(40);
+  const service=new CloudCoreUpdates({bundle,resolve:async()=>({workspaceId:'ssh',target:'linux-x64',release:'old'}),git:{check:async()=>({commit,tag:'core-protocol-19-v0.1.42',branch:'dev'}),deploy:async()=>{gitCalls++;throw Error('SSH channel interrupted');}},deploy:async()=>{bundleCalls++;},run:async(_id,action)=>action()});
+  await assert.rejects(service.update('origin','core',commit),/SSH channel interrupted/);assert.equal(gitCalls,1);assert.equal(bundleCalls,0);
+});

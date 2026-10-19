@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { WebSocket, WebSocketServer } from "ws";
 import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 
-async function fixture(rejectedType?: string) {
+async function fixture(rejectedType?: string, incompatible = false) {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   await once(server, "listening");
   const address = server.address();
@@ -22,7 +22,7 @@ async function fixture(rejectedType?: string) {
         socket.send(JSON.stringify({ id: message.id, ok: false, error: { code: "INVALID_REQUEST", message: "This operation is not available through HatoHub" } }));
         return;
       }
-      const result = message.type === "protocol.handshake" ? { compatible: true } : { roots, selectedRootId: "root-1" };
+      const result = message.type === "protocol.maintenance" ? {maintenance:true,compatible:!incompatible} : message.type === "protocol.handshake" ? { compatible: !incompatible } : { roots, selectedRootId: "root-1" };
       socket.send(JSON.stringify({ id: message.id, ok: true, result }));
     });
   });
@@ -33,7 +33,7 @@ test("discovers cloud roots through a compatible authenticated relay connection"
   const hub = await fixture();
   try {
     assert.deepEqual(await listCloudRoots(hub.target, { minimum: 19, maximum: 19 }), hub.roots);
-    assert.deepEqual(hub.requests.map(request => request.type), ["protocol.handshake", "workspace.roots"]);
+    assert.deepEqual(hub.requests.map(request => request.type), ["protocol.maintenance", "protocol.handshake", "workspace.roots"]);
     assert.deepEqual(hub.requests[0].payload.compatibility, { minimum: 19, maximum: 19 });
     assert.equal(hub.upgrades[0]?.origin, hub.target.origin);
     assert.equal(hub.upgrades[0]?.cookie, "hub-session=PRIVATE-SESSION");
@@ -46,4 +46,11 @@ test("Core discovery names the exact operation rejected by HatoHub", async () =>
   try {
     await assert.rejects(listCloudRoots(hub.target, { minimum: 19, maximum: 19 }), { message: "INVALID_REQUEST: This operation is not available through HatoHub [workspace.roots]" });
   } finally { await hub.close(); }
+});
+
+
+for (const legacy of [false,true]) test(`${legacy ? 'older' : 'incompatible'} Core is not given a workspace handshake during cloud discovery`,async()=>{
+  const hub=await fixture(legacy ? 'protocol.maintenance' : undefined,!legacy);
+  try {await assert.rejects(listCloudRoots(hub.target,{minimum:19,maximum:19}),/Core.*(?:compatib|update)/);assert.deepEqual(hub.requests.map(request=>request.type),['protocol.maintenance']);}
+  finally {await hub.close();}
 });

@@ -283,7 +283,26 @@ describe("Gateway cloud", () => {
     const update = await screen.findByRole("button", { name: "Update cloud Core" });
     await waitFor(() => expect(update.title).toBe("No saved management connection"));
     expect(update.hasAttribute("disabled")).toBe(true);
+    expect(await screen.findByText("No saved management connection")).toBeTruthy();
+    expect(screen.getByRole("button",{name:"Retry Core update check"}).hasAttribute("disabled")).toBe(false);
     expect(window.gateway.cloudUpdateCore).not.toHaveBeenCalled();
+  });
+  it("can retry update discovery while an incompatible Core's workspace request is still pending",async()=>{
+    bridge(account);vi.mocked(window.gateway.cloudListCores).mockImplementation(()=>new Promise(()=>{}));
+    vi.mocked(window.gateway.cloudCoreUpdateInfo).mockRejectedValueOnce(new Error("Error invoking remote method 'gateway:cloudCoreUpdateInfo': Error: SSH command interrupted"));
+    render(<App/>);fireEvent.click(await screen.findByRole("button",{name:/Cloud machine/}));
+    expect(await screen.findByText("SSH command interrupted")).toBeTruthy();
+    vi.mocked(window.gateway.cloudCoreUpdateInfo).mockResolvedValue({available:true,updateNeeded:true,bundledRelease:"a".repeat(40),tag:"core-protocol-19-v0.1.42",source:"git",branch:"dev"});
+    fireEvent.click(screen.getByRole("button",{name:"Retry Core update check"}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Update cloud Core"}).hasAttribute("disabled")).toBe(false));
+    expect(window.gateway.cloudListCores).toHaveBeenCalledTimes(1);
+  });
+  it("offers an available update when the Core is offline",async()=>{
+    bridge({...account,cores:[{...account.cores[0]!,status:"offline"}]});
+    vi.mocked(window.gateway.cloudCoreUpdateInfo).mockResolvedValue({available:true,updateNeeded:true,bundledRelease:"a".repeat(40),tag:"core-protocol-19-v0.1.42",source:"git",branch:"dev"});
+    render(<App/>);fireEvent.click(await screen.findByRole("button",{name:/Cloud machine/}));
+    await waitFor(()=>expect(screen.getByRole("button",{name:"Update cloud Core"}).hasAttribute("disabled")).toBe(false));
+    expect(window.gateway.cloudListCores).not.toHaveBeenCalled();
   });
   it("keeps cloud actions icon-only and exposes tooltips and accessible names", async () => {
     bridge(account); render(<App />);

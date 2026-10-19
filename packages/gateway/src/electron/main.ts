@@ -1,15 +1,16 @@
+import { matchLocalCloudCore } from "./managed-local-core.js";
 import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
-import { CloudCoreUpdates, type ManagedCloudCore } from "./cloud-core-update.js";
+import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
 import { listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
-import { EDITOR_FLAG, bundleCoreCompatible, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
+import { EDITOR_FLAG, bundleCoreCompatible, loadBundle, coreTarget, verifiedCoreArchive, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
 import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
-import { remoteNodeEnvironment } from "./remote-node.js";
+import { installedNodeEnvironment, remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, shell as electronShell, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
@@ -192,9 +193,9 @@ async function stopLocalServer(workspaceId: string): Promise<void> {
   }
   if (localServers.get(workspaceId) === previous) localServers.delete(workspaceId);
 }
-async function startLocalServer(workspaceId: string, expectedCommit?: string, repository?: RepositorySettings): Promise<{ remotePort: number }> {
+async function startLocalServer(workspaceId: string, expectedCommit?: string, repository?: RepositorySettings, useBundle = false): Promise<{ remotePort: number }> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
-  const savedCommit = (await readState()).coreReleases?.[workspaceId];
+  const savedCommit = useBundle ? undefined : (await readState()).coreReleases?.[workspaceId];
   let { coreMain, node, env } = await localArtifactPaths(Boolean(expectedCommit || savedCommit));
   if (expectedCommit) {
     const npm = bundle ? path.resolve(path.dirname(coreMain), "../../../lib/node_modules/npm/bin/npm-cli.js") : process.env.npm_execpath;
@@ -241,7 +242,7 @@ async function startLocalServer(workspaceId: string, expectedCommit?: string, re
   }
   if (child.exitCode !== null || child.signalCode !== null) throw new Error(`Local Core exited during startup. Inspect ${logPath}`);
   runtime(workspaceId, "server", `Server listening locally on ${workspace.remotePort} (log: ${logPath})`);
-  if (expectedCommit) await updateState(state => { state.coreReleases = { ...state.coreReleases, [workspaceId]: expectedCommit }; });
+  if (expectedCommit || useBundle) await updateState(state => { if (expectedCommit) state.coreReleases = { ...state.coreReleases, [workspaceId]: expectedCommit }; else if (state.coreReleases) delete state.coreReleases[workspaceId]; });
   child.unref();
   return { remotePort: workspace.remotePort };
 }
@@ -288,26 +289,27 @@ async function refreshStatuses(connectionId?: string): Promise<void> {
   }));
 }
 async function provision(workspaceId: string, client: Client, settings: RepositorySettings, repair = false, expectedCommit?: string): Promise<ProvisionedRelease> {
-  if (bundle && !expectedCommit && Object.values(bundle.cores).every(bundleCoreCompatible)) {
-    runtime(workspaceId, "working", "Uploading bundled Core…", { stage: "bundle-upload" });
+  if (bundle && !expectedCommit) {
     const platform = (await execute(client, "uname -s; uname -m")).trim().split(/\s+/);
     const target = coreTarget(platform[0]!, platform[1]!);
     const shippedCore = bundle.cores[target];
-    if (!shippedCore) throw new Error(`This local bundle does not include Core for ${target}. Use a bundle containing that server platform.`);
-    const core = repair ? { ...shippedCore, release: `${shippedCore.release}-repair-${id().replaceAll("-", "")}` } : shippedCore;
-    const archive = await verifiedCoreArchive(process.resourcesPath, core);
-    const upload = `.hatopad-upload-${id()}`;
-    await execute(client, `umask 077; mkdir "$HOME/${upload}"`);
-    try {
-      const home = (await execute(client, "printf '%s' \"$HOME\"" )).trim();
-      await new Promise<void>((resolve, reject) => client.sftp((error, sftp) => error ? reject(error) : sftp.fastPut(archive, path.posix.join(home, upload, "core.tar.gz"), failure => { sftp.end(); failure ? reject(failure) : resolve(); })));
-      const result = parseProvisionedRelease(await execute(client, `bash -lc ${shell(installBundleCommand(core, upload))}`));
-      if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
-      return result;
-    } finally { await execute(client, `rm -rf "$HOME/${upload}"`).catch(() => undefined); }
+    if (shippedCore && bundleCoreCompatible(shippedCore)) {
+      runtime(workspaceId, "working", "Uploading bundled Core…", { stage: "bundle-upload" });
+      const core = repair ? { ...shippedCore, release: `${shippedCore.release}-repair-${id().replaceAll("-", "")}` } : shippedCore;
+      const archive = await verifiedCoreArchive(process.resourcesPath, core);
+      const upload = `.hatopad-upload-${id()}`;
+      await execute(client, `umask 077; mkdir "$HOME/${upload}"`);
+      try {
+        const home = (await execute(client, "printf '%s' \"$HOME\"" )).trim();
+        await new Promise<void>((resolve, reject) => client.sftp((error, sftp) => error ? reject(error) : sftp.fastPut(archive, path.posix.join(home, upload, "core.tar.gz"), failure => { sftp.end(); failure ? reject(failure) : resolve(); })));
+        const result = parseProvisionedRelease(await execute(client, `bash -lc ${shell(installBundleCommand(core, upload))}`));
+        if (cancelledProvisioning.has(workspaceId)) throw new Error("Provisioning cancelled");
+        return result;
+      } finally { await execute(client, `rm -rf "$HOME/${upload}"`).catch(() => undefined); }
+    }
   }
   const preferredRelease = (await execute(client, `bash -lc ${shell(`${workspaceReleaseDirectory(workspaceId)}; printf '%s' "$release"`)}`)).trim();
-  const command = provisionCommand(settings, remoteNodeEnvironment, repair, preferredRelease || undefined, expectedCommit ? { expectedCommit } : undefined);
+  const command = provisionCommand(settings, installedNodeEnvironment(preferredRelease || undefined), repair, preferredRelease || undefined, expectedCommit ? { expectedCommit } : undefined);
   const logs: string[] = [];
   const output = await execute(client, `bash -lc ${shell(command)}`, (line) => {
     logs.push(line);
@@ -318,11 +320,11 @@ async function provision(workspaceId: string, client: Client, settings: Reposito
   return parseProvisionedRelease(output);
 }
 async function startServer(workspaceId: string, repair = false, expectedCommit?: string, repository?: RepositorySettings): Promise<{ remotePort: number }> {
-  const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", bundle ? "Deploying bundled Core…" : "Updating and building remote server...");
+  const { workspace, connection } = await withWorkspace(workspaceId); runtime(workspaceId, "working", expectedCommit ? "Updating compatible Core…" : bundle ? "Deploying bundled Core…" : "Updating and building remote server...");
   const client = await connect(connection); provisioningClients.set(workspaceId, client); cancelledProvisioning.delete(workspaceId);
   try {
     const build = await provision(workspaceId, client, repository ?? (await readState()).repository, repair, expectedCommit);
-    const environment = build.release.includes("-bundle-") ? bundledEnvironment(build.release) : remoteNodeEnvironment;
+    const environment = installedNodeEnvironment(build.release);
     runtime(workspaceId, "working", "Preparing workspace directory and Git repository…", { stage: "workspace" });
     await execute(client, workspaceValidationCommand(workspace.directory));
     const portScript = `const net=require("net");const preferred=${workspace.remotePort};let fallback=false;const open=port=>{const server=net.createServer();server.unref();server.once("error",error=>{if(error.code==="EADDRINUSE"&&!fallback){fallback=true;open(0);return}throw error});server.listen(port,"127.0.0.1",()=>{console.log(server.address().port);server.close()})};open(preferred)`;
@@ -348,7 +350,7 @@ async function startServer(workspaceId: string, repair = false, expectedCommit?:
     }, (line) => {
       activationLogs.push(line);
       runtime(workspaceId, "working", "Starting Core and waiting for protocol health…", { stage: "activation", logs: boundedProvisioningLog(activationLogs) });
-    }); runtime(workspaceId, "server", `Server listening remotely on ${workspace.remotePort}${bundle ? ` (bundled ${bundle.version})` : build.rebuilt ? " (rebuilt)" : " (build reused)"}`);
+    }); runtime(workspaceId, "server", `Server listening remotely on ${workspace.remotePort}${build.release.includes("-bundle-") ? ` (bundled ${bundle?.version})` : build.rebuilt ? " (rebuilt)" : " (build reused)"}`);
     return { remotePort: workspace.remotePort };
   } catch (error) {
     const failure = classifyProvisioningFailure(cancelledProvisioning.has(workspaceId) ? new Error("Provisioning cancelled") : error);
@@ -600,13 +602,8 @@ async function managedCloudCore(origin: string, coreId: string): Promise<Managed
     for (const workspace of workspaces.filter(item => item.connectionId === connection.id)) {
       try {
         const pairing = JSON.parse(await readFile(path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`), "utf8"));
-        if (!matches(pairing)) continue;
-        const coreMain = localServers.get(workspace.id)?.spawnargs[1];
-        if (!coreMain) continue;
-        const root = path.resolve(path.dirname(coreMain), "../../..");
-        const candidates = [path.basename(root), path.basename(path.dirname(root))];
-        const release = candidates.find(value => /^[a-f0-9]{40}-node[0-9]+(?:-bundle-[a-zA-Z0-9-]+)?$/.test(value));
-        return { workspaceId: workspace.id, target: coreTarget(process.platform, process.arch), ...(release ? { release } : {}) };
+        const selected = matchLocalCloudCore(pairing, origin, coreId, workspace.id, coreTarget(process.platform, process.arch), localServers.get(workspace.id)?.spawnargs[1]);
+        if (selected) return selected;
       } catch { /* This local workspace has no matching accessible pairing. */ }
     }
   }
@@ -648,18 +645,18 @@ const cloudCoreUpdates = new CloudCoreUpdates({ bundle, resolve: managedCloudCor
     check: async (core, origin) => {
       const { connection } = await workspaceAndStoredConnection(core.workspaceId);
       const settings = await cloudRepository(origin);
-      if (connection.kind === "local") return localCoreReleases.check(settings);
+      if (connection.kind === "local") return localCoreReleases.check(settings).catch(error => { throw new CoreUpdateCheckError(coreUpdateCheckReason(error, settings.branch)); });
       const ssh = await connect((await withWorkspace(core.workspaceId)).connection);
       try {
-        const output = await execute(ssh, `bash -lc ${shell(provisionCommand(settings, remoteNodeEnvironment, false, undefined, { checkOnly: true }))}`);
+        const output = await execute(ssh, `bash -lc ${shell(provisionCommand(settings, installedNodeEnvironment(core.release), false, undefined, { checkOnly: true }))}`);
         const match = /^HATOPAD_UPDATE:(core-protocol-\d+-v\d+\.\d+\.\d+):([a-f0-9]{40})$/m.exec(output);
         if (!match) throw Error("No compatible Core release could be verified.");
         return { tag: match[1]!, commit: match[2]!, branch: settings.branch };
-      } finally { ssh.end(); }
+      } catch (error) { throw new CoreUpdateCheckError(coreUpdateCheckReason(error, settings.branch)); } finally { ssh.end(); }
     },
     deploy: async (workspaceId, commit, origin) => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId, commit, await cloudRepository(origin)) : startServer(workspaceId, false, commit, await cloudRepository(origin))
   },
-  deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId) : startServer(workspaceId),
+  deploy: async workspaceId => (await workspaceAndStoredConnection(workspaceId)).connection.kind === "local" ? startLocalServer(workspaceId, undefined, undefined, true) : startServer(workspaceId),
   run: (workspaceId, action) => workspaceOperations.run(workspaceId, "cloud-core-update", action)
 });
 async function authorizedCloudCore(coreId: string): Promise<string> {

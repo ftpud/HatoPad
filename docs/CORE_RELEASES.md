@@ -88,3 +88,34 @@ Temporary-Core tests verify authenticated maintenance, denied workspace operatio
 repeated incompatible handshakes, and disconnects immediately after successful
 handshakes without terminating Core. These do not diagnose a particular running
 Core crash: its launch location and actual error/exit information are still needed.
+
+## Gateway update discovery failures
+
+Gateway shows the update check's blocking reason below the server heading, with
+an independent retry action. A stalled workspace discovery does not disable that
+retry or the available update action. Missing management access is distinguished
+from a compatible release already being selected. SSH command errors during Git
+lookup become bounded, locally classified status messages instead of rejecting
+`cloudCoreUpdateInfo`; raw remote output is not returned by this check. A compatible
+bundle can be offered when Git lookup fails. This fallback applies only to release
+selection: a failed or uncertain deployment is never replayed through another path.
+
+SSH Git checks and builds prefer the installed portable Core's Node/npm instead
+of requiring a system/NVM runtime. Source releases built with this toolchain copy
+its bin/lib runtime into their own immutable staging directory before promotion,
+so later cleanup of an older bundle cannot break the new release. Local management
+lookup uses the saved pairing even when the child process has crashed or stopped.
+An explicit compatible-bundle update replaces a saved local Git selection only
+after successful startup and health verification.
+
+Gateway also preflights cloud workspace compatibility on a separate maintenance
+connection before opening workspace services. Updates remain accessible through
+the saved management connection when this preflight fails. Gateway build,
+typecheck, 35 renderer tests and 118 Electron tests pass, including portable-runtime
+selection with unusable NVM, staged runtime copying, stopped local management,
+Git-to-bundle selection fallback, independent retry and denied workspace discovery
+for incompatible/older Cores. These fixtures do not identify a live SSH failure
+from its stack-frame location alone; its actual error message is still needed.
+Restart a source Gateway from the updated checkout with `npm run gateway` to load
+Electron main-process changes. No live Core update, bundle publication or deployment
+was performed as part of this change.

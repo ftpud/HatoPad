@@ -114,7 +114,10 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
     "process.exit(result.status ?? 1);",
   ].join("\n"), { mode: 0o755 });
 
-  const remoteEnvironment = `export PATH=${testShell(fakeBin)}:"$PATH"; export FAKE_NPM_LOG=${testShell(npmLog)}; export REAL_GIT=${testShell(realGit)}; export FAKE_REMOTE_URL=${testShell(fakeRemote)}; export FAKE_GIT_REPO=${testShell(repository)}`;
+  const portableToolchain=path.join(home,'portable-runtime');
+  await mkdir(path.join(portableToolchain,'bin'),{recursive:true});await mkdir(path.join(portableToolchain,'lib'),{recursive:true});
+  await writeFile(path.join(portableToolchain,'bin','runtime-marker'),'portable-node');await writeFile(path.join(portableToolchain,'lib','npm-marker'),'portable-npm');
+  const remoteEnvironment = `export HATOPAD_NODE_TOOLCHAIN=${testShell(portableToolchain)}; export PATH=${testShell(fakeBin)}:"$PATH"; export FAKE_NPM_LOG=${testShell(npmLog)}; export REAL_GIT=${testShell(realGit)}; export FAKE_REMOTE_URL=${testShell(fakeRemote)}; export FAKE_GIT_REPO=${testShell(repository)}`;
   const settings = { repository: fakeRemote, branch: "main", autoUpdate: false };
   const runProvision = (autoUpdate: boolean, repair = false, fail = false, preferredRelease?: string) => spawnSync("bash", ["-c", provisionCommand({ ...settings, autoUpdate }, remoteEnvironment, repair, preferredRelease)], {
     encoding: "utf8",
@@ -126,6 +129,8 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   const initialResult = first.stdout.match(new RegExp(`HATOPAD_RESULT:${commit}:1:([a-f0-9]+-node[0-9]+)`));
   assert.ok(initialResult, first.stdout);
   const initialRelease = path.join(home, ".hatopad-deploy", "releases", initialResult[1]!);
+  assert.equal(await readFile(path.join(initialRelease,"bin/runtime-marker"),"utf8"),"portable-node");
+  assert.equal(await readFile(path.join(initialRelease,"lib/npm-marker"),"utf8"),"portable-npm");
   await writeFile(path.join(initialRelease, "preserve-me"), "known-good\n");
   const npmLogBeforeReuse = await readFile(npmLog, "utf8");
   assert.deepEqual(npmLogBeforeReuse.trim().split("\n"), [
