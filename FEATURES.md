@@ -7,6 +7,9 @@ HatoPad is a remote-workspace IDE: an Electron/React/Monaco desktop client talki
 - **`@hatopad/core`** — workspace-scoped WebSocket backend; owns filesystem, terminal, Git, Java, HTTP, and AI operations for registered workspace roots and their task worktrees.
 - **`@hatopad/desktop`** — Electron/React/Monaco client; connects to Core via `--host`/`--port` and renders all IDE tool windows.
 - **`@hatopad/gateway`** — separate Electron app that manages SSH connections, starts/stops a remote Core, tunnels the port, and launches Desktop against it.
+- Gateway cloud servers also support saved local-to-Core TCP port forwards over
+  the authenticated Hub relay, with separate local/Core ports and Run/Stop/Delete.
+  See [cloud port tunnels](docs/CLOUD_PORT_TUNNELS.md).
 - **`@hatopad/protocol`** — shared TypeScript request/response/event/DTO types used by Core and Desktop.
 - **`@hatopad/acp`** — the "AI Capability Provider" contract (shared types, provider base class, and configuration helpers) implemented by AI provider adapters.
 - Multiple project roots can be registered with aliases on the Core host; editor and terminal tabs retain their root ownership across switches. See [Multi-root protocol boundary](docs/MULTI_ROOT.md).

@@ -1,3 +1,4 @@
+import { PortTunnels } from './port-tunnels.js';
 import { CoreUpdates } from './core-update.js';
 import { boundedNote } from "./bounded-note.js";
 import { workflowTemplateCatalog } from "./workflow-templates.js";
@@ -177,6 +178,7 @@ export async function createServer(host: string, port: number, workspacePath: st
   const liveness = websocketLivenessThresholds(options);
   const outbound = websocketOutboundLimits(options.outbound);
   const admissionLimit = requestAdmissionLimit(options.admission);
+  const portTunnelBudget = { active: 0 };
   await ensureSelfConfiguration();
   const rootWorkspace = workspacePath;
   const roots = await WorkspaceRootRegistry.open(rootWorkspace);
@@ -681,6 +683,8 @@ export async function createServer(host: string, port: number, workspacePath: st
       });
       return;
     }
+    const portTunnels = new PortTunnels((server.address() as { port: number }).port, portTunnelBudget);
+    socket.once("close", () => portTunnels.close());
     const admission = new RequestAdmission(admissionLimit, () => socket.readyState === WebSocket.OPEN);
     socket.once("close", () => admission.close());
     const disposeMonitor = monitorWebSocket(socket, liveness);
@@ -833,6 +837,12 @@ export async function createServer(host: string, port: number, workspacePath: st
           return;
         }
         if (!protocolAccepted) throw new CoreError("INVALID_REQUEST", "Complete protocol.handshake before sending requests");
+        if (parsed.type.startsWith("portTunnel.")) {
+          if (!protocolHandshake(updateCompatibility).compatible) throw new CoreError("INVALID_REQUEST", "Port tunnels require compatible Core and Gateway versions");
+          releaseAdmission = admission.acquire();
+          const result = await portTunnels.handle(parsed.type, parsed.payload);
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result })); return;
+        }
         if (maintenanceOnly) {
           if (!["core.update.check", "core.update.apply", "protocol.keepAlive"].includes(parsed.type)) throw new CoreError("INVALID_REQUEST", "Maintenance connections only allow Core updates");
           if (parsed.type !== "protocol.keepAlive") releaseAdmission = admission.acquire();
@@ -1040,6 +1050,7 @@ function optionalByteLimit(value: unknown): number | undefined {
 }
 
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
+  if (request.type.startsWith("portTunnel.")) return;
   if (request.type === "protocol.maintenance" || request.type === "core.update.check" || request.type === "core.update.apply" || request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);

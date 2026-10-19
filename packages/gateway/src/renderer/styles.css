@@ -189,3 +189,5 @@ button, input, select, a, [tabindex], .connection-actions { -webkit-app-region: 
 .autostart-control { align-self: start; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0; padding: 8px 12px; border: 1px solid var(--border, #3a3f47); border-radius: 8px; font-size: 12px; }
 .autostart-control label { display: inline-flex; align-items: center; gap: 6px; }
 .autostart-control span { color: var(--muted, #8b949e); min-width: 0; overflow-wrap: anywhere; }
+
+.cloud-port-tunnels { flex: none; max-height: none; margin-top: 16px; }

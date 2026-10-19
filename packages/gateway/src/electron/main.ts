@@ -1,3 +1,4 @@
+import { CloudPortTunnel } from './cloud-port-tunnel.js';
 import { matchLocalCloudCore } from "./managed-local-core.js";
 import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
@@ -37,7 +38,7 @@ import { JsonStateStore } from "./state-store.js";
 
 type Connection = { id: string; name: string; host: string; port: number; username: string; hostKeyFingerprint?: string } & ConnectionAuth;
 type Workspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
-type PortTunnel = { id: string; connectionId: string; port: number };
+type PortTunnel = { id: string; connectionId: string; port: number; remotePort?: number; cloudOrigin?: string };
 type StoredConnection = { id: string; kind?: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod?: AuthenticationMethod; password: string; privateKeyPath?: string; passphrase?: string; hostKeyFingerprint?: string };
 type State = { connections: StoredConnection[]; workspaces: Workspace[]; portTunnels: PortTunnel[]; repository: RepositorySettings; coreReleases?: Record<string, string> };
 type PublicState = { connections: { id: string; kind: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod: AuthenticationMethod; privateKeyPath?: string; hostKeyFingerprint?: string }[]; workspaces: Workspace[]; portTunnels: PortTunnel[] };
@@ -60,7 +61,9 @@ const rendererFilePath = path.join(directory, "../dist-renderer/index.html");
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const runtimes = new Map<string, Runtime>();
 const portTunnelRuntimes = new Map<string, TunnelRuntime>();
-const portTunnels = new Map<string, SshTunnel>();
+const portTunnels = new Map<string, SshTunnel | CloudPortTunnel>();
+const portTunnelAttempts = new Map<string, number>();
+let cloudTunnelEpoch = 0;
 const connectionRuntimes = new Map<string, ConnectionRuntimeSnapshot>();
 const provisioningClients = new Map<string, Client>();
 const cancelledProvisioning = new Set<string>();
@@ -414,12 +417,23 @@ async function startPortTunnel(tunnelId: string): Promise<void> {
   const tunnel = state.portTunnels.find((item) => item.id === tunnelId);
   if (!tunnel) throw new Error("Port tunnel was not found");
   if (!Number.isInteger(tunnel.port) || tunnel.port < 1 || tunnel.port > 65535) throw new Error("Tunnel port must be between 1 and 65535");
-  portTunnelRuntime(tunnelId, "working", "Connecting over SSH...");
+  portTunnelRuntime(tunnelId, "working", tunnel.cloudOrigin ? "Connecting through cloud..." : "Connecting over SSH...");
   stopPortTunnel(tunnelId, false);
+  const attempt = portTunnelAttempts.get(tunnelId); const epoch = cloudTunnelEpoch;
   try {
+    if (tunnel.cloudOrigin) {
+      const target = await cloudTarget(tunnel.connectionId.slice(6));
+      if (attempt !== portTunnelAttempts.get(tunnelId) || epoch !== cloudTunnelEpoch) throw Error("Port tunnel was stopped");
+      if (target.origin !== tunnel.cloudOrigin) throw Error("This tunnel belongs to a different cloud account URL.");
+      const managed = new CloudPortTunnel({ target, compatibility: protocolCompatibility, localPort: tunnel.port, remotePort: tunnel.remotePort ?? tunnel.port,
+        onStatus: (status, message) => portTunnelRuntime(tunnelId, status, message) });
+      portTunnels.set(tunnelId, managed);
+      try { await managed.start(); } catch (error) { if (portTunnels.get(tunnelId) === managed) portTunnels.delete(tunnelId); managed.stop(); throw error; }
+      return;
+    }
     const managed = new SshTunnel({
       localPort: tunnel.port,
-      remotePort: tunnel.port,
+      remotePort: tunnel.remotePort ?? tunnel.port,
       connect: async () => connect(await credentials(tunnel.connectionId)),
       onStatus: (status, localPort, error) => {
         if (status === "running") portTunnelRuntime(tunnelId, "running", `127.0.0.1:${localPort} → remote 127.0.0.1:${tunnel.port}`);
@@ -430,11 +444,12 @@ async function startPortTunnel(tunnelId: string): Promise<void> {
     portTunnels.set(tunnelId, managed);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    portTunnelRuntime(tunnelId, "error", message);
+    if (attempt === portTunnelAttempts.get(tunnelId)) portTunnelRuntime(tunnelId, "error", message);
     throw error;
   }
 }
 function stopPortTunnel(tunnelId: string, notify = true): void {
+  portTunnelAttempts.set(tunnelId, (portTunnelAttempts.get(tunnelId) ?? 0) + 1);
   const active = portTunnels.get(tunnelId);
   portTunnels.delete(tunnelId);
   active?.stop();
@@ -576,6 +591,10 @@ async function cloudTarget(coreId: string): Promise<CloudRelayTarget> {
   if (core.status !== "online") throw new Error("Cloud Core is offline. Refresh cloud status and try again.");
   return { origin: client.origin, coreId, cookie: async () => (await cloudSession().cookies.get({ url: client.origin })).map(cookie => `${cookie.name}=${cookie.value}`).join("; ") };
 }
+function stopCloudPortTunnels(): void {
+  cloudTunnelEpoch++;
+  for (const [id, tunnel] of portTunnels) if (tunnel instanceof CloudPortTunnel) stopPortTunnel(id);
+}
 async function cloudRoots(target: CloudRelayTarget) {
   const compatibility = readCompatibility(JSON.parse(await readFile(path.join(cloudDesktopRoot(), "compatibility.json"), "utf8")));
   if (!compatibility) throw new Error("Desktop compatibility metadata is unavailable. Rebuild or reinstall Gateway.");
@@ -586,6 +605,7 @@ async function saveCloudOrigin(input: string): Promise<string> {
   const origin = cloudOrigin(input.trim());
   const previous = (await cloudSettings.read()).origin;
   if (previous && previous !== origin) {
+    stopCloudPortTunnels();
     for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
     await cloudSession().clearStorageData();
   }
@@ -628,6 +648,7 @@ handleIpc("gateway:cloudConnect", async (_event, input: string) => {
   } finally { cloudConnecting = false; cloudLoginAbort = undefined; }
 });
 handleIpc("gateway:cloudDisconnect", async () => {
+  stopCloudPortTunnels();
   for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed() && window.webContents.session === cloudSession()) window.close();
   await cloudSession().clearStorageData();
 });
@@ -926,7 +947,18 @@ handleIpc("gateway:deleteWorkspace", async (_event, workspaceId: string) => {
   }
   return publicState(await readState());
 });
-handleIpc("gateway:savePortTunnel", async (_event, input: Omit<PortTunnel, "id"> & { id?: string }) => { if (!Number.isInteger(input.port) || input.port < 1 || input.port > 65535) throw new Error("Tunnel port must be between 1 and 65535"); if (input.id) stopPortTunnel(input.id, false); const { result } = await updateState((state) => { if (!state.connections.some((item) => item.id === input.connectionId)) throw new Error("SSH connection was not found"); const item = { ...input, id: input.id ?? id() } as PortTunnel; if (state.portTunnels.some((value) => value.id !== item.id && value.connectionId === item.connectionId && value.port === item.port)) throw new Error(`Port ${item.port} is already configured for this connection`); state.portTunnels = [...state.portTunnels.filter((value) => value.id !== item.id), item]; return publicState(state); }); return result; });
+handleIpc("gateway:savePortTunnel", async (_event, input: Omit<PortTunnel, "id"> & { id?: string }) => {
+  if (!input || typeof input.connectionId !== "string") throw Error("Invalid tunnel destination");
+  for (const port of [input.port, input.remotePort ?? input.port]) if (!Number.isInteger(port) || port < 1 || port > 65535) throw Error("Tunnel ports must be between 1 and 65535");
+  if (input.cloudOrigin) { const target = await cloudTarget(input.connectionId.slice(6)); if (!input.connectionId.startsWith("cloud:") || target.origin !== input.cloudOrigin) throw Error("Invalid cloud tunnel destination"); }
+  if (input.id) stopPortTunnel(input.id, false);
+  const { result } = await updateState(state => {
+    if (!input.cloudOrigin && !state.connections.some(item => item.id === input.connectionId && item.kind !== "local")) throw Error("SSH connection was not found");
+    const item: PortTunnel = { id: input.id ?? id(), connectionId: input.connectionId, port: input.port, remotePort: input.remotePort ?? input.port, ...(input.cloudOrigin ? { cloudOrigin: input.cloudOrigin } : {}) };
+    if (state.portTunnels.some(value => value.id !== item.id && value.connectionId === item.connectionId && value.cloudOrigin === item.cloudOrigin && value.port === item.port)) throw Error("This local port is already configured for this server");
+    state.portTunnels = [...state.portTunnels.filter(value => value.id !== item.id), item]; return publicState(state);
+  }); return result;
+});
 handleIpc("gateway:deletePortTunnel", async (_event, tunnelId: string) => { stopPortTunnel(tunnelId, false); const { result } = await updateState((state) => { state.portTunnels = state.portTunnels.filter((item) => item.id !== tunnelId); return publicState(state); }); portTunnelRuntimes.delete(tunnelId); return result; });
 handleIpc("gateway:startPortTunnel", (_event, tunnelId: string) => startPortTunnel(tunnelId));
 handleIpc("gateway:stopPortTunnel", (_event, tunnelId: string) => stopPortTunnel(tunnelId));

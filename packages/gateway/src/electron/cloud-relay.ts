@@ -22,7 +22,7 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
   });
 }
 
-function requestCloud(socket: WebSocket, type: string, payload: unknown, timeoutMs = 15_000): Promise<any> {
+export function requestCloud(socket: WebSocket, type: string, payload: unknown, timeoutMs = 15_000): Promise<any> {
   return new Promise<any>((resolve, reject) => {
     const id = randomBytes(16).toString("hex");
     const finish = (error?: Error, value?: unknown) => {

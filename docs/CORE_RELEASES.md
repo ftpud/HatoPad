@@ -68,7 +68,9 @@ and tagged by CI; `dev` remains the development channel.
 
 Core update discovery uses `protocol.maintenance`, independently of the workspace
 handshake. It authenticates the local token, reports workspace compatibility, and
-accepts only update checks, update application and keep-alives. It never initializes
+accepts update checks, update application and keep-alives. Cores advertising
+`ports.tunnel` also allow bounded loopback port forwarding when the client/Core
+protocol ranges overlap; see [cloud port tunnels](CLOUD_PORT_TUNNELS.md). It never initializes
 workspace services or permits normal workspace requests. The connector injects its
 local token for this operation just as it does for the normal handshake; Hub grants
 still apply, and only owners can check/apply installation updates. Tag selection

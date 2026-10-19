@@ -1,9 +1,33 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { App, ConnectionDialog, DiagnosticsCopyButton, GatewayErrorNotice, RepositoryDialog, WorkspaceDialog, ProvisioningLog, gatewayErrorMessage } from "./App";
+import { App, CloudPortTunnels, ConnectionDialog, DiagnosticsCopyButton, GatewayErrorNotice, RepositoryDialog, WorkspaceDialog, ProvisioningLog, gatewayErrorMessage } from "./App";
 
 beforeEach(() => { Object.defineProperty(window, "alert", { configurable: true, writable: true, value: vi.fn() }); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+describe('cloud port tunneling', () => {
+  const core = { id: 'core', name: 'Cloud', status: 'online', access: 'owner' as const };
+  it('saves distinct local/Core ports and offers run, stop and delete for saved tunnels', async () => {
+    const save = vi.fn(async () => undefined), action = vi.fn(async () => undefined), remove = vi.fn(async () => undefined);
+    const item = { id: 't', connectionId: 'cloud:core', cloudOrigin: 'https://hub.example', port: 8080, remotePort: 3000 };
+    render(<CloudPortTunnels core={core} tunnels={[item]} runtimes={{}} onSave={save} onAction={action} onRemove={remove} onFailure={vi.fn()} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Local tunnel port' }), { target: { value: '9000' } });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Core tunnel port' }), { target: { value: '5000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add port' }));
+    await waitFor(() => expect(save).toHaveBeenCalledWith(9000, 5000));
+    expect(screen.getByText('localhost:8080')).toBeTruthy(); expect(screen.getByText('→ Core localhost:3000')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Run' })); expect(action).toHaveBeenCalledWith(item, 'startPortTunnel');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete cloud tunnel on port 8080' })); expect(remove).toHaveBeenCalledWith(item);
+  });
+  it('defaults to the same Core port and permits stopping a connecting tunnel', async () => {
+    const save = vi.fn(async () => undefined), action = vi.fn(async () => undefined);
+    const item = { id: 't', connectionId: 'cloud:core', port: 3000 };
+    render(<CloudPortTunnels core={core} tunnels={[item]} runtimes={{ t: { status: 'working', message: 'Connecting' } }} onSave={save} onAction={action} onRemove={vi.fn()} onFailure={vi.fn()} />);
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Local tunnel port' }), { target: { value: '3000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add port' })); await waitFor(() => expect(save).toHaveBeenCalledWith(3000, 3000));
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' })); expect(action).toHaveBeenCalledWith(item, 'stopPortTunnel');
+  });
+});
 
 describe("Gateway dialogs", () => {
   it("discovers remote workspaces on open and fills the form from a selection", async () => {

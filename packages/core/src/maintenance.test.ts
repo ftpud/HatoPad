@@ -23,7 +23,7 @@ it('keeps incompatible authenticated maintenance sessions isolated from workspac
     const socket=await connect();expect(await request(socket,'protocol.maintenance',{token,compatibility:{minimum:20,maximum:20}})).toMatchObject({ok:true,result:{compatible:false,maintenance:true}});
     expect(await request(socket,'core.update.check',{branch:'dev'})).toMatchObject({ok:true,result:{available:false}});
     expect(check).toHaveBeenCalledWith({branch:'dev'},false,{minimum:20,maximum:20});
-    for(const type of ['workspace.roots','workspace.open','terminal.create','tasks.create']) expect(await request(socket,type,{})).toMatchObject({ok:false,error:{code:'INVALID_REQUEST'}});
+    for(const type of ['workspace.roots','workspace.open','terminal.create','tasks.create','portTunnel.open']) expect(await request(socket,type,{})).toMatchObject({ok:false,error:{code:'INVALID_REQUEST'}});
     expect(await request(socket,'protocol.keepAlive',{})).toMatchObject({ok:true});
     expect(initialize).not.toHaveBeenCalled();
     // Rejected normal handshakes and immediate disconnects must not kill Core.
