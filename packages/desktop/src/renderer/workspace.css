@@ -766,3 +766,11 @@ button.danger:hover:not(:disabled) { background: var(--danger-soft); border-colo
 .ai-composer-actions .skill-chat-picker { top: auto; bottom: calc(100% + 5px); left: 0; right: auto; }
 .action-model-fields { display: flex; flex-direction: column; gap: 6px; }
 .action-model-fields .ai-model-picker { flex: none; }
+
+.ai-authentication-interactive { display: grid; gap: 7px; min-width: 0; }
+.ai-authentication-paste { justify-self: start; display: flex; align-items: center; gap: 6px; }
+.ai-authentication-response { display: flex; align-items: end; gap: 8px; }
+.ai-authentication-response label { display: grid; gap: 4px; flex: 1; min-width: 0; font-size: 11px; }
+.ai-authentication-response input { width: 100%; min-width: 0; height: 30px; padding: 4px 7px; background: var(--surface-base); color: var(--text-primary); border: 1px solid var(--border-subtle); border-radius: 5px; }
+.ai-authentication-response button { flex: 0 0 auto; min-height: 30px; }
+.ai-authentication-interactive > small { color: var(--text-muted); font-size: 11px; }

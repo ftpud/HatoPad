@@ -45,6 +45,15 @@ Checking an account (`ai.auth.get` with `discover: true`) initializes the agent 
 
 For agent methods, Core calls ACP `authenticate`. URL elicitations appear as explicit browser links with a confirmation button. For terminal methods, Core starts the agent command with its advertised authentication arguments and environment in a dedicated interactive terminal. A successful terminal exit is checked by opening a fresh ACP session. Terminal methods do not call `authenticate`.
 
+The sign-in terminal supports Ctrl/Cmd+V, native paste and a **Paste into terminal**
+button. Pasted terminal text has trailing line breaks removed; press Enter to
+submit it. A standard **Sign-in code or response** password field also accepts
+native paste; **Send response** sends it once with Enter to the active sign-in
+request and clears the field. Clipboard denial leaves this manual field usable.
+Input stays transient, is not saved as a draft, and is cleared when the sign-in
+view/request/provider/root changes. Clipboard reads finishing after unmount are
+discarded.
+
 Desktop uses `ai.auth.get`, `ai.auth.start` (`methodId`), and `ai.auth.input` (`requestId` plus terminal `data`, `cols`/`rows`, or `action: "accept" | "cancel"`). Each active request belongs to one workspace and provider. Cancellation, shutdown, and a ten-minute timeout terminate the authentication processes. Discovery is shared across simultaneous requests. Browser links accept HTTP and HTTPS only and require a user click.
 
 Authentication output is bounded, held in memory, and cleared on success. It is not added to chat history or saved workspace configuration. Provider tools manage their own credential storage. Agents without advertised authentication methods continue to use their existing Core-host login or environment configuration.
