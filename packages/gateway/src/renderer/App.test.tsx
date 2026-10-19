@@ -225,7 +225,7 @@ describe("Gateway cloud", () => {
   function bridge(cloud?: GatewayCloudAccount) {
     window.gateway = {
       get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
-      cloudGet: vi.fn().mockResolvedValue(cloud), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudGet: vi.fn().mockResolvedValue(cloud), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
       onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
     } as unknown as Window["gateway"];
   }
@@ -241,6 +241,30 @@ describe("Gateway cloud", () => {
     await waitFor(() => expect(window.gateway.cloudOpen).toHaveBeenCalledWith("remote-core"));
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
+    expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
+  });
+  it("loads a locally saved cloud URL while signed out and saves changes without signing in", async () => {
+    bridge();
+    vi.mocked(window.gateway.get).mockResolvedValue({ state: { connections: [], workspaces: [], portTunnels: [] }, cloudOrigin: "https://saved.example", repository: { repository: "", branch: "", autoUpdate: false }, runtimes: {}, connectionRuntimes: {}, tunnelRuntimes: {} });
+    render(<App />);
+    await waitFor(() => expect(window.gateway.get).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Connect to cloud" }));
+    await waitFor(() => expect((screen.getByRole("textbox", { name: "Cloud URL" }) as HTMLInputElement).value).toBe("https://saved.example"));
+    fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://custom.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save URL" }));
+    await waitFor(() => expect(window.gateway.cloudSaveOrigin).toHaveBeenCalledWith("https://custom.example"));
+    expect(window.gateway.cloudConnect).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Connect to cloud" }));
+    expect((screen.getByRole("textbox", { name: "Cloud URL" }) as HTMLInputElement).value).toBe("https://custom.example");
+  });
+  it("allows changing the cloud domain from a signed-in account", async () => {
+    bridge(account); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cloud settings" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://other.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save URL" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
+    expect(window.gateway.cloudSaveOrigin).toHaveBeenCalledWith("https://other.example");
     expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
   });
   it("adds a running saved server to the signed-in cloud account", async () => {

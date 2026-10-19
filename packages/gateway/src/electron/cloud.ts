@@ -1,3 +1,5 @@
+import { JsonStateStore } from "./state-store.js";
+
 /** Hub HTTP contracts stay local to Gateway; Gateway does not import other workspaces. */
 export type CloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
 export type CloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: CloudCore[] };
@@ -45,4 +47,11 @@ const result=await pairDevice({hubOrigin:${JSON.stringify(origin)},deviceName:${
 showCode:code=>console.log('HATOPAD_PAIR_CODE:'+code),
 confirmLocally:async claimant=>claimant.email===${JSON.stringify(email)}});
 if(result.status!=='paired')throw Error('Cloud pairing failed: '+result.reason);`;
+}
+
+export function createCloudSettingsStore(file: string): JsonStateStore<{ origin?: string }> {
+  return new JsonStateStore(file, () => ({}), (text) => {
+    const value = JSON.parse(text);
+    return value.origin ? { origin: cloudOrigin(value.origin) } : {};
+  });
 }

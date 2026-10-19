@@ -1,4 +1,4 @@
-import { CloudClient, cloudOrigin, cloudPairingScript } from "./cloud.js";
+import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
@@ -507,8 +507,20 @@ async function launchClient(workspaceId: string, workspace: Workspace, connectio
   child.unref(); runtime(workspaceId, "client", `Client connected through local port ${localPort}${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
 }
 
-const cloudSettings = new JsonStateStore<{ origin?: string }>(path.join(app.getPath("userData"), "cloud.json"), () => ({}), (text) => {
-  const value = JSON.parse(text); return value.origin ? { origin: cloudOrigin(value.origin) } : {};
+const cloudSettings = createCloudSettingsStore(path.join(app.getPath("userData"), "cloud.json"));
+async function saveCloudOrigin(input: string): Promise<string> {
+  const origin = cloudOrigin(input.trim());
+  const previous = (await cloudSettings.read()).origin;
+  if (previous && previous !== origin) {
+    for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
+    await cloudSession().clearStorageData();
+  }
+  await cloudSettings.update((value) => { value.origin = origin; });
+  return origin;
+}
+handleIpc("gateway:cloudSaveOrigin", async (_event, input: string) => {
+  if (cloudConnecting) throw new Error("Close cloud sign-in before changing its URL.");
+  return saveCloudOrigin(input);
 });
 function cloudSession() { return session.fromPartition("persist:hatopad-cloud"); }
 async function cloudClient(): Promise<CloudClient> {
@@ -530,12 +542,10 @@ handleIpc("gateway:cloudGet", async () => {
 });
 handleIpc("gateway:cloudConnect", async (_event, input: string) => {
   if (cloudConnecting) throw new Error("Cloud sign-in is already open.");
-  const origin = cloudOrigin(input);
-  const previous = (await cloudSettings.read()).origin;
-  if (previous && previous !== origin) await cloudSession().clearStorageData();
-  const client = new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
   cloudConnecting = true;
   try {
+    const origin = await saveCloudOrigin(input);
+    const client = new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
     let account;
     try { account = await client.account(); } catch { /* Sign in through the Hub's OIDC flow. */ }
     if (!account) {
@@ -550,14 +560,12 @@ handleIpc("gateway:cloudConnect", async (_event, input: string) => {
         login.once("closed", () => { clearInterval(timer); clearTimeout(timeout); reject(new Error("Cloud sign-in was cancelled.")); });
       });
     }
-    await cloudSettings.update((value) => { value.origin = origin; });
     return account;
   } finally { cloudConnecting = false; }
 });
 handleIpc("gateway:cloudDisconnect", async () => {
   for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
   await cloudSession().clearStorageData();
-  await cloudSettings.update((value) => { delete value.origin; });
 });
 handleIpc("gateway:cloudOpen", async (_event, coreId: string) => {
   const client = await cloudClient();
@@ -605,7 +613,7 @@ handleIpc("gateway:cloudAddServer", async (_event, workspaceId: string) => works
 handleIpc("gateway:get", async () => {
   const state = await readState();
   setTimeout(() => { void refreshStatuses(); }, 0);
-  return { state: publicState(state), repository: state.repository, distribution: bundle ? "bundled" : "source", runtimes: Object.fromEntries(runtimes), tunnelRuntimes: Object.fromEntries(portTunnelRuntimes), connectionRuntimes: Object.fromEntries(connectionRuntimes) };
+  return { cloudOrigin: (await cloudSettings.read()).origin ?? "", state: publicState(state), repository: state.repository, distribution: bundle ? "bundled" : "source", runtimes: Object.fromEntries(runtimes), tunnelRuntimes: Object.fromEntries(portTunnelRuntimes), connectionRuntimes: Object.fromEntries(connectionRuntimes) };
 });
 handleIpc("gateway:saveRepository", async (_event, input: Partial<RepositorySettings>) => { if (bundle) throw new Error("Repository settings are unavailable in bundled releases"); if (!input.repository?.trim() || !input.branch?.trim()) throw new Error("Repository URL and branch are required"); const { result } = await updateState((state) => { state.repository = normalizeRepositorySettings(input); return state.repository; }); return result; });
 handleIpc("gateway:refreshStatuses", (_event, connectionId?: string) => refreshStatuses(connectionId));

@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
-import { CloudClient, cloudOrigin, cloudPairingScript } from "./cloud.js";
+import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 
 test("cloud origins require HTTPS except on loopback and reject credentials and paths", () => {
   assert.equal(cloudOrigin("https://hub.example/"), "https://hub.example");
@@ -57,5 +57,15 @@ test("pairing confirms only the selected account and keeps credentials on the Co
     await rm(file);
     await assert.rejects(promisify(execFile)(process.execPath, ["--input-type=module", "-e", script], { ...options, env: { ...options.env, CLAIMANT_EMAIL: "other@example.com" } }), /declined locally/);
     await assert.rejects(readFile(file));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test("cloud domain settings survive a new store instance without an account session", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "gateway-cloud-settings-"));
+  try {
+    const file = path.join(directory, "cloud.json");
+    const store = createCloudSettingsStore(file);
+    await store.update(settings => { settings.origin = cloudOrigin("https://custom.example/"); });
+    assert.deepEqual(await createCloudSettingsStore(file).read(), { origin: "https://custom.example" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

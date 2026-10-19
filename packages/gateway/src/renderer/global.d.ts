@@ -11,6 +11,7 @@ type GatewayRepositorySettings = { repository: string; branch: string; autoUpdat
 
 interface Window {
   gateway: {
+    cloudSaveOrigin(origin: string): Promise<string>;
     cloudGet(): Promise<GatewayCloudAccount | undefined>;
     cloudConnect(origin: string): Promise<GatewayCloudAccount>;
     cloudDisconnect(): Promise<void>;
@@ -18,7 +19,7 @@ interface Window {
     cloudAddServer(workspaceId: string): Promise<GatewayCloudAccount>;
     platform?: string;
     onFullscreenChange?(listener: (fullscreen: boolean) => void): () => void;
-    get(): Promise<{ state: GatewayState; distribution?: "source" | "bundled"; repository: GatewayRepositorySettings; runtimes: Record<string, GatewayRuntime>; tunnelRuntimes: Record<string, GatewayTunnelRuntime>; connectionRuntimes: Record<string, GatewayConnectionRuntime> }>;
+    get(): Promise<{ cloudOrigin?: string; state: GatewayState; distribution?: "source" | "bundled"; repository: GatewayRepositorySettings; runtimes: Record<string, GatewayRuntime>; tunnelRuntimes: Record<string, GatewayTunnelRuntime>; connectionRuntimes: Record<string, GatewayConnectionRuntime> }>;
     saveRepository(value: GatewayRepositorySettings): Promise<GatewayRepositorySettings>;
     refreshStatuses(connectionId?: string): Promise<void>;
     copyDiagnostics(connectionId: string): Promise<{ copiedAt: string }>;

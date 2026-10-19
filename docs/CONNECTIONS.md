@@ -122,7 +122,10 @@ Implementation and regression tests are colocated with `core/src/server.ts`,
 Choose **Connect to cloud** in Gateway, enter your Hub HTTPS origin, and sign in
 in the cloud window. Gateway keeps the account session in a separate persistent
 Electron session and lists the account's cloud servers alongside local/SSH
-connections. **Refresh cloud** updates the list; **Open cloud server** opens the
+connections. Use **Save URL** to persist the domain without signing in, or
+**Cloud settings** to change it while signed in. The URL remains saved locally
+after disconnecting or restarting Gateway, even if sign-in is cancelled.
+**Refresh cloud** updates the list; **Open cloud server** opens the
 Hub workspace interface. **Disconnect** clears Gateway's cloud session without
 removing saved connections or unpairing servers.
 
