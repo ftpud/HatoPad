@@ -1,3 +1,4 @@
+import { CloudClient, cloudOrigin, cloudPairingScript } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
 import { prepareLocalWorkspaceDirectory } from "./local-workspace.js";
@@ -5,7 +6,7 @@ import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 import { remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, type IpcMainInvokeEvent } from "electron";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
@@ -198,9 +199,11 @@ async function startLocalServer(workspaceId: string): Promise<{ remotePort: numb
   const logPath = path.join(logDirectory, `local-core-${workspace.id}.log`);
   await mkdir(logDirectory, { recursive: true });
   const log = await open(logPath, "a");
-  const child = spawn(node, [coreMain, "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
+  const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspaceId}.json`);
+  const paired = await access(pairingFile).then(() => true, () => false);
+  const child = spawn(node, [coreMain, ...(paired ? ["--hub-connect"] : []), "--host", "127.0.0.1", "--port", String(workspace.remotePort), "--workspace", workspace.directory], {
     cwd: workspace.directory,
-    env: { ...env, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
+    env: { ...env, HATOPAD_HUB_PAIRING_FILE: pairingFile, ...(bundleSmokeTest ? { HATOPAD_STATE_DIR: path.join(app.getPath("userData"), "core-state") } : {}), HATOPAD_SESSION_TOKEN: "", HATOPAD_SESSION_TOKEN_FILE: path.join(app.getPath("userData"), "core-tokens", `${workspaceId}.token`) },
     // macOS child processes such as Git and node-pty need valid inherited descriptors.
     // Keep stdin attached to /dev/null and retain Core output in a durable diagnostic log.
     stdio: ["ignore", log.fd, log.fd]
@@ -503,6 +506,101 @@ async function launchClient(workspaceId: string, workspace: Workspace, connectio
   }
   child.unref(); runtime(workspaceId, "client", `Client connected through local port ${localPort}${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
 }
+
+const cloudSettings = new JsonStateStore<{ origin?: string }>(path.join(app.getPath("userData"), "cloud.json"), () => ({}), (text) => {
+  const value = JSON.parse(text); return value.origin ? { origin: cloudOrigin(value.origin) } : {};
+});
+function cloudSession() { return session.fromPartition("persist:hatopad-cloud"); }
+async function cloudClient(): Promise<CloudClient> {
+  const { origin } = await cloudSettings.read();
+  if (!origin) throw new Error("Connect to cloud first.");
+  return new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
+}
+function cloudWindow(url: string): BrowserWindow {
+  const window = new BrowserWindow({ width: 1100, height: 800, title: "HatoPad Cloud", webPreferences: { partition: "persist:hatopad-cloud", nodeIntegration: false, contextIsolation: true, sandbox: true } });
+  window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
+  void window.loadURL(url).catch(() => undefined);
+  return window;
+}
+let cloudConnecting = false;
+handleIpc("gateway:cloudGet", async () => {
+  if (!(await cloudSettings.read()).origin) return undefined;
+  try { return await (await cloudClient()).account(); }
+  catch (error) { if (error instanceof Error && error.message.startsWith("Sign in")) return undefined; throw error; }
+});
+handleIpc("gateway:cloudConnect", async (_event, input: string) => {
+  if (cloudConnecting) throw new Error("Cloud sign-in is already open.");
+  const origin = cloudOrigin(input);
+  const previous = (await cloudSettings.read()).origin;
+  if (previous && previous !== origin) await cloudSession().clearStorageData();
+  const client = new CloudClient(origin, (input, init) => cloudSession().fetch(input instanceof URL ? input.href : input, init));
+  cloudConnecting = true;
+  try {
+    let account;
+    try { account = await client.account(); } catch { /* Sign in through the Hub's OIDC flow. */ }
+    if (!account) {
+      const login = cloudWindow(`${origin}/auth/login`);
+      account = await new Promise<Awaited<ReturnType<CloudClient["account"]>>>((resolve, reject) => {
+        let checking = false;
+        const timer = setInterval(() => {
+          if (checking) return; checking = true;
+          void client.account().then((value) => { clearInterval(timer); clearTimeout(timeout); resolve(value); login.close(); }).catch(() => undefined).finally(() => { checking = false; });
+        }, 2000);
+        const timeout = setTimeout(() => { clearInterval(timer); reject(new Error("Cloud sign-in timed out.")); login.close(); }, 300_000);
+        login.once("closed", () => { clearInterval(timer); clearTimeout(timeout); reject(new Error("Cloud sign-in was cancelled.")); });
+      });
+    }
+    await cloudSettings.update((value) => { value.origin = origin; });
+    return account;
+  } finally { cloudConnecting = false; }
+});
+handleIpc("gateway:cloudDisconnect", async () => {
+  for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
+  await cloudSession().clearStorageData();
+  await cloudSettings.update((value) => { delete value.origin; });
+});
+handleIpc("gateway:cloudOpen", async (_event, coreId: string) => {
+  const client = await cloudClient();
+  const account = await client.account();
+  if (!account.cores.some((core) => core.id === coreId)) throw new Error("Cloud server is unavailable.");
+  cloudWindow(`${client.origin}/#c=${encodeURIComponent(coreId)}`);
+});
+handleIpc("gateway:cloudAddServer", async (_event, workspaceId: string) => workspaceOperations.run(workspaceId, "add-to-cloud", async () => {
+  const cloud = await cloudClient();
+  const account = await cloud.account();
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  if (!/^[A-Za-z0-9_-]{1,200}$/.test(workspace.id)) throw new Error("Invalid workspace ID");
+  const script = cloudPairingScript(cloud.origin, account.user.email, workspace.name);
+  let claim: Promise<unknown> | undefined;
+  const onLine = (line: string) => {
+    const match = /^HATOPAD_PAIR_CODE:([A-Za-z0-9-]{4,32})$/.exec(line);
+    if (match && !claim) { claim = cloud.call("/api/pairings/claim", { code: match[1] }); void claim.catch(() => undefined); }
+  };
+  if (connection.kind === "local") {
+    const { coreMain, node, env } = await localArtifactPaths();
+    const pairingFile = path.join(app.getPath("userData"), "cloud-pairings", `${workspace.id}.json`);
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(node, ["--input-type=module", "-e", script], { cwd: path.resolve(path.dirname(coreMain), "../../.."), env: { ...env, HATOPAD_HUB_PAIRING_FILE: pairingFile }, stdio: ["ignore", "pipe", "pipe"] });
+      let pending = "";
+      child.stdout.on("data", (data) => { pending += data.toString(); const lines = pending.split(/\r?\n/); pending = lines.pop() ?? ""; lines.forEach(onLine); });
+      child.stderr.resume();
+      const timeout = setTimeout(() => { child.kill(); reject(new Error("Cloud pairing timed out.")); }, 180_000);
+      child.once("error", (error) => { clearTimeout(timeout); reject(error); });
+      child.once("exit", (code) => { clearTimeout(timeout); code === 0 ? resolve() : reject(new Error("Cloud pairing failed. The server may already be paired; check its cloud account.")); });
+    });
+    await claim;
+    await startLocalServer(workspaceId);
+  } else {
+    const ssh = await connect(await credentials(connection.id));
+    try {
+      const command = `set -eu; ${remoteNodeEnvironment}; ${workspaceReleaseDirectory(workspace.id)}; cd "$release_directory"; if [ -x bin/node ]; then export PATH="$PWD/bin:$PATH"; fi; export HATOPAD_HUB_PAIRING_FILE="$HOME/.hatopad/cloud-pairings/${workspace.id}.json"; node --input-type=module -e ${shell(script)}`;
+      await execute(ssh, `bash -lc ${shell(command)}`, onLine);
+      await claim;
+    } finally { ssh.end(); }
+    await startServer(workspaceId);
+  }
+  return cloud.account();
+}));
 
 handleIpc("gateway:get", async () => {
   const state = await readState();

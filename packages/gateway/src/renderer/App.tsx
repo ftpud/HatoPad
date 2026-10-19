@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Cable, Check, CircleStop, Copy, HardDrive, Laptop, Network, Pencil, Play, Plus, RefreshCw, Search, Server, Settings, SquareTerminal, Trash2, X } from "lucide-react";
 
 const emptyState: GatewayState = { connections: [], workspaces: [], portTunnels: [] };
@@ -22,6 +22,11 @@ export function GatewayErrorNotice({ message, onDismiss }: { message: string; on
 }
 
 export function App() {
+  const [cloud, setCloud] = useState<GatewayCloudAccount>();
+  const [cloudDialog, setCloudDialog] = useState(false);
+  const [cloudUrl, setCloudUrl] = useState("");
+  const [cloudBusy, setCloudBusy] = useState(false);
+  const [addingToCloud, setAddingToCloud] = useState<string>();
   const [state, setState] = useState(emptyState);
   const [selected, setSelected] = useState<string>();
   const [runtimes, setRuntimes] = useState<Record<string, GatewayRuntime>>({});
@@ -48,6 +53,7 @@ export function App() {
   useEffect(() => {
     if (!window.gateway) { showError("Gateway preload failed to initialize. Rebuild and restart the application."); return; }
     void window.gateway.get().then((result) => { setState(result.state); setRepository(result.repository); setDistribution(result.distribution ?? "source"); setRuntimes(result.runtimes); setTunnelRuntimes(result.tunnelRuntimes); setConnectionRuntimes(result.connectionRuntimes); setSelected(result.state.connections[0]?.id); }).catch(showError);
+    if (window.gateway.cloudGet) void window.gateway.cloudGet().then((value) => { setCloud(value); if (value) setCloudUrl(value.origin); }).catch(showError);
     const stopStatusListener = window.gateway.onStatus((id, status) => setRuntimes((current) => ({ ...current, [id]: status })));
     const stopTunnelListener = window.gateway.onTunnelStatus((id, status) => setTunnelRuntimes((current) => ({ ...current, [id]: status })));
     const stopConnectionListener = window.gateway.onConnectionStatus((id, status) => setConnectionRuntimes((current) => ({ ...current, [id]: status })));
@@ -56,6 +62,7 @@ export function App() {
     window.addEventListener("error", onWindowError); window.addEventListener("unhandledrejection", onUnhandledRejection);
     return () => { stopStatusListener(); stopTunnelListener(); stopConnectionListener(); window.removeEventListener("error", onWindowError); window.removeEventListener("unhandledrejection", onUnhandledRejection); };
   }, [showError]);
+  const cloudCore = cloud?.cores.find((item) => `cloud:${item.id}` === selected);
   const connection = state.connections.find((item) => item.id === selected);
   const workspaces = useMemo(() => state.workspaces.filter((item) => item.connectionId === selected), [state.workspaces, selected]);
   const connectionTunnels = useMemo(() => state.portTunnels.filter((item) => item.connectionId === selected), [state.portTunnels, selected]);
@@ -95,22 +102,46 @@ export function App() {
     catch (reason) { showError(reason); }
   };
 
+  const closeCloudDialog = useCallback(() => { if (!cloudBusy) setCloudDialog(false); }, [cloudBusy]);
+  const connectCloud = async (event: FormEvent) => {
+    event.preventDefault(); clearError(); setCloudBusy(true);
+    try { const account = await window.gateway.cloudConnect(cloudUrl); setCloud(account); setCloudDialog(false); }
+    catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const refreshCloud = async () => {
+    setCloudBusy(true); clearError();
+    try { setCloud(await window.gateway.cloudGet()); } catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const disconnectCloud = async () => {
+    setCloudBusy(true); clearError();
+    try { await window.gateway.cloudDisconnect(); setCloud(undefined); if (selected?.startsWith("cloud:")) setSelected(state.connections[0]?.id); }
+    catch (reason) { showError(reason); } finally { setCloudBusy(false); }
+  };
+  const addToCloud = async (workspace: GatewayWorkspace) => {
+    if (!confirm(`Add ${workspace.name} to ${cloud?.user.email}? This account will be able to access the server's workspaces and run commands. Core will restart to connect to cloud.`)) return;
+    clearError(); setAddingToCloud(workspace.id);
+    try { setCloud(await window.gateway.cloudAddServer(workspace.id)); }
+    catch (reason) { showError(reason); } finally { setAddingToCloud(undefined); }
+  };
+
   return <div className="gateway-shell">
     <div className="gateway-window-drag" aria-hidden="true" />
     <aside className="gateway-sidebar">
       <div className="gateway-brand"><img src={new URL("../../assets/app-icon.png", import.meta.url).href} alt="" /><div><strong>HatoPad Gateway</strong><span>Workspace launcher</span></div></div>
+      <div className="cloud-account">{cloud ? <><strong>{cloud.user.name}</strong><small>{cloud.user.email}</small><div><button disabled={cloudBusy} onClick={() => void refreshCloud()}>Refresh cloud</button><button disabled={cloudBusy || Boolean(addingToCloud)} onClick={() => void disconnectCloud()}>Disconnect</button></div></> : <button disabled={!bridgeReady} onClick={() => setCloudDialog(true)}>Connect to cloud</button>}</div>
       <header><div><Network size={17} /><strong>Connections</strong></div><button title="Add connection" aria-label="Add connection" onClick={() => { clearError(); setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" }); }}><Plus size={15} /></button></header>
       <div className="connection-list" aria-label="Connections">{state.connections.map((item) => { const current = connectionRuntimes[item.id] ?? { status: "unknown" }; const local = item.kind === "local"; return <button key={item.id} className={item.id === selected ? "selected" : ""} aria-pressed={item.id === selected} aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`} onClick={() => { clearError(); setSelected(item.id); }}><div className={`status-dot connection-${current.status}`} aria-hidden="true" />{local ? <HardDrive size={16} /> : <Server size={16} />}<span><strong>{item.name}</strong><small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small></span></button>; })}</div>
+      {cloud && <div className="connection-list cloud-connections" aria-label="Cloud servers"><strong className="cloud-list-label">Cloud servers</strong>{cloud.cores.map((item) => <button key={item.id} className={selected === `cloud:${item.id}` ? "selected" : ""} aria-pressed={selected === `cloud:${item.id}`} onClick={() => { clearError(); setSelected(`cloud:${item.id}`); }}><Server size={16} /><span><strong>{item.name}</strong><small>Cloud · {item.status}</small></span></button>)}{!cloud.cores.length && <small>No cloud servers configured.</small>}</div>}
       {distribution === "source" && <div className="gateway-sidebar-footer"><button title="Gateway repository settings" aria-label="Gateway repository settings" onClick={() => { if (repository) { clearError(); setRepositoryDialog(repository); } }}><Settings size={15} /><span>Repository settings</span></button></div>}
     </aside>
     <main className="gateway-main">
 
-      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage HatoPad workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
+      {!bridgeReady ? <div className="empty"><Network size={38} /><strong>Gateway failed to initialize</strong><span>Close the application and run <code>npm run gateway</code> again.</span></div> : cloudCore ? <section className="workspace-view"><header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">CLOUD SERVER</span><h1>{cloudCore.name}</h1><p>{cloudCore.status} · {cloudCore.access}</p></div><div className="workspace-header-actions"><button onClick={() => void window.gateway.cloudOpen(cloudCore.id).catch(showError)}>Open cloud server</button><button disabled={cloudBusy} onClick={() => void refreshCloud()}>Refresh cloud</button></div></header><div className="workspace-empty">Open this server to access its cloud workspaces.</div></section> : !connection ? <div className="empty"><Network size={38} /><strong>No connections</strong><span>Add this Mac or an SSH host to manage HatoPad workspaces.</span><button onClick={() => setConnectionDialog({ kind: "ssh", port: 22, authenticationMethod: "password", password: "", passphrase: "" })}><Plus size={15} /> Add connection</button></div> : <section className="workspace-view">
         <header className="gateway-page-header"><div className="gateway-page-heading"><span className="page-eyebrow">{connection.kind === "local" ? "ON THIS MAC" : "SSH CONNECTION"}</span><h1>{connection.name}</h1><p>{connection.kind === "local" ? "Projects stored on this Mac" : `${connection.username}@${connection.host}`}</p></div><div className="connection-actions">{connection && <><span className={`connection-health ${connectionRuntime!.status}`} title={connectionRuntime!.message} role="status" aria-live="polite">{connection.kind === "local" ? "Local" : connectionHealthName(connectionRuntime!.status)}{connection.kind !== "local" && connectionRuntime!.latencyMs !== undefined && ` · ${connectionRuntime!.latencyMs} ms`}</span><button title="Refresh connection and Core status" aria-label="Refresh connection and Core status" onClick={() => void refreshConnection(connection.id)}><RefreshCw size={14} /></button><DiagnosticsCopyButton onCopy={() => window.gateway.copyDiagnostics(connection.id)} onFailure={(reason) => showError(reason, "Could not copy diagnostics: ")} /><button title="Edit connection" aria-label={`Edit connection ${connection.name}`} onClick={() => { clearError(); setConnectionDialog({ ...connection, password: "", passphrase: "" }); }}><Pencil size={14} /></button><button title="Delete connection" aria-label={`Delete connection ${connection.name}`} onClick={() => void removeConnection(connection)}><Trash2 size={14} /></button></>}</div><div className="workspace-header-actions">{connection.kind !== "local" && <button className="secondary" onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(true); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Search size={15} /> Discover workspaces</button>}<button onClick={() => { clearError(); setDiscoverWorkspaceOnOpen(false); setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 }); }}><Plus size={15} /> Add workspace</button></div></header>
         <div className="gateway-content"><section className="workspace-collection"><header className="section-heading"><div><h2 id="workspace-list-heading">Workspaces</h2><span>{workspaces.length} {workspaces.length === 1 ? "project" : "projects"}</span></div></header>
         <div className="workspace-list" role="region" aria-label="Workspaces" tabIndex={0}>{workspaces.map((workspace) => { const current = runtimes[workspace.id] ?? { status: "idle", message: "Not running" }; const busy = current.status === "working"; const serverRunning = current.status === "server" || current.status === "client"; return <article key={workspace.id}>
           <div className="workspace-info"><div className={`status-dot ${current.status}`} aria-hidden="true" /><div><div className="workspace-title-row"><h2>{workspace.name}</h2><div className="workspace-management"><button className="icon-button" title="Edit workspace" aria-label={`Edit workspace ${workspace.name}`} onClick={() => setWorkspaceDialog(workspace)}><Pencil size={14} /></button><button className="icon-button" title="Delete workspace" aria-label={`Delete workspace ${workspace.name}`} onClick={() => void removeWorkspace(workspace)}><Trash2 size={14} /></button></div></div><code>{workspace.directory}</code><span>{connection.kind === "local" ? "Core" : "Remote"} port {workspace.remotePort}</span></div><div className="status" role="status" aria-live="polite"><strong>{statusName(current.status)}</strong><small>{current.message}</small></div></div>
-          <div className="workspace-buttons"><button title={serverRunning ? "Server is already running" : "Start server"} disabled={busy || serverRunning} onClick={() => void action(workspace, "startServer")}><Play size={14} /> Start server</button>{busy && <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}><CircleStop size={14} /> Cancel</button>}{current.status === "error" && current.retryable && <button onClick={() => void action(workspace, "startServer")}><RefreshCw size={14} /> Retry</button>}{current.status === "error" && current.repairable && <button onClick={() => void action(workspace, "repairServer")}><RefreshCw size={14} /> Repair</button>}<button disabled={busy} onClick={() => void action(workspace, "startClient")}><Laptop size={14} /> Start client</button><button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}><CircleStop size={14} /> Stop server</button><button className={`workspace-log-button${logWorkspace?.id === workspace.id ? " selected" : ""}`} aria-pressed={logWorkspace?.id === workspace.id} aria-label={`View provisioning log for ${workspace.name}`} onClick={() => setLogWorkspaceId(workspace.id)}><SquareTerminal size={14} /> Logs</button></div>
+          <div className="workspace-buttons"><button title={serverRunning ? "Server is already running" : "Start server"} disabled={busy || serverRunning} onClick={() => void action(workspace, "startServer")}><Play size={14} /> Start server</button>{busy && <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}><CircleStop size={14} /> Cancel</button>}{current.status === "error" && current.retryable && <button onClick={() => void action(workspace, "startServer")}><RefreshCw size={14} /> Retry</button>}{current.status === "error" && current.repairable && <button onClick={() => void action(workspace, "repairServer")}><RefreshCw size={14} /> Repair</button>}<button disabled={busy} onClick={() => void action(workspace, "startClient")}><Laptop size={14} /> Start client</button><button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}><CircleStop size={14} /> Stop server</button>{cloud && <button disabled={busy || Boolean(addingToCloud) || !serverRunning} title={!serverRunning ? "Start the server before adding it to cloud" : "Add this server to your cloud account"} onClick={() => void addToCloud(workspace)}>{addingToCloud === workspace.id ? "Adding to cloud…" : "Add to cloud"}</button>}<button className={`workspace-log-button${logWorkspace?.id === workspace.id ? " selected" : ""}`} aria-pressed={logWorkspace?.id === workspace.id} aria-label={`View provisioning log for ${workspace.name}`} onClick={() => setLogWorkspaceId(workspace.id)}><SquareTerminal size={14} /> Logs</button></div>
         </article>; })}{workspaces.length === 0 && <div className="workspace-empty">No workspaces configured for this connection.</div>}</div>
         </section><div className="gateway-inspector"><ProvisioningLog workspace={logWorkspace} workspaces={workspaces} runtime={logWorkspace ? runtimes[logWorkspace.id] : undefined} onSelect={setLogWorkspaceId} />
         {connection.kind !== "local" && <section className="tunnel-section">
@@ -120,6 +151,7 @@ export function App() {
         </div></div>
       </section>}
     </main>
+    {bridgeReady && cloudDialog && <CloudDialog onClose={closeCloudDialog}><form className="dialog" onSubmit={(event) => void connectCloud(event)}><header><strong>Connect to cloud</strong><button type="button" disabled={cloudBusy} onClick={() => setCloudDialog(false)} aria-label="Close cloud connection"><X size={15} /></button></header><p className="dialog-help">Sign in to bring your cloud servers into Gateway.</p><label>Cloud URL<input type="url" required placeholder="https://your-hub.example" value={cloudUrl} disabled={cloudBusy} onChange={(event) => setCloudUrl(event.target.value)} /></label><footer><button type="button" disabled={cloudBusy} onClick={() => setCloudDialog(false)}>Cancel</button><button className="primary" disabled={cloudBusy}>{cloudBusy ? "Waiting for sign-in…" : "Sign in"}</button></footer></form></CloudDialog>}
     {bridgeReady && connectionDialog && <ConnectionDialog allowLocal={distribution !== "bundled" || window.gateway.platform !== "win32"} value={connectionDialog} onClose={() => setConnectionDialog(undefined)} onFailure={showError} onSave={async (value) => { const next = await window.gateway.saveConnection(value); setState(next); setSelected(value.id ?? next.connections.at(-1)?.id); setConnectionDialog(undefined); clearError(); }} />}
     {bridgeReady && workspaceDialog && connection && <WorkspaceDialog value={workspaceDialog} connectionId={connection.id} local={connection.kind === "local"} discoverOnOpen={discoverWorkspaceOnOpen} configuredDirectories={workspaces.map((item) => item.directory)} onClose={() => setWorkspaceDialog(undefined)} onFailure={showError} onSave={async (value) => { setState(await window.gateway.saveWorkspace(value)); setWorkspaceDialog(undefined); clearError(); }} />}
     {bridgeReady && distribution === "source" && repositoryDialog && <RepositoryDialog value={repositoryDialog} onClose={() => setRepositoryDialog(undefined)} onFailure={showError} onSave={async (value) => { const saved = await window.gateway.saveRepository(value); setRepository(saved); setRepositoryDialog(undefined); clearError(); }} />}
@@ -148,6 +180,11 @@ export function DiagnosticsCopyButton({ onCopy, onFailure }: { onCopy(): Promise
   const [status, setStatus] = useState<"idle" | "copying" | "success" | "error">("idle");
   const copy = async () => { setStatus("copying"); try { await onCopy(); setStatus("success"); } catch (reason) { setStatus("error"); onFailure(reason); } };
   return <><button title="Copy connection diagnostics" aria-label="Copy connection diagnostics" disabled={status === "copying"} onClick={() => void copy()}>{status === "success" ? <Check size={14} /> : <Copy size={14} />}</button><span className="visually-hidden" role="status" aria-live="polite">{status === "copying" ? "Copying connection diagnostics" : status === "success" ? "Connection diagnostics copied" : status === "error" ? "Connection diagnostics could not be copied" : ""}</span></>;
+}
+
+function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): void }) {
+  useDialogKeyboard(onClose, "Connect to cloud");
+  return <div className="dialog-layer">{children}</div>;
 }
 
 function useDialogKeyboard(onClose: () => void, accessibleName: string) {

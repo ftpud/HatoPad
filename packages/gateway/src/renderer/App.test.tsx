@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App, ConnectionDialog, DiagnosticsCopyButton, GatewayErrorNotice, RepositoryDialog, WorkspaceDialog, ProvisioningLog, gatewayErrorMessage } from "./App";
 
 beforeEach(() => { Object.defineProperty(window, "alert", { configurable: true, writable: true, value: vi.fn() }); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Gateway dialogs", () => {
   it("discovers remote workspaces on open and fills the form from a selection", async () => {
@@ -217,5 +217,41 @@ describe("Early Access Gateway", () => {
     render(<ConnectionDialog allowLocal={false} value={{ kind: "ssh", password: "", passphrase: "" }} onClose={vi.fn()} onSave={vi.fn()} />);
     expect(screen.queryByRole("option", { name: "This Mac" })).toBeNull();
     expect(screen.getByRole("option", { name: "SSH host" })).toBeTruthy();
+  });
+});
+
+describe("Gateway cloud", () => {
+  const account = { origin: "https://hub.example", user: { id: "u", name: "Cloud User", email: "owner@example.com" }, cores: [{ id: "remote-core", name: "Cloud machine", status: "online", access: "owner" as const }] };
+  function bridge(cloud?: GatewayCloudAccount) {
+    window.gateway = {
+      get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
+      cloudGet: vi.fn().mockResolvedValue(cloud), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
+    } as unknown as Window["gateway"];
+  }
+  it("connects to cloud, adds cloud servers beside saved connections, and opens one", async () => {
+    bridge(); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect to cloud" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://hub.example" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    expect(window.gateway.cloudConnect).toHaveBeenCalledWith("https://hub.example");
+    expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Open cloud server" }));
+    await waitFor(() => expect(window.gateway.cloudOpen).toHaveBeenCalledWith("remote-core"));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
+    expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
+  });
+  it("adds a running saved server to the signed-in cloud account", async () => {
+    bridge(account); vi.stubGlobal("confirm", vi.fn().mockReturnValue(true)); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add to cloud" }));
+    await waitFor(() => expect(window.gateway.cloudAddServer).toHaveBeenCalledWith("w"));
+    expect(window.confirm).toHaveBeenCalledWith(expect.stringContaining("owner@example.com"));
+  });
+  it("keeps a server local when adding to cloud is cancelled", async () => {
+    bridge(account); vi.stubGlobal("confirm", vi.fn().mockReturnValue(false)); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add to cloud" }));
+    expect(window.gateway.cloudAddServer).not.toHaveBeenCalled();
   });
 });

@@ -116,3 +116,21 @@ Implementation and regression tests are colocated with `core/src/server.ts`,
 `request-admission.ts`, `websocket-output.ts`, `filesystem.ts`, and renderer
 `client.ts`, `connection-recovery.ts`, `workspace-recovery.ts`, and
 `invalidation-refreshes.ts`.
+
+## Gateway cloud accounts
+
+Choose **Connect to cloud** in Gateway, enter your Hub HTTPS origin, and sign in
+in the cloud window. Gateway keeps the account session in a separate persistent
+Electron session and lists the account's cloud servers alongside local/SSH
+connections. **Refresh cloud** updates the list; **Open cloud server** opens the
+Hub workspace interface. **Disconnect** clears Gateway's cloud session without
+removing saved connections or unpairing servers.
+
+To register an existing server, start its workspace server, then choose **Add to
+cloud**. Gateway claims the device pairing code as the signed-in account and
+confirms that same account on the Core host. The private connector credential
+stays on that host, in a separate pairing file per Gateway workspace. Core
+restarts after pairing and reconnects to Hub on subsequent Gateway starts. This
+restarts that workspace's Core connection. Already paired servers must have their
+pairing managed before being registered again; Gateway does not overwrite an
+existing pairing.

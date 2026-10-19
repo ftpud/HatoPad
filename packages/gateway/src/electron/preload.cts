@@ -10,6 +10,11 @@ contextBridge.exposeInMainWorld("gateway", {
     void ipcRenderer.invoke("gateway:window-fullscreen").then((fullscreen: unknown) => { if (!disposed && !receivedEvent && typeof fullscreen === "boolean") listener(fullscreen); }).catch(() => undefined);
     return () => { disposed = true; ipcRenderer.removeListener("gateway:fullscreen-changed", handler); };
   },
+  cloudGet: () => ipcRenderer.invoke("gateway:cloudGet"),
+  cloudConnect: (origin: string) => ipcRenderer.invoke("gateway:cloudConnect", origin),
+  cloudDisconnect: () => ipcRenderer.invoke("gateway:cloudDisconnect"),
+  cloudOpen: (id: string) => ipcRenderer.invoke("gateway:cloudOpen", id),
+  cloudAddServer: (id: string) => ipcRenderer.invoke("gateway:cloudAddServer", id),
   get: () => ipcRenderer.invoke("gateway:get"),
   saveRepository: (value: unknown) => ipcRenderer.invoke("gateway:saveRepository", value),
   refreshStatuses: (connectionId?: string) => ipcRenderer.invoke("gateway:refreshStatuses", connectionId),

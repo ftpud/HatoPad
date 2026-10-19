@@ -74,7 +74,7 @@ previous=$(cat "$selection" 2>/dev/null || true)
 if [ -n "$previous" ] && ! [[ "$previous" =~ ^[0-9a-f]{40,64}-node[0-9]+(-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$ ]]; then echo 'Stored release reference is invalid; inspect the release sidecar before retrying' >&2; exit 1; fi
 ${serverStopFunctions(workspaceId, workspace)}
 start_server() {
-  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" nohup node packages/core/dist/index.js --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
+  (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_HUB_PAIRING_FILE="$HOME/.hatopad/cloud-pairings/${workspaceId}.json"; export HATOPAD_HUB_PAIRING_FILE; hub_flag=""; if [ -f "$HATOPAD_HUB_PAIRING_FILE" ]; then hub_flag="--hub-connect"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" nohup node packages/core/dist/index.js $hub_flag --host 127.0.0.1 --port ${port} --gateway-workspace-id ${workspaceId} --workspace ${shell(workspace)} > "$logfile" 2>&1 < /dev/null & echo $! > "$pidfile")
 }
 health() { (cd "$1"; if [ -x "$PWD/bin/node" ]; then export PATH="$PWD/bin:$PATH"; fi; HATOPAD_SESSION_TOKEN="$SESSION_TOKEN" node --input-type=commonjs -e ${probe}); }
 candidate="$base/releases/${release}"
