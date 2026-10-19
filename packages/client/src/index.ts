@@ -34,6 +34,7 @@ export class CoreClient {
   get protocolCompatible(): boolean { return this.compatible; }
   private invalidMessageDiagnostics = 0;
   private cancelConnect?: (error: Error) => void;
+  private negotiationSocket?: WebSocket;
 
   private heartbeatTimer?: ReturnType<typeof setTimeout>;
   private readonly heartbeatIntervalMs: number;
@@ -118,7 +119,10 @@ export class CoreClient {
           this.onConnectionProgress?.(`Checking ${options.clientLabel ?? "client"} and Core compatibility…`);
           const token = await options.getToken?.();
           ensureCurrent();
-          const result = await this.request(options.maintenance ? "protocol.maintenance" : "protocol.handshake", { compatibility: protocolCompatibility, clientVersion: "0.1.0", ...(token ? { token } : {}), ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}) });
+          this.negotiationSocket = socket;
+          const result = await this.request(options.maintenance ? "protocol.maintenance" : "protocol.handshake", { compatibility: protocolCompatibility, clientVersion: "0.1.0", ...(token ? { token } : {}), ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}) }).finally(() => {
+            if (this.negotiationSocket === socket) this.negotiationSocket = undefined;
+          });
           this.capabilities = new Set(result.capabilities ?? []);
           this.compatible = result.compatible === true;
           ensureCurrent();
@@ -187,6 +191,7 @@ export class CoreClient {
 
   disconnect(): void {
     this.stopHeartbeat();
+    this.negotiationSocket = undefined;
     const socket = this.socket;
     this.socket = undefined;
     this.cancelConnect?.(new Error("Connection replaced or closed"));
@@ -221,7 +226,25 @@ export class CoreClient {
     }
     const response = message as Response;
     const pending = this.pending.get(response.id);
-    if (!pending) return;
+    if (!pending) {
+      // Older Cores reject unsupported negotiation requests before recovering
+      // their id. Correlate only the sole request on the negotiating socket;
+      // never guess which ordinary request failed or replay it.
+      if (response.id === "unknown" && !response.ok && response.error.code === "INVALID_REQUEST" && this.negotiationSocket === this.socket) {
+        const candidates = [...this.pending].filter(([, item]) => item.socket === this.negotiationSocket);
+        const candidate = candidates.length === 1 ? candidates[0] : undefined;
+        if (candidate && ["protocol.handshake", "protocol.maintenance"].includes(candidate[1].type)) {
+          const [id, item] = candidate;
+          clearTimeout(item.timer);
+          this.pending.delete(id);
+          const message = item.type === "protocol.maintenance"
+            ? "Core needs a one-time external update to enable maintenance updates"
+            : `${response.error.code}: ${response.error.message} [${item.type}]`;
+          item.reject(Object.assign(new Error(message), { code: response.error.code, requestType: item.type }));
+        }
+      }
+      return;
+    }
     clearTimeout(pending.timer);
     this.pending.delete(response.id);
     if (response.ok && pending.rootId && response.rootId && response.rootId !== pending.rootId) pending.reject(new Error(`Stale cross-root response: expected ${pending.rootId}, received ${response.rootId}`));

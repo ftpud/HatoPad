@@ -115,3 +115,86 @@ it('uses an explicitly accepted incompatible maintenance connection without work
     expect(socket.sent.at(-1)).not.toHaveProperty('rootId');
   } finally {client.disconnect();}
 });
+
+const legacyInvalidRequest = {
+  id: 'unknown', ok: false,
+  error: { code: 'INVALID_REQUEST', message: 'Request must contain a valid id, type, and payload' },
+};
+
+it.each([false, true])('rejects an uncorrelated legacy negotiation immediately (maintenance=%s)', async (maintenance) => {
+  class LegacySocket extends Socket {
+    override send(text: string) {
+      this.sent.push(JSON.parse(text));
+      this.onmessage?.({ data: JSON.stringify(legacyInvalidRequest) });
+    }
+  }
+  vi.useFakeTimers();
+  vi.stubGlobal('WebSocket', LegacySocket);
+  const client = new CoreClient();
+  try {
+    const rejected = vi.fn();
+    const connecting = client.connect({ url: 'ws://legacy-core', maintenance });
+    void connecting.catch(rejected);
+    const socket = Socket.instances.at(-1)!;
+    socket.open();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(rejected).toHaveBeenCalledOnce();
+    expect(rejected.mock.calls[0]![0]).toMatchObject({
+      code: 'INVALID_REQUEST', requestType: maintenance ? 'protocol.maintenance' : 'protocol.handshake',
+    });
+    expect((rejected.mock.calls[0]![0] as Error).message).toContain(maintenance ? 'one-time external update' : 'INVALID_REQUEST');
+    expect(socket.sent.map(item => item.type)).toEqual([maintenance ? 'protocol.maintenance' : 'protocol.handshake']);
+    expect(client.isConnected()).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  } finally { client.disconnect(); vi.useRealTimers(); }
+});
+
+it('does not attribute an uncorrelated error when negotiation has multiple pending requests', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const client = new CoreClient();
+  const connecting = client.connect({ url: 'ws://core' });
+  const connectionFailed = vi.fn();
+  void connecting.catch(connectionFailed);
+  const socket = Socket.instances.at(-1)!;
+  socket.send = text => { socket.sent.push(JSON.parse(text)); };
+  try {
+    socket.open();
+    await Promise.resolve();
+    const read = client.request('workspace.roots', {});
+    const readFailed = vi.fn();
+    void read.catch(readFailed);
+    socket.onmessage?.({ data: JSON.stringify(legacyInvalidRequest) });
+    await Promise.resolve();
+    expect(socket.sent.map(item => item.type)).toEqual(['protocol.handshake', 'workspace.roots']);
+    expect(connectionFailed).not.toHaveBeenCalled();
+    expect(readFailed).not.toHaveBeenCalled();
+    client.disconnect();
+    await expect(connecting).rejects.toThrow('Connection replaced or closed');
+    await expect(read).rejects.toThrow('Connection replaced or closed');
+  } finally { client.disconnect(); }
+});
+
+it('ignores an uncorrelated error for a normal mutation after negotiation without replaying it', async () => {
+  vi.stubGlobal('WebSocket', Socket);
+  const client = new CoreClient();
+  try {
+    const connecting = client.connect({ url: 'ws://core' });
+    const socket = Socket.instances.at(-1)!;
+    socket.open();
+    await connecting;
+    let sent: { id: string; type: string } | undefined;
+    const send = vi.fn((text: string) => { sent = JSON.parse(text); });
+    socket.send = send;
+    const changed = vi.fn(), failed = vi.fn();
+    const mutation = client.request('workspace.saveOptions', { options: { openFiles: [] } });
+    void mutation.then(changed, failed);
+    socket.onmessage?.({ data: JSON.stringify(legacyInvalidRequest) });
+    await Promise.resolve();
+    expect(changed).not.toHaveBeenCalled();
+    expect(failed).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+    socket.onmessage?.({ data: JSON.stringify({ id: sent!.id, ok: true, rootId: 'root', result: {} }) });
+    await expect(mutation).resolves.toEqual({});
+    expect(send).toHaveBeenCalledOnce();
+  } finally { client.disconnect(); }
+});
