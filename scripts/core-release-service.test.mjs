@@ -67,3 +67,23 @@ test('a release directory outside the deployment layout runs unmanaged',async()=
     assert.equal(result.status,0,result.stderr);assert.match(result.stdout,/UNMANAGED_CORE/);
   } finally {await rm(root,{recursive:true,force:true});}
 });
+
+for (const loop of [false,true]) test(`cloud release launcher restarts a crashed Core ${loop ? 'but stops a crash loop' : 'once and exits cleanly'}`,async()=>{
+  const root=await mkdtemp(path.join(tmpdir(),'core-crash-test-'));
+  const git=(cwd,...args)=>execFileSync('git',args,{cwd,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+  try {
+    const deploy=path.join(root,'deploy'),releases=path.join(deploy,'releases'),counter=path.join(root,'runs');
+    const origin=path.join(root,'origin');git(root,'init','-b','main',origin);git(origin,'config','user.email','f@example.com');git(origin,'config','user.name','F');
+    for (const dir of ['scripts','packages/core/dist','packages/protocol/dist']) await mkdir(path.join(origin,dir),{recursive:true});
+    await writeFile(path.join(origin,'package.json'),'{"type":"module"}');
+    await cp(new URL('./core-release-service.mjs',import.meta.url),path.join(origin,'scripts/core-release-service.mjs'));
+    await cp(new URL('../packages/protocol/dist/',import.meta.url),path.join(origin,'packages/protocol/dist'),{recursive:true});
+    await writeFile(path.join(origin,'packages/core/dist/index.js'),`import {appendFileSync,readFileSync} from 'node:fs';appendFileSync(${JSON.stringify(counter)},'x');const runs=readFileSync(${JSON.stringify(counter)},'utf8').length;console.log('RUN:'+runs);process.exit(${loop?'3':'runs<2?3:0'});`);
+    git(origin,'add','.');git(origin,'commit','-m','i');const first=git(origin,'rev-parse','HEAD');
+    await mkdir(releases,{recursive:true});const name=`${first}-node${abi}`,release=path.join(releases,name);git(root,'clone',origin,release);
+    const result=spawnSync(process.execPath,[path.join(release,'scripts/core-release-service.mjs')],{cwd:release,encoding:'utf8',timeout:20000,env:{...process.env,HATOPAD_CORE_RELEASE_ROOT:deploy,HATOPAD_CORE_RELEASE_SELECTION:path.join(root,'sel'),HATOPAD_CORE_RESTART_DELAY_MS:'10',HATOPAD_CORE_MAX_CRASHES:'3'}});
+    const runs=(await readFile(counter,'utf8')).length;
+    if(loop){assert.equal(runs,3);assert.equal(result.status,3);assert.match(result.stderr,/not restarting it again/);}
+    else{assert.equal(runs,2);assert.equal(result.status,0);assert.match(result.stderr,/restarting in/);}
+  } finally {await rm(root,{recursive:true,force:true});}
+});

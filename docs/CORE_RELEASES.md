@@ -169,3 +169,34 @@ the cache). The supervisor records the release it switched to in
 `core-releases/selected-<workspaceId>`; Gateway prefers that file over its saved commit
 on restart and when reporting the current release. Bundled (non-Git) local Cores and
 source checkouts are still unmanaged and are updated through Gateway.
+
+## Crash restart and start on boot
+
+The release supervisor restarts a Core that exits with a non-zero code, with backoff
+(1 s doubling to 30 s). After five crashes in ten minutes it stops and logs why.
+Exit code 0 (a deliberate stop, SIGTERM from Gateway) and updates are unchanged.
+Settings for tests: `HATOPAD_CORE_RESTART_DELAY_MS`, `HATOPAD_CORE_MAX_CRASHES`.
+
+Gateway's cloud server page has an owner-only **Start on boot** switch. It writes
+`~/.hatopad-deploy/autostart-<workspace>.sh`, which resolves the currently selected
+release on every start (so a Hub-updated Core boots on its new release) and refuses
+releases without the supervisor. The switch refuses to turn on for a Core that is not
+managed yet. How it is installed:
+
+| Host | Mechanism | Guarantee |
+| --- | --- | --- |
+| Linux with a systemd user session | `~/.config/systemd/user/hatopad-core-<id>.service`, enabled, plus `loginctl enable-linger` | Starts at boot. If lingering cannot be enabled it starts at login only, and Gateway says so |
+| Linux without systemd user services | `crontab` `@reboot` entry marked `hatopad-autostart-<id>` | Starts at boot |
+| macOS (local or SSH) | `~/Library/LaunchAgents/dev.hatopad.core.<id>.plist` with `RunAtLoad` | Starts when the user logs in, not at power-on |
+| Windows | Not supported | |
+
+Turning it off removes the unit, plist or cron line and the boot script; a running Core
+keeps running. Stopping a Core from Gateway does not disable start on boot. The switch
+is a host-level change, so it needs the saved local/SSH connection and Hub ownership,
+and shares the per-workspace operation lock with updates. Hub cannot start a stopped
+Core; start on boot and Gateway Start are the ways back.
+
+Verified with fixtures: supervisor restart and crash-loop stop, the boot script for SSH
+and local layouts, systemd and cron install/status/remove against stubbed tools, input
+validation, and the Gateway switch (owner, operator, declined confirmation). The launchd
+branch and a real reboot have not been exercised.

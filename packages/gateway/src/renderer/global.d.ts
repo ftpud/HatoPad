@@ -1,4 +1,5 @@
 type GatewayCloudCoreUpdateInfo = { available: boolean; updateNeeded: boolean; bundledVersion?: string; bundledRelease?: string; currentRelease?: string; reason?: string; source?: "git" | "bundle"; tag?: string; branch?: string };
+type GatewayAutostart = { state: "on" | "off" | "unsupported" | "unknown"; detail?: string };
 type GatewayCloudRoot = { id: string; alias: string; path: string; primary: boolean };
 type GatewayCloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
 type GatewayCloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: GatewayCloudCore[] };
@@ -20,6 +21,8 @@ interface Window {
     cloudDisconnect(): Promise<void>;
     cloudCoreUpdateInfo(id: string): Promise<GatewayCloudCoreUpdateInfo>;
     cloudUpdateCore(id: string, release: string): Promise<GatewayCloudCoreUpdateInfo>;
+    cloudAutostartInfo(id: string): Promise<GatewayAutostart>;
+    cloudSetAutostart(id: string, enabled: boolean): Promise<GatewayAutostart>;
     cloudListCores(id: string): Promise<GatewayCloudRoot[]>;
     cloudOpen(id: string, rootId: string): Promise<void>;
     cloudAddServer(workspaceId: string): Promise<GatewayCloudAccount>;
@@ -51,3 +54,4 @@ interface Window {
     onConnectionStatus(listener: (id: string, status: GatewayConnectionRuntime) => void): () => void;
   };
 }
+

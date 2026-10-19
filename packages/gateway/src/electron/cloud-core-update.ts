@@ -64,6 +64,8 @@ export class CloudCoreUpdates {
     }
     throw new Error("Core accepted the update but the new release was not confirmed. Refresh its status before trying again.");
   }
+  /** Other host-level operations take the same per-workspace lock as updates. */
+  runExclusive<T>(workspaceId: string, action: () => Promise<T>): Promise<T> { return this.options.run(workspaceId, action); }
   async info(origin: string, coreId: string): Promise<CloudCoreUpdateInfo> {
     try { return await this.inspectLatest(this.options.bundle || this.options.git ? await this.options.resolve(origin, coreId) : undefined, origin); }
     catch (error) { return { available: false, updateNeeded: false, reason: error instanceof CoreUpdateCheckError ? error.message : "Could not inspect the saved management connection. Reconnect it and retry." }; }

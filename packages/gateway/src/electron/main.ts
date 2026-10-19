@@ -3,6 +3,7 @@ import { LocalCoreReleases } from "./local-core-release.js";
 import { writeDesktopHandoff } from "./desktop-handoff.js";
 import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
 import { signInCloudWithBrowser } from "./cloud-browser-signin.js";
+import { autostartInstallCommand, autostartRemoveCommand, autostartStatusCommand, autostartExplanation, parseAutostart, type AutostartTarget } from "./autostart.js";
 import { stopOrphanedLocalCore } from "./local-core-process.js";
 import { applyCloudCoreUpdate, CloudUpdateUncertainError, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
@@ -14,7 +15,8 @@ import { applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 import { installedNodeEnvironment, remoteNodeEnvironment } from "./remote-node.js";
 import { executeSshCommand as execute } from "./ssh-command.js";
 import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, powerMonitor, safeStorage, session, shell as electronShell, type IpcMainInvokeEvent } from "electron";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { createHash } from "node:crypto";
 import { access, copyFile, mkdir, open, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -721,6 +723,37 @@ async function authorizedCloudCore(coreId: string): Promise<string> {
   return client.origin;
 }
 handleIpc("gateway:cloudCoreUpdateInfo", async (_event, coreId: string) => cloudCoreUpdates.info(await authorizedCloudCore(coreId), coreId));
+/** Start-on-boot controls a Core's host, so it needs the owner's saved local/SSH management connection. */
+async function runAutostart(coreId: string, command: (target: AutostartTarget) => string): Promise<string> {
+  const origin = await authorizedCloudCore(coreId);
+  const core = await managedCloudCore(origin, coreId);
+  if (!core) throw new Error("No matching saved local/SSH server was found. Reconnect the management connection originally paired with this Core.");
+  return cloudCoreUpdates.runExclusive(core.workspaceId, async () => {
+    const { workspace, connection } = await workspaceAndStoredConnection(core.workspaceId);
+    if (connection.kind === "local") {
+      if (process.platform === "win32") throw new Error("Start on boot is available on macOS and Linux only.");
+      const { node, env } = await localArtifactPaths(true);
+      const absoluteNode = path.isAbsolute(node) ? node : (await promisify(execFile)("bash", ["-lc", `command -v ${shell(node)}`], { env })).stdout.trim();
+      if (!path.isAbsolute(absoluteNode)) throw new Error("Could not locate Node for the boot script.");
+      const script = command({ kind: "local", workspaceId: workspace.id, workspace: workspace.directory, port: workspace.remotePort, userData: app.getPath("userData"), node: absoluteNode });
+      return (await promisify(execFile)("bash", ["-lc", script], { env, timeout: 60_000 })).stdout;
+    }
+    const ssh = await connect(await credentials(connection.id));
+    try { return await execute(ssh, `bash -lc ${shell(command({ kind: "ssh", workspaceId: workspace.id, workspace: workspace.directory, port: workspace.remotePort }))}`); }
+    finally { ssh.end(); }
+  });
+}
+handleIpc("gateway:cloudAutostartInfo", async (_event, coreId: string) => {
+  try {
+    const state = parseAutostart(await runAutostart(coreId, target => autostartStatusCommand(target.workspaceId)));
+    return { state: state.state, ...(state.state === "on" ? { detail: autostartExplanation(state.mode) } : state.state === "unsupported" ? { detail: "This host has neither systemd user services nor cron, or is not macOS/Linux." } : {}) };
+  } catch (error) { return { state: "unknown", detail: error instanceof Error ? error.message : "Could not read the start-on-boot state." }; }
+});
+handleIpc("gateway:cloudSetAutostart", async (_event, coreId: string, enabled: boolean) => {
+  if (typeof enabled !== "boolean") throw new Error("Invalid start-on-boot request");
+  const state = parseAutostart(await runAutostart(coreId, target => enabled ? autostartInstallCommand(target) : autostartRemoveCommand(target.workspaceId)));
+  return { state: state.state, ...(state.state === "on" ? { detail: autostartExplanation(state.mode) } : {}) };
+});
 handleIpc("gateway:cloudUpdateCore", async (_event, coreId: string, expectedRelease: string) => cloudCoreUpdates.update(await authorizedCloudCore(coreId), coreId, expectedRelease));
 handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));
 handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) => {

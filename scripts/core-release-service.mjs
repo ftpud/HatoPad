@@ -15,6 +15,7 @@ const home = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
 const sha = /^[a-f0-9]{40}$/;
+const restartDelayMs = Number(process.env.HATOPAD_CORE_RESTART_DELAY_MS) || 1000; const maxCrashes = Number(process.env.HATOPAD_CORE_MAX_CRASHES) || 5; const crashWindowMs = 10 * 60_000;
 const readyTimeoutMs = Number(process.env.HATOPAD_CORE_READY_TIMEOUT_MS) || 180_000;
 const root = process.env.HATOPAD_CORE_RELEASE_ROOT; const selection = process.env.HATOPAD_CORE_RELEASE_SELECTION;
 // SSH hosts keep releases in <root>/releases; Gateway's local cache keeps them directly in its release directory.
@@ -120,12 +121,23 @@ async function main() {
     core = spawn(toolchain.node, [path.join(home, 'packages/core/dist/index.js'), ...process.argv.slice(2)], { cwd: home, stdio: 'inherit', env: { ...env, PATH: toolchain.path, HATOPAD_CORE_UPDATE_MANAGED: '0' } });
     process.exitCode = await new Promise(resolve => { core.once('exit', code => resolve(code ?? 1)); core.once('error', () => resolve(1)); }); return;
   }
-  let current = { name, directory: home, revision }; let instance = start(current, revision, false, stageRequest);
+  let current = { name, directory: home, revision }; let instance = start(current, revision, false, stageRequest); const crashes = [];
   while (true) {
     const code = await instance.exited; const next = instance.request && code === 75 && !stopping ? await instance.staged : undefined;
-    if (!next) { process.exitCode = code; return; }
-    const candidate = await activate(current, next);
-    if (candidate) { current = next; instance = candidate; } else { console.error('[core] Update failed; restarted the previous Core.'); instance = start(current, current.revision, true, stageRequest); }
+    if (next) {
+      const candidate = await activate(current, next);
+      if (candidate) { current = next; instance = candidate; } else { console.error('[core] Update failed; restarted the previous Core.'); instance = start(current, current.revision, true, stageRequest); }
+      continue;
+    }
+    // Exit 0 is a deliberate stop. Anything else is a crash: restart with backoff, and give up on a crash loop.
+    if (stopping || code === 0 || code === 75) { process.exitCode = code; return; }
+    const now = Date.now(); crashes.push(now); while (crashes.length && now - crashes[0] > crashWindowMs) crashes.shift();
+    if (crashes.length >= maxCrashes) { console.error(`[core] Core crashed ${crashes.length} times in ${crashWindowMs / 60_000} minutes; not restarting it again.`); process.exitCode = code; return; }
+    const delay = Math.min(30_000, restartDelayMs * 2 ** (crashes.length - 1));
+    console.error(`[core] Core exited with ${code}; restarting in ${Math.round(delay / 100) / 10}s.`);
+    for (const until = Date.now() + delay; Date.now() < until && !stopping;) await new Promise(resolve => setTimeout(resolve, Math.min(200, until - Date.now())));
+    if (stopping) { process.exitCode = code; return; }
+    instance = start(current, current.revision, false, stageRequest);
   }
 }
 

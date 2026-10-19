@@ -225,7 +225,7 @@ describe("Gateway cloud", () => {
   function bridge(cloud?: GatewayCloudAccount) {
     window.gateway = {
       get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
-      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudCancelSignIn: vi.fn().mockResolvedValue(undefined), cloudGet: vi.fn().mockResolvedValue(cloud), cloudCoreUpdateInfo: vi.fn().mockResolvedValue({ available: false, updateNeeded: false, reason: "No saved management connection" }), cloudUpdateCore: vi.fn(), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudCancelSignIn: vi.fn().mockResolvedValue(undefined), cloudGet: vi.fn().mockResolvedValue(cloud), cloudAutostartInfo: vi.fn().mockResolvedValue({ state: "off" }), cloudSetAutostart: vi.fn().mockResolvedValue({ state: "on", detail: "Starts at boot (systemd user service with lingering)." }), cloudCoreUpdateInfo: vi.fn().mockResolvedValue({ available: false, updateNeeded: false, reason: "No saved management connection" }), cloudUpdateCore: vi.fn(), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
       onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
     } as unknown as Window["gateway"];
   }
@@ -270,6 +270,32 @@ describe("Gateway cloud", () => {
     await waitFor(() => expect(window.gateway.cloudCancelSignIn).toHaveBeenCalledOnce());
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("alert")).toBeNull();
+  });
+  it("lets an owner turn start-on-boot on after confirmation and shows what it guarantees", async () => {
+    bridge(account); const confirmation = vi.fn().mockReturnValue(true); vi.stubGlobal("confirm", confirmation);
+    render(<App />); fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    const toggle = await screen.findByRole("switch", { name: "Start on boot" });
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
+    expect((toggle as HTMLInputElement).checked).toBe(false);
+    fireEvent.click(toggle);
+    await waitFor(() => expect(window.gateway.cloudSetAutostart).toHaveBeenCalledWith(expect.any(String), true));
+    expect(confirmation).toHaveBeenCalledOnce();
+    expect(await screen.findByText(/Starts at boot \(systemd user service with lingering\)/)).toBeTruthy();
+  });
+  it("never offers start-on-boot to a Core operator", async () => {
+    bridge({ ...account, cores: [{ ...account.cores[0]!, access: "operator" as const }] });
+    render(<App />); fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    await screen.findByRole("heading", { name: "Cloud machine" });
+    expect(screen.queryByRole("switch", { name: "Start on boot" })).toBeNull();
+    expect(window.gateway.cloudAutostartInfo).not.toHaveBeenCalled();
+  });
+  it("does not change start-on-boot when the owner declines the confirmation", async () => {
+    bridge(account); vi.stubGlobal("confirm", vi.fn().mockReturnValue(false));
+    render(<App />); fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    const toggle = await screen.findByRole("switch", { name: "Start on boot" });
+    await waitFor(() => expect(toggle.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(toggle);
+    expect(window.gateway.cloudSetAutostart).not.toHaveBeenCalled();
   });
   it("updates a cloud Core to the selected Gateway bundle using the compact action", async () => {
     bridge(account); vi.stubGlobal("confirm", vi.fn().mockReturnValue(true));
