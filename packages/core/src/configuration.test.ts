@@ -1,3 +1,4 @@
+import ts from "typescript";
 import { BUILT_IN_LANGUAGES } from "./plugins/builtin.js";
 import { LanguageRegistry, LanguageSessions } from "./language/registry.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
@@ -162,10 +163,17 @@ describe("global configuration defaults", () => {
   });
 
   it("documents all protocol block types and exact app and flow command schemas", async () => {
-    const protocol = await readFile(new URL("../../protocol/src/index.ts", import.meta.url), "utf8");
-    const union = /export type HarnessBlock = \{ id: string; type: ([^;]+);/.exec(protocol)![1]!;
-    for (const match of union.matchAll(/"([a-z_]+)"/g)) {
-      expect(CONFIGURATION_REFERENCES["blocks.md"]).toContain(`### ${match[1]} —`);
+    const protocol = await readFile(new URL("../../protocol/src/types/workflow.ts", import.meta.url), "utf8");
+    const declarations = ts.createSourceFile("workflow.ts", protocol, ts.ScriptTarget.Latest, true);
+    const block = declarations.statements.find((statement): statement is ts.TypeAliasDeclaration =>
+      ts.isTypeAliasDeclaration(statement) && statement.name.text === "HarnessBlock");
+    if (!block || !ts.isTypeLiteralNode(block.type)) throw new Error("Missing HarnessBlock declaration");
+    const type = block.type.members.find((member): member is ts.PropertySignature =>
+      ts.isPropertySignature(member) && member.name.getText(declarations) === "type")?.type;
+    if (!type || !ts.isUnionTypeNode(type)) throw new Error("Missing HarnessBlock type union");
+    for (const member of type.types) {
+      if (!ts.isLiteralTypeNode(member) || !ts.isStringLiteral(member.literal)) throw new Error("Expected a block type literal");
+      expect(CONFIGURATION_REFERENCES["blocks.md"]).toContain(`### ${member.literal.text} —`);
     }
     for (const tool of [...appToolDefinitions, ...flowToolDefinitions]) {
       expect(CONFIGURATION_REFERENCES["commands.md"]).toContain(`## ${tool.name}\n`);
