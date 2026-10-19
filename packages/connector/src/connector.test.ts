@@ -85,6 +85,25 @@ describe("connector against test relay and fake Core", () => {
     expect(relay.received[0]).toEqual({ channel, payload: { id: "1", ok: true, result: { echoed: true } } });
   });
 
+  it("authenticates maintenance requests with the local token without exposing it to Hub", async () => {
+    const { relay, connector, statuses, coreMessages, hub } = await setup();
+    connector.start();
+    await until(() => statuses.some((s) => s.state === "online"), "online");
+    const { channel, frame } = relay.openChannel();
+    hub()!.send(frame);
+    // Hub sends data before the channel is ready: connector must refuse it.
+    hub()!.send(JSON.stringify({ type: "channel.data", channel, generation: 1, payload: { id: "0", type: "x" } }));
+    await until(() => relay.isChannelReady(channel), "ready");
+    hub()!.send(relay.sendData(channel, { id: "1", type: "protocol.maintenance", payload: { compatibility: {}, token: "BROWSER-GUESS" } }));
+    await until(() => coreMessages.length === 1, "core received handshake");
+    const forwarded = JSON.parse(coreMessages[0]!);
+    expect(forwarded.payload.token).toBe("LOCAL-SECRET");
+    expect(coreMessages).toHaveLength(1); // the early data frame never reached Core
+    await until(() => relay.received.length === 1, "reply relayed");
+    expect(JSON.stringify(relay.received)).not.toContain("LOCAL-SECRET");
+    expect(relay.received[0]).toEqual({ channel, payload: { id: "1", ok: true, result: { echoed: true } } });
+  });
+
   it("stops without retrying when the credential is rejected", async () => {
     const { connector, statuses } = await setup("bad");
     connector.start();

@@ -13,6 +13,8 @@ export type ConnectionOptions = {
   sessionMessageLimit?: number;
   /** Skip the full file tree when restoring the saved root; only honored by Cores advertising `workspace.selectRoot.includeTree`. */
   leanWorkspace?: boolean;
+  /** Restricted updater connection: never initializes workspace services, even on an incompatible Core. */
+  maintenance?: boolean;
 };
 
 export class CoreClient {
@@ -27,6 +29,9 @@ export class CoreClient {
     return () => { this.eventListeners.delete(listener); };
   }
   private rootId?: string;
+  private maintenanceOnly = false;
+  private compatible = false;
+  get protocolCompatible(): boolean { return this.compatible; }
   private invalidMessageDiagnostics = 0;
   private cancelConnect?: (error: Error) => void;
 
@@ -82,6 +87,7 @@ export class CoreClient {
       const socket = new WebSocket(options.url);
       this.disconnect();
       this.socket = socket;
+      this.maintenanceOnly = options.maintenance === true; this.compatible = false;
       let opened = false;
       let negotiated = false;
       let settled = false;
@@ -112,9 +118,14 @@ export class CoreClient {
           this.onConnectionProgress?.(`Checking ${options.clientLabel ?? "client"} and Core compatibility…`);
           const token = await options.getToken?.();
           ensureCurrent();
-          const result = await this.request("protocol.handshake", { compatibility: protocolCompatibility, clientVersion: "0.1.0", ...(token ? { token } : {}), ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}) });
+          const result = await this.request(options.maintenance ? "protocol.maintenance" : "protocol.handshake", { compatibility: protocolCompatibility, clientVersion: "0.1.0", ...(token ? { token } : {}), ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}) });
           this.capabilities = new Set(result.capabilities ?? []);
+          this.compatible = result.compatible === true;
           ensureCurrent();
+          if (options.maintenance) {
+            if (result.maintenance !== true) throw new Error("Core needs a one-time external update to enable maintenance updates");
+            negotiated = true; finish(); this.startHeartbeat(socket, () => lost("Backend liveness check timed out")); return;
+          }
           if (!result.compatible) throw new Error(result.message ?? "Client and Core protocol versions are incompatible");
           this.onConnectionProgress?.("Finding workspace roots…");
           const roots = await this.request("workspace.roots", {});
@@ -150,10 +161,11 @@ export class CoreClient {
 
   request<T extends RequestType>(type: T, payload: ProtocolOperations[T]["payload"], options?: { timeoutMs?: number }): Promise<ProtocolOperations[T]["result"]> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected"));
+    if (this.maintenanceOnly && !["protocol.maintenance", "protocol.keepAlive", "core.update.check", "core.update.apply"].includes(type)) return Promise.reject(new Error("Maintenance connections only allow Core updates"));
     const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
     const id = crypto.randomUUID();
     const socket = this.socket;
-    const unscoped = type === "protocol.handshake" || type === "protocol.keepAlive" || type === "workspace.roots" || type === "workspace.addRoot" || type === "overview.summary" || type === "overview.work" || type === "overview.events";
+    const unscoped = type === "protocol.maintenance" || type === "core.update.check" || type === "core.update.apply" || type === "protocol.handshake" || type === "protocol.keepAlive" || type === "workspace.roots" || type === "workspace.addRoot" || type === "overview.summary" || type === "overview.work" || type === "overview.events";
     if (!unscoped && !this.rootId) return Promise.reject(new Error(`No workspace root selected for ${type}`));
     const request = { id, type, payload, ...(!unscoped ? { rootId: this.rootId } : {}) } as Request<T>;
     return new Promise((resolve, reject) => {

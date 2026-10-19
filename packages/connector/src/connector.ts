@@ -223,7 +223,7 @@ export class CoreConnector {
 
   /** The browser never holds the local token: overwrite whatever its handshake carried. */
   private injectCredential(payload: unknown): string {
-    if (typeof payload === "object" && payload !== null && (payload as { type?: unknown }).type === "protocol.handshake") {
+    if (typeof payload === "object" && payload !== null && ["protocol.handshake", "protocol.maintenance"].includes(String((payload as { type?: unknown }).type))) {
       const request = payload as { payload?: Record<string, unknown> };
       const inner = { ...(typeof request.payload === "object" && request.payload ? request.payload : {}) };
       delete inner.token;

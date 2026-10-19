@@ -406,7 +406,8 @@ export type ProtocolOperations = {
   "storage.status": { payload: Record<string, never>; result: StorageSnapshot };
   "storage.cleanup": { payload: StorageCleanup; result: StorageSnapshot };
   "protocol.keepAlive": { payload: Record<string, never>; result: Record<string, never> };
-  "protocol.handshake": { /** `sessionMessageLimit` (0..100) bounds messages in every AiSession returned on this connection (capability `session.responseLimit`); omitted messages are counted in `omittedMessages`. */ payload: { compatibility: ProtocolCompatibility; clientVersion?: string; token?: string; sessionMessageLimit?: number }; result: { compatible: boolean; compatibility: ProtocolCompatibility; message?: string; capabilities?: CoreCapability[] } };
+  "protocol.maintenance": ProtocolOperations["protocol.handshake"];
+  "protocol.handshake": { /** `sessionMessageLimit` (0..100) bounds messages in every AiSession returned on this connection (capability `session.responseLimit`); omitted messages are counted in `omittedMessages`. */ payload: { compatibility: ProtocolCompatibility; clientVersion?: string; token?: string; sessionMessageLimit?: number }; result: { maintenance?: boolean; compatible: boolean; compatibility: ProtocolCompatibility; message?: string; capabilities?: CoreCapability[] } };
   "workspace.roots": { payload: Record<string, never>; result: { roots: WorkspaceRoot[]; selectedRootId: WorkspaceRootId } };
   "workspace.addRoot": { payload: { path: string; alias: string }; result: { root: WorkspaceRoot; roots: WorkspaceRoot[] } };
   "workspace.selectRoot": { /** `includeTree: false` returns `tree: []` (capability `workspace.selectRoot.includeTree`). */ payload: { rootId: WorkspaceRootId; includeIgnored?: boolean; preserveTaskSelection?: boolean; includeTree?: boolean }; result: { root: WorkspaceRoot; workspace: string; projectName: string; tree: FileTreeNode[]; options: WorkspaceOptions } };
@@ -857,7 +858,7 @@ export type RequestType = keyof ProtocolOperations;
 
 /** All nested relative paths and opaque root-owned references inherit this envelope root. */
 export type Request<T extends RequestType = RequestType> = T extends RequestType
-  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
+  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
   : never;
 
 export type ErrorCode =
@@ -887,7 +888,7 @@ export type ErrorCode =
 export type ProtocolError = { code: ErrorCode; message: string };
 
 export type Response<T extends RequestType = RequestType> =
-  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
+  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
   | { id: string; ok: false; error: ProtocolError };
 
 export type FilesystemChangedEvent = {
@@ -943,6 +944,7 @@ export type ServerEvent = AutomationChangedEvent | TerminalWatchOutputEvent | Te
  * registered here, which would otherwise reject the request at runtime.
  */
 const requestTypeRegistry: Record<RequestType, true> = {
+  "protocol.maintenance": true,
   "protocol.handshake": true,
   "protocol.keepAlive": true,
   "core.update.check": true,

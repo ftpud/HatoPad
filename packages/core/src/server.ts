@@ -687,6 +687,8 @@ export async function createServer(host: string, port: number, workspacePath: st
     socketMonitors.add(disposeMonitor);
     socket.once("close", () => socketMonitors.delete(disposeMonitor));
     let protocolAccepted = false;
+    let maintenanceOnly = false;
+    let updateCompatibility = { minimum: serverProtocolVersion, maximum: serverProtocolVersion };
     let sessionMessageLimit: number | undefined;
     // The durable registry selection is only the default for a new connection. Each connection pins its own
     // task per root on first use so another client's switch can never change what this one reports or runs.
@@ -806,13 +808,20 @@ export async function createServer(host: string, port: number, workspacePath: st
         if (parsed.rootId !== undefined && (typeof parsed.rootId !== "string" || !parsed.rootId)) throw new CoreError("INVALID_REQUEST", "rootId must be a nonempty string");
         validateRequestPayload(parsed.type, parsed.payload);
         console.log(`[core] request ${parsed.id}: ${parsed.type}`);
-        if (parsed.type === "protocol.handshake") {
+        if (parsed.type === "protocol.handshake" || parsed.type === "protocol.maintenance") {
           if (protocolAccepted) throw new CoreError("INVALID_REQUEST", "Protocol handshake has already completed");
           try { access.authenticate(parsed.payload.token); }
           catch (error) { setTimeout(() => socket.close(1008, "Authentication failed"), 0); throw error; }
           const limitRequested = validSessionMessageLimit(parsed.payload.sessionMessageLimit);
           const result = protocolHandshake(parsed.payload.compatibility);
           const compatible = result.compatible;
+          maintenanceOnly = parsed.type === "protocol.maintenance";
+          updateCompatibility = parsed.payload.compatibility;
+          if (maintenanceOnly) {
+            protocolAccepted = true;
+            sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { ...result, maintenance: true } }));
+            return;
+          }
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result } satisfies Response));
           if (!compatible) setTimeout(() => socket.close(1008, "Incompatible protocol"), 0);
           else {
@@ -824,6 +833,15 @@ export async function createServer(host: string, port: number, workspacePath: st
           return;
         }
         if (!protocolAccepted) throw new CoreError("INVALID_REQUEST", "Complete protocol.handshake before sending requests");
+        if (maintenanceOnly) {
+          if (!["core.update.check", "core.update.apply", "protocol.keepAlive"].includes(parsed.type)) throw new CoreError("INVALID_REQUEST", "Maintenance connections only allow Core updates");
+          if (parsed.type !== "protocol.keepAlive") releaseAdmission = admission.acquire();
+          const result = parsed.type === "core.update.check" ? await updates.check(parsed.payload, false, updateCompatibility)
+            : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload, updateCompatibility)
+            : parsed.type === "protocol.keepAlive" ? {} : undefined;
+          if (result === undefined) throw new CoreError("INVALID_REQUEST", "Maintenance connections only allow Core updates");
+          sendWebSocketData(socket, JSON.stringify({ id, ok: true, result })); return;
+        }
         // Browser-compatible liveness probe must not wait for workspace services or switches.
         if (parsed.type === "protocol.keepAlive") {
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: {} } satisfies Response<"protocol.keepAlive">));
@@ -952,7 +970,7 @@ export async function createServer(host: string, port: number, workspacePath: st
           : parsed.type === "storage.scan" ? storage.scan()
           : parsed.type === "storage.status" ? storage.status()
           : parsed.type === "storage.cleanup" ? storage.cleanup(parsed.payload)
-          : parsed.type === "core.update.check" ? await updates.check(parsed.payload) : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload) : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
+          : parsed.type === "core.update.check" ? await updates.check(parsed.payload, false, updateCompatibility) : parsed.type === "core.update.apply" ? await updates.apply(parsed.payload, updateCompatibility) : await handleRequest(services, rootContext.tasks, acp, rootContext.usefulFiles, rootContext.agents, rootContext.harnesses, harnessRunner(requestRoot.id), workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, requestRoot.path, parsed, rootWorkspace);
         if (parsed.type === "terminal.watch.attach" && parsed.payload.follow === true && (result as { state: string }).state === "available") {
           const watchId = terminalWatchers.attach(socket, { rootId: requestRoot.id, workspace: services.workspacePath }, parsed.payload.terminalId);
           result = { ...(result as object), watchId };
@@ -1022,7 +1040,7 @@ function optionalByteLimit(value: unknown): number | undefined {
 }
 
 export function assertRequestRoot(request: Request, selectedRootId: string): void {
-  if (request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
+  if (request.type === "protocol.maintenance" || request.type === "core.update.check" || request.type === "core.update.apply" || request.type === "protocol.handshake" || request.type === "protocol.keepAlive" || request.type === "workspace.roots" || request.type === "workspace.addRoot" || request.type === "overview.summary" || request.type === "overview.work" || request.type === "overview.events") return;
   if (!request.rootId) throw new CoreError("INVALID_REQUEST", `Request ${request.type} requires an explicit rootId`);
   if (request.type !== "workspace.selectRoot" && request.rootId !== selectedRootId) throw new CoreError("INVALID_REQUEST", `Request root ${request.rootId} is not the selected root ${selectedRootId}`);
 }

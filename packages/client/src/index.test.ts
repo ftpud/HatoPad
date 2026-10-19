@@ -9,19 +9,21 @@ class Socket {
   onmessage?: (event: { data: string }) => void;
   onclose?: () => void;
   static capabilities?: string[];
+  static maintenance = false;
+  static incompatible = false;
   get capabilities() { return Socket.capabilities; }
   sent: Array<{ type: string; payload: Record<string, unknown> }> = [];
   constructor(readonly url: string) { Socket.instances.push(this); }
   send(text: string) {
     const request = JSON.parse(text);
     this.sent.push(request);
-    const result = request.type === 'protocol.handshake' ? { compatible: true, ...(this.capabilities ? { capabilities: this.capabilities } : {}) } : request.type === 'workspace.roots' ? { roots: [{ id: 'root' }, { id: 'saved' }], selectedRootId: 'root' } : request.type === 'workspace.selectRoot' ? { tree: [] } : { roots: [{ id: 'root' }], selectedRootId: 'root' };
+    const result = ['protocol.handshake','protocol.maintenance'].includes(request.type) ? { compatible: !Socket.incompatible, ...(Socket.maintenance && request.type === 'protocol.maintenance' ? {maintenance:true} : {}), ...(this.capabilities ? { capabilities: this.capabilities } : {}) } : request.type === 'workspace.roots' ? { roots: [{ id: 'root' }, { id: 'saved' }], selectedRootId: 'root' } : request.type === 'workspace.selectRoot' ? { tree: [] } : { roots: [{ id: 'root' }], selectedRootId: 'root' };
     this.onmessage?.({ data: JSON.stringify({ id: request.id, ok: true, result }) });
   }
   close() { this.readyState = 3; this.onclose?.(); }
   open() { this.readyState = 1; this.onopen?.(); }
 }
-afterEach(() => { vi.unstubAllGlobals(); Socket.instances = []; Socket.capabilities = undefined; });
+afterEach(() => { vi.unstubAllGlobals(); Socket.instances = []; Socket.capabilities = undefined; Socket.maintenance = false; Socket.incompatible = false; });
 it('connects using injected URL and credentials without Electron globals', async () => {
   vi.stubGlobal('WebSocket', Socket);
   const client = new CoreClient();
@@ -92,4 +94,24 @@ it('identifies the exact rejected operation for out-of-order error responses', a
     for (const request of [...requests].reverse()) socket.onmessage?.({ data: JSON.stringify({ id: request.id, ok: false, error: { code: 'INVALID_REQUEST', message: 'This operation is not available through HatoHub' } }) });
     await Promise.all([firstCheck, secondCheck]);
   } finally { client.disconnect(); }
+});
+
+it('maintenance checks never discover roots and refuse older Cores that ignore the mode', async()=>{
+  vi.stubGlobal('WebSocket', Socket);
+  const client=new CoreClient();const pending=client.connect({url:'ws://core',maintenance:true});const socket=Socket.instances.at(-1)!;
+  socket.readyState=Socket.OPEN;socket.onopen?.();await expect(pending).rejects.toThrow(/one-time external update/);
+  expect(socket.sent.map(item=>item.type)).toEqual(['protocol.maintenance']);
+  client.disconnect();
+});
+
+
+it('uses an explicitly accepted incompatible maintenance connection without workspace reads',async()=>{
+  vi.stubGlobal('WebSocket',Socket);Socket.maintenance=true;Socket.incompatible=true;
+  const client=new CoreClient();try {
+    const pending=client.connect({url:'ws://core',maintenance:true});const socket=Socket.instances.at(-1)!;socket.open();await pending;
+    expect(socket.sent.map(item=>item.type)).toEqual(['protocol.maintenance']);
+    await expect(client.request('workspace.roots',{})).rejects.toThrow(/Maintenance/);
+    await client.request('core.update.check',{branch:'dev'});
+    expect(socket.sent.at(-1)).not.toHaveProperty('rootId');
+  } finally {client.disconnect();}
 });

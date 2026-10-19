@@ -63,3 +63,28 @@ The existing `main` branch predates the current HatoPad package layout. It has n
 been promoted or given a misleading Core release tag by this change. Stable
 installs stop until a current compatible release is explicitly promoted to `main`
 and tagged by CI; `dev` remains the development channel.
+
+## Maintenance connections and older installations
+
+Core update discovery uses `protocol.maintenance`, independently of the workspace
+handshake. It authenticates the local token, reports workspace compatibility, and
+accepts only update checks, update application and keep-alives. It never initializes
+workspace services or permits normal workspace requests. The connector injects its
+local token for this operation just as it does for the normal handshake; Hub grants
+still apply, and only owners can check/apply installation updates. Tag selection
+uses the requesting client's protocol range, which the launcher revalidates before
+building a pinned release. This permits recovery from a workspace wire mismatch.
+
+A Core/connector predating this operation needs one external upgrade through
+Gateway's saved local/SSH management connection or its server launcher. An older
+binary cannot acquire an updater by refreshing the browser. Unknown maintenance
+requests fail before the normal handshake. Browser background summaries first
+verify maintenance support and compatibility, so they do not automatically start
+older/incompatible workspace services. Owners retain update guidance when Core is
+offline, incompatible or unmanaged. A failed explicit connection shows an error
+and a route back to update options, and stops reconnection on that view.
+
+Temporary-Core tests verify authenticated maintenance, denied workspace operations,
+repeated incompatible handshakes, and disconnects immediately after successful
+handshakes without terminating Core. These do not diagnose a particular running
+Core crash: its launch location and actual error/exit information are still needed.

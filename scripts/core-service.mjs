@@ -9,7 +9,7 @@ const exec = promisify(execFile);
 const repository = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const env = { ...process.env, GIT_TERMINAL_PROMPT: '0' };
 const git = async (...args) => (await exec('git', args, { cwd: repository, env, timeout: 30_000, maxBuffer: 64_000 })).stdout.trim();
-const valid = value => value && value.type === 'hatopad-core-update' && ['dev', 'main'].includes(value.branch) && /^[a-f0-9]{40}$/.test(value.expectedCurrent) && /^[a-f0-9]{40}$/.test(value.expectedLatest);
+const valid = value => value && value.type === 'hatopad-core-update' && ['dev', 'main'].includes(value.branch) && /^[a-f0-9]{40}$/.test(value.expectedCurrent) && /^[a-f0-9]{40}$/.test(value.expectedLatest) && (!value.compatibility || Number.isSafeInteger(value.compatibility.minimum) && Number.isSafeInteger(value.compatibility.maximum) && value.compatibility.minimum > 0 && value.compatibility.maximum >= value.compatibility.minimum);
 let active; let stopping = false;
 for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => { stopping = true; active?.kill(signal); });
 async function command(command, args, cwd) {
@@ -35,7 +35,7 @@ try {
     try {
       if (await git('rev-parse', 'HEAD') !== request.expectedCurrent || await git('symbolic-ref', '--short', 'HEAD') !== request.branch || await git('status', '--porcelain', '--untracked-files=normal')) throw new Error('Installation changed');
       await git('fetch', '--tags', 'origin', `${request.branch}:refs/remotes/origin/${request.branch}`);
-      const tag = compatibleCoreTags((await git('tag', '--merged', `refs/remotes/origin/${request.branch}`, '--list', 'core-protocol-*-v*')).split('\n'), protocolCompatibility)[0];
+      const tag = compatibleCoreTags((await git('tag', '--merged', `refs/remotes/origin/${request.branch}`, '--list', 'core-protocol-*-v*')).split('\n'), request.compatibility ?? protocolCompatibility)[0];
       if (!tag || await git('rev-parse', `refs/tags/${tag}^{commit}`) !== request.expectedLatest) throw new Error('Update changed');
       await git('merge-base', '--is-ancestor', request.expectedCurrent, request.expectedLatest);
       staged = path.join(await mkdtemp(path.join(tmpdir(), 'hatopad-core-update-')), 'release');

@@ -20,10 +20,11 @@ describe('installation updates', () => {
       await writeFile(join(origin,'source'),'first'); git(origin,'add','.'); git(origin,'commit','-m','first');
       const first=git(origin,'rev-parse','HEAD'); git(root,'clone',origin,local);
       await writeFile(join(origin,'source'),'second'); git(origin,'commit','-am','second'); const second=git(origin,'rev-parse','HEAD'); git(origin,'tag','core-protocol-19-v0.1.2');
-      await writeFile(join(origin,'source'),'incompatible'); git(origin,'commit','-am','incompatible'); git(origin,'tag','core-protocol-20-v99.0.0');
+      await writeFile(join(origin,'source'),'incompatible'); git(origin,'commit','-am','incompatible'); git(origin,'tag','core-protocol-20-v99.0.0'); const third=git(origin,'rev-parse','HEAD');
       git(origin,'branch','dev');
       const service = new CoreUpdates({repository:local,runningCommit:first,restart:async()=>{}});
       expect(await service.check({branch:'main'})).toMatchObject({latest:second,canUpdate:true,tag:'core-protocol-19-v0.1.2'});
+      expect(await service.check({branch:'main'},false,{minimum:20,maximum:20})).toMatchObject({latest:third,canUpdate:true,tag:'core-protocol-20-v99.0.0'});
       expect((await service.check({branch:'dev'})).canUpdate).toBe(false);
       await writeFile(join(local,'untracked'),'preserve'); expect((await service.check({branch:'main'})).canUpdate).toBe(false); await rm(join(local,'untracked'));
       await expect(service.apply({branch:'main',expectedCurrent:first,expectedLatest:'a'.repeat(40)})).rejects.toThrow();

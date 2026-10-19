@@ -16,9 +16,9 @@ for (const fail of [false,true]) test(`Git launcher ${fail ? 'preserves the prev
     await writeFile(path.join(origin,'package.json'),'{"type":"module"}');
     await writeFile(path.join(origin,'scripts/core-service.mjs'),await readFile(new URL('./core-service.mjs',import.meta.url)));
     await cp(new URL('../packages/protocol/dist/',import.meta.url),path.join(origin,'packages/protocol/dist'),{recursive:true});
-    await writeFile(path.join(origin,'packages/core/dist/index.js'),`if(process.env.HATOPAD_CORE_UPDATE_FAILED==='1'){ console.log('PREVIOUS_RESTARTED');process.exit(0); } process.send({type:'hatopad-core-update',branch:'main',expectedCurrent:process.env.HATOPAD_CORE_RUNNING_COMMIT,expectedLatest:process.env.FIXTURE_LATEST},()=>process.exit(75));`);
+    await writeFile(path.join(origin,'packages/core/dist/index.js'),`if(process.env.HATOPAD_CORE_UPDATE_FAILED==='1'){ console.log('PREVIOUS_RESTARTED');process.exit(0); } process.send({type:'hatopad-core-update',branch:'main',compatibility:{minimum:20,maximum:20},expectedCurrent:process.env.HATOPAD_CORE_RUNNING_COMMIT,expectedLatest:process.env.FIXTURE_LATEST},()=>process.exit(75));`);
     git(origin,'add','.');git(origin,'commit','-m','initial');const first=git(origin,'rev-parse','HEAD');git(root,'clone',origin,local);
-    await writeFile(path.join(origin,'packages/core/dist/index.js'),"console.log('UPDATED_CORE');");git(origin,'commit','-am','update');git(origin,'tag','core-protocol-19-v0.1.2');const latest=git(origin,'rev-parse','HEAD');
+    await writeFile(path.join(origin,'packages/core/dist/index.js'),"console.log('UPDATED_CORE');");git(origin,'commit','-am','update');git(origin,'tag','core-protocol-20-v0.1.2');const latest=git(origin,'rev-parse','HEAD');
     const npm=path.join(root,'npm.mjs');await writeFile(npm,`process.exit(${fail?23:0});`);
     const result=spawnSync(process.execPath,['scripts/core-service.mjs'],{cwd:local,encoding:'utf8',timeout:20000,env:{...process.env,npm_execpath:npm,FIXTURE_LATEST:latest}});
     assert.equal(result.status,0,result.stderr);assert.match(result.stdout,fail?/PREVIOUS_RESTARTED/:/UPDATED_CORE/);
