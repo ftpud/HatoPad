@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const styles = readFileSync("src/renderer/styles.css", "utf8");
+const entry = readFileSync("src/renderer/styles.css", "utf8");
+const styles = [...entry.matchAll(/@import "\.\/(.+?)";/g)]
+  .map((match) => readFileSync(`src/renderer/${match[1]}`, "utf8"))
+  .join("");
 
 function declarations(selector: string): string {
   const match = styles.match(new RegExp(selector.replace(".", "\\.") + "\\s*\\{([^}]*)\\}"));
@@ -32,15 +35,15 @@ describe("horizontal editor layout containment", () => {
     const tabs = declarations(".tabs");
     expect(tabs).toContain("overflow-x: auto");
     expect(tabs).toContain("scrollbar-width: none");
-    expect(styles).toContain(".tabs::-webkit-scrollbar { display: none; }");
+    expect(declarations(".tabs::-webkit-scrollbar")).toContain("display: none");
     expect(declarations(".tab-file-name")).toContain("white-space: nowrap");
   });
 });
 
 it("keeps Java output and configuration dialog keys distinct within a workspace", () => {
   const app = readFileSync("src/renderer/App.tsx", "utf8");
-  const panelKey = app.match(/<JavaPanel key=\{([^}]+)\}/)?.[1];
-  const dialogKey = app.match(/<JavaConfigurationDialog key=\{([^}]+)\}/)?.[1];
+  const panelKey = app.match(/<JavaPanel\s+key=\{([^}]+)\}/)?.[1];
+  const dialogKey = app.match(/<JavaConfigurationDialog\s+key=\{([^}]+)\}/)?.[1];
   expect(panelKey).toBeDefined();
   expect(dialogKey).toBeDefined();
   expect(panelKey).not.toBe(dialogKey);
