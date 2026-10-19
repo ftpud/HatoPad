@@ -34,6 +34,18 @@ describe("projectProgress", () => {
     expect(() => projectProgress(heavy, 100)).toThrow(/too large/);
   });
 
+  it("bounds transfer metadata and excludes payloads, unknown fields and oversized identifiers", () => {
+    const trace = { id: "trace", edgeId: "edge", direction: "return", status: "succeeded", startedAt: "2026-10-19T00:00:00Z", completedAt: "2026-10-19T00:00:01Z", chars: 42, input: "SECRET INPUT", output: "OUTPUT" };
+    const record = { ...(run as object), connectionTraces: Array.from({ length: 140 }, (_, index) => ({ ...trace, id: `t${index}` })) } as never;
+    const progress = projectProgress(record, 1);
+    expect(progress.connectionTraces).toHaveLength(128); expect(progress.connectionTracesTruncated).toBe(true);
+    expect(progress.connectionTraces![0]).toEqual({ id: "t12", edgeId: "edge", direction: "return", status: "succeeded", startedAt: trace.startedAt, completedAt: trace.completedAt, chars: 42 });
+    for (const secret of ["SECRET INPUT", "OUTPUT"]) expect(JSON.stringify(progress.connectionTraces)).not.toContain(secret);
+    const malformed = { ...(run as object), connectionTraces: [{ ...trace, id: "x".repeat(201) }, { ...trace, chars: Infinity }] } as never;
+    const bounded = projectProgress(malformed, 1); expect(bounded.connectionTraces).toHaveLength(1); expect(bounded.connectionTraces![0]!.chars).toBeUndefined(); expect(bounded.connectionTracesTruncated).toBe(true);
+    expect(projectProgress(run, 1).connectionTraces).toEqual([]);
+  });
+
   it("rejects out-of-range log limits", () => {
     for (const limit of [0, 101, 2.5, "5"]) expect(() => projectProgress(run, limit)).toThrow();
     expect(projectProgress(run, undefined).blocks[0]!.log).toHaveLength(20);

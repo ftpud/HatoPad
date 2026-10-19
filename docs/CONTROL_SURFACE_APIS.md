@@ -143,3 +143,21 @@ frozen plans, interrupted script/process stages and unresolved mutation records.
 A run still finalizing must be refreshed before retry. Concurrent retry admission
 is serialized, including a store check that the persisted run is still failed.
 This operation is a user decision after inspection, never a transport retry.
+
+
+### Bounded workflow connection activity (2026-10-19)
+
+`harnesses.progress` now includes `connectionTraces` metadata: at most the newest
+128 connection records, with an optional `connectionTracesTruncated: true` when
+records were omitted. Records contain only id, edge id, forward/return direction,
+active/succeeded/failed state, timestamps and a nonnegative safe-integer character
+count when available. Unknown fields are discarded; oversized identifiers and
+timestamps are omitted with the truncation flag. The existing total progress byte
+limit still applies. No transfer inputs, outputs, prompts or transcripts are
+included. This is additive on wire 19; absence of the field identifies older
+progress implementations, while an empty array means no connection activity.
+
+Verification: protocol build/typecheck and 9 tests; Core build/typecheck and all
+873 tests (including bounded projection and content-exclusion coverage). A running
+Core must be updated to return this metadata. No deployment or package publication
+was performed.

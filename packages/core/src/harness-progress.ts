@@ -2,14 +2,22 @@ import { CoreError } from "./errors.js";
 import { boundPermission } from "./ai/session-bounds.js";
 import { harnessBlockDetailLimits, type HarnessBlockDetail, type HarnessProgress, type HarnessRun } from "@hatopad/protocol";
 
-export const progressLimits = { defaultLog: 20, maxLog: 100, maxMessage: 500, maxError: 500, maxBlocks: 200, maxBytes: 900_000 } as const;
+export const progressLimits = { defaultLog: 20, maxLog: 100, maxMessage: 500, maxError: 500, maxBlocks: 200, maxTraces: 128, maxTraceId: 200, maxBytes: 900_000 } as const;
 
 /** Bounded projection of a run for phones: no definition, outputs, prompts or chat transcripts. */
 export function projectProgress(run: HarnessRun, logLimit: unknown): HarnessProgress {
   const limit = logLimit ?? progressLimits.defaultLog;
   if (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > progressLimits.maxLog) throw new CoreError("INVALID_REQUEST", `logLimit must be an integer from 1 to ${progressLimits.maxLog}`);
   if (run.blocks.length > progressLimits.maxBlocks) throw new CoreError("INVALID_REQUEST", `Workflow has more than ${progressLimits.maxBlocks} blocks; review it in Desktop`);
+  const traces = (run.connectionTraces ?? []).slice(-progressLimits.maxTraces).filter((trace) =>
+    typeof trace.id === "string" && trace.id.length <= progressLimits.maxTraceId && typeof trace.edgeId === "string" && trace.edgeId.length <= progressLimits.maxTraceId &&
+    ["forward", "return"].includes(trace.direction) && ["active", "succeeded", "failed"].includes(trace.status) &&
+    typeof trace.startedAt === "string" && trace.startedAt.length <= 40 && (trace.completedAt === undefined || (typeof trace.completedAt === "string" && trace.completedAt.length <= 40))
+  ).map((trace) => ({ id: trace.id, edgeId: trace.edgeId, direction: trace.direction, status: trace.status, startedAt: trace.startedAt,
+    ...(trace.completedAt !== undefined ? { completedAt: trace.completedAt } : {}),
+    ...(typeof trace.chars === "number" && Number.isSafeInteger(trace.chars) && trace.chars >= 0 ? { chars: trace.chars } : {}) }));
   const progress: HarnessProgress = {
+    connectionTraces: traces, ...((run.connectionTraces?.length ?? 0) > traces.length ? { connectionTracesTruncated: true as const } : {}),
     ...((run.children?.length || run.binding?.taskId) ? { taskIds: [...new Set([...(run.binding?.taskId ? [run.binding.taskId] : []), ...(run.children ?? []).map(child => child.taskId)])].slice(0, 50) } : {}),
     ...(run.paused ? { paused: true } : {}), id: run.id, harnessId: run.harnessId, status: run.status, createdAt: run.createdAt,
     ...(run.startedAt ? { startedAt: run.startedAt } : {}), ...(run.completedAt ? { completedAt: run.completedAt } : {}),
