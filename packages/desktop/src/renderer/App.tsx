@@ -1,3 +1,18 @@
+import { useAiSessionState } from "./use-ai-session-state";
+import { useWorkspaceTasks } from "./use-workspace-tasks";
+import { usePanelLayout } from "./use-panel-layout";
+import { TaskCheckpointHistory } from "./TaskCheckpointHistory";
+import { TaskRow, formatAiStatus } from "./TaskRow";
+import { ResizablePanelStack } from "./ResizablePanelStack";
+import { QuickFilter } from "./QuickFilter";
+import { JavaProjectTree } from "./JavaProjectTree";
+import { ExternalChangeConflict, ProjectPathDialog, WorkspaceRootDialog, RunConfigDialog } from "./WorkspaceDialogs";
+import { MergeTaskDialog, CreateTaskDialog } from "./TaskDialogs";
+import { AgentsPanel, AgentPicker, AgentDialog, agentKey } from "./AgentsPanel";
+import { UsefulFileSection, UsefulFileDialog } from "./UsefulFileSection";
+import { GitChangesView } from "./GitChangesPanel";
+import { ConnectionScreen, ConnectionStatus } from "./ConnectionScreen";
+import { keyboardResize, selectedLineRange, gitHunkDecorations, ParsedHttpRequest, parseHttpRequests } from "./editor-helpers";
 import { AuthenticationClientContext } from "./AiAuthentication";
 import { flushSync } from "react-dom";
 import { SidebarExtentButton, useSidebarExtent } from "./SidebarExtentButton";
@@ -10,12 +25,12 @@ import { ConnectionMenu } from "./ConnectionMenu";
 import { startBackgroundLoading } from "./background-loading";
 import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@hatopad/protocol";
 import { DiffEditor, type Monaco } from "@monaco-editor/react";
-import { Archive, Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Bug, Check, ChevronDown, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileDiff, FileText, Folder, FolderOpen, GitBranch, GitCompareArrows, GitMerge, Library, ListTodo, ListTree, LoaderCircle, LogOut, MoreVertical, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, ShieldAlert, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
-import { Children, isValidElement, useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from "react";
-import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiStatus, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, ProtocolOperations, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@hatopad/protocol";
+import { Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Check, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileDiff, FileText, Folder, GitBranch, GitCompareArrows, ListTodo, ListTree, LoaderCircle, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
+import { isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
+
+
 import { mergeWorkflowHistory, workflowRunsForContext } from "./workflow-context";
 import { InvalidationRefreshes } from "./invalidation-refreshes";
 import { CoalescedAsyncAction, CoreClient } from "./client";
@@ -71,8 +86,8 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { FindInFilesDialog } from "./FindInFilesDialog";
 import { restoredFocusedLeftPanels, initialTaskPanel, switchedTaskPanel, taskPanelPreferenceKey, type ClassicTaskPanel } from "./task-panel-state";
 import { ProjectTree } from "./ProjectTree";
-import { JavaFileIcon } from "./plugins/languages/java";
-import { FileKindIcon } from "./FileKindIcon";
+
+
 import { menuPosition } from "./menu-position";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
 import { copyProjectTreeActions } from "./project-context-menu";
@@ -89,8 +104,6 @@ import { StableEditor } from "./StableEditor";
 import { reconcileProjectTree } from "./project-tree-reconciliation";
 import { NavigationHistory, type EditorLocation } from "./navigation-history";
 import { ModalFocusManager } from "./accessibility";
-
-type ConnectionStatus = "idle" | "connecting" | "connected" | "failed" | "disconnected" | "workspace-error";
 type StatusKind = "progress" | "success" | "error";
 type BottomPanelType = Extract<Panel["type"], "terminal" | "languageOutput" | "problems" | "gitlog">;
 const languageByExtension: Record<string, string> = {
@@ -98,47 +111,13 @@ const languageByExtension: Record<string, string> = {
   css: "css", md: "markdown", java: "java", py: "python", yaml: "yaml", yml: "yaml", mta: "yaml", mtaext: "yaml",
   xml: "xml", cds: "sap-cds", http: "http", txt: "plaintext"
 };
-const formatAiStatus = (status: AiStatus) => ({ idle: "", in_progress: "In progress", user_prompt: "User prompt", waiting: "Waiting", done: "Done", error: "Error" })[status];
 const fileColorChoices: { id: FileColor; label: string }[] = [{ id: "red", label: "Red" }, { id: "orange", label: "Orange" }, { id: "yellow", label: "Yellow" }, { id: "green", label: "Green" }, { id: "blue", label: "Blue" }, { id: "purple", label: "Purple" }, { id: "gray", label: "Gray" }];
-const gitHunkDecorations = (hunks: GitDiffHunk[]): editor.IModelDeltaDecoration[] => hunks.map((hunk) => {
-  const start = Math.max(1, hunk.modifiedStart);
-  const end = Math.max(start, start + Math.max(1, hunk.modifiedLines) - 1);
-  const kind = hunk.originalLines === 0 ? "added" : hunk.modifiedLines === 0 ? "deleted" : "modified";
-  return { range: { startLineNumber: start, startColumn: 1, endLineNumber: end, endColumn: 1 }, options: { isWholeLine: true, linesDecorationsClassName: `git-change-marker ${kind}`, hoverMessage: { value: "Click the gutter marker to inspect this change" } } };
-});
-type ParsedHttpRequest = { line: number; method: string; url: string; headers: Record<string, string>; body?: string };
 /** Identifies which workspace, provider and request order an AI session snapshot was fetched for. */
 type AiSnapshotToken = { sequence: number; workspace: string; provider: AiProvider };
-export function keyboardResize(event: { key: string; shiftKey: boolean; preventDefault(): void }, value: number, update: (value: number) => void, minimum: number, maximum: number, reverse = false) {
-  const direction = event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1 : 0;
-  if (!direction) return;
-  event.preventDefault();
-  const step = event.shiftKey ? 50 : 10;
-  update(Math.max(minimum, Math.min(maximum, value + direction * step * (reverse ? -1 : 1))));
-}
-function parseHttpRequests(content: string): ParsedHttpRequest[] {
-  const lines = content.split("\n"); const requests: ParsedHttpRequest[] = [];
-  let blockStart = 0;
-  for (let end = 0; end <= lines.length; end += 1) {
-    if (end < lines.length && !/^\s*###(?:\s.*)?$/.test(lines[end]!)) continue;
-    const block = lines.slice(blockStart, end); let index = 0;
-    while (index < block.length && (!block[index]!.trim() || /^\s*(#(?!##)|\/\/)/.test(block[index]!))) index += 1;
-    const match = block[index]?.match(/^\s*([A-Za-z]+)\s+(\S+)\s*(?:HTTP\/\d(?:\.\d)?)?\s*$/);
-    if (match) {
-      const line = blockStart + index + 1; const headers: Record<string, string> = {}; index += 1;
-      while (index < block.length && block[index]!.trim()) { const header = block[index]!.match(/^\s*([^:#][^:]*):\s*(.*)$/); if (header) headers[header[1]!.trim()] = header[2]!.trim(); index += 1; }
-      while (index < block.length && !block[index]!.trim()) index += 1;
-      const body = block.slice(index).join("\n").trimEnd(); requests.push({ line, method: match[1]!.toUpperCase(), url: match[2]!, headers, ...(body ? { body } : {}) });
-    }
-    blockStart = end + 1;
-  }
-  return requests;
-}
 
 /** Setting name under which the AI provider last used for a task (or the root workspace) is stored. */
 function aiProviderTaskKey(taskId?: string): string { return `ai.provider.task.${taskId ?? "root"}`; }
 function aiAgentTaskKey(taskId?: string): string { return `ai.agent.task.${taskId ?? "root"}`; }
-function agentKey(agent: Pick<AgentFile, "scope" | "name">): string { return `${agent.scope}:${agent.name}`; }
 
 export function App() {
   const workspaceKeyRef = useRef("");
@@ -207,46 +186,56 @@ export function App() {
       void transition.finished.catch(() => undefined);
     } else update();
   };
-  const [sideLayout, setSideLayout] = useState<"classic" | "ai-focused">(() => readSetting("sideLayout") === "classic" ? "classic" : "ai-focused");
-  const [leftSidebarExtended, setLeftSidebarExtended] = useSidebarExtent("left");
-  const [rightSidebarExtended, setRightSidebarExtended] = useSidebarExtent("right");
-  const [leftSidebarWidth, setLeftSidebarWidth] = useState(520);
-  const [rightSidebarWidth, setRightSidebarWidth] = useState(360);
-  const [workflowPanelMode, setWorkflowPanelMode] = useState<"design" | "run">("run");
-  const [leftPanels, setLeftPanels] = useState({ tasks: true, ai: true, harness: false, timers: false, triggers: false, proc: false });
-  const [rightPanels, setRightPanels] = useState({ project: true, git: true, taskGit: false, promptHistory: false, java: false, useful: false, agents: false, skills: false });
-  const [classicSideView, setClassicSideView] = useState<ClassicTaskPanel>("project");
-  const [classicLeftWidth, setClassicLeftWidth] = useState(260);
-  const [classicRightWidth, setClassicRightWidth] = useState(300);
-  const [classicTasksOpen, setClassicTasksOpen] = useState(true);
-  const [classicAiOpen, setClassicAiOpen] = useState(false);
-  const [classicSplit, setClassicSplit] = useState(50);
-
-  // Persist panel layout per workspace, keeping the value as the global default for new workspaces.
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "ai-focused") { writeWorkspaceSetting(workspaceKeyRef.current, "focused.leftPanels", JSON.stringify(leftPanels)); } }, [leftPanels]);
-  useEffect(() => { if (workspaceKeyRef.current) writeWorkspaceSetting(workspaceKeyRef.current, "workflow.panelMode", workflowPanelMode); }, [workflowPanelMode]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "ai-focused") { writeWorkspaceSetting(workspaceKeyRef.current, "focused.rightPanels", JSON.stringify(rightPanels)); } }, [rightPanels]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "ai-focused") { writeWorkspaceSetting(workspaceKeyRef.current, "focused.leftWidth", String(leftSidebarWidth)); } }, [leftSidebarWidth]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "ai-focused") { writeWorkspaceSetting(workspaceKeyRef.current, "focused.rightWidth", String(rightSidebarWidth)); } }, [rightSidebarWidth]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.leftWidth", String(classicLeftWidth)); } }, [classicLeftWidth]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.rightWidth", String(classicRightWidth)); } }, [classicRightWidth]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.tasksOpen", String(classicTasksOpen)); } }, [classicTasksOpen]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.aiOpen", String(classicAiOpen)); } }, [classicAiOpen]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.split", String(classicSplit)); } }, [classicSplit]);
-  useEffect(() => { if (workspaceKeyRef.current && sideLayout === "classic") { writeWorkspaceSetting(workspaceKeyRef.current, "classic.sideView", classicSideView); } }, [classicSideView]);
+  const {
+    sideLayout,
+    setSideLayout,
+    leftSidebarExtended,
+    setLeftSidebarExtended,
+    rightSidebarExtended,
+    setRightSidebarExtended,
+    leftSidebarWidth,
+    setLeftSidebarWidth,
+    rightSidebarWidth,
+    setRightSidebarWidth,
+    workflowPanelMode,
+    setWorkflowPanelMode,
+    leftPanels,
+    setLeftPanels,
+    rightPanels,
+    setRightPanels,
+    classicSideView,
+    setClassicSideView,
+    classicLeftWidth,
+    setClassicLeftWidth,
+    classicRightWidth,
+    setClassicRightWidth,
+    classicTasksOpen,
+    setClassicTasksOpen,
+    classicAiOpen,
+    setClassicAiOpen,
+    classicSplit,
+    setClassicSplit
+  } = usePanelLayout(workspaceKeyRef);
   const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
   const [mergeDialog, setMergeDialog] = useState<WorkspaceTask>();
-  const [tasks, setTasks] = useState<WorkspaceTask[]>([]);
-  const [taskFilter, setTaskFilter] = useState("");
-  const [taskLifecycleFilter, setTaskLifecycleFilter] = useState<"active" | "finished" | "archived" | "all">("active");
-  const [selectedTaskId, setSelectedTaskId] = useState<string>();
-  const activeTaskRef = useRef<WorkspaceTask>();
-  const selectedTaskIdRef = useRef<string>();
-  const [taskSwitching, setTaskSwitching] = useState(false);
-  const taskSwitchSequence = useRef(0);
-  const taskSwitchActive = useRef(false);
-  const queuedTaskSwitch = useRef<string | undefined | null>(null);
-  const switchTaskRef = useRef<(taskId?: string) => Promise<void>>(async () => undefined);
+  const {
+    tasks,
+    setTasks,
+    taskFilter,
+    setTaskFilter,
+    taskLifecycleFilter,
+    setTaskLifecycleFilter,
+    selectedTaskId,
+    setSelectedTaskId,
+    activeTaskRef,
+    selectedTaskIdRef,
+    taskSwitching,
+    setTaskSwitching,
+    taskSwitchSequence,
+    taskSwitchActive,
+    queuedTaskSwitch,
+    switchTaskRef
+  } = useWorkspaceTasks();
   const [terminalHeight, setTerminalHeight] = useState(240);
   const [usefulFiles, setUsefulFiles] = useState<UsefulFile[]>([]);
   const [runConfigs, setRunConfigs] = useState<RunConfig[]>([]);
@@ -272,25 +261,39 @@ export function App() {
   const [workspaceRootDialogOpen, setWorkspaceRootDialogOpen] = useState(false);
   const selectedRootIdRef = useRef("");
   const selectWorkspaceRootRef = useRef<(rootId: string) => Promise<void>>(async () => undefined);
-  const [aiSession, setAiSession] = useState<AiSession>({ model: "gpt-5.6-sol", reasoning: "low", status: "idle", messages: [] });
-  const [skillCatalog, setSkillCatalog] = useState<SkillCatalog>({ skills: [], policy: { allowed: [], defaults: [] } });
-  const [aiSessions, setAiSessions] = useState<AiSession[]>([]);
-  const [aiProvider, setAiProvider] = useState<AiProvider>(() => readSetting("aiProvider") ?? "");
-  const [aiModels, setAiModels] = useState<AiModel[]>([]);
-  // True from the moment the provider changes until its own model list arrives, so the picker never shows another provider's models.
-  const [aiModelsLoading, setAiModelsLoading] = useState(false);
-  const [aiProviders, setAiProviders] = useState<AiProviderDescriptor[]>([]);
-  const [aiUsage, setAiUsage] = useState<AiUsage>();
-  const [aiAttachments, setAiAttachments] = useState<Record<string, AiAttachment[]>>({});
-  const emptyAiSummary: AiTaskSummary = { status: "idle", preview: "", additions: 0, deletions: 0, pendingPermission: false };
-  const [aiStatuses, setAiStatuses] = useState<{ root: AiTaskSummary; tasks: Record<string, AiTaskSummary> }>({ root: emptyAiSummary, tasks: {} });
-  const [schedules, setSchedules] = useState<WorkspaceSchedule[]>([]);
-  const [triggers, setTriggers] = useState<WorkspaceTrigger[]>([]);
-  const [activeTimers, setActiveTimers] = useState<AiContinuationTimer[]>([]);
-  const aiStatusesRequested = useRef(0);
-  const aiStatusesApplied = useRef(0);
-  const aiSessionRequested = useRef(0);
-  const aiSessionApplied = useRef(0);
+  const {
+    aiSession,
+    setAiSession,
+    skillCatalog,
+    setSkillCatalog,
+    aiSessions,
+    setAiSessions,
+    aiProvider,
+    setAiProvider,
+    aiModels,
+    setAiModels,
+    aiModelsLoading,
+    setAiModelsLoading,
+    aiProviders,
+    setAiProviders,
+    aiUsage,
+    setAiUsage,
+    aiAttachments,
+    setAiAttachments,
+    emptyAiSummary,
+    aiStatuses,
+    setAiStatuses,
+    schedules,
+    setSchedules,
+    triggers,
+    setTriggers,
+    activeTimers,
+    setActiveTimers,
+    aiStatusesRequested,
+    aiStatusesApplied,
+    aiSessionRequested,
+    aiSessionApplied
+  } = useAiSessionState();
   const [activeGitHunks, setActiveGitHunks] = useState<GitDiffHunk[]>([]);
   const [gitHunkDialog, setGitHunkDialog] = useState<{ x: number; y: number; path: string; hunk: GitDiffHunk; originalContent: string; modifiedContent: string; error?: string }>();
   const [httpResult, setHttpResult] = useState<{ request: ParsedHttpRequest; response?: HttpResponse; error?: string; loading: boolean }>();
@@ -3384,33 +3387,6 @@ export function App() {
   </div></AuthenticationClientContext.Provider>;
 }
 
-/** A selection ending at column 1 of a line does not include that line. */
-export function selectedLineRange(selection: { startLineNumber: number; endLineNumber: number; endColumn: number }): { startLine: number; endLine: number } {
-  const endLine = selection.endColumn === 1 && selection.endLineNumber > selection.startLineNumber ? selection.endLineNumber - 1 : selection.endLineNumber;
-  return { startLine: selection.startLineNumber, endLine };
-}
-
-function ExternalChangeConflict({ dialog, onClose, onReload, onOverwrite, onSaveAs }: { dialog: { path: string; externalContent: string; externalRevision: FileRevision; error?: string }; onClose(): void; onReload(): void; onOverwrite(): void; onSaveAs(target: string): void }) {
-  const [target, setTarget] = useState("");
-  return <div className="dialog-overlay" onMouseDown={onClose}><section className="run-config-dialog" role="alertdialog" aria-modal="true" aria-label="External file change" onMouseDown={(event) => event.stopPropagation()}><header><div><h2>File changed externally</h2><span>{dialog.path} · {dialog.externalRevision.identity} · {dialog.externalRevision.version.slice(0, 12)}</span></div><button title="Keep editing" onClick={onClose}><X size={15} /></button></header><p>Your unsaved buffer is preserved. Compare it with the external version before choosing an action.</p><details><summary>Compare external content</summary><pre>{dialog.externalContent}</pre></details>{dialog.error && <div className="find-error">{dialog.error}</div>}<label>Save as path<input value={target} placeholder="conflict-copy.ts" onChange={(event) => setTarget(event.target.value)} /></label><footer><button onClick={onReload}>Reload external version</button><button onClick={onOverwrite}>Overwrite external version</button><button disabled={!target.trim()} onClick={() => onSaveAs(target.trim())}>Save As</button><button onClick={onClose}>Keep editing</button></footer></section></div>;
-}
-
-export function TaskCheckpointHistory({ checkpoints, onOpen, onReview, onRestore, onFollowUp, onClose }: { checkpoints: TaskCheckpoint[]; onOpen(checkpoint: TaskCheckpoint, file: TaskCheckpointFile): void; onReview(checkpoint: TaskCheckpoint, file: TaskCheckpointFile): void; onRestore(checkpoint: TaskCheckpoint): void; onFollowUp(checkpoint: TaskCheckpoint): void; onClose?(): void }) {
-  const [expanded, setExpanded] = useState<string>();
-  return <section className="task-checkpoint-history stacked-panel" aria-label="Prompt change history"><header><strong>Prompt History</strong><span><small>{checkpoints.length} recorded</small>{onClose && <button title="Close Prompt History" onClick={onClose}><X size={14} /></button>}</span></header>
-    {checkpoints.length === 0 ? <div className="git-empty">Prompt checkpoints appear after an agent turn starts.</div> : checkpoints.map((checkpoint) => <section key={checkpoint.id} className={`task-checkpoint ${checkpoint.status}`}>
-      <button className="task-checkpoint-prompt" onClick={() => setExpanded((current) => current === checkpoint.id ? undefined : checkpoint.id)}>{expanded === checkpoint.id ? <ChevronDown size={13} /> : <ChevronRight size={13} />}<span><strong>{checkpoint.prompt || "Prompt"}</strong><small>{checkpoint.provider} · {new Date(checkpoint.startedAt).toLocaleString()} · {checkpoint.status}</small></span><em>{checkpoint.files.length}</em></button>
-      {expanded === checkpoint.id && <div className="task-checkpoint-files"><CheckpointHandoff checkpoint={checkpoint} />{checkpoint.files.length === 0 ? <small>No filesystem changes recorded</small> : checkpoint.files.map((file) => <div key={`${file.originalPath ?? ""}:${file.path}`}><button onClick={() => onOpen(checkpoint, file)}><code>{file.status}</code><span>{file.originalPath ? `${file.originalPath} → ${file.path}` : file.path}</span>{file.binary && <small>binary</small>}</button><button disabled={checkpoint.status === "running"} onClick={() => onReview(checkpoint, file)}><Check size={12} />Accept file</button></div>)}<button className="task-checkpoint-restore" disabled={checkpoint.status === "running"} onClick={() => onRestore(checkpoint)}><RefreshCw size={12} />Restore checkpoint changes</button><button disabled={checkpoint.status === "running"} onClick={() => onFollowUp(checkpoint)}>Follow up</button></div>}
-    </section>)}</section>;
-}
-
-export function CheckpointHandoff({ checkpoint }: { checkpoint: TaskCheckpoint }) {
-  const provenance = checkpoint.provenance;
-  if (!provenance) return null;
-  const attachments = provenance.attachments?.map((item) => item.name).join(", ");
-  return <aside className="task-checkpoint-handoff" aria-label="Prompt handoff summary"><strong>Handoff</strong><small>{[provenance.model && `Model: ${provenance.model}${provenance.reasoning ? ` (${provenance.reasoning})` : ""}`, provenance.agent && `Agent: ${provenance.agent.name}`, attachments && `Attachments: ${attachments}`, provenance.usage && `Usage: ${provenance.usage.total.toLocaleString()} tokens`, provenance.commit && `Commit: ${provenance.commit.slice(0, 12)}`].filter(Boolean).join(" · ") || "No additional turn metadata"}</small></aside>;
-}
-
 function reviewOutcome(action: string, result: { applied: string[]; alreadyApplied: string[]; conflicts: { path: string; message: string }[] }): string {
   const parts = [`${action}: ${result.applied.length} applied`];
   if (result.alreadyApplied.length) parts.push(`${result.alreadyApplied.length} already applied`);
@@ -3418,369 +3394,7 @@ function reviewOutcome(action: string, result: { applied: string[]; alreadyAppli
   return parts.join("; ");
 }
 
-function ConnectionScreen(props: { host: string; port: string; status: ConnectionStatus; statusMessage: string; setHost(value: string): void; setPort(value: string): void; connect(): Promise<void> }) {
-  const connecting = props.status === "connecting";
-  return <main className="connection-screen"><form className="connection-form" onSubmit={(event) => { event.preventDefault(); void props.connect(); }}>
-    <h1>HatoPad</h1><p>Connect to a core backend</p>
-    <label>Host<input autoFocus value={props.host} onChange={(event) => props.setHost(event.target.value)} placeholder="192.168.1.50" required /></label>
-    <label>Port<input value={props.port} onChange={(event) => props.setPort(event.target.value)} type="number" min="1" max="65535" required /></label>
-    {props.statusMessage && <div role="status" aria-live="polite" className={`connection-message ${props.status}`}>{props.statusMessage}</div>}
-    <button className="primary" disabled={connecting}>{connecting ? "Connecting..." : "Connect"}</button>
-  </form></main>;
-}
-
-function readStackSizes(workspace: string, setting: string): Record<string, number[]> {
-  try {
-    const parsed: unknown = JSON.parse(readWorkspaceSetting(workspace, setting) ?? "{}");
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, number[]> : {};
-  } catch { return {}; }
-}
-
-function ResizablePanelStack({ children, workspace, setting, ids }: { children: ReactNode; workspace: string; setting: string; ids: string[] }) {
-  const items = Children.toArray(children);
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [savedSizes, setSavedSizes] = useState<Record<string, number[]>>(() => readStackSizes(workspace, setting));
-  // The workspace is only known once the connection is established, so stored sizes are re-read
-  // whenever it changes instead of staying on whatever was available when the stack first mounted.
-  useEffect(() => { setSavedSizes(readStackSizes(workspace, setting)); }, [workspace, setting]);
-  const signature = ids.join("|");
-  const stored = savedSizes[signature];
-  const sizes = stored?.length === items.length && stored.every((size) => Number.isFinite(size) && size > 0)
-    ? stored
-    : Array.from({ length: items.length }, () => 1 / Math.max(1, items.length));
-  const saveSizes = (next: number[]) => setSavedSizes((current) => {
-    const updated = { ...current, [signature]: next };
-    writeWorkspaceSetting(workspace, setting, JSON.stringify(updated));
-    return updated;
-  });
-  const beginResize = (event: React.PointerEvent<HTMLDivElement>, index: number) => {
-    event.currentTarget.setPointerCapture(event.pointerId);
-    const root = rootRef.current;
-    if (!root) return;
-    const bounds = root.getBoundingClientRect();
-    const available = bounds.height - (items.length - 1) * 5;
-    const startY = event.clientY;
-    const start = sizes;
-    const combined = start[index]! + start[index + 1]!;
-    const move = (moveEvent: PointerEvent) => {
-      const delta = (moveEvent.clientY - startY) / Math.max(1, available);
-      const minimum = Math.min(.45, 70 / Math.max(1, available));
-      const first = Math.max(minimum, Math.min(combined - minimum, start[index]! + delta));
-      saveSizes(start.map((value, itemIndex) => itemIndex === index ? first : itemIndex === index + 1 ? combined - first : value));
-    };
-    const end = () => { window.removeEventListener("pointermove", move); window.removeEventListener("pointerup", end); };
-    window.addEventListener("pointermove", move); window.addEventListener("pointerup", end);
-  };
-  const keyboardStackResize = (event: React.KeyboardEvent, index: number) => {
-    const direction = event.key === "ArrowUp" ? -1 : event.key === "ArrowDown" ? 1 : 0;
-    if (!direction) return;
-    event.preventDefault();
-    const combined = sizes[index]! + sizes[index + 1]!;
-    const step = event.shiftKey ? .1 : .025;
-    const first = Math.max(.1, Math.min(combined - .1, sizes[index]! + direction * step));
-    saveSizes(sizes.map((value, itemIndex) => itemIndex === index ? first : itemIndex === index + 1 ? combined - first : value));
-  };
-  return <div className="resizable-panel-stack" ref={rootRef}>{items.map((item, index) => <div className="resizable-panel-item" key={isValidElement(item) && item.key != null ? item.key : index} style={{ flexGrow: sizes[index] ?? 1 / Math.max(1, items.length) }}>{item}{index < items.length - 1 && <div className="focused-panel-divider" role="separator" aria-label={`Resize ${ids[index] ?? "upper"} panel`} aria-orientation="horizontal" aria-valuemin={10} aria-valuemax={90} aria-valuenow={Math.round((sizes[index] ?? .5) * 100)} tabIndex={0} onKeyDown={(event) => keyboardStackResize(event, index)} onPointerDown={(event) => beginResize(event, index)} />}</div>)}</div>;
-}
-
-function QuickFilter({ value, placeholder, label, onChange, contentSearch, contentSearchLoading, onContentSearchChange }: { value: string; placeholder: string; label: string; onChange(value: string): void; contentSearch?: boolean; contentSearchLoading?: boolean; onContentSearchChange?(enabled: boolean): void }) {
-  return <div className="quick-filter"><Search size={13} /><input aria-label={label} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />{value && <button title="Clear filter" aria-label="Clear filter" onClick={() => onChange("")}><X size={12} /></button>}{onContentSearchChange && <button className={contentSearch ? "active" : ""} title={contentSearch ? "Filter by file name" : "Filter by file contents"} aria-label="Filter by file contents" aria-pressed={contentSearch} onClick={() => onContentSearchChange(!contentSearch)}>{contentSearchLoading ? <LoaderCircle className="quick-filter-spinner" size={13} /> : <FileText size={13} />}</button>}</div>;
-}
-
-
-function JavaProjectTree({ nodes, activePath, onOpen }: { nodes: JavaProjectNode[]; activePath?: string; onOpen(node: FileTreeNode): void }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(nodes.filter((node) => node.type === "sourceRoot").map((node) => node.path)));
-  useEffect(() => setExpanded((current) => new Set([...current, ...nodes.filter((node) => node.type === "sourceRoot").map((node) => node.path)])), [nodes]);
-  const render = (items: JavaProjectNode[], depth: number): ReactNode => items.map((node) => {
-    if (node.type === "file") return <button key={node.path} className={`tree-row java-file-row ${activePath === node.path ? "selected" : ""}`} style={{ paddingLeft: 11 + depth * 13 }} onClick={() => onOpen({ name: node.name, path: node.path, type: "file" })}>
-      <JavaFileIcon type={node.javaType} /><span className="tree-file-name">{node.name}</span>
-    </button>;
-    const open = expanded.has(node.path);
-    return <div key={node.path}>
-      <button className={`tree-row ${node.type === "sourceRoot" ? "java-source-root" : ""}`} style={{ paddingLeft: 7 + depth * 13 }} onClick={() => setExpanded((current) => { const next = new Set(current); open ? next.delete(node.path) : next.add(node.path); return next; })}>
-        {open ? <ChevronDown size={13} /> : <ChevronRight size={13} />}{node.type === "sourceRoot" ? <FolderOpen className={`folder-kind-icon java-root-${node.sourceKind ?? "source"}`} size={14} /> : <Package size={14} color="var(--warning)" />}<span className="tree-file-name">{node.name}</span>
-      </button>
-      {open && render(node.children ?? [], depth + 1)}
-    </div>;
-  });
-  return <>{render(nodes, 0)}</>;
-}
-
-export function TaskRow({ icon, name, branch, summary, finished = false, archived = false, selected, disabled, onClick, onSetFinished, onRename, onSetArchived, onMerge, onDelete, onCancelTimer, onFireTimer }: { icon: ReactNode; name: string; branch?: string; summary: AiTaskSummary; finished?: boolean; archived?: boolean; selected: boolean; disabled: boolean; onClick(): void; onSetFinished?(): void; onRename?(): void; onSetArchived?(): void; onMerge?(): void; onDelete?(): void; onCancelTimer?(): void; onFireTimer?(): void }) {
-  const [menu, setMenu] = useState<{ x: number; y: number }>();
-  const [now, setNow] = useState(Date.now());
-  useEffect(() => {
-    if (summary.status !== "waiting" || !summary.waitingUntil) return;
-    setNow(Date.now());
-    const interval = window.setInterval(() => setNow(Date.now()), 1_000);
-    return () => window.clearInterval(interval);
-  }, [summary.status, summary.waitingUntil]);
-  const waiting = summary.status === "waiting" && summary.waitingUntil ? `Waiting · ${formatCountdown(new Date(summary.waitingUntil).getTime() - now)}` : undefined;
-  const hasTimer = Boolean(summary.waitingUntil);
-  const hasActions = Boolean(onSetFinished || onRename || onSetArchived || onDelete || (hasTimer && (onCancelTimer || onFireTimer)));
-  const preview = summary.pendingPermission ? "Waiting for permission approval" : (waiting ? `Continuation scheduled in ${formatCountdown(new Date(summary.waitingUntil!).getTime() - now)}` : summary.preview || "No AI activity yet");
-  const openMenu = (x: number, y: number) => setMenu({ x: Math.max(8, Math.min(x, window.innerWidth - 220)), y: Math.max(8, Math.min(y, window.innerHeight - 170)) });
-  return <div className={`task-row ${selected ? "selected" : ""} ${finished ? "finished" : ""} ${archived ? "archived" : ""}`} onContextMenu={(event) => { if (!hasActions || disabled) return; event.preventDefault(); openMenu(event.clientX, event.clientY); }}><button className="task-open" disabled={disabled} title={`${name}${branch && branch !== name ? `\nBranch: ${branch}` : ""}\n${preview}`} onClick={onClick}>
-    <span className="task-icon">{icon}</span>
-    <span className="task-content"><span className="task-title"><strong>{name}</strong>{finished && <small className="task-finished-status">Finished</small>}{archived && <small className="task-finished-status">Archived</small>}{(summary.additions > 0 || summary.deletions > 0) && <span className="task-diff-stat"><small>+{summary.additions}</small><small>-{summary.deletions}</small></span>}{summary.pendingPermission ? <small className="task-ai-status permission"><ShieldAlert size={13} /> Permission needed</small> : summary.status !== "idle" && <small className={`task-ai-status ${summary.status}`}>{summary.status === "in_progress" && <LoaderCircle className="task-progress-spinner" size={13} />}{waiting ?? formatAiStatus(summary.status)}</small>}</span>{branch && branch !== name && <span className="task-branch">{branch}</span>}<span className="task-preview"><TaskPreviewMarkdown>{preview}</TaskPreviewMarkdown></span></span>
-    {selected && <Check className="task-check" size={13} />}
-  </button>{hasActions && <button className="task-actions" title={`Actions for ${name}`} disabled={disabled} onClick={(event) => { event.stopPropagation(); const bounds = event.currentTarget.getBoundingClientRect(); openMenu(bounds.right - 180, bounds.bottom + 2); }}><MoreVertical size={14} /></button>}
-    {menu && <div className="context-menu-layer" onMouseDown={() => setMenu(undefined)}><ContextMenu className="context-menu task-actions-menu" style={{ left: menu.x, top: menu.y }} onMouseDown={(event) => event.stopPropagation()}>
-      {onSetFinished && <button onClick={() => { setMenu(undefined); onSetFinished(); }}><Check size={14} /><span>{finished ? "Restore task" : "Mark as Finished"}</span></button>}
-      {onRename && <button onClick={() => { setMenu(undefined); onRename(); }}><Pencil size={14} /><span>Rename task</span></button>}
-      {onSetArchived && <button onClick={() => { setMenu(undefined); onSetArchived(); }}><Archive size={14} /><span>{archived ? "Unarchive task" : "Archive task"}</span></button>}
-      {hasTimer && <button onClick={() => { setMenu(undefined); onFireTimer?.(); }}><Play size={14} /><span>Run timer now</span></button>}
-      {hasTimer && <button onClick={() => { setMenu(undefined); onCancelTimer?.(); }}><Square size={14} /><span>Cancel timer</span></button>}
-      {onMerge && <button onClick={() => { setMenu(undefined); onMerge(); }}><GitMerge size={14} /><span>Merge to main workspace</span></button>}
-      {onDelete && <button className="danger" onClick={() => { setMenu(undefined); onDelete(); }}><Trash2 size={14} /><span>Delete task</span></button>}
-    </ContextMenu></div>}
-  </div>;
-}
-
-function formatCountdown(milliseconds: number): string {
-  const seconds = Math.max(0, Math.ceil(milliseconds / 1_000));
-  const hours = Math.floor(seconds / 3_600);
-  const minutes = Math.floor((seconds % 3_600) / 60);
-  const remainder = seconds % 60;
-  if (hours > 0) return `${hours}h ${minutes}m`;
-  if (minutes > 0) return `${minutes}m ${remainder}s`;
-  return `${remainder}s`;
-}
-
-function TaskPreviewMarkdown({ children }: { children: string }) {
-  return <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ p: ({ children: value }) => <span>{value}</span>, strong: ({ children: value }) => <em>{value}</em> }}>{children}</ReactMarkdown>;
-}
-
-function UsefulFileSection({ title, scope, files, activeTab, onOpen, onCreate, onRename, onDelete }: { title: string; scope: UsefulFileScope; files: UsefulFile[]; activeTab?: EditorTab; onOpen(file: UsefulFile): void; onCreate(scope: UsefulFileScope): void; onRename(file: UsefulFile): void; onDelete(file: UsefulFile): void }) {
-  const scoped = files.filter((file) => file.scope === scope);
-  const [configs, setConfigs] = useState<RunConfig[]>([]);
-  useEffect(() => { const listener = (event: Event) => setConfigs((event as CustomEvent<RunConfig[]>).detail); window.addEventListener("hatopad:run-configs", listener); window.dispatchEvent(new Event("hatopad:request-run-configs")); return () => window.removeEventListener("hatopad:run-configs", listener); }, []);
-  return <section className="useful-section"><header><span>{title}</span><button title={`Create ${title} file`} onClick={() => onCreate(scope)}><Plus size={14} /></button><button title={`Create ${title} Run Config`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:create-run-config", { detail: scope }))}><Play size={13} /><Plus size={9} /></button></header>
-    {scoped.length === 0 ? <div className="useful-empty">No files</div> : scoped.map((file) => <div key={file.name} className={`useful-row ${activeTab?.type === "useful" && activeTab.usefulScope === scope && activeTab.path === file.name ? "selected" : ""}`}><button className="useful-open" title={file.name} onClick={() => void onOpen(file)}><FileKindIcon name={file.name} /><span>{file.name}</span></button><button title={`Rename ${file.name}`} onClick={() => onRename(file)}><Pencil size={12} /></button><button title={`Delete ${file.name}`} onClick={() => onDelete(file)}><Trash2 size={12} /></button></div>)}
-    {configs.filter((config) => config.scope === scope).map((config) => <div key={`run:${config.name}`} className={`useful-row run-config-useful-row ${activeTab?.type === "runConfig" && activeTab.runConfigScope === scope && activeTab.path === config.name ? "selected" : ""}`}><button className="useful-open" title={`${config.name} (${config.status})`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:open-run-config", { detail: config }))}><Play className={`run-config-icon ${config.status}`} size={14} /><span>{config.name}</span></button><button title={`Rename ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:rename-run-config", { detail: config }))}><Pencil size={12} /></button><button title={`Delete ${config.name}`} onClick={() => window.dispatchEvent(new CustomEvent("hatopad:delete-run-config", { detail: config }))}><Trash2 size={12} /></button></div>)}
-  </section>;
-}
-
-function MergeTaskDialog({ task, onClose, onMerge }: { task: WorkspaceTask; onClose(): void; onMerge(strategy: "merge" | "smart"): void }) {
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
-    window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener);
-  }, [onClose]);
-  return <div className="dialog-overlay" onMouseDown={onClose}>
-    <section className="run-config-dialog merge-task-dialog" role="dialog" aria-modal="true" aria-labelledby="merge-task-title" onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><h2 id="merge-task-title">Merge task to main workspace</h2><span>{task.name}</span></div><button title="Close" onClick={onClose}><X size={15} /></button></header>
-      <div className="merge-task-content">
-        <div className="merge-task-intro"><GitMerge size={22} /><div><strong>Ready to integrate this task?</strong><span>All task changes will be committed first.</span></div></div>
-        <div className="merge-task-options">
-          <button onClick={() => onMerge("merge")}><span className="merge-option-icon"><GitMerge size={17} /></span><span><strong>Commit and merge</strong><small>Commit the task, then merge it normally. Main must have no uncommitted changes.</small></span></button>
-          <button className="recommended" autoFocus onClick={() => onMerge("smart")}><span className="merge-option-icon"><GitCompareArrows size={17} /></span><span><strong>Smart merge <em>Recommended</em></strong><small>Preserve local main changes, rebase the task onto main, then restore your work.</small></span></button>
-        </div>
-        <footer><button onClick={onClose}>Cancel</button></footer>
-      </div>
-    </section>
-  </div>;
-}
-
-function UsefulFileDialog({ mode, initialName, scope, onClose, onSave }: { mode: "create" | "rename"; initialName: string; scope: UsefulFileScope; onClose(): void; onSave(name: string): Promise<void> }) {
-  const [name, setName] = useState(initialName);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const save = async () => { if (!name.trim() || saving) return; setSaving(true); setError(""); try { await onSave(name.trim()); } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not save useful file"); setSaving(false); } };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}><section className="run-config-dialog useful-file-dialog" role="dialog" aria-modal="true" aria-label={`${mode} useful file`} onMouseDown={(event) => event.stopPropagation()}><header><div><h2>{mode === "create" ? "Create" : "Rename"} Useful File</h2><span>{scope === "global" ? "Global" : "Local"}</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header><form onSubmit={(event) => { event.preventDefault(); void save(); }}><label>File name<input autoFocus value={name} disabled={saving} maxLength={180} placeholder="notes.md" onChange={(event) => setName(event.target.value)} /></label>{error && <div className="find-error">{error}</div>}<footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !name.trim()}>{saving ? "Saving..." : mode === "create" ? "Create" : "Rename"}</button></footer></form></section></div>;
-}
-
-function ProjectPathDialog({ mode, initialName, parentPath, onClose, onSave }: { mode: "file" | "directory" | "rename"; initialName: string; parentPath: string; onClose(): void; onSave(name: string): Promise<void> }) {
-  const [name, setName] = useState(initialName); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const label = mode === "file" ? "New File" : mode === "directory" ? "New Directory" : "Rename";
-  const save = async () => { if (!name.trim() || saving) return; setSaving(true); setError(""); try { await onSave(name.trim()); } catch (reason) { setError(reason instanceof Error ? reason.message : `Could not ${label.toLowerCase()}`); setSaving(false); } };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}><section className="run-config-dialog useful-file-dialog" role="dialog" aria-modal="true" aria-label={label} onMouseDown={(event) => event.stopPropagation()}><header><div><h2>{label}</h2><span>{parentPath || "Workspace root"}</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header><form onSubmit={(event) => { event.preventDefault(); void save(); }}><label>{mode === "directory" ? "Directory name" : "Path"}<input autoFocus value={name} disabled={saving} maxLength={240} placeholder={mode === "file" ? "src/new-file.ts" : mode === "directory" ? "components" : "new-name"} onChange={(event) => setName(event.target.value)} /></label>{error && <div className="find-error">{error}</div>}<footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !name.trim()}>{saving ? "Saving..." : mode === "rename" ? "Rename" : "Create"}</button></footer></form></section></div>;
-}
-
-function WorkspaceRootDialog({ onClose, onSave }: { onClose(): void; onSave(path: string, alias: string): Promise<void> }) {
-  const [path, setPath] = useState(""); const [alias, setAlias] = useState(""); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const suggestedAlias = path.trim().split(/[\\/]/).filter(Boolean).at(-1) ?? "";
-  const save = async () => { const rootPath = path.trim(); const rootAlias = alias.trim() || suggestedAlias; if (!rootPath || !rootAlias || saving) return; setSaving(true); setError(""); try { await onSave(rootPath, rootAlias); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not add workspace root"); setSaving(false); } };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}><section className="run-config-dialog useful-file-dialog" role="dialog" aria-modal="true" aria-label="Add workspace root" onMouseDown={(event) => event.stopPropagation()}><header><div><h2>Add Workspace Root</h2><span>Remote Core machine</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header><form onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Absolute path<input autoFocus value={path} disabled={saving} placeholder="/home/user/project" onChange={(event) => setPath(event.target.value)} /></label><label>Root name<input value={alias} disabled={saving} placeholder={suggestedAlias || "project"} onChange={(event) => setAlias(event.target.value)} /></label>{error && <div className="find-error">{error}</div>}<footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !path.trim()}>{saving ? "Adding..." : "Add Root"}</button></footer></form></section></div>;
-}
-
-function RunConfigDialog({ scope, onClose, onSave }: { scope: RunConfigScope; onClose(): void; onSave(name: string, commands: string): Promise<void> }) {
-  const [name, setName] = useState("dev"); const [commands, setCommands] = useState("# Commands run in order in one shell\nnpm run dev\n"); const [saving, setSaving] = useState(false); const [error, setError] = useState("");
-  const save = async () => { if (!name.trim() || saving) return; setSaving(true); try { await onSave(name.trim(), commands); } catch (reason) { setError(reason instanceof Error ? reason.message : "Could not create Run Config"); setSaving(false); } };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}><section className="run-config-dialog useful-file-dialog" role="dialog" aria-modal="true" aria-label="Create Run Config" onMouseDown={(event) => event.stopPropagation()}><header><div><h2>Create Run Config</h2><span>{scope === "global" ? "Global" : "Local"}</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header><form onSubmit={(event) => { event.preventDefault(); void save(); }}><label>Name<input autoFocus value={name} maxLength={120} disabled={saving} onChange={(event) => setName(event.target.value)} /></label><label>Shell commands<textarea rows={7} value={commands} disabled={saving} onChange={(event) => setCommands(event.target.value)} /></label>{error && <div className="find-error">{error}</div>}<footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !name.trim()}>{saving ? "Creating..." : "Create"}</button></footer></form></section></div>;
-}
-
-function AgentsPanel({ agents, activeTab, onRefresh, onOpen, onCreate, onRename, onDelete }: { agents: AgentFile[]; activeTab?: EditorTab; onRefresh(): void; onOpen(file: AgentFile): void; onCreate(scope: "global" | "local"): void; onRename(file: AgentFile): void; onDelete(file: AgentFile): void }) {
-  return <><header className="panel-header"><span>Agents</span><button title="Refresh agents" onClick={onRefresh}><RefreshCw size={14} /></button></header><div className="useful-files-list"><AgentSection title="Global" scope="global" {...{ agents, activeTab, onOpen, onCreate, onRename, onDelete }} /><AgentSection title="Local" scope="local" {...{ agents, activeTab, onOpen, onCreate, onRename, onDelete }} /><AgentSection title="Workspace (.agents)" scope="workspace" {...{ agents, activeTab, onOpen, onCreate, onRename, onDelete }} /></div></>;
-}
-
-function AgentPicker({ agents, value, disabled, onChange }: { agents: AgentFile[]; value: string; disabled: boolean; onChange(value: string): void }) {
-  return <select className="ai-agent-picker" aria-label="AI agent" title="Agent preset" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}><option value="">No agent</option>{(["global", "local", "workspace"] as const).map((scope) => { const scoped = agents.filter((agent) => agent.scope === scope); return scoped.length ? <optgroup key={scope} label={scope === "workspace" ? "Workspace" : scope[0]!.toUpperCase() + scope.slice(1)}>{scoped.map((agent) => <option key={agentKey(agent)} value={agentKey(agent)}>{agent.agent.name}</option>)}</optgroup> : null; })}</select>;
-}
-
-function AgentSection({ title, scope, agents, activeTab, onOpen, onCreate, onRename, onDelete }: { title: string; scope: AgentFileScope; agents: AgentFile[]; activeTab?: EditorTab; onOpen(file: AgentFile): void; onCreate(scope: "global" | "local"): void; onRename(file: AgentFile): void; onDelete(file: AgentFile): void }) {
-  const scoped = agents.filter((agent) => agent.scope === scope);
-  return <section className="useful-section"><header><span>{title}</span>{scope !== "workspace" && <button title={`Create ${title} agent`} onClick={() => onCreate(scope)}><Plus size={14} /></button>}</header>
-    {scoped.length === 0 ? <div className="useful-empty">No agents</div> : scoped.map((file) => <div key={file.name} className={`useful-row ${activeTab?.type === "agent" && activeTab.agentScope === scope && activeTab.path === file.name || activeTab?.type === "file" && scope === "workspace" && activeTab.path === `.agents/${file.name}` ? "selected" : ""}`}><button className="useful-open" title={file.agent.description ?? file.agent.name} onClick={() => onOpen(file)}><Bot className="agent-kind-icon" size={14} /><span>{file.agent.name}</span></button>{scope !== "workspace" && <><button title={`Rename ${file.name}`} onClick={() => onRename(file)}><Pencil size={12} /></button><button title={`Delete ${file.name}`} onClick={() => onDelete(file)}><Trash2 size={12} /></button></>}</div>)}
-  </section>;
-}
-
-function AgentDialog({ mode, initialName, scope, onClose, onSave }: { mode: "create" | "rename"; initialName: string; scope: "global" | "local"; onClose(): void; onSave(name: string): Promise<void> }) {
-  const [name, setName] = useState(initialName);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  const save = async () => { if (!name.trim() || saving) return; setSaving(true); setError(""); try { await onSave(name.trim()); } catch (saveError) { setError(saveError instanceof Error ? saveError.message : "Could not save agent"); setSaving(false); } };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}><section className="run-config-dialog useful-file-dialog" role="dialog" aria-modal="true" aria-label={`${mode} agent`} onMouseDown={(event) => event.stopPropagation()}><header><div><h2>{mode === "create" ? "Create" : "Rename"} Agent</h2><span>{scope === "global" ? "Global" : "Local"}</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header><form onSubmit={(event) => { event.preventDefault(); void save(); }}><label>File name<input autoFocus value={name} disabled={saving} maxLength={180} placeholder="reviewer.md" onChange={(event) => setName(event.target.value)} /></label>{mode === "create" && <small>A Markdown agent template will be created.</small>}{error && <div className="find-error">{error}</div>}<footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !name.trim()}>{saving ? "Saving..." : mode === "create" ? "Create" : "Rename"}</button></footer></form></section></div>;
-}
-
-function GitChangesView({ entries, error, emptyMessage = "No local changes", groupTitle, selectedPaths, onTogglePath, activePath, onOpenDiff, onOpenFile, onContextMenu }: { entries: GitStatusEntry[]; error: string; emptyMessage?: string; groupTitle?: string; selectedPaths?: Set<string>; onTogglePath?(path: string): void; activePath?: string; onOpenDiff(entry: GitStatusEntry): void; onOpenFile(entry: GitStatusEntry): void; onContextMenu?(event: ReactMouseEvent, entry: GitStatusEntry): void }) {
-  if (error) return <div className="git-empty error">{error}</div>;
-  if (entries.length === 0) return <div className="git-empty">{emptyMessage}</div>;
-  const groups = groupTitle ? [{ title: groupTitle, entries }] : [
-    { title: "Conflicts", entries: entries.filter((entry) => entry.indexStatus === "U" || entry.worktreeStatus === "U" || ["AA", "DD"].includes(entry.indexStatus + entry.worktreeStatus)) },
-    { title: "Untracked", entries: entries.filter((entry) => entry.indexStatus === "?" && entry.worktreeStatus === "?") },
-    { title: "Staged", entries: entries.filter((entry) => entry.indexStatus !== " " && entry.indexStatus !== "?" && entry.indexStatus !== "U" && !["AA", "DD"].includes(entry.indexStatus + entry.worktreeStatus)) },
-    { title: "Changes", entries: entries.filter((entry) => entry.indexStatus === " " && entry.worktreeStatus !== " " && entry.worktreeStatus !== "?" && entry.worktreeStatus !== "U") }
-  ].filter((group) => group.entries.length > 0);
-  return <div className="git-changes">{groups.map((group) => <GitChangeGroup key={group.title} title={group.title} entries={group.entries} selectedPaths={selectedPaths} onTogglePath={onTogglePath} activePath={activePath} onOpenDiff={onOpenDiff} onOpenFile={onOpenFile} onContextMenu={onContextMenu} />)}</div>;
-}
-
-function GitChangeGroup({ title, entries, selectedPaths, onTogglePath, activePath, onOpenDiff, onOpenFile, onContextMenu }: { title: string; entries: GitStatusEntry[]; selectedPaths?: Set<string>; onTogglePath?(path: string): void; activePath?: string; onOpenDiff(entry: GitStatusEntry): void; onOpenFile(entry: GitStatusEntry): void; onContextMenu?(event: ReactMouseEvent, entry: GitStatusEntry): void }) {
-  const [expanded, setExpanded] = useState(true);
-  const selectable = Boolean(onTogglePath);
-  const selectedCount = entries.filter((entry) => selectedPaths?.has(entry.path)).length;
-  const allSelected = entries.length > 0 && selectedCount === entries.length;
-  return <section className={`git-group git-group-${title.toLowerCase()}`}>
-    <button className="git-group-title" aria-expanded={expanded} onClick={() => setExpanded((current) => !current)}>
-      {expanded ? <ChevronDown className="tree-chevron" size={14} /> : <ChevronRight className="tree-chevron" size={14} />}{selectable && <input type="checkbox" aria-label={`Select all ${title.toLowerCase()} files`} checked={allSelected} ref={(input) => { if (input) input.indeterminate = selectedCount > 0 && !allSelected; }} onClick={(event) => event.stopPropagation()} onChange={() => entries.forEach((entry) => { if ((selectedPaths?.has(entry.path) ?? false) === allSelected) onTogglePath?.(entry.path); })} />}<span>{title}</span><span className="git-count">{entries.length}</span>
-    </button>
-    {expanded && <GitStatusTree entries={entries} selectedPaths={selectedPaths} onTogglePath={onTogglePath} activePath={activePath} onOpenDiff={onOpenDiff} onOpenFile={onOpenFile} onContextMenu={onContextMenu} />}
-  </section>;
-}
-
-type GitTreeNode =
-  | { type: "directory"; name: string; path: string; children: GitTreeNode[] }
-  | { type: "file"; name: string; path: string; entry: GitStatusEntry };
-
-function GitStatusTree({ entries, selectedPaths, onTogglePath, activePath, onOpenDiff, onOpenFile, onContextMenu }: { entries: GitStatusEntry[]; selectedPaths?: Set<string>; onTogglePath?(path: string): void; activePath?: string; onOpenDiff(entry: GitStatusEntry): void; onOpenFile(entry: GitStatusEntry): void; onContextMenu?(event: ReactMouseEvent, entry: GitStatusEntry): void }) {
-  const nodes = useMemo(() => buildGitTree(entries), [entries]);
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(collectGitDirectories(nodes)));
-  useEffect(() => setExpanded((current) => new Set([...current, ...collectGitDirectories(nodes)])), [nodes]);
-
-  const renderNodes = (items: GitTreeNode[], depth: number): ReactNode => items.map((node) => {
-    if (node.type === "directory") {
-      const open = expanded.has(node.path);
-      const descendantPaths = collectGitFiles(node);
-      const selectedCount = descendantPaths.filter((path) => selectedPaths?.has(path)).length;
-      const allSelected = descendantPaths.length > 0 && selectedCount === descendantPaths.length;
-      return <div key={node.path}>
-        <button className="git-file-row git-directory-row" style={{ paddingLeft: (onTogglePath ? 9 : 27) + depth * 13 }} onClick={() => setExpanded((current) => { const next = new Set(current); open ? next.delete(node.path) : next.add(node.path); return next; })}>
-          {onTogglePath && <input type="checkbox" aria-label={`Select all changes under ${node.path}`} checked={allSelected} ref={(input) => { if (input) input.indeterminate = selectedCount > 0 && !allSelected; }} onClick={(event) => event.stopPropagation()} onChange={() => descendantPaths.forEach((path) => { if ((selectedPaths?.has(path) ?? false) === allSelected) onTogglePath(path); })} />}
-          {open ? <ChevronDown className="tree-chevron" size={14} /> : <ChevronRight className="tree-chevron" size={14} />}{open ? <FolderOpen className="folder-kind-icon" size={15} /> : <Folder className="folder-kind-icon" size={15} />}<span className="git-file-name">{node.name}</span>
-        </button>
-        {open && renderNodes(node.children, depth + 1)}
-      </div>;
-    }
-    const entry = node.entry;
-    const deleted = entry.indexStatus === "D" || entry.worktreeStatus === "D";
-    const status = entry.indexStatus === "?" ? "U" : `${entry.indexStatus}${entry.worktreeStatus}`.trim();
-    const kind = entry.indexStatus === "U" || entry.worktreeStatus === "U" ? "conflict" : entry.indexStatus === "?" ? "untracked" : deleted ? "deleted" : entry.indexStatus === "A" ? "added" : "modified";
-    return <button key={node.path} className={`git-file-row ${activePath === entry.path ? "selected" : ""}`} style={{ paddingLeft: (onTogglePath ? 9 : 27) + depth * 13 }} title={deleted ? `${entry.path} (deleted)` : `${entry.path} - double-click to open file`} onClick={() => onOpenDiff(entry)} onDoubleClick={() => { if (!deleted) onOpenFile(entry); }} onContextMenu={onContextMenu ? (event) => onContextMenu(event, entry) : undefined}>
-      {onTogglePath && <input type="checkbox" aria-label={`Select ${entry.path}`} checked={selectedPaths?.has(entry.path) ?? false} onClick={(event) => event.stopPropagation()} onChange={() => onTogglePath(entry.path)} />}
-      <span className="tree-indent" /><FileKindIcon name={node.name} /><span className="git-file-name">{node.name}</span><span className={`git-status ${kind}`}>{status}</span>
-    </button>;
-  });
-  return <>{renderNodes(nodes, 0)}</>;
-}
-
-function buildGitTree(entries: GitStatusEntry[]): GitTreeNode[] {
-  const root: GitTreeNode[] = [];
-  const splitPaths = entries.map((entry) => entry.path.split("/"));
-  let sharedDepth = 0;
-  const maximumSharedDepth = Math.max(0, Math.min(...splitPaths.map((parts) => parts.length)) - 1);
-  while (sharedDepth < maximumSharedDepth && splitPaths.every((parts) => parts[sharedDepth] === splitPaths[0]?.[sharedDepth])) sharedDepth += 1;
-  for (const entry of entries) {
-    const fullParts = entry.path.split("/");
-    const parts = fullParts.slice(sharedDepth);
-    let children = root;
-    let currentPath = fullParts.slice(0, sharedDepth).join("/");
-    for (let index = 0; index < parts.length; index += 1) {
-      const name = parts[index]!;
-      currentPath = currentPath ? `${currentPath}/${name}` : name;
-      if (index === parts.length - 1) {
-        children.push({ type: "file", name, path: currentPath, entry });
-      } else {
-        let directory = children.find((node): node is Extract<GitTreeNode, { type: "directory" }> => node.type === "directory" && node.name === name);
-        if (!directory) {
-          directory = { type: "directory", name, path: currentPath, children: [] };
-          children.push(directory);
-        }
-        children = directory.children;
-      }
-    }
-  }
-  const sort = (nodes: GitTreeNode[]) => {
-    nodes.sort((a, b) => Number(b.type === "directory") - Number(a.type === "directory") || a.name.localeCompare(b.name));
-    for (const node of nodes) if (node.type === "directory") sort(node.children);
-  };
-  sort(root);
-  return compactGitDirectories(root);
-}
-
-function compactGitDirectories(nodes: GitTreeNode[]): GitTreeNode[] {
-  return nodes.map((node) => {
-    if (node.type === "file") return node;
-    let compacted: Extract<GitTreeNode, { type: "directory" }> = { ...node, children: compactGitDirectories(node.children) };
-    while (compacted.children.length === 1 && compacted.children[0]?.type === "directory") {
-      const child = compacted.children[0];
-      compacted = { ...compacted, name: `${compacted.name}/${child.name}`, path: child.path, children: child.children };
-    }
-    return compacted;
-  });
-}
-
-function collectGitDirectories(nodes: GitTreeNode[]): string[] {
-  return nodes.flatMap((node) => node.type === "directory" ? [node.path, ...collectGitDirectories(node.children)] : []);
-}
-
-function collectGitFiles(node: GitTreeNode): string[] {
-  return node.type === "file" ? [node.entry.path] : node.children.flatMap(collectGitFiles);
-}
-
-function CreateTaskDialog({ client, onClose, onCreate }: { client: CoreClient; onClose(): void; onCreate(branch: string, existing?: { remote: boolean }): Promise<void> }) {
-  const [branch, setBranch] = useState("");
-  const [branches, setBranches] = useState<GitBranchInfo[]>([]);
-  const [selected, setSelected] = useState<GitBranchInfo>();
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => { if (event.key === "Escape" && !saving) onClose(); };
-    window.addEventListener("keydown", listener); return () => window.removeEventListener("keydown", listener);
-  }, [onClose, saving]);
-  useEffect(() => {
-    let current = true;
-    void client.request("git.branches", {}).then((result) => { if (current) setBranches(result.branches); }).catch((loadError) => { if (current) setError(loadError instanceof Error ? loadError.message : "Could not load branches"); });
-    return () => { current = false; };
-  }, [client]);
-  const suggestions = useMemo(() => {
-    const query = branch.trim().toLowerCase();
-    return branches.filter((item) => !item.current && (!query || item.name.toLowerCase().includes(query))).slice(0, 8);
-  }, [branch, branches]);
-  const create = async () => {
-    if (!branch.trim() || saving) return;
-    setSaving(true); setError("");
-    try { await onCreate(branch.trim(), selected ? { remote: selected.remote } : undefined); onClose(); }
-    catch (createError) { setError(createError instanceof Error ? createError.message : "Could not create task"); setSaving(false); }
-  };
-  return <div className="dialog-overlay" onMouseDown={() => { if (!saving) onClose(); }}>
-    <section className="run-config-dialog task-create-dialog" role="dialog" aria-modal="true" aria-label="Create task" onMouseDown={(event) => event.stopPropagation()}>
-      <header><div><h2>Create Task</h2><span>A separate workspace copy will be created for this branch.</span></div><button title="Close" disabled={saving} onClick={onClose}><X size={15} /></button></header>
-      <form onSubmit={(event) => { event.preventDefault(); void create(); }}>
-        <label>Branch name<input autoFocus value={branch} disabled={saving} onChange={(event) => { setBranch(event.target.value); setSelected(undefined); }} maxLength={200} placeholder="feature/my-task" /></label>
-        {suggestions.length > 0 && <div className="task-branch-help" role="listbox" aria-label="Existing branches">{suggestions.map((item) => <button type="button" role="option" aria-selected={selected?.name === item.name} className={selected?.name === item.name ? "selected" : ""} key={`${item.remote ? "remote" : "local"}:${item.name}`} onClick={() => { setBranch(item.name); setSelected(item); }}><GitBranch size={13} /><span>{item.name}</span><small>{item.remote ? "remote" : "existing"}</small></button>)}</div>}
-        <div className="task-branch-mode">{selected ? <>Use existing {selected.remote ? "remote " : ""}branch <strong>{selected.name}</strong></> : <>Create new branch <strong>{branch.trim() || "..."}</strong></>}</div>
-        {error && <div className="find-error">{error}</div>}
-        <footer><button type="button" disabled={saving} onClick={onClose}>Cancel</button><button className="primary" disabled={saving || !branch.trim()}>{saving ? "Creating..." : "Create"}</button></footer>
-      </form>
-    </section>
-  </div>;
-}
+// Keep existing named imports working while components live in their domain modules.
+export { TaskRow } from "./TaskRow";
+export { TaskCheckpointHistory, CheckpointHandoff } from "./TaskCheckpointHistory";
+export { keyboardResize, selectedLineRange } from "./editor-helpers";
