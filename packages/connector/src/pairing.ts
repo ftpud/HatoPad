@@ -7,7 +7,7 @@ import {
   parsePairingPollResponse,
   parsePairingStartResponse,
   type PairingClaimant,
-  type PairingStartRequest
+  type PairingStartRequest,
 } from "@hatopad/relay";
 
 export interface StoredPairing {
@@ -24,13 +24,15 @@ const posix = process.platform !== "win32";
 async function assertPrivateFile(file: string): Promise<void> {
   const info = await lstat(file);
   if (!info.isFile() || info.isSymbolicLink()) throw new Error("Pairing store must be a regular file");
-  if (posix && ((info.mode & 0o077) !== 0 || (process.getuid && info.uid !== process.getuid()))) throw new Error("Pairing store must be private (0600) and owned by this user");
+  if (posix && ((info.mode & 0o077) !== 0 || (process.getuid && info.uid !== process.getuid())))
+    throw new Error("Pairing store must be private (0600) and owned by this user");
 }
 
 async function assertSafeDirectory(directory: string): Promise<void> {
   const info = await lstat(directory);
   if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Pairing store directory must be a real directory");
-  if (posix && ((info.mode & 0o022) !== 0 || (process.getuid && info.uid !== process.getuid()))) throw new Error("Pairing store directory must be owned by this user and not writable by others");
+  if (posix && ((info.mode & 0o022) !== 0 || (process.getuid && info.uid !== process.getuid())))
+    throw new Error("Pairing store directory must be owned by this user and not writable by others");
 }
 
 /** File-backed credential store: created directories 0700, file 0600, exclusive temp file, atomic replace. */
@@ -44,12 +46,22 @@ export class PairingStore {
       text = await readFile(this.path, "utf8");
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
-      throw error instanceof Error && error.message.startsWith("Pairing store") ? error : new Error("Pairing store is unreadable");
+      throw error instanceof Error && error.message.startsWith("Pairing store")
+        ? error
+        : new Error("Pairing store is unreadable");
     }
     try {
       const value = JSON.parse(text) as Partial<StoredPairing>;
-      if (typeof value.hubUrl === "string" && typeof value.coreId === "string" && typeof value.deviceId === "string" && typeof value.credential === "string") return value as StoredPairing;
-    } catch { /* fall through */ }
+      if (
+        typeof value.hubUrl === "string" &&
+        typeof value.coreId === "string" &&
+        typeof value.deviceId === "string" &&
+        typeof value.credential === "string"
+      )
+        return value as StoredPairing;
+    } catch {
+      /* fall through */
+    }
     return undefined;
   }
 
@@ -69,13 +81,19 @@ export class PairingStore {
       throw error;
     }
     await handle.close();
-    try { await rename(temporary, this.path); }
-    catch (error) { await unlink(temporary).catch(() => undefined); throw error; }
+    try {
+      await rename(temporary, this.path);
+    } catch (error) {
+      await unlink(temporary).catch(() => undefined);
+      throw error;
+    }
   }
 
   /** Unpair locally. The hub-side credential must also be revoked by its owner. */
   async clear(): Promise<void> {
-    await unlink(this.path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; });
+    await unlink(this.path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "ENOENT") throw error;
+    });
   }
 }
 
@@ -97,9 +115,7 @@ export interface PairOptions {
   now?: () => number;
 }
 
-export type PairResult =
-  | { status: "paired"; pairing: StoredPairing }
-  | { status: "failed"; reason: string };
+export type PairResult = { status: "paired"; pairing: StoredPairing } | { status: "failed"; reason: string };
 
 const alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 
@@ -113,7 +129,8 @@ export function generatePairingCode(): string {
 function endpoint(origin: string, path: string): URL {
   const url = new URL(path, origin);
   const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
-  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback)) throw new Error("Hub origin must use https://");
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && loopback))
+    throw new Error("Hub origin must use https://");
   return url;
 }
 
@@ -136,25 +153,35 @@ export async function pairDevice(options: PairOptions): Promise<PairResult> {
     deviceId,
     deviceName: options.deviceName,
     connectorVersion: options.connectorVersion ?? "0.1.0",
-    relay: { ...RELAY_WIRE_RANGE }
+    relay: { ...RELAY_WIRE_RANGE },
   };
   const call = async (method: "GET" | "POST", url: URL, payload?: unknown) => {
     const response = await doFetch(url, {
       method,
-      headers: { authorization: `Bearer ${proof}`, ...(payload === undefined ? {} : { "content-type": "application/json" }) },
+      headers: {
+        authorization: `Bearer ${proof}`,
+        ...(payload === undefined ? {} : { "content-type": "application/json" }),
+      },
       body: payload === undefined ? undefined : JSON.stringify(payload),
-      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(options.requestTimeoutMs ?? 15_000)]) : AbortSignal.timeout(options.requestTimeoutMs ?? 15_000),
-      redirect: "error"
+      signal: options.signal
+        ? AbortSignal.any([options.signal, AbortSignal.timeout(options.requestTimeoutMs ?? 15_000)])
+        : AbortSignal.timeout(options.requestTimeoutMs ?? 15_000),
+      redirect: "error",
     });
     if (response.status === 429) return { rateLimited: true as const };
     if (!response.ok) throw new Error(`Hub rejected the request (HTTP ${response.status})`);
     return { json: (await response.json()) as unknown };
   };
-  const sleep = () => new Promise<void>((resolve) => {
-    const timer = setTimeout(done, options.pollIntervalMs ?? 2000);
-    function done() { clearTimeout(timer); options.signal?.removeEventListener("abort", done); resolve(); }
-    options.signal?.addEventListener("abort", done, { once: true });
-  });
+  const sleep = () =>
+    new Promise<void>((resolve) => {
+      const timer = setTimeout(done, options.pollIntervalMs ?? 2000);
+      function done() {
+        clearTimeout(timer);
+        options.signal?.removeEventListener("abort", done);
+        resolve();
+      }
+      options.signal?.addEventListener("abort", done, { once: true });
+    });
 
   try {
     const started = await call("POST", endpoint(options.hubOrigin, "/api/pairing/start"), body);
@@ -188,12 +215,18 @@ export async function pairDevice(options: PairOptions): Promise<PairResult> {
     const result = parsePairingConfirmResponse(confirmed.json);
     if (!result.ok) return { status: "failed", reason: "invalid hub response" };
     if (result.value.status === "rejected") return { status: "failed", reason: result.value.reason };
-    const pairing: StoredPairing = { hubUrl: options.hubOrigin, coreId: result.value.coreId, deviceId, credential: result.value.credential };
+    const pairing: StoredPairing = {
+      hubUrl: options.hubOrigin,
+      coreId: result.value.coreId,
+      deviceId,
+      credential: result.value.credential,
+    };
     await options.store.save(pairing);
     return { status: "paired", pairing };
   } catch (error) {
     if (options.signal?.aborted) return { status: "failed", reason: "aborted" };
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return { status: "failed", reason: "hub did not respond in time" };
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError"))
+      return { status: "failed", reason: "hub did not respond in time" };
     // Messages here come from our own checks or fetch; never include request bodies or the proof.
     return { status: "failed", reason: error instanceof Error ? error.message : "pairing failed" };
   }

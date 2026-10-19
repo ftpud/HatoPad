@@ -1,7 +1,17 @@
 import type { FileTreeNode } from "@hatopad/protocol";
 
 /** The focused node and stable selection count drive both menus and keyboard commands. */
-export type ProjectTreeAction = "createFile" | "createDirectory" | "rename" | "open" | "duplicate" | "copyTo" | "moveTo" | "copyRelativePath" | "copyAbsolutePath" | "delete";
+export type ProjectTreeAction =
+  | "createFile"
+  | "createDirectory"
+  | "rename"
+  | "open"
+  | "duplicate"
+  | "copyTo"
+  | "moveTo"
+  | "copyRelativePath"
+  | "copyAbsolutePath"
+  | "delete";
 export type ProjectTreeSelection = { node: FileTreeNode; count?: number };
 
 export function projectTreeActions(selection: ProjectTreeSelection): Record<ProjectTreeAction, boolean> {
@@ -19,6 +29,6 @@ export function projectTreeActions(selection: ProjectTreeSelection): Record<Proj
     moveTo: mutablePath,
     copyRelativePath: mutablePath,
     copyAbsolutePath: mutablePath,
-    delete: single && mutablePath
+    delete: single && mutablePath,
   };
 }

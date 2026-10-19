@@ -3,10 +3,18 @@ import { initialLayout, type LayoutModel } from "./model";
 import { clearViewedTerminalActivity, markTerminalActivity } from "./terminal-activity";
 
 function layout(open = true): LayoutModel {
-  return { ...initialLayout, panels: open ? [{ id: "terminal", type: "terminal" }] : [], terminalGroup: { id: "terminals", activeTabId: "first", tabs: [
-    { id: "first", terminalId: "terminal-1", title: "Shell", status: "running" },
-    { id: "second", terminalId: "terminal-2", title: "Workflow", status: "running" }
-  ] } };
+  return {
+    ...initialLayout,
+    panels: open ? [{ id: "terminal", type: "terminal" }] : [],
+    terminalGroup: {
+      id: "terminals",
+      activeTabId: "first",
+      tabs: [
+        { id: "first", terminalId: "terminal-1", title: "Shell", status: "running" },
+        { id: "second", terminalId: "terminal-2", title: "Workflow", status: "running" },
+      ],
+    },
+  };
 }
 
 describe("terminal activity", () => {
@@ -18,7 +26,10 @@ describe("terminal activity", () => {
     expect(unread.terminalGroup.tabs[0]?.hasUnreadOutput).toBeUndefined();
     expect(markTerminalActivity(unread, "terminal-2")).toBe(unread);
     expect(clearViewedTerminalActivity(unread)).toBe(unread);
-    const viewed = clearViewedTerminalActivity({ ...unread, terminalGroup: { ...unread.terminalGroup, activeTabId: "second" } });
+    const viewed = clearViewedTerminalActivity({
+      ...unread,
+      terminalGroup: { ...unread.terminalGroup, activeTabId: "second" },
+    });
     expect(viewed.terminalGroup.tabs[1]?.hasUnreadOutput).toBe(false);
     expect(markTerminalActivity(viewed, "terminal-2")).toBe(viewed);
   });

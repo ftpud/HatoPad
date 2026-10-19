@@ -11,7 +11,9 @@ describe("three-way conflict merging", () => {
   });
   it("distinguishes unresolved markers, chosen versions, and custom results", () => {
     const blocks = mergeBlocks("base\n", "ours\n", "theirs\n");
-    expect(blockStates("base\n", "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", blocks)[0]!.status).toBe("conflict");
+    expect(blockStates("base\n", "<<<<<<< HEAD\nours\n=======\ntheirs\n>>>>>>> branch\n", blocks)[0]!.status).toBe(
+      "conflict",
+    );
     expect(blockStates("base\n", "ours\n", blocks)[0]!.status).toBe("merged");
     expect(blockStates("base\n", "custom\n", blocks)[0]!.status).toBe("review");
   });
@@ -48,7 +50,9 @@ describe("three-way conflict merging", () => {
     const base = "a\nkeep\nb\n";
     const blocks = mergeBlocks(base, "A\nkeep\nb\n", "a\nkeep\nB\n");
     expect(mergeNonConflicting(base, "manual\nkeep\nb\n", blocks)).toBe("manual\nkeep\nB\n");
-    expect(() => applyBlock(base, "rewritten entirely\n", blocks[0]!, "ours")).toThrow("Manual edits span multiple blocks");
+    expect(() => applyBlock(base, "rewritten entirely\n", blocks[0]!, "ours")).toThrow(
+      "Manual edits span multiple blocks",
+    );
   });
   it("preserves CRLF and applies the same insertion only once", () => {
     const base = "a\r\n";

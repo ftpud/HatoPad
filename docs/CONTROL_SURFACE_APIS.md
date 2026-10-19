@@ -149,7 +149,6 @@ A run still finalizing must be refreshed before retry. Concurrent retry admissio
 is serialized, including a store check that the persisted run is still failed.
 This operation is a user decision after inspection, never a transport retry.
 
-
 ### Bounded workflow connection activity (2026-10-19)
 
 `harnesses.progress` now includes `connectionTraces` metadata: at most the newest

@@ -5,23 +5,52 @@ import { access, readFile, mkdir, rename, rm, writeFile } from "node:fs/promises
 import path from "node:path";
 import { quoteWorkspaceShellArgument as shell } from "./workspace-path.js";
 
-export type CoreBundle = { target: string; commit: string; release: string; archive: string; sha256: string; protocol?: number };
+export type CoreBundle = {
+  target: string;
+  commit: string;
+  release: string;
+  archive: string;
+  sha256: string;
+  protocol?: number;
+};
 /** Gateway argument that runs the bundled Editor on Gateway's own Electron runtime. */
 export const EDITOR_FLAG = "--hatopad";
 /** `desktopApp` is the Editor's Electron app directory (package.json, dist-electron, dist-renderer, node_modules), relative to `bundle/`. */
-export type BundleManifest = { schema: 1; channel: "early-access"; version: string; commit: string; desktopApp: string; cores: Record<string, CoreBundle> };
+export type BundleManifest = {
+  schema: 1;
+  channel: "early-access";
+  version: string;
+  commit: string;
+  desktopApp: string;
+  cores: Record<string, CoreBundle>;
+};
 export function bundleCoreCompatible(core: CoreBundle): boolean {
-  return Number.isSafeInteger(core.protocol) && core.protocol! >= protocolCompatibility.minimum && core.protocol! <= protocolCompatibility.maximum;
+  return (
+    Number.isSafeInteger(core.protocol) &&
+    core.protocol! >= protocolCompatibility.minimum &&
+    core.protocol! <= protocolCompatibility.maximum
+  );
 }
 export async function loadBundle(resources: string): Promise<BundleManifest> {
   const manifest = JSON.parse(await readFile(path.join(resources, "bundle/manifest.json"), "utf8")) as BundleManifest;
-  if (manifest.schema !== 1 || manifest.channel !== "early-access" || !/^[0-9a-f]{40,64}$/.test(manifest.commit)) throw new Error("Invalid Early Access bundle manifest");
-  if (!manifest.desktopApp || path.isAbsolute(manifest.desktopApp) || manifest.desktopApp.split(/[\\/]/).includes("..")) throw new Error("Invalid bundled Desktop application");
+  if (manifest.schema !== 1 || manifest.channel !== "early-access" || !/^[0-9a-f]{40,64}$/.test(manifest.commit))
+    throw new Error("Invalid Early Access bundle manifest");
+  if (!manifest.desktopApp || path.isAbsolute(manifest.desktopApp) || manifest.desktopApp.split(/[\\/]/).includes(".."))
+    throw new Error("Invalid bundled Desktop application");
   const targets = Object.keys(manifest.cores ?? {});
-  if (!targets.length || targets.some(target => !["linux-x64", "linux-arm64", "darwin-arm64"].includes(target))) throw new Error("Invalid bundled Core targets");
+  if (!targets.length || targets.some((target) => !["linux-x64", "linux-arm64", "darwin-arm64"].includes(target)))
+    throw new Error("Invalid bundled Core targets");
   for (const target of targets) {
     const core = manifest.cores[target];
-    if (!core || core.target !== target || core.commit !== manifest.commit || core.archive !== `core-${target}.tar.gz` || !/^[a-f0-9]{64}$/.test(core.sha256) || !new RegExp(`^${manifest.commit}-node[0-9]+-bundle-[a-zA-Z0-9-]+$`).test(core.release)) throw new Error(`Invalid bundled Core: ${target}`);
+    if (
+      !core ||
+      core.target !== target ||
+      core.commit !== manifest.commit ||
+      core.archive !== `core-${target}.tar.gz` ||
+      !/^[a-f0-9]{64}$/.test(core.sha256) ||
+      !new RegExp(`^${manifest.commit}-node[0-9]+-bundle-[a-zA-Z0-9-]+$`).test(core.release)
+    )
+      throw new Error(`Invalid bundled Core: ${target}`);
   }
   return manifest;
 }
@@ -29,7 +58,8 @@ export function coreTarget(os: string, architecture: string): string {
   const platform = { Linux: "linux", Darwin: "darwin", linux: "linux", darwin: "darwin" }[os];
   const arch = { x86_64: "x64", aarch64: "arm64", arm64: "arm64", x64: "x64" }[architecture];
   const target = `${platform}-${arch}`;
-  if (!["linux-x64", "linux-arm64", "darwin-arm64"].includes(target)) throw new Error(`Bundled Core does not support ${os}/${architecture}`);
+  if (!["linux-x64", "linux-arm64", "darwin-arm64"].includes(target))
+    throw new Error(`Bundled Core does not support ${os}/${architecture}`);
   return target;
 }
 export async function verifiedCoreArchive(resources: string, core: CoreBundle): Promise<string> {
@@ -40,13 +70,19 @@ export async function verifiedCoreArchive(resources: string, core: CoreBundle): 
   return archive;
 }
 export function bundledEnvironment(release: string): string {
-  if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(release)) throw new Error("Invalid bundled release identity");
+  if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(release))
+    throw new Error("Invalid bundled release identity");
   return `export PATH="$HOME/.hatopad-deploy/releases/${release}/bin:$PATH"`;
 }
 
 /** Upload to a private directory, verify before extraction, then atomically install. */
 export function installBundleCommand(core: CoreBundle, upload: string): string {
-  if (!/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(core.release) || !/^[0-9a-f]{64}$/.test(core.sha256) || !/^\.hatopad-upload-[a-zA-Z0-9-]+$/.test(upload)) throw new Error("Invalid bundled deployment parameters");
+  if (
+    !/^[0-9a-f]{40,64}-node[0-9]+-bundle-[a-zA-Z0-9-]+$/.test(core.release) ||
+    !/^[0-9a-f]{64}$/.test(core.sha256) ||
+    !/^\.hatopad-upload-[a-zA-Z0-9-]+$/.test(upload)
+  )
+    throw new Error("Invalid bundled deployment parameters");
   return `set -eu
 umask 077
 archive="$HOME/${upload}/core.tar.gz"
@@ -83,22 +119,36 @@ echo HATOPAD_RESULT:${core.commit}:0:${core.release}`;
 }
 
 const preparing = new Map<string, Promise<string>>();
-export function prepareBundledCore(resources: string, cache: string, core: CoreBundle, extract: (archive: string, destination: string) => Promise<void>): Promise<string> {
+export function prepareBundledCore(
+  resources: string,
+  cache: string,
+  core: CoreBundle,
+  extract: (archive: string, destination: string) => Promise<void>,
+): Promise<string> {
   const key = path.join(cache, core.release, core.target);
   const existing = preparing.get(key);
   if (existing) return existing;
-  const pending = extractBundledCore(resources, cache, core, extract).finally(() => { preparing.delete(key); });
+  const pending = extractBundledCore(resources, cache, core, extract).finally(() => {
+    preparing.delete(key);
+  });
   preparing.set(key, pending);
   return pending;
 }
-async function extractBundledCore(resources: string, cache: string, core: CoreBundle, extract: (archive: string, destination: string) => Promise<void>): Promise<string> {
+async function extractBundledCore(
+  resources: string,
+  cache: string,
+  core: CoreBundle,
+  extract: (archive: string, destination: string) => Promise<void>,
+): Promise<string> {
   const archive = await verifiedCoreArchive(resources, core);
   const destination = path.join(cache, core.release, core.target);
   try {
     await access(path.join(destination, "bin/node"));
     await access(path.join(destination, "packages/core/dist/index.js"));
     if ((await readFile(path.join(destination, ".bundle-sha256"), "utf8")) === core.sha256) return destination;
-  } catch { /* Extract below. */ }
+  } catch {
+    /* Extract below. */
+  }
   const staging = `${destination}.${randomUUID()}.tmp`;
   await mkdir(staging, { recursive: true });
   try {
@@ -106,6 +156,8 @@ async function extractBundledCore(resources: string, cache: string, core: CoreBu
     await writeFile(path.join(staging, ".bundle-sha256"), core.sha256);
     await rm(destination, { recursive: true, force: true });
     await rename(staging, destination);
-  } finally { await rm(staging, { recursive: true, force: true }); }
+  } finally {
+    await rm(staging, { recursive: true, force: true });
+  }
   return destination;
 }

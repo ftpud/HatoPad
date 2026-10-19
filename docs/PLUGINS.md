@@ -27,7 +27,9 @@ need to start an ACP agent; use a plugin for code.
 
 ```json
 {
-  "id": "my-plugin", "version": "1.0.0", "apiVersion": 1,
+  "id": "my-plugin",
+  "version": "1.0.0",
+  "apiVersion": 1,
   "contributes": { "providers": ["my-agent"], "languages": ["my-lang"] },
   "core": "index.mjs"
 }

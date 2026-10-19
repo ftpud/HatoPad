@@ -18,8 +18,17 @@ export function currentHighlightTheme(): HighlightTheme {
   return value === "ftpud" || value === "ftpud-dark" ? "ftpud" : "default";
 }
 
-export function monacoTheme(appTheme = currentTheme(), highlightTheme = currentHighlightTheme()): "hatopad-light" | "hatopad-dark" | "ftpud" | "ftpud-dark" {
-  return highlightTheme === "ftpud" ? (appTheme === "dark" ? "ftpud-dark" : "ftpud") : appTheme === "light" ? "hatopad-light" : "hatopad-dark";
+export function monacoTheme(
+  appTheme = currentTheme(),
+  highlightTheme = currentHighlightTheme(),
+): "hatopad-light" | "hatopad-dark" | "ftpud" | "ftpud-dark" {
+  return highlightTheme === "ftpud"
+    ? appTheme === "dark"
+      ? "ftpud-dark"
+      : "ftpud"
+    : appTheme === "light"
+      ? "hatopad-light"
+      : "hatopad-dark";
 }
 
 export function configureMonacoThemes(monaco: Monaco): void {
@@ -29,19 +38,105 @@ export function configureMonacoThemes(monaco: Monaco): void {
     monaco.languages.register({ id: "sap-cds", extensions: [".cds"], aliases: ["SAP CDS", "CDS"] });
     monaco.languages.setLanguageConfiguration("sap-cds", {
       comments: { lineComment: "//", blockComment: ["/*", "*/"] },
-      brackets: [["{", "}"], ["[", "]"], ["(", ")"]],
-      autoClosingPairs: [{ open: "{", close: "}" }, { open: "[", close: "]" }, { open: "(", close: ")" }, { open: "'", close: "'" }, { open: "\"", close: "\"" }]
+      brackets: [
+        ["{", "}"],
+        ["[", "]"],
+        ["(", ")"],
+      ],
+      autoClosingPairs: [
+        { open: "{", close: "}" },
+        { open: "[", close: "]" },
+        { open: "(", close: ")" },
+        { open: "'", close: "'" },
+        { open: '"', close: '"' },
+      ],
     });
     monaco.languages.setMonarchTokensProvider("sap-cds", {
       defaultToken: "identifier",
       ignoreCase: true,
-      keywords: ["namespace", "using", "from", "as", "entity", "aspect", "type", "service", "context", "action", "function", "event", "projection", "on", "select", "distinct", "key", "association", "composition", "to", "many", "one", "localized", "enum", "annotate", "extend", "with", "returns", "array", "of", "not", "null", "default", "virtual", "masked", "redirected", "excluding", "where", "group", "by", "having", "order", "asc", "desc", "limit", "offset", "mixin", "into", "case", "when", "then", "else", "end", "cast"],
-      typeKeywords: ["String", "Integer", "Integer64", "Decimal", "DecimalFloat", "Double", "Date", "Time", "DateTime", "Timestamp", "Boolean", "UUID", "LargeString", "Binary", "LargeBinary", "Association", "Composition"],
+      keywords: [
+        "namespace",
+        "using",
+        "from",
+        "as",
+        "entity",
+        "aspect",
+        "type",
+        "service",
+        "context",
+        "action",
+        "function",
+        "event",
+        "projection",
+        "on",
+        "select",
+        "distinct",
+        "key",
+        "association",
+        "composition",
+        "to",
+        "many",
+        "one",
+        "localized",
+        "enum",
+        "annotate",
+        "extend",
+        "with",
+        "returns",
+        "array",
+        "of",
+        "not",
+        "null",
+        "default",
+        "virtual",
+        "masked",
+        "redirected",
+        "excluding",
+        "where",
+        "group",
+        "by",
+        "having",
+        "order",
+        "asc",
+        "desc",
+        "limit",
+        "offset",
+        "mixin",
+        "into",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "cast",
+      ],
+      typeKeywords: [
+        "String",
+        "Integer",
+        "Integer64",
+        "Decimal",
+        "DecimalFloat",
+        "Double",
+        "Date",
+        "Time",
+        "DateTime",
+        "Timestamp",
+        "Boolean",
+        "UUID",
+        "LargeString",
+        "Binary",
+        "LargeBinary",
+        "Association",
+        "Composition",
+      ],
       operators: ["=", ">", "<", "!", "~", "?", ":", "==", "<=", ">=", "!=", "&&", "||", "+", "-", "*", "/"],
       tokenizer: {
         root: [
           [/@[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*/, "annotation"],
-          [/[A-Za-z_$][\w$]*/, { cases: { "@typeKeywords": "type", "@keywords": "keyword", "@default": "identifier" } }],
+          [
+            /[A-Za-z_$][\w$]*/,
+            { cases: { "@typeKeywords": "type", "@keywords": "keyword", "@default": "identifier" } },
+          ],
           [/\$[A-Za-z_$][\w$]*/, "variable.predefined"],
           [/0[xX][0-9a-fA-F]+/, "number.hex"],
           [/\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/, "number"],
@@ -51,36 +146,70 @@ export function configureMonacoThemes(monaco: Monaco): void {
           [/"/, "string", "@doubleString"],
           [/[{}()\[\]]/, "@brackets"],
           [/[;,.]/, "delimiter"],
-          [/[=><!~?:&|+\-*\/]+/, "operator"]
+          [/[=><!~?:&|+\-*\/]+/, "operator"],
         ],
-        comment: [[/[^/*]+/, "comment"], [/\*\//, "comment", "@pop"], [/[/*]/, "comment"]],
-        singleString: [[/[^'\\]+/, "string"], [/\\./, "string.escape"], [/''/, "string.escape"], [/'/, "string", "@pop"]],
-        doubleString: [[/[^"\\]+/, "string"], [/\\./, "string.escape"], [/""/, "string.escape"], [/"/, "string", "@pop"]]
-      }
+        comment: [
+          [/[^/*]+/, "comment"],
+          [/\*\//, "comment", "@pop"],
+          [/[/*]/, "comment"],
+        ],
+        singleString: [
+          [/[^'\\]+/, "string"],
+          [/\\./, "string.escape"],
+          [/''/, "string.escape"],
+          [/'/, "string", "@pop"],
+        ],
+        doubleString: [
+          [/[^"\\]+/, "string"],
+          [/\\./, "string.escape"],
+          [/""/, "string.escape"],
+          [/"/, "string", "@pop"],
+        ],
+      },
     });
   }
   const surfaceColors = (mode: AppTheme) => {
     const p = workspacePalette[mode];
     return {
-      "editor.background": p.background, "editor.foreground": p.foreground,
-      "editorGutter.background": p.background, "editor.lineHighlightBackground": p.line,
-      "editorLineNumber.foreground": p.muted, "editorLineNumber.activeForeground": p.active,
-      "editor.selectionBackground": p.selection, "editor.inactiveSelectionBackground": p.selection,
-      "editorIndentGuide.background1": p.border, "editorIndentGuide.activeBackground1": p.muted,
-      "editorWidget.background": p.widget, "editorWidget.border": p.border,
-      "editorSuggestWidget.background": p.widget, "editorSuggestWidget.border": p.border,
-      "editorSuggestWidget.foreground": p.foreground, "editorSuggestWidget.selectedBackground": p.selection,
-      "editorHoverWidget.background": p.widget, "editorHoverWidget.border": p.border,
-      "editorOverviewRuler.border": p.border, "editorCursor.foreground": p.accent,
-      "input.background": p.background, "input.foreground": p.foreground, "input.border": p.border,
-      "list.hoverBackground": p.line, "list.activeSelectionBackground": p.selection,
-      "focusBorder": p.accent, "menu.background": p.widget, "menu.foreground": p.foreground,
-      "menu.border": p.border, "menu.selectionBackground": p.selection,
+      "editor.background": p.background,
+      "editor.foreground": p.foreground,
+      "editorGutter.background": p.background,
+      "editor.lineHighlightBackground": p.line,
+      "editorLineNumber.foreground": p.muted,
+      "editorLineNumber.activeForeground": p.active,
+      "editor.selectionBackground": p.selection,
+      "editor.inactiveSelectionBackground": p.selection,
+      "editorIndentGuide.background1": p.border,
+      "editorIndentGuide.activeBackground1": p.muted,
+      "editorWidget.background": p.widget,
+      "editorWidget.border": p.border,
+      "editorSuggestWidget.background": p.widget,
+      "editorSuggestWidget.border": p.border,
+      "editorSuggestWidget.foreground": p.foreground,
+      "editorSuggestWidget.selectedBackground": p.selection,
+      "editorHoverWidget.background": p.widget,
+      "editorHoverWidget.border": p.border,
+      "editorOverviewRuler.border": p.border,
+      "editorCursor.foreground": p.accent,
+      "input.background": p.background,
+      "input.foreground": p.foreground,
+      "input.border": p.border,
+      "list.hoverBackground": p.line,
+      "list.activeSelectionBackground": p.selection,
+      focusBorder: p.accent,
+      "menu.background": p.widget,
+      "menu.foreground": p.foreground,
+      "menu.border": p.border,
+      "menu.selectionBackground": p.selection,
     };
   };
-  for (const mode of ["light", "dark"] as const) monaco.editor.defineTheme(`hatopad-${mode}`, {
-    base: mode === "light" ? "vs" : "vs-dark", inherit: true, rules: [], colors: surfaceColors(mode),
-  });
+  for (const mode of ["light", "dark"] as const)
+    monaco.editor.defineTheme(`hatopad-${mode}`, {
+      base: mode === "light" ? "vs" : "vs-dark",
+      inherit: true,
+      rules: [],
+      colors: surfaceColors(mode),
+    });
   monaco.editor.defineTheme("ftpud", {
     base: "vs",
     inherit: true,
@@ -126,10 +255,9 @@ export function configureMonacoThemes(monaco: Monaco): void {
       { token: "constant", foreground: "800080", background: "E4FFCD", fontStyle: "bold italic" },
       { token: "variable.constant", foreground: "800080", background: "E4FFCD", fontStyle: "bold italic" },
       { token: "field.static.readonly", foreground: "800080", background: "E4FFCD", fontStyle: "bold italic" },
-      { token: "invalid", foreground: "000000", background: "FF0000" }
+      { token: "invalid", foreground: "000000", background: "FF0000" },
     ],
     colors: {
-
       "editorRuler.foreground": "#DDDDDD",
       "editorWhitespace.foreground": "#D4D4D4",
 
@@ -146,8 +274,8 @@ export function configureMonacoThemes(monaco: Monaco): void {
       "editorError.background": "#FF1100",
       "editorError.foreground": "#FF0000",
       "editorOverviewRuler.errorForeground": "#CF5B56",
-      ...surfaceColors("light")
-    }
+      ...surfaceColors("light"),
+    },
   });
   monaco.editor.defineTheme("ftpud-dark", {
     base: "vs-dark",
@@ -186,10 +314,9 @@ export function configureMonacoThemes(monaco: Monaco): void {
       { token: "constant", foreground: "CAA2D1", background: "304231", fontStyle: "bold italic" },
       { token: "variable.constant", foreground: "CAA2D1", background: "304231", fontStyle: "bold italic" },
       { token: "field.static.readonly", foreground: "CAA2D1", background: "304231", fontStyle: "bold italic" },
-      { token: "invalid", background: "8B3037" }
+      { token: "invalid", background: "8B3037" },
     ],
     colors: {
-
       "editor.foldBackground": "#294333",
       "editorBracketMatch.background": "#31595B",
       "editorBracketMatch.border": "#65AEB0",
@@ -197,7 +324,7 @@ export function configureMonacoThemes(monaco: Monaco): void {
       "diffEditor.removedLineBackground": "#41272B88",
       "diffEditor.insertedTextBackground": "#315B3C99",
       "diffEditor.removedTextBackground": "#66343A99",
-      ...surfaceColors("dark")
-    }
+      ...surfaceColors("dark"),
+    },
   });
 }

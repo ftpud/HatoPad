@@ -1,4 +1,12 @@
-import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, LocateFixed } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Folder,
+  FolderOpen,
+  LocateFixed,
+} from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from "react";
 import type { FileColor, FileTreeNode, JavaFileType, JavaProjectNode } from "@hatopad/protocol";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
@@ -12,7 +20,9 @@ export function filterProjectTree(nodes: FileTreeNode[], query: string): FileTre
   return nodes.flatMap((node) => {
     if (node.type === "file") return `${node.name} ${node.path}`.toLowerCase().includes(needle) ? [node] : [];
     const children = filterProjectTree(node.children ?? [], needle);
-    return `${node.name} ${node.path}`.toLowerCase().includes(needle) || children.length > 0 ? [{ ...node, children }] : [];
+    return `${node.name} ${node.path}`.toLowerCase().includes(needle) || children.length > 0
+      ? [{ ...node, children }]
+      : [];
   });
 }
 
@@ -24,11 +34,18 @@ export function filterProjectTreeByPaths(nodes: FileTreeNode[], paths: ReadonlyS
   });
 }
 
-export function compactProjectTree(nodes: FileTreeNode[], sourceRoots: ReadonlySet<string> = new Set()): FileTreeNode[] {
+export function compactProjectTree(
+  nodes: FileTreeNode[],
+  sourceRoots: ReadonlySet<string> = new Set(),
+): FileTreeNode[] {
   return nodes.map((node) => {
     if (node.type === "file") return node;
     let compacted: FileTreeNode = { ...node, children: compactProjectTree(node.children ?? [], sourceRoots) };
-    while (!sourceRoots.has(compacted.path) && compacted.children?.length === 1 && compacted.children[0]?.type === "directory") {
+    while (
+      !sourceRoots.has(compacted.path) &&
+      compacted.children?.length === 1 &&
+      compacted.children[0]?.type === "directory"
+    ) {
       const child = compacted.children[0];
       compacted = { ...child, name: `${compacted.name}/${child.name}` };
     }
@@ -37,7 +54,9 @@ export function compactProjectTree(nodes: FileTreeNode[], sourceRoots: ReadonlyS
 }
 
 function directoryPaths(nodes: FileTreeNode[]): string[] {
-  return nodes.flatMap((node) => node.type === "directory" ? [node.path, ...directoryPaths(node.children ?? [])] : []);
+  return nodes.flatMap((node) =>
+    node.type === "directory" ? [node.path, ...directoryPaths(node.children ?? [])] : [],
+  );
 }
 
 function ancestorPaths(nodes: FileTreeNode[], target: string, ancestors: string[] = []): string[] | undefined {
@@ -52,14 +71,31 @@ function ancestorPaths(nodes: FileTreeNode[], target: string, ancestors: string[
 }
 
 function visibleNodes(nodes: FileTreeNode[], expanded: Set<string>, depth = 0): VisibleNode[] {
-  return nodes.flatMap((node) => [{ node, depth }, ...(node.type === "directory" && expanded.has(node.path) ? visibleNodes(node.children ?? [], expanded, depth + 1) : [])]);
+  return nodes.flatMap((node) => [
+    { node, depth },
+    ...(node.type === "directory" && expanded.has(node.path)
+      ? visibleNodes(node.children ?? [], expanded, depth + 1)
+      : []),
+  ]);
 }
 
 function countFiles(nodes: FileTreeNode[]): number {
   return nodes.reduce((total, node) => total + (node.type === "file" ? 1 : countFiles(node.children ?? [])), 0);
 }
 
-export function ProjectTree({ nodes, javaNodes, query, matchingPaths, activePath, selectedPaths, fileColors, gitStatuses, onAction, onContextMenu, onSelectionChange }: {
+export function ProjectTree({
+  nodes,
+  javaNodes,
+  query,
+  matchingPaths,
+  activePath,
+  selectedPaths,
+  fileColors,
+  gitStatuses,
+  onAction,
+  onContextMenu,
+  onSelectionChange,
+}: {
   nodes: FileTreeNode[];
   javaNodes?: JavaProjectNode[];
   query: string;
@@ -74,16 +110,35 @@ export function ProjectTree({ nodes, javaNodes, query, matchingPaths, activePath
 }) {
   const javaMetadata = useMemo(() => {
     const metadata = new Map<string, JavaProjectNode>();
-    const visit = (items: JavaProjectNode[]) => items.forEach((node) => { metadata.set(node.path, node); visit(node.children ?? []); });
+    const visit = (items: JavaProjectNode[]) =>
+      items.forEach((node) => {
+        metadata.set(node.path, node);
+        visit(node.children ?? []);
+      });
     visit(javaNodes ?? []);
     return metadata;
   }, [javaNodes]);
-  const compacted = useMemo(() => compactProjectTree(nodes, new Set([...javaMetadata.values()].filter((node) => node.type === "sourceRoot").map((node) => node.path))), [nodes, javaMetadata]);
-  const filtered = useMemo(() => matchingPaths ? filterProjectTreeByPaths(compacted, matchingPaths) : filterProjectTree(compacted, query), [compacted, matchingPaths, query]);
+  const compacted = useMemo(
+    () =>
+      compactProjectTree(
+        nodes,
+        new Set([...javaMetadata.values()].filter((node) => node.type === "sourceRoot").map((node) => node.path)),
+      ),
+    [nodes, javaMetadata],
+  );
+  const filtered = useMemo(
+    () => (matchingPaths ? filterProjectTreeByPaths(compacted, matchingPaths) : filterProjectTree(compacted, query)),
+    [compacted, matchingPaths, query],
+  );
   const allDirectories = useMemo(() => directoryPaths(compacted), [compacted]);
   const filtering = matchingPaths !== undefined || Boolean(query.trim());
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(compacted.length === 1 && compacted[0]?.type === "directory" ? [compacted[0].path] : []));
-  const effectiveExpanded = useMemo(() => filtering ? new Set(directoryPaths(filtered)) : expanded, [expanded, filtered, filtering]);
+  const [expanded, setExpanded] = useState<Set<string>>(
+    () => new Set(compacted.length === 1 && compacted[0]?.type === "directory" ? [compacted[0].path] : []),
+  );
+  const effectiveExpanded = useMemo(
+    () => (filtering ? new Set(directoryPaths(filtered)) : expanded),
+    [expanded, filtered, filtering],
+  );
   const visible = useMemo(() => visibleNodes(filtered, effectiveExpanded), [effectiveExpanded, filtered]);
   const [focusedPath, setFocusedPath] = useState<string>();
   const [revealTarget, setRevealTarget] = useState<string>();
@@ -102,7 +157,10 @@ export function ProjectTree({ nodes, javaNodes, query, matchingPaths, activePath
   useEffect(() => {
     if (!revealTarget || !visible.some(({ node }) => node.path === revealTarget)) return;
     const row = rowRefs.current.get(revealTarget);
-    setFocusedPath(revealTarget); row?.focus(); row?.scrollIntoView({ block: "nearest" }); setRevealTarget(undefined);
+    setFocusedPath(revealTarget);
+    row?.focus();
+    row?.scrollIntoView({ block: "nearest" });
+    setRevealTarget(undefined);
   }, [revealTarget, visible]);
 
   const revealActiveFile = () => {
@@ -119,19 +177,29 @@ export function ProjectTree({ nodes, javaNodes, query, matchingPaths, activePath
     setFocusedPath(item.node.path);
     rowRefs.current.get(item.node.path)?.focus();
   };
-  const toggle = (path: string, open?: boolean) => setExpanded((current) => {
-    const next = new Set(current);
-    const shouldOpen = open ?? !next.has(path);
-    shouldOpen ? next.add(path) : next.delete(path);
-    return next;
-  });
+  const toggle = (path: string, open?: boolean) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      const shouldOpen = open ?? !next.has(path);
+      shouldOpen ? next.add(path) : next.delete(path);
+      return next;
+    });
   const select = (index: number, additive: boolean, range: boolean) => {
-    const path = visible[index]?.node.path; if (!path) return;
+    const path = visible[index]?.node.path;
+    if (!path) return;
     if (range && focusedPath) {
-      const anchor = visible.findIndex(({ node }) => node.path === focusedPath); const sorted = [anchor, index].sort((a, b) => a - b); const start = sorted[0] ?? index; const end = sorted[1] ?? index;
-      onSelectionChange(new Set([...(additive ? selectedPaths : []), ...visible.slice(start, end + 1).map(({ node }) => node.path)]));
-    } else if (additive) { const next = new Set(selectedPaths); next.has(path) ? next.delete(path) : next.add(path); onSelectionChange(next); }
-    else onSelectionChange(new Set([path]));
+      const anchor = visible.findIndex(({ node }) => node.path === focusedPath);
+      const sorted = [anchor, index].sort((a, b) => a - b);
+      const start = sorted[0] ?? index;
+      const end = sorted[1] ?? index;
+      onSelectionChange(
+        new Set([...(additive ? selectedPaths : []), ...visible.slice(start, end + 1).map(({ node }) => node.path)]),
+      );
+    } else if (additive) {
+      const next = new Set(selectedPaths);
+      next.has(path) ? next.delete(path) : next.add(path);
+      onSelectionChange(next);
+    } else onSelectionChange(new Set([path]));
     setFocusedPath(path);
   };
   const selectedNodes = () => visible.filter(({ node }) => selectedPaths.has(node.path)).map(({ node }) => node);
@@ -143,51 +211,209 @@ export function ProjectTree({ nodes, javaNodes, query, matchingPaths, activePath
     else if (event.key === "ArrowUp") focusAt(index - 1);
     else if (event.key === "Home") focusAt(0);
     else if (event.key === "End") focusAt(visible.length - 1);
-    else if (event.key === "ArrowRight" && item.node.type === "directory") effectiveExpanded.has(item.node.path) ? focusAt(index + 1) : toggle(item.node.path, true);
+    else if (event.key === "ArrowRight" && item.node.type === "directory")
+      effectiveExpanded.has(item.node.path) ? focusAt(index + 1) : toggle(item.node.path, true);
     else if (event.key === "ArrowLeft") {
       if (item.node.type === "directory" && effectiveExpanded.has(item.node.path)) toggle(item.node.path, false);
       else {
         const parent = [...visible.slice(0, index)].reverse().find((candidate) => candidate.depth < item.depth);
         if (parent) focusAt(visible.indexOf(parent));
       }
-    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a") onSelectionChange(new Set(visible.map(({ node }) => node.path)));
-    else if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "c" && projectTreeActions({ node: item.node }).copyAbsolutePath) onAction("copyAbsolutePath", selectedNodes().length ? selectedNodes() : [item.node]);
-    else if ((event.ctrlKey || event.metaKey) && event.altKey && event.key.toLowerCase() === "c" && projectTreeActions({ node: item.node }).copyRelativePath) onAction("copyRelativePath", selectedNodes().length ? selectedNodes() : [item.node]);
-    else if (event.key === "Enter" || event.key === " ") item.node.type === "file" ? onAction("open", [item.node]) : toggle(item.node.path);
+    } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "a")
+      onSelectionChange(new Set(visible.map(({ node }) => node.path)));
+    else if (
+      (event.ctrlKey || event.metaKey) &&
+      event.shiftKey &&
+      event.key.toLowerCase() === "c" &&
+      projectTreeActions({ node: item.node }).copyAbsolutePath
+    )
+      onAction("copyAbsolutePath", selectedNodes().length ? selectedNodes() : [item.node]);
+    else if (
+      (event.ctrlKey || event.metaKey) &&
+      event.altKey &&
+      event.key.toLowerCase() === "c" &&
+      projectTreeActions({ node: item.node }).copyRelativePath
+    )
+      onAction("copyRelativePath", selectedNodes().length ? selectedNodes() : [item.node]);
+    else if (event.key === "Enter" || event.key === " ")
+      item.node.type === "file" ? onAction("open", [item.node]) : toggle(item.node.path);
     else if (event.key === "F2" && projectTreeActions({ node: item.node }).rename) onAction("rename", [item.node]);
-    else if ((event.key === "Delete" || event.key === "Backspace" && (event.metaKey || event.ctrlKey)) && projectTreeActions({ node: item.node }).delete) onAction("delete", selectedNodes().length ? selectedNodes() : [item.node]);
-    else if (event.key === "ContextMenu" || event.key === "F10" && event.shiftKey) {
+    else if (
+      (event.key === "Delete" || (event.key === "Backspace" && (event.metaKey || event.ctrlKey))) &&
+      projectTreeActions({ node: item.node }).delete
+    )
+      onAction("delete", selectedNodes().length ? selectedNodes() : [item.node]);
+    else if (event.key === "ContextMenu" || (event.key === "F10" && event.shiftKey)) {
       const bounds = rowRefs.current.get(item.node.path)?.getBoundingClientRect();
       onContextMenu(selectedNodes().length ? selectedNodes() : [item.node], bounds?.left ?? 0, bounds?.bottom ?? 0);
-    }
-    else return;
+    } else return;
     event.preventDefault();
   };
 
-  return <>
-    <div className="project-tree-actions">
-      <span>{filtering ? `${countFiles(filtered)} matching file${countFiles(filtered) === 1 ? "" : "s"}` : `${countFiles(compacted)} files`}</span>
-      <button title="Reveal active file" aria-label="Reveal active file" disabled={!activePath || !ancestorPaths(compacted, activePath)} onClick={revealActiveFile}><LocateFixed size={13} /></button>
-      <button title="Expand all folders" aria-label="Expand all folders" disabled={filtering || allDirectories.every((path) => expanded.has(path))} onClick={() => setExpanded(new Set(allDirectories))}><ChevronsUpDown size={13} /></button>
-      <button title="Collapse all folders" aria-label="Collapse all folders" disabled={filtering || expanded.size === 0} onClick={() => setExpanded(new Set())}><ChevronsDownUp size={13} /></button>
-    </div>
-    <div className="tree project-file-tree" role="tree" aria-label="Project files" onKeyDown={onKeyDown}>
-      {visible.length === 0 ? <div className="filter-empty">No matching files</div> : visible.map(({ node, depth }, index) => {
-        const open = node.type === "directory" && effectiveExpanded.has(node.path);
-        const selected = selectedPaths.has(node.path);
-        const javaNode = javaMetadata.get(node.path);
-        const sourceKind = javaNode?.type === "sourceRoot" ? javaNode.sourceKind ?? "source" : undefined;
-        const handleContext = (event: MouseEvent) => { event.preventDefault(); const selection = selected ? selectedNodes() : [node]; if (!selected) onSelectionChange(new Set([node.path])); onContextMenu(selection, event.clientX, event.clientY); };
-        return node.type === "directory" ? <button key={node.path} ref={(element) => { element ? rowRefs.current.set(node.path, element) : rowRefs.current.delete(node.path); }} role="treeitem" aria-level={depth + 1} aria-expanded={open} aria-selected={selected} tabIndex={(focusedPath ?? visible[0]?.node.path) === node.path ? 0 : -1} className={`tree-row ${selected ? "selected" : ""} ${fileColors[node.path] ? `file-color-${fileColors[node.path]}` : ""}`} style={{ paddingLeft: 7 + depth * 13 }} onFocus={() => setFocusedPath(node.path)} onContextMenu={handleContext} onClick={(event) => { select(index, event.ctrlKey || event.metaKey, event.shiftKey); if (!event.ctrlKey && !event.metaKey && !event.shiftKey) toggle(node.path); }}>
-          {open ? <ChevronDown className="tree-chevron" size={14} /> : <ChevronRight className="tree-chevron" size={14} />}{open ? <FolderOpen className={`folder-kind-icon ${sourceKind ? `java-root-${sourceKind}` : ""}`} aria-label={sourceKind ? `${sourceKind === "test" ? "Test" : "Source"} directory` : undefined} size={15} /> : <Folder className={`folder-kind-icon ${sourceKind ? `java-root-${sourceKind}` : ""}`} aria-label={sourceKind ? `${sourceKind === "test" ? "Test" : "Source"} directory` : undefined} size={15} />}<span className="tree-file-name">{node.name}</span>
-        </button> : <ProjectFileRow key={node.path} node={node} javaType={javaNode?.javaType} depth={depth} selected={selected} active={activePath === node.path} focused={(focusedPath ?? visible[0]?.node.path) === node.path} color={fileColors[node.path]} gitStatus={gitStatuses[node.path]} setRef={(element) => { element ? rowRefs.current.set(node.path, element) : rowRefs.current.delete(node.path); }} onFocus={() => setFocusedPath(node.path)} onOpen={(event) => { select(index, event.ctrlKey || event.metaKey, event.shiftKey); if (!event.ctrlKey && !event.metaKey && !event.shiftKey) onAction("open", [node]); }} onContextMenu={handleContext} />;
-      })}
-    </div>
-  </>;
+  return (
+    <>
+      <div className="project-tree-actions">
+        <span>
+          {filtering
+            ? `${countFiles(filtered)} matching file${countFiles(filtered) === 1 ? "" : "s"}`
+            : `${countFiles(compacted)} files`}
+        </span>
+        <button
+          title="Reveal active file"
+          aria-label="Reveal active file"
+          disabled={!activePath || !ancestorPaths(compacted, activePath)}
+          onClick={revealActiveFile}
+        >
+          <LocateFixed size={13} />
+        </button>
+        <button
+          title="Expand all folders"
+          aria-label="Expand all folders"
+          disabled={filtering || allDirectories.every((path) => expanded.has(path))}
+          onClick={() => setExpanded(new Set(allDirectories))}
+        >
+          <ChevronsUpDown size={13} />
+        </button>
+        <button
+          title="Collapse all folders"
+          aria-label="Collapse all folders"
+          disabled={filtering || expanded.size === 0}
+          onClick={() => setExpanded(new Set())}
+        >
+          <ChevronsDownUp size={13} />
+        </button>
+      </div>
+      <div className="tree project-file-tree" role="tree" aria-label="Project files" onKeyDown={onKeyDown}>
+        {visible.length === 0 ? (
+          <div className="filter-empty">No matching files</div>
+        ) : (
+          visible.map(({ node, depth }, index) => {
+            const open = node.type === "directory" && effectiveExpanded.has(node.path);
+            const selected = selectedPaths.has(node.path);
+            const javaNode = javaMetadata.get(node.path);
+            const sourceKind = javaNode?.type === "sourceRoot" ? (javaNode.sourceKind ?? "source") : undefined;
+            const handleContext = (event: MouseEvent) => {
+              event.preventDefault();
+              const selection = selected ? selectedNodes() : [node];
+              if (!selected) onSelectionChange(new Set([node.path]));
+              onContextMenu(selection, event.clientX, event.clientY);
+            };
+            return node.type === "directory" ? (
+              <button
+                key={node.path}
+                ref={(element) => {
+                  element ? rowRefs.current.set(node.path, element) : rowRefs.current.delete(node.path);
+                }}
+                role="treeitem"
+                aria-level={depth + 1}
+                aria-expanded={open}
+                aria-selected={selected}
+                tabIndex={(focusedPath ?? visible[0]?.node.path) === node.path ? 0 : -1}
+                className={`tree-row ${selected ? "selected" : ""} ${fileColors[node.path] ? `file-color-${fileColors[node.path]}` : ""}`}
+                style={{ paddingLeft: 7 + depth * 13 }}
+                onFocus={() => setFocusedPath(node.path)}
+                onContextMenu={handleContext}
+                onClick={(event) => {
+                  select(index, event.ctrlKey || event.metaKey, event.shiftKey);
+                  if (!event.ctrlKey && !event.metaKey && !event.shiftKey) toggle(node.path);
+                }}
+              >
+                {open ? (
+                  <ChevronDown className="tree-chevron" size={14} />
+                ) : (
+                  <ChevronRight className="tree-chevron" size={14} />
+                )}
+                {open ? (
+                  <FolderOpen
+                    className={`folder-kind-icon ${sourceKind ? `java-root-${sourceKind}` : ""}`}
+                    aria-label={sourceKind ? `${sourceKind === "test" ? "Test" : "Source"} directory` : undefined}
+                    size={15}
+                  />
+                ) : (
+                  <Folder
+                    className={`folder-kind-icon ${sourceKind ? `java-root-${sourceKind}` : ""}`}
+                    aria-label={sourceKind ? `${sourceKind === "test" ? "Test" : "Source"} directory` : undefined}
+                    size={15}
+                  />
+                )}
+                <span className="tree-file-name">{node.name}</span>
+              </button>
+            ) : (
+              <ProjectFileRow
+                key={node.path}
+                node={node}
+                javaType={javaNode?.javaType}
+                depth={depth}
+                selected={selected}
+                active={activePath === node.path}
+                focused={(focusedPath ?? visible[0]?.node.path) === node.path}
+                color={fileColors[node.path]}
+                gitStatus={gitStatuses[node.path]}
+                setRef={(element) => {
+                  element ? rowRefs.current.set(node.path, element) : rowRefs.current.delete(node.path);
+                }}
+                onFocus={() => setFocusedPath(node.path)}
+                onOpen={(event) => {
+                  select(index, event.ctrlKey || event.metaKey, event.shiftKey);
+                  if (!event.ctrlKey && !event.metaKey && !event.shiftKey) onAction("open", [node]);
+                }}
+                onContextMenu={handleContext}
+              />
+            );
+          })
+        )}
+      </div>
+    </>
+  );
 }
 
-function ProjectFileRow({ node, javaType, depth, selected, active, focused, color: rowColor, gitStatus, setRef, onFocus, onOpen, onContextMenu }: { node: FileTreeNode; javaType?: JavaFileType; depth: number; selected: boolean; active: boolean; focused: boolean; color?: FileColor; gitStatus?: "M" | "C"; setRef(element: HTMLButtonElement | null): void; onFocus(): void; onOpen(event: MouseEvent): void; onContextMenu(event: MouseEvent): void }) {
-  return <button ref={setRef} role="treeitem" aria-level={depth + 1} aria-selected={selected} aria-current={active ? "page" : undefined} tabIndex={focused ? 0 : -1} className={`tree-row file-row ${selected ? "selected" : ""} ${rowColor ? `file-color-${rowColor}` : ""}`} style={{ paddingLeft: 7 + depth * 13 }} onFocus={onFocus} onContextMenu={onContextMenu} onClick={onOpen}>
-    <span className="tree-indent" /><FileKindIcon name={node.name} javaType={javaType} /><span className="tree-file-name">{node.name}</span>{gitStatus && <span className={`tree-git-status ${gitStatus === "C" ? "created" : "modified"}`}>{gitStatus}</span>}
-  </button>;
+function ProjectFileRow({
+  node,
+  javaType,
+  depth,
+  selected,
+  active,
+  focused,
+  color: rowColor,
+  gitStatus,
+  setRef,
+  onFocus,
+  onOpen,
+  onContextMenu,
+}: {
+  node: FileTreeNode;
+  javaType?: JavaFileType;
+  depth: number;
+  selected: boolean;
+  active: boolean;
+  focused: boolean;
+  color?: FileColor;
+  gitStatus?: "M" | "C";
+  setRef(element: HTMLButtonElement | null): void;
+  onFocus(): void;
+  onOpen(event: MouseEvent): void;
+  onContextMenu(event: MouseEvent): void;
+}) {
+  return (
+    <button
+      ref={setRef}
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-selected={selected}
+      aria-current={active ? "page" : undefined}
+      tabIndex={focused ? 0 : -1}
+      className={`tree-row file-row ${selected ? "selected" : ""} ${rowColor ? `file-color-${rowColor}` : ""}`}
+      style={{ paddingLeft: 7 + depth * 13 }}
+      onFocus={onFocus}
+      onContextMenu={onContextMenu}
+      onClick={onOpen}
+    >
+      <span className="tree-indent" />
+      <FileKindIcon name={node.name} javaType={javaType} />
+      <span className="tree-file-name">{node.name}</span>
+      {gitStatus && (
+        <span className={`tree-git-status ${gitStatus === "C" ? "created" : "modified"}`}>{gitStatus}</span>
+      )}
+    </button>
+  );
 }

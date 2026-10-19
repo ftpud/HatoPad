@@ -4,14 +4,18 @@ import type { FileColor, HttpResponse, SearchResult, WorkspaceSearchQueries } fr
 import { initialLayout, type LayoutModel } from "./model";
 
 export function useEditorState() {
-
   const [layout, setLayout] = useState<LayoutModel>(initialLayout);
 
   const [terminalHeight, setTerminalHeight] = useState(240);
 
   const [fileColors, setFileColors] = useState<Record<string, FileColor>>({});
 
-  const [httpResult, setHttpResult] = useState<{ request: ParsedHttpRequest; response?: HttpResponse; error?: string; loading: boolean }>();
+  const [httpResult, setHttpResult] = useState<{
+    request: ParsedHttpRequest;
+    response?: HttpResponse;
+    error?: string;
+    loading: boolean;
+  }>();
 
   const [workspaceOptionsReady, setWorkspaceOptionsReady] = useState(false);
 
@@ -40,6 +44,6 @@ export function useEditorState() {
     searchQueries,
     setSearchQueries,
     pendingNavigation,
-    setPendingNavigation
+    setPendingNavigation,
   };
 }

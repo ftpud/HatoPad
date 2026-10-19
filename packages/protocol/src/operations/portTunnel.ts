@@ -1,5 +1,3 @@
-
-
 export type PortTunnelOperations = {
   "portTunnel.open": { payload: { port: number }; result: { streamId: string } };
   "portTunnel.read": { payload: { streamId: string }; result: { data: string; eof: boolean } };

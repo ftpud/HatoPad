@@ -8,14 +8,38 @@ import { TerminalSessionHost } from "./process-manager.js";
 
 const services: WorkflowAppService[] = [];
 const directories: string[] = [];
-afterEach(async () => { await Promise.all(services.splice(0).map((service) => service.closeAll())); await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all(services.splice(0).map((service) => service.closeAll()));
+  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+});
 async function setup() {
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "workflow-app-")); directories.push(workspace);
-  const service = new WorkflowAppService(); services.push(service);
-  const execute = async (action: NonNullable<HarnessAppOptions["action"]>, extra: Partial<HarnessBlock> = {}, input = "", target = workspace) => {
-    const block: HarnessBlock = { id: action, type: "run_app", label: action, prompt: "", position: { x: 0, y: 0 }, app: { action, name: "server", lines: 2 }, ...extra };
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "workflow-app-"));
+  directories.push(workspace);
+  const service = new WorkflowAppService();
+  services.push(service);
+  const execute = async (
+    action: NonNullable<HarnessAppOptions["action"]>,
+    extra: Partial<HarnessBlock> = {},
+    input = "",
+    target = workspace,
+  ) => {
+    const block: HarnessBlock = {
+      id: action,
+      type: "run_app",
+      label: action,
+      prompt: "",
+      position: { x: 0, y: 0 },
+      app: { action, name: "server", lines: 2 },
+      ...extra,
+    };
     const result = await service.execute(block, input, target, () => {});
-    return JSON.parse(result.messages[0]!.text) as { status: string; pid: number; output: string; exitCode: number | null; signal: string | null };
+    return JSON.parse(result.messages[0]!.text) as {
+      status: string;
+      pid: number;
+      output: string;
+      exitCode: number | null;
+      signal: string | null;
+    };
   };
   return { service, workspace, execute };
 }
@@ -49,17 +73,25 @@ describe("workflow apps", () => {
     const script = 'printf "old\\ninput:%s\\n" "$HATOPAD_WORKFLOW_INPUT"; pwd; printf "error\\n" >&2; sleep 300 & wait';
     const started = await execute("start", { command: script }, "hello");
     expect(started).toMatchObject({ status: "running" });
-    await vi.waitFor(async () => expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(workspace));
+    await vi.waitFor(async () =>
+      expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(
+        workspace,
+      ),
+    );
     const tail = await execute("tail");
     expect(tail.output.split("\n")).toHaveLength(2);
-    expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain("input:hello");
+    expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(
+      "input:hello",
+    );
     expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain("error");
     expect((await execute("start", { command: script })).pid).toBe(started.pid);
     expect((await execute("status")).status).toBe("running");
     expect(await execute("kill")).toMatchObject({ status: "exited", signal: "SIGKILL" });
     // The shell can append a background-job notification before it is stopped.
     // Retain the earlier output without assuming the last two lines are frozen.
-    expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(tail.output);
+    expect((await execute("tail", { app: { name: "server", action: "tail", lines: 10 } })).output).toContain(
+      tail.output,
+    );
     expect((await execute("kill")).status).toBe("exited");
     const restarted = await execute("start", { command: "exec sleep 300" });
     expect(restarted.pid).not.toBe(started.pid);
@@ -83,21 +115,33 @@ describe("workflow apps", () => {
 
   it("uses one block for allowed actions and rejects disabled actions", async () => {
     const { execute } = await setup();
-    const appBlock = { command: "printf 'ready\\n'; exec sleep 300", app: { name: "server", actions: ["start", "status", "tail", "kill"] as const, lines: 2 } };
+    const appBlock = {
+      command: "printf 'ready\\n'; exec sleep 300",
+      app: { name: "server", actions: ["start", "status", "tail", "kill"] as const, lines: 2 },
+    };
     const configured = { ...appBlock, app: { ...appBlock.app, actions: [...appBlock.app.actions] } };
     expect((await execute("start", configured)).status).toBe("running");
     expect((await execute("start", configured, JSON.stringify({ action: "status" }))).status).toBe("running");
-    await vi.waitFor(async () => expect((await execute("start", configured, JSON.stringify({ action: "tail" }))).output).toContain("ready"));
-    await expect(execute("start", { app: { name: "server", actions: ["status"] } }, JSON.stringify({ action: "kill" }))).rejects.toThrow("allowed");
+    await vi.waitFor(async () =>
+      expect((await execute("start", configured, JSON.stringify({ action: "tail" }))).output).toContain("ready"),
+    );
+    await expect(
+      execute("start", { app: { name: "server", actions: ["status"] } }, JSON.stringify({ action: "kill" })),
+    ).rejects.toThrow("allowed");
     expect((await execute("start", configured, JSON.stringify({ action: "kill" }))).status).toBe("exited");
     await expect(execute("start", { app: { name: "server", actions: [] } })).rejects.toThrow("allowed");
   });
 
   it("uses a requested tail length without changing the saved app options", async () => {
     const { execute } = await setup();
-    const app = { command: "printf 'first\\nsecond\\nthird\\n'; exec sleep 300", app: { name: "server", actions: ["start", "tail"] as ("start" | "tail")[], lines: 2 } };
+    const app = {
+      command: "printf 'first\\nsecond\\nthird\\n'; exec sleep 300",
+      app: { name: "server", actions: ["start", "tail"] as ("start" | "tail")[], lines: 2 },
+    };
     await execute("start", app);
-    await vi.waitFor(async () => expect((await execute("tail", app, JSON.stringify({ action: "tail", lines: 1 }))).output).toBe("third"));
+    await vi.waitFor(async () =>
+      expect((await execute("tail", app, JSON.stringify({ action: "tail", lines: 1 }))).output).toBe("third"),
+    );
     expect((await execute("tail", app, JSON.stringify({ action: "tail" }))).output).toBe("second\nthird");
     await expect(execute("tail", app, JSON.stringify({ action: "tail", lines: 0 }))).rejects.toThrow("Tail lines");
     expect(app.app.lines).toBe(2);
@@ -116,7 +160,9 @@ describe("workflow apps", () => {
     const { execute } = await setup();
     await expect(execute("start", { command: "" })).rejects.toThrow("shell script");
     await expect(execute("tail", { app: { action: "tail", name: "server", lines: 0 } })).rejects.toThrow("Tail lines");
-    await expect(execute("start", { command: "sleep 300" }, "", "/nonexistent-workflow-app-workspace")).rejects.toThrow();
+    await expect(
+      execute("start", { command: "sleep 300" }, "", "/nonexistent-workflow-app-workspace"),
+    ).rejects.toThrow();
   });
 
   it("kills managed processes when Core closes", async () => {

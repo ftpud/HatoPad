@@ -64,11 +64,11 @@ before distributing them outside the Early Access group.
 Gateway downloads include these three portable Core archives. Standalone Desktop
 downloads contain the client only:
 
-| Target | Core host |
-| --- | --- |
-| `linux-x64` | Linux x64, including x64 WSL2 distributions |
-| `linux-arm64` | Linux ARM64, including ARM64 WSL2 distributions |
-| `darwin-arm64` | Apple Silicon Mac |
+| Target         | Core host                                       |
+| -------------- | ----------------------------------------------- |
+| `linux-x64`    | Linux x64, including x64 WSL2 distributions     |
+| `linux-arm64`  | Linux ARM64, including ARM64 WSL2 distributions |
+| `darwin-arm64` | Apple Silicon Mac                               |
 
 Each Core archive contains compiled ACP, protocol and Core packages, locked
 production dependencies (including native PTY support), and a matching Node

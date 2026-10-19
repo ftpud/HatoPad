@@ -16,7 +16,10 @@ describe("captured context", () => {
     refreshContext(current);
     current.messages[0]!.text = "replaced output";
     refreshContext(current);
-    expect(current.context?.sections.find((section) => section.id === "tools")).toMatchObject({ characters: 15, count: 1 });
+    expect(current.context?.sections.find((section) => section.id === "tools")).toMatchObject({
+      characters: 15,
+      count: 1,
+    });
     expect(current.context?.sections.find((section) => section.id === "files")?.characters).toBe(6);
     expect(current.context?.sections.find((section) => section.id === "reasoning")?.characters).toBe(7);
     expect(current.context?.sections.find((section) => section.id === "conversation")?.characters).toBe(0);
@@ -24,20 +27,34 @@ describe("captured context", () => {
 
   it("counts embedded text once and leaves image and link token sizes unknown", () => {
     const current = session();
-    current.messages.push({ id: "user", role: "user", text: "hello", timestamp: "now", content: [
-      { type: "text", text: "hello" }, { type: "resource", uri: "file:///source.ts", text: "code" },
-      { type: "image", mimeType: "image/png", data: "base64".repeat(1000) },
-      { type: "resource_link", uri: "file:///large.ts", name: "large.ts", size: 1_000_000 },
-    ] });
+    current.messages.push({
+      id: "user",
+      role: "user",
+      text: "hello",
+      timestamp: "now",
+      content: [
+        { type: "text", text: "hello" },
+        { type: "resource", uri: "file:///source.ts", text: "code" },
+        { type: "image", mimeType: "image/png", data: "base64".repeat(1000) },
+        { type: "resource_link", uri: "file:///large.ts", name: "large.ts", size: 1_000_000 },
+      ],
+    });
     refreshContext(current);
     expect(current.context?.sections.find((section) => section.id === "conversation")?.characters).toBe(5);
-    expect(current.context?.sections.find((section) => section.id === "files")).toMatchObject({ characters: 4, count: 3 });
+    expect(current.context?.sections.find((section) => section.id === "files")).toMatchObject({
+      characters: 4,
+      count: 3,
+    });
   });
 
   it("bounds previews and usage history, preserves decreases, and does not invent per-category tokens", () => {
     const current = session();
     for (let index = 0; index < 30; index++) captureContextInstructions(current, "Agent", "x".repeat(2000));
-    for (let index = 0; index < 130; index++) { current.contextUsed = index * 100; current.contextLimit = 100_000; refreshContext(current, true); }
+    for (let index = 0; index < 130; index++) {
+      current.contextUsed = index * 100;
+      current.contextLimit = 100_000;
+      refreshContext(current, true);
+    }
     current.contextUsed = 100;
     refreshContext(current, true);
     refreshContext(current, true);

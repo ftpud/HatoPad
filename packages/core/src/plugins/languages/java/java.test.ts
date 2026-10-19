@@ -6,14 +6,26 @@ import { WorkspaceFileSystem } from "../../../filesystem.js";
 import { JavaProjectService } from "./java.js";
 import { WorkspaceStateStore } from "../../../workspace-state.js";
 
-async function createMavenWorkspace(onEvent: ConstructorParameters<typeof JavaProjectService>[2] = () => undefined, onBuildSucceeded?: () => Promise<void>) {
+async function createMavenWorkspace(
+  onEvent: ConstructorParameters<typeof JavaProjectService>[2] = () => undefined,
+  onBuildSucceeded?: () => Promise<void>,
+) {
   const root = await mkdtemp(path.join(tmpdir(), "hatopad-java-"));
   const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-java-state-"));
   await mkdir(path.join(root, "src", "main", "java", "com", "example"), { recursive: true });
   await mkdir(path.join(root, "src", "generated", "org", "demo"), { recursive: true });
-  await writeFile(path.join(root, "pom.xml"), "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version></project>");
-  await writeFile(path.join(root, "src", "main", "java", "com", "example", "App.java"), "package com.example; class App { public static void main(String[] args) {} }\n");
-  await writeFile(path.join(root, "src", "generated", "org", "demo", "Generated.java"), "package org.demo; class Generated {}\n");
+  await writeFile(
+    path.join(root, "pom.xml"),
+    "<project><modelVersion>4.0.0</modelVersion><groupId>demo</groupId><artifactId>app</artifactId><version>1</version></project>",
+  );
+  await writeFile(
+    path.join(root, "src", "main", "java", "com", "example", "App.java"),
+    "package com.example; class App { public static void main(String[] args) {} }\n",
+  );
+  await writeFile(
+    path.join(root, "src", "generated", "org", "demo", "Generated.java"),
+    "package org.demo; class Generated {}\n",
+  );
   const filesystem = new WorkspaceFileSystem();
   await filesystem.open(root);
   const state = new WorkspaceStateStore(root, stateDirectory);
@@ -24,20 +36,43 @@ describe("JavaProjectService", () => {
   it("exposes source and custom test roots with Java declaration metadata", async () => {
     const { root, service } = await createMavenWorkspace();
     await mkdir(path.join(root, "tests", "java"), { recursive: true });
-    await writeFile(path.join(root, "pom.xml"), "<project><build><testSourceDirectory>tests/java</testSourceDirectory></build></project>");
+    await writeFile(
+      path.join(root, "pom.xml"),
+      "<project><build><testSourceDirectory>tests/java</testSourceDirectory></build></project>",
+    );
     await writeFile(path.join(root, "tests", "java", "Contract.java"), "public interface Contract {}");
     const result = await service.loadMavenProject("pom.xml");
     expect(result.tree[0]).toMatchObject({ path: "src/main/java", sourceKind: "source" });
-    expect(result.tree[0]?.children?.[0]?.children?.[0]).toMatchObject({ name: "App.java", javaType: { kind: "class" } });
-    expect(result.tree[1]).toMatchObject({ path: "tests/java", sourceKind: "test", children: [{ name: "Contract.java", javaType: { kind: "interface" } }] });
-    await writeFile(path.join(root, "tests", "java", "Contract.java"), "public abstract class Contract extends Base {}");
-    expect((await service.getProjectTree())[1]?.children?.[0]?.javaType).toEqual({ kind: "class", abstract: true, extends: true });
+    expect(result.tree[0]?.children?.[0]?.children?.[0]).toMatchObject({
+      name: "App.java",
+      javaType: { kind: "class" },
+    });
+    expect(result.tree[1]).toMatchObject({
+      path: "tests/java",
+      sourceKind: "test",
+      children: [{ name: "Contract.java", javaType: { kind: "interface" } }],
+    });
+    await writeFile(
+      path.join(root, "tests", "java", "Contract.java"),
+      "public abstract class Contract extends Base {}",
+    );
+    expect((await service.getProjectTree())[1]?.children?.[0]?.javaType).toEqual({
+      kind: "class",
+      abstract: true,
+      extends: true,
+    });
   });
 
   it("loads Maven options and creates a compact package tree", async () => {
     const { service, state } = await createMavenWorkspace();
     const result = await service.loadMavenProject("pom.xml");
-    expect(result.options).toMatchObject({ type: "maven", pomPath: "pom.xml", mavenExecutable: "mvn", sourceRoots: ["src/main/java"], outputPath: "target/classes" });
+    expect(result.options).toMatchObject({
+      type: "maven",
+      pomPath: "pom.xml",
+      mavenExecutable: "mvn",
+      sourceRoots: ["src/main/java"],
+      outputPath: "target/classes",
+    });
     expect(result.tree[0]).toMatchObject({ type: "sourceRoot", path: "src/main/java" });
     expect(result.tree[0]?.children?.[0]).toMatchObject({ type: "package", name: "com.example" });
     expect(result.tree[0]?.children?.[0]?.children?.[0]).toMatchObject({ type: "file", name: "App.java" });
@@ -49,16 +84,23 @@ describe("JavaProjectService", () => {
     await service.loadMavenProject("pom.xml");
     const result = await service.addSourceRoot("src/generated");
     expect(result.options.sourceRoots).toContain("src/generated");
-    expect(result.tree.find((node) => node.path === "src/generated")?.children?.[0]).toMatchObject({ name: "org.demo", type: "package" });
+    expect(result.tree.find((node) => node.path === "src/generated")?.children?.[0]).toMatchObject({
+      name: "org.demo",
+      type: "package",
+    });
     await expect(service.getOptions()).resolves.toEqual(result.options);
   });
 
   it("discovers main classes and persists a selected run profile", async () => {
     const { service } = await createMavenWorkspace();
     await service.loadMavenProject("pom.xml");
-    await expect(service.listMainClasses()).resolves.toEqual([{ className: "com.example.App", path: "src/main/java/com/example/App.java" }]);
+    await expect(service.listMainClasses()).resolves.toEqual([
+      { className: "com.example.App", path: "src/main/java/com/example/App.java" },
+    ]);
     const options = await service.addRunConfiguration("Application", "com.example.App");
-    expect(options.runConfigurations).toEqual([expect.objectContaining({ name: "Application", mainClass: "com.example.App" })]);
+    expect(options.runConfigurations).toEqual([
+      expect.objectContaining({ name: "Application", mainClass: "com.example.App" }),
+    ]);
     expect(options.selectedRunConfigurationId).toBe(options.runConfigurations[0]?.id);
     await expect(service.getOptions()).resolves.toEqual(options);
   });
@@ -91,21 +133,26 @@ describe("Java debugger inspection", () => {
     const result = service.debugVariables(reference);
     await Promise.resolve();
     expect(debuggerService.process.stdin.write).toHaveBeenLastCalledWith("dump obj\n");
-    debuggerService.consumeDebugOutput(' obj = {\n    number: 42\n    text: "hello, world"\n    child: instance of Probe(id=413)\n    nums: instance of int[2] (id=415)\n}\nma');
+    debuggerService.consumeDebugOutput(
+      ' obj = {\n    number: 42\n    text: "hello, world"\n    child: instance of Probe(id=413)\n    nums: instance of int[2] (id=415)\n}\nma',
+    );
     debuggerService.consumeDebugOutput("in[1] ");
     const fields = (await result).variables;
     expect(fields).toEqual([
       { name: "number", value: "42" },
       { name: "text", value: '\"hello, world\"' },
       expect.objectContaining({ name: "child", objectId: "413", reference: expect.any(String) }),
-      expect.objectContaining({ name: "nums", indexedCount: 2, reference: expect.any(String) })
+      expect.objectContaining({ name: "nums", indexedCount: 2, reference: expect.any(String) }),
     ]);
     const elements = service.debugVariables(fields[3]!.reference!);
     await Promise.resolve();
     debuggerService.consumeDebugOutput(" obj.nums[0] = 3\nmain[1] ");
     await new Promise((resolve) => setTimeout(resolve, 0));
     debuggerService.consumeDebugOutput(" obj.nums[1] = 5\nmain[1] ");
-    expect((await elements).variables).toEqual([{ name: "[0]", value: "3" }, { name: "[1]", value: "5" }]);
+    expect((await elements).variables).toEqual([
+      { name: "[0]", value: "3" },
+      { name: "[1]", value: "5" },
+    ]);
   });
 
   it("rejects stale and pending inspections when execution resumes", async () => {
@@ -123,29 +170,58 @@ describe("Java debugger pause handling", () => {
   it("recognizes uncaught exceptions and exposes this in instance methods", async () => {
     const onEvent = vi.fn();
     const { service } = await createMavenWorkspace(onEvent);
-    const debuggerService = service as unknown as { process: { stdin: { write: ReturnType<typeof vi.fn> } }; debugging: boolean; consumeDebugOutput(data: string): void };
-    debuggerService.process = { stdin: { write: vi.fn() } }; debuggerService.debugging = true;
-    debuggerService.consumeDebugOutput('Exception occurred: java.lang.RuntimeException (uncaught)"thread=main", Probe.work(), line=12 bci=9\nmain[1] ');
+    const debuggerService = service as unknown as {
+      process: { stdin: { write: ReturnType<typeof vi.fn> } };
+      debugging: boolean;
+      consumeDebugOutput(data: string): void;
+    };
+    debuggerService.process = { stdin: { write: vi.fn() } };
+    debuggerService.debugging = true;
+    debuggerService.consumeDebugOutput(
+      'Exception occurred: java.lang.RuntimeException (uncaught)"thread=main", Probe.work(), line=12 bci=9\nmain[1] ',
+    );
     expect(debuggerService.process.stdin.write).toHaveBeenLastCalledWith("locals\n");
     debuggerService.consumeDebugOutput("Local variables:\ncount = 4\nmain[1] ");
     expect(debuggerService.process.stdin.write).toHaveBeenLastCalledWith("dump this\n");
     debuggerService.consumeDebugOutput(" this = {\n    field: 7\n}\nmain[1] ");
     await Promise.resolve();
-    expect(onEvent).toHaveBeenLastCalledWith({ type: "debug", state: expect.objectContaining({ status: "paused", stopReason: "java.lang.RuntimeException (uncaught)", variables: [expect.objectContaining({ name: "this", reference: expect.any(String) }), { name: "count", value: "4" }] }) });
+    expect(onEvent).toHaveBeenLastCalledWith({
+      type: "debug",
+      state: expect.objectContaining({
+        status: "paused",
+        stopReason: "java.lang.RuntimeException (uncaught)",
+        variables: [
+          expect.objectContaining({ name: "this", reference: expect.any(String) }),
+          { name: "count", value: "4" },
+        ],
+      }),
+    });
   });
 });
 
 it("detects a pause when application output interrupts a breakpoint message", async () => {
   const onEvent = vi.fn();
   const { service } = await createMavenWorkspace(onEvent);
-  const debuggerService = service as unknown as { process: { stdin: { write: ReturnType<typeof vi.fn> } }; consumeDebugOutput(data: string): void };
+  const debuggerService = service as unknown as {
+    process: { stdin: { write: ReturnType<typeof vi.fn> } };
+    consumeDebugOutput(data: string): void;
+  };
   debuggerService.process = { stdin: { write: vi.fn() } };
-  debuggerService.consumeDebugOutput('RESULT=17,STATE\nBreakpoint hit: =7\n"thread=main", Probe.main(), line=8 bci=9\nmain[1] ');
+  debuggerService.consumeDebugOutput(
+    'RESULT=17,STATE\nBreakpoint hit: =7\n"thread=main", Probe.main(), line=8 bci=9\nmain[1] ',
+  );
   expect(debuggerService.process.stdin.write).toHaveBeenLastCalledWith("locals\n");
   debuggerService.consumeDebugOutput("Local variables:\nvalue = 17\nmain[1] ");
-  expect(onEvent).toHaveBeenLastCalledWith({ type: "debug", state: expect.objectContaining({ status: "paused", className: "Probe", line: 8, variables: [{ name: "value", value: "17" }] }) });
+  expect(onEvent).toHaveBeenLastCalledWith({
+    type: "debug",
+    state: expect.objectContaining({
+      status: "paused",
+      className: "Probe",
+      line: 8,
+      variables: [{ name: "value", value: "17" }],
+    }),
+  });
 });
-
 
 describe("Java launch build reuse", () => {
   it("skips Maven for unchanged launches and profile changes, but rebuilds changed inputs or outputs", async () => {
@@ -161,10 +237,20 @@ describe("Java launch build reuse", () => {
       await mkdir(path.dirname(output), { recursive: true });
       await writeFile(output, "compiled classes");
     });
-    const classpath = vi.spyOn(launch, "buildDebugClasspath").mockResolvedValue(`${path.dirname(output)}${path.delimiter}${path.join(root, options.testOutputPath)}`);
+    const classpath = vi
+      .spyOn(launch, "buildDebugClasspath")
+      .mockResolvedValue(`${path.dirname(output)}${path.delimiter}${path.join(root, options.testOutputPath)}`);
     await launch.prepareLaunch(options, "Run build", 0);
     await launch.prepareLaunch(options, "Debug build", 0);
-    await launch.prepareLaunch({ ...options, runConfigurations: [{ id: "other", name: "Other", mainClass: "Other" }], selectedRunConfigurationId: "other" }, "Run build", 0);
+    await launch.prepareLaunch(
+      {
+        ...options,
+        runConfigurations: [{ id: "other", name: "Other", mainClass: "Other" }],
+        selectedRunConfigurationId: "other",
+      },
+      "Run build",
+      0,
+    );
     expect(build).toHaveBeenCalledTimes(1);
     expect(classpath).toHaveBeenCalledTimes(1);
     const source = path.join(root, "src/main/java/com/example/App.java");
@@ -193,7 +279,10 @@ describe("Java launch build reuse", () => {
       runAndWait(): Promise<void>;
       buildDebugClasspath(): Promise<string>;
     };
-    const build = vi.spyOn(launch, "runAndWait").mockRejectedValueOnce(new Error("Build failed")).mockResolvedValue(undefined);
+    const build = vi
+      .spyOn(launch, "runAndWait")
+      .mockRejectedValueOnce(new Error("Build failed"))
+      .mockResolvedValue(undefined);
     vi.spyOn(launch, "buildDebugClasspath").mockResolvedValue("classes");
     await expect(launch.prepareLaunch(options, "Run build", 0)).rejects.toThrow("Build failed");
     await launch.prepareLaunch(options, "Run build", 0);
@@ -203,7 +292,6 @@ describe("Java launch build reuse", () => {
   });
 });
 
-
 it("refreshes language metadata only after a successful explicit Java Build", async () => {
   const refresh = vi.fn(async () => undefined);
   const events: unknown[] = [];
@@ -211,7 +299,10 @@ it("refreshes language metadata only after a successful explicit Java Build", as
   const { options } = await service.loadMavenProject("pom.xml");
   const script = path.join(root, "fake-maven.cjs");
   await writeFile(script, "process.exit(0)");
-  await state.save({ openFiles: [], javaProject: { ...options, mavenExecutable: process.execPath, mavenArguments: [script] } });
+  await state.save({
+    openFiles: [],
+    javaProject: { ...options, mavenExecutable: process.execPath, mavenArguments: [script] },
+  });
   await service.build();
   await vi.waitFor(() => expect(events).toContainEqual(expect.objectContaining({ type: "exit", exitCode: 0 })));
   expect(refresh).toHaveBeenCalledTimes(1);
@@ -222,7 +313,6 @@ it("refreshes language metadata only after a successful explicit Java Build", as
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 
-
 it("waits for the initial suspended thread prompt before issuing debugger commands", async () => {
   const { service } = await createMavenWorkspace();
   const debuggerService = service as unknown as {
@@ -231,7 +321,9 @@ it("waits for the initial suspended thread prompt before issuing debugger comman
     invalidateDebugInspection(): void;
   };
   let attached = false;
-  const ready = debuggerService.waitForDebugAttach().then(() => { attached = true; });
+  const ready = debuggerService.waitForDebugAttach().then(() => {
+    attached = true;
+  });
   debuggerService.consumeDebugOutput("Initializing jdb ...\n> ");
   await Promise.resolve();
   expect(attached).toBe(false);

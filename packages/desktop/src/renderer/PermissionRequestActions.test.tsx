@@ -8,11 +8,13 @@ import { openTaskFromSummary } from "./permission-navigation";
 afterEach(cleanup);
 
 const request = (id: string, title = id): AiPermissionRequest => ({
-  id, title, toolCallId: `tool-${id}`,
+  id,
+  title,
+  toolCallId: `tool-${id}`,
   options: [
     { optionId: "approve", name: "Approve", kind: "allow_once" },
-    { optionId: "deny", name: "Deny", kind: "reject_once" }
-  ]
+    { optionId: "deny", name: "Deny", kind: "reject_once" },
+  ],
 });
 
 describe("inactive task permission navigation", () => {
@@ -20,7 +22,14 @@ describe("inactive task permission navigation", () => {
     const openClassicAi = vi.fn();
     const openFocusedAi = vi.fn();
     const switchTask = vi.fn();
-    openTaskFromSummary({ taskId: "task-b", pendingPermission: true, sideLayout: "ai-focused", openClassicAi, openFocusedAi, switchTask });
+    openTaskFromSummary({
+      taskId: "task-b",
+      pendingPermission: true,
+      sideLayout: "ai-focused",
+      openClassicAi,
+      openFocusedAi,
+      switchTask,
+    });
     expect(openFocusedAi).toHaveBeenCalledOnce();
     expect(openClassicAi).not.toHaveBeenCalled();
     expect(switchTask).toHaveBeenCalledWith("task-b");
@@ -32,8 +41,15 @@ describe("permission request actions", () => {
     const resolve = vi.fn().mockResolvedValue(undefined);
     const ownerA: PermissionRequestOwner = { taskId: "task-a", provider: "codex", sessionId: "conversation-a" };
     const ownerB: PermissionRequestOwner = { taskId: "task-b", provider: "copilot", sessionId: "conversation-b" };
-    render(<><PermissionRequestActions request={request("request-a", "Task A request")} owner={ownerA} onResolve={resolve} /><PermissionRequestActions request={request("request-b", "Task B request")} owner={ownerB} onResolve={resolve} /></>);
-    fireEvent.click(within(screen.getByText("Task B request").closest("section")!).getByRole("button", { name: "Approve" }));
+    render(
+      <>
+        <PermissionRequestActions request={request("request-a", "Task A request")} owner={ownerA} onResolve={resolve} />
+        <PermissionRequestActions request={request("request-b", "Task B request")} owner={ownerB} onResolve={resolve} />
+      </>,
+    );
+    fireEvent.click(
+      within(screen.getByText("Task B request").closest("section")!).getByRole("button", { name: "Approve" }),
+    );
     await waitFor(() => expect(resolve).toHaveBeenCalledWith(ownerB, "request-b", "approve"));
     expect(resolve).not.toHaveBeenCalledWith(ownerA, expect.anything(), expect.anything());
   });
@@ -41,7 +57,9 @@ describe("permission request actions", () => {
   it("routes approve, deny, and cancel without substituting the active task", async () => {
     const resolve = vi.fn().mockResolvedValue(undefined);
     const owner: PermissionRequestOwner = { taskId: "inactive-task", provider: "codex", sessionId: "conversation-7" };
-    const { rerender } = render(<PermissionRequestActions request={request("approve-request")} owner={owner} onResolve={resolve} />);
+    const { rerender } = render(
+      <PermissionRequestActions request={request("approve-request")} owner={owner} onResolve={resolve} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     await waitFor(() => expect(resolve).toHaveBeenLastCalledWith(owner, "approve-request", "approve"));
     rerender(<PermissionRequestActions request={request("deny-request")} owner={owner} onResolve={resolve} />);
@@ -56,7 +74,9 @@ describe("permission request actions", () => {
     const resolve = vi.fn().mockResolvedValue(undefined);
     const oldOwner: PermissionRequestOwner = { taskId: "task-a", provider: "codex", sessionId: "conversation-a" };
     const newOwner: PermissionRequestOwner = { taskId: "task-b", provider: "copilot", sessionId: "conversation-b" };
-    const { rerender } = render(<PermissionRequestActions request={request("request-a")} owner={oldOwner} disabled onResolve={resolve} />);
+    const { rerender } = render(
+      <PermissionRequestActions request={request("request-a")} owner={oldOwner} disabled onResolve={resolve} />,
+    );
     expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect(resolve).not.toHaveBeenCalled();
@@ -66,9 +86,14 @@ describe("permission request actions", () => {
   });
 
   it("recovers when a request is stale or was resolved elsewhere", async () => {
-    const resolve = vi.fn().mockRejectedValueOnce(new Error("Permission request is no longer pending")).mockResolvedValue(undefined);
+    const resolve = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("Permission request is no longer pending"))
+      .mockResolvedValue(undefined);
     const owner: PermissionRequestOwner = { taskId: "task-a", provider: "codex", sessionId: "conversation-a" };
-    const { rerender } = render(<PermissionRequestActions request={request("stale-request")} owner={owner} onResolve={resolve} />);
+    const { rerender } = render(
+      <PermissionRequestActions request={request("stale-request")} owner={owner} onResolve={resolve} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Approve" }));
     expect((await screen.findByRole("alert")).textContent).toContain("no longer pending");
     expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(false);
@@ -90,9 +115,17 @@ describe("permission request actions", () => {
 
   it("prevents duplicate submission until the first action settles", async () => {
     let settle!: () => void;
-    const pending = new Promise<void>((resolve) => { settle = resolve; });
+    const pending = new Promise<void>((resolve) => {
+      settle = resolve;
+    });
     const resolve = vi.fn(() => pending);
-    render(<PermissionRequestActions request={request("duplicate-request")} owner={{ taskId: "task-a", provider: "codex" }} onResolve={resolve} />);
+    render(
+      <PermissionRequestActions
+        request={request("duplicate-request")}
+        owner={{ taskId: "task-a", provider: "codex" }}
+        onResolve={resolve}
+      />,
+    );
     const approve = screen.getByRole("button", { name: "Approve" });
     fireEvent.click(approve);
     fireEvent.click(approve);

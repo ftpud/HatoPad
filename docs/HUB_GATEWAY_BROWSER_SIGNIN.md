@@ -55,7 +55,11 @@ to the same callback with `error=access_denied` and `state`, without issuing a c
 Machine endpoint, no browser Origin header. Require `application/json` and exactly:
 
 ```json
-{"code":"<43 base64url characters>","verifier":"<43–128 base64url characters>","redirect_uri":"http://127.0.0.1:<port>/callback"}
+{
+  "code": "<43 base64url characters>",
+  "verifier": "<43–128 base64url characters>",
+  "redirect_uri": "http://127.0.0.1:<port>/callback"
+}
 ```
 
 Validate the code hash, expiry, approving user's active status, originating

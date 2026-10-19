@@ -111,14 +111,24 @@ const PREVIOUS_CONFIGURATION_SKILL_HASHES = new Set([
   "56930e7d161a65f291803724978469e20af359e3dc2a7e43c55e32cd9c901ea6",
   "22c077677a7c43786df14bc1fd7126b31a3901508aae14b3b7727229c61f5155",
   "497f968c35f9f855f3dcacab9aa0aafd0524567701ef97e2a1c5f88da87a457b",
-  "9117b20c14d3d139f68318a20837c7c5633c1114bc89e2976c877b5f7e9da894"
+  "9117b20c14d3d139f68318a20837c7c5633c1114bc89e2976c877b5f7e9da894",
 ]);
 
 /** Exact fingerprints of earlier shipped references, keyed by file name. */
 const PREVIOUS_REFERENCE_HASHES: Record<string, Set<string>> = {
-  "blocks.md": new Set(["552a116bbe89d3faf58e23852218084d9850ef4c27d6d39210ee535f6640b86e", "faa8c3ecbf3ead61885f1b69a83134c650c609b7fca6f6da0ee197c43d7a6763"]),
-  "commands.md": new Set(["5054464943837a9225c2bc0d2b59e51443497642ff5e958209a89dc1d97892ff", "7fc4de08342eba0236ba5f912129a5cc3febd30060e8f3b9ba2666f652e03d26"]),
-  "configuration.md": new Set(["926ce68a7662b262f717bb9359cd6da26d90cdc0b4243184464bb6f4efad22c2", "268e8d9d5f5fbe4e2784f0d6381388d7840081c31c1e3e048134daac99dd1a2b", "3684c16fc3ee025fb0806a486ab4b813b9e70846b8c95daed9b822f623c3e7b1"])
+  "blocks.md": new Set([
+    "552a116bbe89d3faf58e23852218084d9850ef4c27d6d39210ee535f6640b86e",
+    "faa8c3ecbf3ead61885f1b69a83134c650c609b7fca6f6da0ee197c43d7a6763",
+  ]),
+  "commands.md": new Set([
+    "5054464943837a9225c2bc0d2b59e51443497642ff5e958209a89dc1d97892ff",
+    "7fc4de08342eba0236ba5f912129a5cc3febd30060e8f3b9ba2666f652e03d26",
+  ]),
+  "configuration.md": new Set([
+    "926ce68a7662b262f717bb9359cd6da26d90cdc0b4243184464bb6f4efad22c2",
+    "268e8d9d5f5fbe4e2784f0d6381388d7840081c31c1e3e048134daac99dd1a2b",
+    "3684c16fc3ee025fb0806a486ab4b813b9e70846b8c95daed9b822f623c3e7b1",
+  ]),
 };
 
 const sha = (text: string) => crypto.createHash("sha256").update(text).digest("hex");
@@ -130,42 +140,63 @@ const LEGACY_AGENT_HASHES = new Set(["8136d0169d9ce93039ae3f6305fa7c98ff9454a77b
  */
 async function removeLegacySelfConfiguration(stateDirectory: string): Promise<void> {
   const agent = path.join(stateDirectory, "agents", "global", "vibe-configurator.md");
-  try { if (LEGACY_AGENT_HASHES.has(sha(await readFile(agent, "utf8")))) await rm(agent); } catch { /* absent or unreadable: leave it */ }
+  try {
+    if (LEGACY_AGENT_HASHES.has(sha(await readFile(agent, "utf8")))) await rm(agent);
+  } catch {
+    /* absent or unreadable: leave it */
+  }
   const directory = path.join(stateDirectory, "skills", "global", "vibe-self-configuration");
   try {
-    const known = (name: string, content: string) => name === "SKILL.md" ? PREVIOUS_CONFIGURATION_SKILL_HASHES.has(sha(content)) : PREVIOUS_REFERENCE_HASHES[name]?.has(sha(content)) === true;
-    const references = await readdir(path.join(directory, "references")).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
-    const files = [["SKILL.md", path.join(directory, "SKILL.md")], ...references.map((name) => [name, path.join(directory, "references", name)] as const)];
+    const known = (name: string, content: string) =>
+      name === "SKILL.md"
+        ? PREVIOUS_CONFIGURATION_SKILL_HASHES.has(sha(content))
+        : PREVIOUS_REFERENCE_HASHES[name]?.has(sha(content)) === true;
+    const references = await readdir(path.join(directory, "references")).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const files = [
+      ["SKILL.md", path.join(directory, "SKILL.md")],
+      ...references.map((name) => [name, path.join(directory, "references", name)] as const),
+    ];
     for (const [name, file] of files) if (!known(name, await readFile(file, "utf8"))) return;
     await rm(directory, { recursive: true });
-  } catch { /* absent or customised: leave it */ }
+  } catch {
+    /* absent or customised: leave it */
+  }
 }
 
 /** Install shipped global defaults on every Core host, preserving user edits. */
-export async function ensureSelfConfiguration(stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces")): Promise<void> {
+export async function ensureSelfConfiguration(
+  stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"),
+): Promise<void> {
   const skillDirectory = path.join(stateDirectory, "skills", "global", "hatopad-self-configuration");
   for (const [name, content] of Object.entries(CONFIGURATION_REFERENCES)) {
     const target = path.join(skillDirectory, "references", name);
     await mkdir(path.dirname(target), { recursive: true });
-    try { await writeFile(target, content, { encoding: "utf8", flag: "wx" }); }
-    catch (error) {
+    try {
+      await writeFile(target, content, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       // Only an untouched copy of an earlier shipped reference is refreshed; user edits are kept.
       const current = await readFile(target, "utf8");
-      if (PREVIOUS_REFERENCE_HASHES[name]?.has(crypto.createHash("sha256").update(current).digest("hex"))) await writeFile(target, content, "utf8");
+      if (PREVIOUS_REFERENCE_HASHES[name]?.has(crypto.createHash("sha256").update(current).digest("hex")))
+        await writeFile(target, content, "utf8");
     }
   }
   for (const [target, content] of [
     [path.join(stateDirectory, "agents", "global", CONFIGURATION_AGENT_NAME), CONFIGURATION_AGENT],
-    [path.join(stateDirectory, "skills", "global", "hatopad-self-configuration", "SKILL.md"), CONFIGURATION_SKILL]
+    [path.join(stateDirectory, "skills", "global", "hatopad-self-configuration", "SKILL.md"), CONFIGURATION_SKILL],
   ] as const) {
     await mkdir(path.dirname(target), { recursive: true });
-    try { await writeFile(target, content, { encoding: "utf8", flag: "wx" }); }
-    catch (error) {
+    try {
+      await writeFile(target, content, { encoding: "utf8", flag: "wx" });
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
       if (content === CONFIGURATION_SKILL) {
         const current = await readFile(target, "utf8");
-        if (PREVIOUS_CONFIGURATION_SKILL_HASHES.has(crypto.createHash("sha256").update(current).digest("hex"))) await writeFile(target, content, "utf8");
+        if (PREVIOUS_CONFIGURATION_SKILL_HASHES.has(crypto.createHash("sha256").update(current).digest("hex")))
+          await writeFile(target, content, "utf8");
       }
     }
   }

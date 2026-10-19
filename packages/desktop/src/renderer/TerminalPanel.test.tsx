@@ -22,7 +22,15 @@ describe("terminal focus", () => {
 
 describe("TerminalTabButton", () => {
   it("shows unread output independently of the running app highlight", () => {
-    const { rerender } = render(<TerminalTabButton tab={{ ...tab, hasUnreadOutput: true }} active={false} highlighted onActivate={vi.fn()} onClose={vi.fn()} />);
+    const { rerender } = render(
+      <TerminalTabButton
+        tab={{ ...tab, hasUnreadOutput: true }}
+        active={false}
+        highlighted
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
     const button = screen.getByRole("tab");
     expect(button.classList.contains("has-unread-output")).toBe(true);
     expect(button.classList.contains("run-config-running")).toBe(true);
@@ -34,7 +42,15 @@ describe("TerminalTabButton", () => {
     expect(button.classList.contains("run-config-running")).toBe(true);
   });
   it("visibly identifies the owning root", () => {
-    render(<TerminalTabButton tab={{ ...tab, rootId: "root-api" }} rootAlias="API" active={false} onActivate={vi.fn()} onClose={vi.fn()} />);
+    render(
+      <TerminalTabButton
+        tab={{ ...tab, rootId: "root-api" }}
+        rootAlias="API"
+        active={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
     expect(screen.getByText("API").classList.contains("root-badge")).toBe(true);
   });
   it("closes on middle mouse down without activating the tab", () => {
@@ -68,7 +84,16 @@ describe("TerminalTabButton", () => {
   it("renames inline from the tab menu and duplicates independently", () => {
     const onRename = vi.fn();
     const onDuplicate = vi.fn();
-    render(<TerminalTabButton tab={tab} active={false} onActivate={vi.fn()} onClose={vi.fn()} onRename={onRename} onDuplicate={onDuplicate} />);
+    render(
+      <TerminalTabButton
+        tab={tab}
+        active={false}
+        onActivate={vi.fn()}
+        onClose={vi.fn()}
+        onRename={onRename}
+        onDuplicate={onDuplicate}
+      />,
+    );
 
     fireEvent.contextMenu(screen.getByRole("tab"));
     fireEvent.click(screen.getByText("Rename"));
@@ -107,7 +132,9 @@ describe("TerminalRecoveryNotice", () => {
     const { rerender } = render(<TerminalRecoveryNotice tab={{ ...tab, recovery: "reattached" }} />);
     expect(screen.getByRole("status").textContent).toContain("same Core-owned terminal process");
     rerender(<TerminalRecoveryNotice tab={{ ...tab, recovery: "recreated" }} />);
-    expect(screen.getByRole("status").textContent).toContain("former process, environment, and working directory were not restored");
+    expect(screen.getByRole("status").textContent).toContain(
+      "former process, environment, and working directory were not restored",
+    );
   });
 
   it("reports an exited process without suggesting recovery", () => {
@@ -124,6 +151,8 @@ describe("TerminalRecoveryNotice", () => {
       act(() => vi.advanceTimersByTime(2_500));
       expect(screen.queryByRole("status")).toBeNull();
       expect(onDismiss).toHaveBeenCalledOnce();
-    } finally { vi.useRealTimers(); }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

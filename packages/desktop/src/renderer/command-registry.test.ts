@@ -1,9 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
-import { commandEnabled, defaultShortcutBindings, normalizeShortcut, rankCommands, shortcutConflict, shortcutMatches, type Command } from "./command-registry";
+import {
+  commandEnabled,
+  defaultShortcutBindings,
+  normalizeShortcut,
+  rankCommands,
+  shortcutConflict,
+  shortcutMatches,
+  type Command,
+} from "./command-registry";
 
-const context = { connected: true, hasActiveEditor: false, activeEditorDirty: false, gitBusy: false, taskSwitching: false, aiBusy: false };
+const context = {
+  connected: true,
+  hasActiveEditor: false,
+  activeEditorDirty: false,
+  gitBusy: false,
+  taskSwitching: false,
+  aiBusy: false,
+};
 describe("command registry", () => {
-  const commands: Command[] = [{ id: "project.refresh", label: "Refresh Project", category: "Project", execute: vi.fn() }, { id: "editor.save", label: "Save Active Editor", category: "Editor", when: (value) => value.activeEditorDirty, execute: vi.fn() }];
+  const commands: Command[] = [
+    { id: "project.refresh", label: "Refresh Project", category: "Project", execute: vi.fn() },
+    {
+      id: "editor.save",
+      label: "Save Active Editor",
+      category: "Editor",
+      when: (value) => value.activeEditorDirty,
+      execute: vi.fn(),
+    },
+  ];
   it("has stable searchable identities and evaluates availability from typed context", () => {
     expect(rankCommands(commands, "project refresh").map((command) => command.id)).toEqual(["project.refresh"]);
     expect(commandEnabled(commands[1]!, context)).toBe(false);
@@ -18,15 +42,38 @@ describe("command registry", () => {
   });
   it("normalizes and matches keyboard events exactly", () => {
     expect(normalizeShortcut("cmd+shift+p")).toBe("Meta+Shift+P");
-    expect(shortcutMatches({ key: "p", ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }, "Ctrl+Shift+P")).toBe(true);
-    expect(shortcutMatches({ key: "p", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, "Ctrl+Shift+P")).toBe(false);
+    expect(
+      shortcutMatches({ key: "p", ctrlKey: true, metaKey: false, altKey: false, shiftKey: true }, "Ctrl+Shift+P"),
+    ).toBe(true);
+    expect(
+      shortcutMatches({ key: "p", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false }, "Ctrl+Shift+P"),
+    ).toBe(false);
   });
 });
 
 it("creates language commands only for advertised capabilities", async () => {
   const { languageCommands } = await import("./command-registry");
   const open = vi.fn();
-  const commands = languageCommands([{ id: "custom", name: "Custom", extensions: [], projectMarkers: [], capabilities: { projectTree: true, build: false, run: true, debug: false, lsp: false, workspaceSymbols: false, configuration: false } }], open);
+  const commands = languageCommands(
+    [
+      {
+        id: "custom",
+        name: "Custom",
+        extensions: [],
+        projectMarkers: [],
+        capabilities: {
+          projectTree: true,
+          build: false,
+          run: true,
+          debug: false,
+          lsp: false,
+          workspaceSymbols: false,
+          configuration: false,
+        },
+      },
+    ],
+    open,
+  );
   expect(commands.map(({ id }) => id)).toEqual(["language.custom.targets"]);
   expect(commands.every((command) => !commandEnabled(command, { ...context, connected: false }))).toBe(true);
   commands[0]!.execute();

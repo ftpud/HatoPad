@@ -1,6 +1,22 @@
-import { isServerEvent, type CoreCapability, protocolCompatibility, type ProtocolOperations, type Request, type RequestType, type Response, type ServerEvent } from "@hatopad/protocol";
+import {
+  isServerEvent,
+  type CoreCapability,
+  protocolCompatibility,
+  type ProtocolOperations,
+  type Request,
+  type RequestType,
+  type Response,
+  type ServerEvent,
+} from "@hatopad/protocol";
 
-type Pending = { type: RequestType; socket: WebSocket; rootId?: string; timer: ReturnType<typeof setTimeout>; resolve(value: unknown): void; reject(error: Error): void };
+type Pending = {
+  type: RequestType;
+  socket: WebSocket;
+  rootId?: string;
+  timer: ReturnType<typeof setTimeout>;
+  resolve(value: unknown): void;
+  reject(error: Error): void;
+};
 
 export type LivenessOptions = { intervalMs?: number; timeoutMs?: number };
 
@@ -26,12 +42,16 @@ export class CoreClient {
   private readonly eventListeners = new Set<(event: ServerEvent) => void>();
   subscribeServerEvents(listener: (event: ServerEvent) => void): () => void {
     this.eventListeners.add(listener);
-    return () => { this.eventListeners.delete(listener); };
+    return () => {
+      this.eventListeners.delete(listener);
+    };
   }
   private rootId?: string;
   private maintenanceOnly = false;
   private compatible = false;
-  get protocolCompatible(): boolean { return this.compatible; }
+  get protocolCompatible(): boolean {
+    return this.compatible;
+  }
   private invalidMessageDiagnostics = 0;
   private cancelConnect?: (error: Error) => void;
   private negotiationSocket?: WebSocket;
@@ -40,14 +60,20 @@ export class CoreClient {
   private readonly heartbeatIntervalMs: number;
   private readonly heartbeatTimeoutMs: number;
 
-  constructor(private readonly requestTimeoutMs = 30_000, liveness: LivenessOptions = {}) {
+  constructor(
+    private readonly requestTimeoutMs = 30_000,
+    liveness: LivenessOptions = {},
+  ) {
     this.heartbeatIntervalMs = liveness.intervalMs ?? 10_000;
     this.heartbeatTimeoutMs = liveness.timeoutMs ?? 10_000;
     for (const value of [this.heartbeatIntervalMs, this.heartbeatTimeoutMs]) {
-      if (!Number.isFinite(value) || value <= 0 || value > 2_147_483_647) throw new Error("Liveness thresholds must be positive finite milliseconds");
+      if (!Number.isFinite(value) || value <= 0 || value > 2_147_483_647)
+        throw new Error("Liveness thresholds must be positive finite milliseconds");
     }
   }
-  isConnected(): boolean { return this.socket?.readyState === WebSocket.OPEN; }
+  isConnected(): boolean {
+    return this.socket?.readyState === WebSocket.OPEN;
+  }
 
   private stopHeartbeat(): void {
     clearTimeout(this.heartbeatTimer);
@@ -61,17 +87,24 @@ export class CoreClient {
         this.heartbeatTimer = undefined;
         if (this.socket !== socket) return;
         // Browsers cannot send WebSocket ping frames. Keep one application probe in flight.
-        void this.request("protocol.keepAlive", {}, { timeoutMs: this.heartbeatTimeoutMs })
-          .then(schedule, () => { if (this.socket === socket) lost(); });
+        void this.request("protocol.keepAlive", {}, { timeoutMs: this.heartbeatTimeoutMs }).then(schedule, () => {
+          if (this.socket === socket) lost();
+        });
       }, this.heartbeatIntervalMs);
     };
     schedule();
   }
   private capabilities = new Set<string>();
   /** Whether the connected Core advertised a capability; false for older Cores and before connecting. */
-  supports(capability: CoreCapability): boolean { return this.capabilities.has(capability); }
-  setRoot(rootId: string): void { this.rootId = rootId; }
-  getRoot(): string | undefined { return this.rootId; }
+  supports(capability: CoreCapability): boolean {
+    return this.capabilities.has(capability);
+  }
+  setRoot(rootId: string): void {
+    this.rootId = rootId;
+  }
+  getRoot(): string | undefined {
+    return this.rootId;
+  }
 
   private rejectPendingFor(socket: WebSocket, error: Error): void {
     for (const [id, item] of this.pending) {
@@ -84,11 +117,14 @@ export class CoreClient {
 
   connect(options: ConnectionOptions): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.onConnectionProgress?.(options.connectionLabel ? `Opening connection to ${options.connectionLabel}…` : "Opening connection…");
+      this.onConnectionProgress?.(
+        options.connectionLabel ? `Opening connection to ${options.connectionLabel}…` : "Opening connection…",
+      );
       const socket = new WebSocket(options.url);
       this.disconnect();
       this.socket = socket;
-      this.maintenanceOnly = options.maintenance === true; this.compatible = false;
+      this.maintenanceOnly = options.maintenance === true;
+      this.compatible = false;
       let opened = false;
       let negotiated = false;
       let settled = false;
@@ -102,12 +138,18 @@ export class CoreClient {
       };
       const cancel = (error: Error) => finish(error);
       const fail = (error: Error) => {
-        if (this.socket === socket) { this.socket = undefined; this.stopHeartbeat(); }
+        if (this.socket === socket) {
+          this.socket = undefined;
+          this.stopHeartbeat();
+        }
         this.rejectPendingFor(socket, error);
         finish(error);
         socket.close();
       };
-      const timer = setTimeout(() => fail(new Error(`Connection timed out after ${this.requestTimeoutMs}ms`)), this.requestTimeoutMs);
+      const timer = setTimeout(
+        () => fail(new Error(`Connection timed out after ${this.requestTimeoutMs}ms`)),
+        this.requestTimeoutMs,
+      );
       this.cancelConnect = cancel;
       const ensureCurrent = () => {
         if (this.socket !== socket) throw new Error("Connection replaced or closed");
@@ -120,25 +162,50 @@ export class CoreClient {
           const token = await options.getToken?.();
           ensureCurrent();
           this.negotiationSocket = socket;
-          const result = await this.request(options.maintenance ? "protocol.maintenance" : "protocol.handshake", { compatibility: protocolCompatibility, clientVersion: "0.1.0", ...(token ? { token } : {}), ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}) }).finally(() => {
+          const result = await this.request(options.maintenance ? "protocol.maintenance" : "protocol.handshake", {
+            compatibility: protocolCompatibility,
+            clientVersion: "0.1.0",
+            ...(token ? { token } : {}),
+            ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}),
+          }).finally(() => {
             if (this.negotiationSocket === socket) this.negotiationSocket = undefined;
           });
           this.capabilities = new Set(result.capabilities ?? []);
           this.compatible = result.compatible === true;
           ensureCurrent();
           if (options.maintenance) {
-            if (result.maintenance !== true) throw new Error("Core needs a one-time external update to enable maintenance updates");
-            negotiated = true; finish(); this.startHeartbeat(socket, () => lost("Backend liveness check timed out")); return;
+            if (result.maintenance !== true)
+              throw new Error("Core needs a one-time external update to enable maintenance updates");
+            negotiated = true;
+            finish();
+            this.startHeartbeat(socket, () => lost("Backend liveness check timed out"));
+            return;
           }
-          if (!result.compatible) throw new Error(result.message ?? "Client and Core protocol versions are incompatible");
+          if (!result.compatible)
+            throw new Error(result.message ?? "Client and Core protocol versions are incompatible");
           this.onConnectionProgress?.("Finding workspace roots…");
           const roots = await this.request("workspace.roots", {});
           ensureCurrent();
-          if (this.rootId && !roots.roots.some((root) => root.id === this.rootId)) throw new Error(`Previously selected workspace root is unavailable: ${this.rootId}`);
+          if (this.rootId && !roots.roots.some((root) => root.id === this.rootId))
+            throw new Error(`Previously selected workspace root is unavailable: ${this.rootId}`);
           const desired = this.rootId ?? roots.selectedRootId;
           this.rootId = desired;
-          if (desired !== roots.selectedRootId && options.leanWorkspace && !this.supports("workspace.selectRoot.includeTree")) throw new Error("This Core is too old for lean workspace restore; upgrade Core (workspace.selectRoot.includeTree is required)");
-          if (desired !== roots.selectedRootId) await this.request("workspace.selectRoot", { rootId: desired, preserveTaskSelection: true, ...(options.leanWorkspace && this.supports("workspace.selectRoot.includeTree") ? { includeTree: false } : {}) });
+          if (
+            desired !== roots.selectedRootId &&
+            options.leanWorkspace &&
+            !this.supports("workspace.selectRoot.includeTree")
+          )
+            throw new Error(
+              "This Core is too old for lean workspace restore; upgrade Core (workspace.selectRoot.includeTree is required)",
+            );
+          if (desired !== roots.selectedRootId)
+            await this.request("workspace.selectRoot", {
+              rootId: desired,
+              preserveTaskSelection: true,
+              ...(options.leanWorkspace && this.supports("workspace.selectRoot.includeTree")
+                ? { includeTree: false }
+                : {}),
+            });
           ensureCurrent();
           negotiated = true;
           finish();
@@ -147,8 +214,12 @@ export class CoreClient {
           fail(error instanceof Error ? error : new Error("Could not negotiate a compatible protocol"));
         });
       };
-      socket.onerror = () => { if (!opened && this.socket === socket) fail(new Error("Could not connect to the backend")); };
-      socket.onmessage = (event) => { if (this.socket === socket) this.handleMessage(String(event.data)); };
+      socket.onerror = () => {
+        if (!opened && this.socket === socket) fail(new Error("Could not connect to the backend"));
+      };
+      socket.onmessage = (event) => {
+        if (this.socket === socket) this.handleMessage(String(event.data));
+      };
       const lost = (message: string) => {
         if (this.socket !== socket) return;
         // Detach before close: browser close may never complete on a silently lost transport.
@@ -163,13 +234,32 @@ export class CoreClient {
     });
   }
 
-  request<T extends RequestType>(type: T, payload: ProtocolOperations[T]["payload"], options?: { timeoutMs?: number }): Promise<ProtocolOperations[T]["result"]> {
+  request<T extends RequestType>(
+    type: T,
+    payload: ProtocolOperations[T]["payload"],
+    options?: { timeoutMs?: number },
+  ): Promise<ProtocolOperations[T]["result"]> {
     if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error("Not connected"));
-    if (this.maintenanceOnly && !["protocol.maintenance", "protocol.keepAlive", "core.update.check", "core.update.apply"].includes(type)) return Promise.reject(new Error("Maintenance connections only allow Core updates"));
+    if (
+      this.maintenanceOnly &&
+      !["protocol.maintenance", "protocol.keepAlive", "core.update.check", "core.update.apply"].includes(type)
+    )
+      return Promise.reject(new Error("Maintenance connections only allow Core updates"));
     const timeoutMs = options?.timeoutMs ?? this.requestTimeoutMs;
     const id = crypto.randomUUID();
     const socket = this.socket;
-    const unscoped = type === "protocol.maintenance" || type === "core.update.check" || type === "core.update.apply" || type === "protocol.handshake" || type === "protocol.keepAlive" || type === "client.presence" || type === "workspace.roots" || type === "workspace.addRoot" || type === "overview.summary" || type === "overview.work" || type === "overview.events";
+    const unscoped =
+      type === "protocol.maintenance" ||
+      type === "core.update.check" ||
+      type === "core.update.apply" ||
+      type === "protocol.handshake" ||
+      type === "protocol.keepAlive" ||
+      type === "client.presence" ||
+      type === "workspace.roots" ||
+      type === "workspace.addRoot" ||
+      type === "overview.summary" ||
+      type === "overview.work" ||
+      type === "overview.events";
     if (!unscoped && !this.rootId) return Promise.reject(new Error(`No workspace root selected for ${type}`));
     const request = { id, type, payload, ...(!unscoped ? { rootId: this.rootId } : {}) } as Request<T>;
     return new Promise((resolve, reject) => {
@@ -179,9 +269,17 @@ export class CoreClient {
         this.pending.delete(id);
         reject(new Error(`Request ${type} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
-      this.pending.set(id, { type, socket, rootId: unscoped ? undefined : this.rootId, timer, resolve: resolve as (value: unknown) => void, reject });
-      try { socket.send(JSON.stringify(request)); }
-      catch (error) {
+      this.pending.set(id, {
+        type,
+        socket,
+        rootId: unscoped ? undefined : this.rootId,
+        timer,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+      });
+      try {
+        socket.send(JSON.stringify(request));
+      } catch (error) {
         clearTimeout(timer);
         this.pending.delete(id);
         reject(error instanceof Error ? error : new Error("Could not send request"));
@@ -208,21 +306,42 @@ export class CoreClient {
 
   private handleMessage(data: string): void {
     let message: unknown;
-    try { message = JSON.parse(data); } catch { this.invalidMessage(); return; }
-    if (!message || typeof message !== "object" || Array.isArray(message)) { this.invalidMessage(); return; }
+    try {
+      message = JSON.parse(data);
+    } catch {
+      this.invalidMessage();
+      return;
+    }
+    if (!message || typeof message !== "object" || Array.isArray(message)) {
+      this.invalidMessage();
+      return;
+    }
     if ("type" in message) {
       if (isServerEvent(message)) {
         this.onServerEvent?.(message);
         for (const listener of this.eventListeners) listener(message);
-      }
-      else this.invalidMessage();
+      } else this.invalidMessage();
       return;
     }
     const envelope = message as Record<string, unknown>;
-    if (typeof envelope.id !== "string" || typeof envelope.ok !== "boolean") { this.invalidMessage(); return; }
+    if (typeof envelope.id !== "string" || typeof envelope.ok !== "boolean") {
+      this.invalidMessage();
+      return;
+    }
     if (!envelope.ok) {
       const error = envelope.error;
-      if (!error || typeof error !== "object" || Array.isArray(error) || !("code" in error) || typeof error.code !== "string" || !("message" in error) || typeof error.message !== "string") { this.invalidMessage(); return; }
+      if (
+        !error ||
+        typeof error !== "object" ||
+        Array.isArray(error) ||
+        !("code" in error) ||
+        typeof error.code !== "string" ||
+        !("message" in error) ||
+        typeof error.message !== "string"
+      ) {
+        this.invalidMessage();
+        return;
+      }
     }
     const response = message as Response;
     const pending = this.pending.get(response.id);
@@ -230,16 +349,22 @@ export class CoreClient {
       // Older Cores reject unsupported negotiation requests before recovering
       // their id. Correlate only the sole request on the negotiating socket;
       // never guess which ordinary request failed or replay it.
-      if (response.id === "unknown" && !response.ok && response.error.code === "INVALID_REQUEST" && this.negotiationSocket === this.socket) {
+      if (
+        response.id === "unknown" &&
+        !response.ok &&
+        response.error.code === "INVALID_REQUEST" &&
+        this.negotiationSocket === this.socket
+      ) {
         const candidates = [...this.pending].filter(([, item]) => item.socket === this.negotiationSocket);
         const candidate = candidates.length === 1 ? candidates[0] : undefined;
         if (candidate && ["protocol.handshake", "protocol.maintenance"].includes(candidate[1].type)) {
           const [id, item] = candidate;
           clearTimeout(item.timer);
           this.pending.delete(id);
-          const message = item.type === "protocol.maintenance"
-            ? "Core needs a one-time external update to enable maintenance updates"
-            : `${response.error.code}: ${response.error.message} [${item.type}]`;
+          const message =
+            item.type === "protocol.maintenance"
+              ? "Core needs a one-time external update to enable maintenance updates"
+              : `${response.error.code}: ${response.error.message} [${item.type}]`;
           item.reject(Object.assign(new Error(message), { code: response.error.code, requestType: item.type }));
         }
       }
@@ -247,9 +372,16 @@ export class CoreClient {
     }
     clearTimeout(pending.timer);
     this.pending.delete(response.id);
-    if (response.ok && pending.rootId && response.rootId && response.rootId !== pending.rootId) pending.reject(new Error(`Stale cross-root response: expected ${pending.rootId}, received ${response.rootId}`));
+    if (response.ok && pending.rootId && response.rootId && response.rootId !== pending.rootId)
+      pending.reject(new Error(`Stale cross-root response: expected ${pending.rootId}, received ${response.rootId}`));
     else if (response.ok) pending.resolve(response.result);
-    else pending.reject(Object.assign(new Error(`${response.error.code}: ${response.error.message} [${pending.type}]`), { code: response.error.code, requestType: pending.type }));
+    else
+      pending.reject(
+        Object.assign(new Error(`${response.error.code}: ${response.error.message} [${pending.type}]`), {
+          code: response.error.code,
+          requestType: pending.type,
+        }),
+      );
   }
 }
 
@@ -262,7 +394,10 @@ export class CoalescedAsyncAction {
 
   constructor(private readonly action: (canApply: () => boolean) => Promise<void>) {}
 
-  dispose(): void { this.disposed = true; this.queued = false; }
+  dispose(): void {
+    this.disposed = true;
+    this.queued = false;
+  }
 
   trigger(): void {
     if (this.disposed) return;
@@ -280,7 +415,11 @@ export class CoalescedAsyncAction {
     try {
       while (this.queued) {
         this.queued = false;
-        try { await this.action(() => !this.disposed); } catch { /* refresh failures are retried by a later event or reconnect */ }
+        try {
+          await this.action(() => !this.disposed);
+        } catch {
+          /* refresh failures are retried by a later event or reconnect */
+        }
       }
     } finally {
       this.running = false;

@@ -43,13 +43,20 @@ beforeEach(async () => {
   stateFile = path.join(directory, "nested", "state.json");
   await mkdir(path.dirname(stateFile), { recursive: true });
 });
-afterEach(async () => { vi.restoreAllMocks(); await rm(directory, { recursive: true, force: true }); });
+afterEach(async () => {
+  vi.restoreAllMocks();
+  await rm(directory, { recursive: true, force: true });
+});
 
 function runChild(mode: string, iterations = "0") {
-  return exec(process.execPath, ["--import", "tsx", "--input-type=module", "-e", childSource, mode, stateFile, iterations], {
-    cwd: process.cwd(),
-    maxBuffer: 1024 * 1024
-  });
+  return exec(
+    process.execPath,
+    ["--import", "tsx", "--input-type=module", "-e", childSource, mode, stateFile, iterations],
+    {
+      cwd: process.cwd(),
+      maxBuffer: 1024 * 1024,
+    },
+  );
 }
 
 describe("serialized state mutation locking", () => {
@@ -61,13 +68,19 @@ describe("serialized state mutation locking", () => {
 
   it("recovers a lease abandoned by a SIGKILLed process", async () => {
     await writeFile(stateFile, JSON.stringify({ count: 0 }));
-    const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", childSource, "hold", stateFile], {
-      cwd: process.cwd(),
-      stdio: ["ignore", "pipe", "pipe"]
-    });
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", childSource, "hold", stateFile],
+      {
+        cwd: process.cwd(),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
     let stderr = "";
     child.stderr.setEncoding("utf8");
-    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
     await new Promise<void>((resolve, reject) => {
       let output = "";
       child.stdout.setEncoding("utf8");
@@ -76,13 +89,17 @@ describe("serialized state mutation locking", () => {
         if (output.includes("LEASED")) resolve();
       });
       child.once("error", reject);
-      child.once("exit", (code, signal) => reject(new Error(`Lock holder exited before acquiring its lease (${code ?? signal}): ${stderr}`)));
+      child.once("exit", (code, signal) =>
+        reject(new Error(`Lock holder exited before acquiring its lease (${code ?? signal}): ${stderr}`)),
+      );
     });
     expect(JSON.parse(await readFile(`${stateFile}.lock`, "utf8")).pid).toBe(child.pid);
     child.kill("SIGKILL");
     await new Promise<void>((resolve, reject) => {
       child.once("error", reject);
-      child.once("exit", (_code, signal) => signal === "SIGKILL" ? resolve() : reject(new Error(`Expected SIGKILL, got ${signal}`)));
+      child.once("exit", (_code, signal) =>
+        signal === "SIGKILL" ? resolve() : reject(new Error(`Expected SIGKILL, got ${signal}`)),
+      );
     });
 
     await expect(runChild("increment", "1")).resolves.toMatchObject({ stdout: "" });
@@ -93,16 +110,24 @@ describe("serialized state mutation locking", () => {
   it("preserves legacy empty directory locks instead of guessing their ownership", async () => {
     await mkdir(`${stateFile}.lock`);
     const now = Date.now();
-    vi.spyOn(Date, "now").mockReturnValueOnce(now).mockReturnValue(now + 30_001);
+    vi.spyOn(Date, "now")
+      .mockReturnValueOnce(now)
+      .mockReturnValue(now + 30_001);
     const operation = vi.fn();
-    await expect(serializedStateMutation(stateFile, operation)).rejects.toThrow("State file is locked by an unknown owner");
+    await expect(serializedStateMutation(stateFile, operation)).rejects.toThrow(
+      "State file is locked by an unknown owner",
+    );
     expect(operation).not.toHaveBeenCalled();
     await expect(readFile(`${stateFile}.lock`, "utf8")).rejects.toMatchObject({ code: "EISDIR" });
   });
 
   it("releases the in-process queue and owned lock when an operation fails", async () => {
     await writeFile(stateFile, JSON.stringify({ count: 0 }));
-    await expect(serializedStateMutation(stateFile, async () => { throw new Error("state write failed"); })).rejects.toThrow("state write failed");
+    await expect(
+      serializedStateMutation(stateFile, async () => {
+        throw new Error("state write failed");
+      }),
+    ).rejects.toThrow("state write failed");
     await expect(serializedStateMutation(stateFile, async () => "next operation")).resolves.toBe("next operation");
     await expect(readFile(`${stateFile}.lock`, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
   });

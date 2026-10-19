@@ -6,27 +6,42 @@ afterEach(cleanup);
 
 describe("resolveMarkdownLink", () => {
   it("resolves relative and workspace-root paths without allowing workspace escapes", () => {
-    expect(resolveMarkdownLink("../guide.md#setup", "docs/reference/readme.md")).toEqual({ type: "file", path: "docs/guide.md" });
+    expect(resolveMarkdownLink("../guide.md#setup", "docs/reference/readme.md")).toEqual({
+      type: "file",
+      path: "docs/guide.md",
+    });
     expect(resolveMarkdownLink("/README.md", "docs/readme.md")).toEqual({ type: "file", path: "README.md" });
     expect(resolveMarkdownLink("../../../outside.md", "docs/readme.md")).toEqual({ type: "unsupported" });
   });
 
   it("accepts only HTTP(S) external links", () => {
-    expect(resolveMarkdownLink("https://example.com/docs?q=1", "README.md")).toEqual({ type: "external", url: "https://example.com/docs?q=1" });
+    expect(resolveMarkdownLink("https://example.com/docs?q=1", "README.md")).toEqual({
+      type: "external",
+      url: "https://example.com/docs?q=1",
+    });
     expect(resolveMarkdownLink("mailto:user@example.com", "README.md")).toEqual({ type: "unsupported" });
     expect(resolveMarkdownLink("javascript:alert(1)", "README.md")).toEqual({ type: "unsupported" });
   });
 
   it("maps file URLs inside the workspace and rejects files outside it", () => {
-    expect(resolveMarkdownLink("file:///work/project/docs/guide.md", "README.md", "/work/project")).toEqual({ type: "file", path: "docs/guide.md" });
-    expect(resolveMarkdownLink("file:///work/other/secret.md", "README.md", "/work/project")).toEqual({ type: "unsupported" });
+    expect(resolveMarkdownLink("file:///work/project/docs/guide.md", "README.md", "/work/project")).toEqual({
+      type: "file",
+      path: "docs/guide.md",
+    });
+    expect(resolveMarkdownLink("file:///work/other/secret.md", "README.md", "/work/project")).toEqual({
+      type: "unsupported",
+    });
   });
 });
 
 describe("MarkdownPreview task checkboxes", () => {
   it("updates the source marker when a task is clicked", () => {
     const onChange = vi.fn();
-    render(<MarkdownPreview sourcePath="README.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>{"- [ ] First\n- [x] Second"}</MarkdownPreview>);
+    render(
+      <MarkdownPreview sourcePath="README.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>
+        {"- [ ] First\n- [x] Second"}
+      </MarkdownPreview>,
+    );
 
     const boxes = screen.getAllByRole<HTMLInputElement>("checkbox");
     expect(boxes[0]!.disabled).toBe(false);
@@ -42,10 +57,18 @@ describe("MarkdownPreview task checkboxes", () => {
 describe("MarkdownPreview link clicks", () => {
   it("resolves skill references and their sibling links relative to the skill bundle", () => {
     const openFile = vi.fn();
-    const view = render(<MarkdownPreview sourcePath="SKILL.md" onOpenFile={openFile} onOpenExternal={vi.fn()}>[Blocks](references/blocks.md)</MarkdownPreview>);
+    const view = render(
+      <MarkdownPreview sourcePath="SKILL.md" onOpenFile={openFile} onOpenExternal={vi.fn()}>
+        [Blocks](references/blocks.md)
+      </MarkdownPreview>,
+    );
     fireEvent.click(screen.getByRole("link", { name: "Blocks" }));
     expect(openFile).toHaveBeenLastCalledWith("references/blocks.md");
-    view.rerender(<MarkdownPreview sourcePath="references/blocks.md" onOpenFile={openFile} onOpenExternal={vi.fn()}>[Commands](commands.md) [Skill](../SKILL.md)</MarkdownPreview>);
+    view.rerender(
+      <MarkdownPreview sourcePath="references/blocks.md" onOpenFile={openFile} onOpenExternal={vi.fn()}>
+        [Commands](commands.md) [Skill](../SKILL.md)
+      </MarkdownPreview>,
+    );
     fireEvent.click(screen.getByRole("link", { name: "Commands" }));
     expect(openFile).toHaveBeenLastCalledWith("references/commands.md");
     fireEvent.click(screen.getByRole("link", { name: "Skill" }));
@@ -55,7 +78,11 @@ describe("MarkdownPreview link clicks", () => {
   it("opens relative files in the editor without navigating the renderer", () => {
     const openFile = vi.fn();
     const openExternal = vi.fn();
-    render(<MarkdownPreview sourcePath="docs/readme.md" onOpenFile={openFile} onOpenExternal={openExternal}>[Guide](../guide.md)</MarkdownPreview>);
+    render(
+      <MarkdownPreview sourcePath="docs/readme.md" onOpenFile={openFile} onOpenExternal={openExternal}>
+        [Guide](../guide.md)
+      </MarkdownPreview>,
+    );
 
     const link = screen.getByRole("link", { name: "Guide" });
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
@@ -69,7 +96,11 @@ describe("MarkdownPreview link clicks", () => {
   it("sends HTTP(S) links to the external opener and blocks unsupported protocols", () => {
     const openFile = vi.fn();
     const openExternal = vi.fn();
-    render(<MarkdownPreview sourcePath="README.md" onOpenFile={openFile} onOpenExternal={openExternal}>[Web](https://example.com/path) [Unsafe](javascript:alert(1))</MarkdownPreview>);
+    render(
+      <MarkdownPreview sourcePath="README.md" onOpenFile={openFile} onOpenExternal={openExternal}>
+        [Web](https://example.com/path) [Unsafe](javascript:alert(1))
+      </MarkdownPreview>,
+    );
 
     const webClick = new MouseEvent("click", { bubbles: true, cancelable: true });
     const unsafeClick = new MouseEvent("click", { bubbles: true, cancelable: true });
@@ -84,7 +115,16 @@ describe("MarkdownPreview link clicks", () => {
 
   it("routes file URLs within the active workspace to the editor", () => {
     const openFile = vi.fn();
-    render(<MarkdownPreview sourcePath="README.md" workspacePath="/work/project" onOpenFile={openFile} onOpenExternal={vi.fn()}>[File](file:///work/project/src/app.ts)</MarkdownPreview>);
+    render(
+      <MarkdownPreview
+        sourcePath="README.md"
+        workspacePath="/work/project"
+        onOpenFile={openFile}
+        onOpenExternal={vi.fn()}
+      >
+        [File](file:///work/project/src/app.ts)
+      </MarkdownPreview>,
+    );
 
     fireEvent.click(screen.getByRole("link", { name: "File" }));
     expect(openFile).toHaveBeenCalledWith("src/app.ts");

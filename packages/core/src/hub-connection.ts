@@ -20,8 +20,13 @@ export function defaultPairingFile(environment = process.env): string {
 export function parseHubOptions(argv: string[], environment = process.env): HubOptions {
   const pairIndex = argv.indexOf("--hub-pair");
   const pairOrigin = pairIndex >= 0 ? argv[pairIndex + 1] : undefined;
-  if (pairIndex >= 0 && (!pairOrigin || pairOrigin.startsWith("--"))) throw new Error("--hub-pair requires the hub origin, e.g. https://hub.example");
-  return { pairOrigin, connect: argv.includes("--hub-connect") || environment.HATOPAD_HUB_CONNECT === "1", storeFile: defaultPairingFile(environment) };
+  if (pairIndex >= 0 && (!pairOrigin || pairOrigin.startsWith("--")))
+    throw new Error("--hub-pair requires the hub origin, e.g. https://hub.example");
+  return {
+    pairOrigin,
+    connect: argv.includes("--hub-connect") || environment.HATOPAD_HUB_CONNECT === "1",
+    storeFile: defaultPairingFile(environment),
+  };
 }
 
 /** Relay WebSocket URL for a paired hub origin. */
@@ -44,10 +49,16 @@ export async function runHubPairing(options: HubOptions): Promise<boolean> {
     confirmLocally: async (claimant) => {
       const prompt = createInterface({ input: process.stdin, output: process.stdout });
       try {
-        console.log(`${claimant.name} <${claimant.email}> claimed this pairing code. Pairing gives them control of this Core, including its roots and command execution.`);
-        return /^y(es)?$/i.test((await prompt.question("Only accept if you just entered the code yourself. Pair this Core? [y/N] ")).trim());
-      } finally { prompt.close(); }
-    }
+        console.log(
+          `${claimant.name} <${claimant.email}> claimed this pairing code. Pairing gives them control of this Core, including its roots and command execution.`,
+        );
+        return /^y(es)?$/i.test(
+          (await prompt.question("Only accept if you just entered the code yourself. Pair this Core? [y/N] ")).trim(),
+        );
+      } finally {
+        prompt.close();
+      }
+    },
   });
   if (result.status === "paired") console.log("Paired. Start Core with --hub-connect to go online.");
   else console.error(`Pairing failed: ${result.reason}`);
@@ -55,17 +66,24 @@ export async function runHubPairing(options: HubOptions): Promise<boolean> {
 }
 
 /** Start the connector for an already paired Core. Returns a stop function. */
-export async function startHubConnector(options: HubOptions, port: number, token: string): Promise<(() => Promise<void>) | undefined> {
+export async function startHubConnector(
+  options: HubOptions,
+  port: number,
+  token: string,
+): Promise<(() => Promise<void>) | undefined> {
   const { CoreConnector, PairingStore } = await import("@hatopad/connector");
   const pairing = await new PairingStore(options.storeFile).load();
-  if (!pairing) { console.error("[core] hub connection requested but this Core is not paired; run with --hub-pair <origin>"); return undefined; }
+  if (!pairing) {
+    console.error("[core] hub connection requested but this Core is not paired; run with --hub-pair <origin>");
+    return undefined;
+  }
   const connector = new CoreConnector({
     hubUrl: hubRelayUrl(pairing.hubUrl),
     credential: pairing.credential,
     localCoreUrl: `ws://127.0.0.1:${port}`,
     localToken: token,
     onStatus: (status) => console.log(`[core] hub: ${status.state}${"reason" in status ? ` (${status.reason})` : ""}`),
-    onDiagnostic: (message) => console.log(`[core] hub: ${message}`)
+    onDiagnostic: (message) => console.log(`[core] hub: ${message}`),
   });
   connector.start();
   return () => connector.stop();

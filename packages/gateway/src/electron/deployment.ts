@@ -2,17 +2,21 @@ import { protocolCompatibility } from "./protocol-versions.js";
 import type { Compatibility } from "./client-compatibility.js";
 export type ProvisionedRelease = { commit: string; rebuilt: boolean; release: string };
 const releasePattern = /^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/;
-function shell(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
+function shell(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
 
 export function parseProvisionedRelease(output: string): ProvisionedRelease {
   const match = output.match(/(?:^|\n)HATOPAD_RESULT:([0-9a-f]{40,64}):([01]):([^\r\n]+)(?:\r?\n|$)/);
-  if (!match || !releasePattern.test(match[3]!) || !match[3]!.startsWith(`${match[1]}-node`)) throw new Error("Remote release could not be verified");
+  if (!match || !releasePattern.test(match[3]!) || !match[3]!.startsWith(`${match[1]}-node`))
+    throw new Error("Remote release could not be verified");
   return { commit: match[1]!, rebuilt: match[2] === "1", release: match[3]! };
 }
 
 /** A successful probe proves the candidate accepts the versioned Core protocol. */
 export function coreHealthProbe(port: number, timeoutMs = 180_000): string {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000) throw new Error("Invalid Core health timeout");
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 600_000)
+    throw new Error("Invalid Core health timeout");
   return `const {WebSocket}=require('ws');
 (async()=>{
  const protocolCompatibility=${JSON.stringify(protocolCompatibility)};
@@ -31,8 +35,21 @@ export function coreHealthProbe(port: number, timeoutMs = 180_000): string {
 })().catch(error=>{console.error(error.message);process.exitCode=1});`;
 }
 
-export function serverActivationCommand(workspaceId: string, workspace: string, port: number, release: string, environment: string): string {
-  if (!/^[A-Za-z0-9_-]{1,200}$/.test(workspaceId) || !releasePattern.test(release) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid release activation parameters");
+export function serverActivationCommand(
+  workspaceId: string,
+  workspace: string,
+  port: number,
+  release: string,
+  environment: string,
+): string {
+  if (
+    !/^[A-Za-z0-9_-]{1,200}$/.test(workspaceId) ||
+    !releasePattern.test(release) ||
+    !Number.isInteger(port) ||
+    port < 1 ||
+    port > 65535
+  )
+    throw new Error("Invalid release activation parameters");
   const probe = shell(coreHealthProbe(port));
   return `set -eu
 ${environment}
@@ -126,7 +143,7 @@ export async function activateRelease(
   release: string,
   activate: (onOutput: (line: string) => void) => Promise<unknown>,
   verify: () => Promise<unknown>,
-  onOutput?: (line: string) => void
+  onOutput?: (line: string) => void,
 ): Promise<void> {
   let reported = false;
   try {
@@ -139,15 +156,24 @@ export async function activateRelease(
     if (!reported) throw error;
     // The remote shell can lose its channel or exit nonzero after promotion.
     // Reconnect and verify the committed release plus authenticated Core health.
-    try { await verify(); }
-    catch (verificationError) {
-      throw new Error(`Core reported activation, but its release and health could not be verified after reconnecting: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}. Original activation result: ${error instanceof Error ? error.message : String(error)}`);
+    try {
+      await verify();
+    } catch (verificationError) {
+      throw new Error(
+        `Core reported activation, but its release and health could not be verified after reconnecting: ${verificationError instanceof Error ? verificationError.message : String(verificationError)}. Original activation result: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 }
 
-export function activatedReleaseVerificationCommand(workspaceId: string, port: number, release: string, environment: string): string {
-  if (!releasePattern.test(release) || !Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid release verification parameters");
+export function activatedReleaseVerificationCommand(
+  workspaceId: string,
+  port: number,
+  release: string,
+  environment: string,
+): string {
+  if (!releasePattern.test(release) || !Number.isInteger(port) || port < 1 || port > 65535)
+    throw new Error("Invalid release verification parameters");
   return `set -eu
 ${environment}
 ${workspaceReleaseDirectory(workspaceId)}
@@ -216,9 +242,15 @@ export class WorkspaceOperations {
     const existing = this.pending.get(workspaceId);
     if (existing) {
       if (existing.action === action) return existing.promise as Promise<T>;
-      return Promise.reject(new Error(`Workspace is busy with ${existing.action}; wait for it to finish or cancel provisioning`));
+      return Promise.reject(
+        new Error(`Workspace is busy with ${existing.action}; wait for it to finish or cancel provisioning`),
+      );
     }
-    const promise = Promise.resolve().then(operation).finally(() => { if (this.pending.get(workspaceId)?.promise === promise) this.pending.delete(workspaceId); });
+    const promise = Promise.resolve()
+      .then(operation)
+      .finally(() => {
+        if (this.pending.get(workspaceId)?.promise === promise) this.pending.delete(workspaceId);
+      });
     this.pending.set(workspaceId, { action, promise });
     return promise;
   }
@@ -234,13 +266,23 @@ release_directory="$HOME/.hatopad-deploy/releases/${release}"
 cd "$release_directory"
 node --input-type=module -e ${shell("import { protocolCompatibility } from './packages/protocol/dist/index.js'; console.log('HATOPAD_KEPT:' + JSON.stringify(protocolCompatibility))")}`;
 }
-export function parseKeptGitRelease(output: string, release: string, gateway: Compatibility): ProvisionedRelease | undefined {
-  const line = output.split(/\r?\n/).find(item => item.startsWith("HATOPAD_KEPT:"));
+export function parseKeptGitRelease(
+  output: string,
+  release: string,
+  gateway: Compatibility,
+): ProvisionedRelease | undefined {
+  const line = output.split(/\r?\n/).find((item) => item.startsWith("HATOPAD_KEPT:"));
   if (!line || !releasePattern.test(release) || release.includes("-bundle-")) return undefined;
   try {
     const range = JSON.parse(line.slice("HATOPAD_KEPT:".length)) as Compatibility;
-    const valid = Number.isSafeInteger(range.minimum) && Number.isSafeInteger(range.maximum) && range.minimum >= 1 && range.minimum <= range.maximum;
+    const valid =
+      Number.isSafeInteger(range.minimum) &&
+      Number.isSafeInteger(range.maximum) &&
+      range.minimum >= 1 &&
+      range.minimum <= range.maximum;
     if (!valid || range.minimum > gateway.maximum || gateway.minimum > range.maximum) return undefined;
     return { commit: release.slice(0, release.indexOf("-node")), rebuilt: false, release };
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }

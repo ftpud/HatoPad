@@ -8,10 +8,18 @@ export function recoveryRetryDelay(backoffMs: number, sample: number): number {
 }
 
 /** Shared retry policy and user feedback for restoration failures. */
-export function recoveryFailureFeedback(error: unknown): { retry: boolean; message: string; kind: "error" | "progress" } {
+export function recoveryFailureFeedback(error: unknown): {
+  retry: boolean;
+  message: string;
+  kind: "error" | "progress";
+} {
   const detail = error instanceof Error ? error.message : "Backend unavailable";
   if (error && typeof error === "object" && "code" in error && error.code === "WORKSPACE_TREE_TOO_LARGE") {
-    return { retry: false, kind: "error", message: `${detail}; restoration paused. Open a smaller workspace or adjust Core tree limits, then reconnect or select a workspace.` };
+    return {
+      retry: false,
+      kind: "error",
+      message: `${detail}; restoration paused. Open a smaller workspace or adjust Core tree limits, then reconnect or select a workspace.`,
+    };
   }
   return { retry: true, kind: "progress", message: `${detail}; retrying…` };
 }
@@ -25,10 +33,11 @@ export class ConnectionRecovery {
     private readonly failed: (error: unknown) => void,
     private readonly initialDelayMs = 250,
     private readonly maximumDelayMs = 5_000,
-    private readonly random: () => number = Math.random
+    private readonly random: () => number = Math.random,
   ) {
     for (const value of [initialDelayMs, maximumDelayMs]) {
-      if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647) throw new Error("Recovery delays must be positive timer integers");
+      if (!Number.isSafeInteger(value) || value <= 0 || value > 2_147_483_647)
+        throw new Error("Recovery delays must be positive timer integers");
     }
     if (initialDelayMs > maximumDelayMs) throw new Error("Initial recovery delay must not exceed maximum delay");
   }
@@ -51,7 +60,11 @@ export class ConnectionRecovery {
     try {
       while (!signal.aborted) {
         await new Promise<void>((resolve) => {
-          const finish = () => { clearTimeout(timer); signal.removeEventListener("abort", finish); resolve(); };
+          const finish = () => {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", finish);
+            resolve();
+          };
           const timer = setTimeout(finish, recoveryRetryDelay(backoff, this.random()));
           signal.addEventListener("abort", finish, { once: true });
         });
@@ -76,8 +89,17 @@ export class ConnectionRecovery {
 /** Rebuilds connection-level root routing and filesystem watch subscription. */
 export type RecoverySelection = { rootId: string; workspace: string; taskId?: string };
 
-export async function reconnectWorkspace(client: CoreClient, host: string, port: number, includeIgnored: boolean, signal: AbortSignal, expected: RecoverySelection) {
-  const check = () => { if (signal.aborted) throw new Error("Recovery cancelled"); };
+export async function reconnectWorkspace(
+  client: CoreClient,
+  host: string,
+  port: number,
+  includeIgnored: boolean,
+  signal: AbortSignal,
+  expected: RecoverySelection,
+) {
+  const check = () => {
+    if (signal.aborted) throw new Error("Recovery cancelled");
+  };
   check();
   await client.connect(host, port);
   check();
@@ -86,10 +108,12 @@ export async function reconnectWorkspace(client: CoreClient, host: string, port:
   if (roots.selectedRootId !== expected.rootId) throw new Error("Saved workspace root is unavailable");
   const workspace = await client.request("workspace.open", { includeIgnored });
   check();
-  if (workspace.workspace !== expected.workspace) throw new Error(`Saved workspace is unavailable: expected ${expected.workspace}, received ${workspace.workspace}`);
+  if (workspace.workspace !== expected.workspace)
+    throw new Error(`Saved workspace is unavailable: expected ${expected.workspace}, received ${workspace.workspace}`);
   const tasks = await client.request("tasks.list", {});
   check();
-  if (tasks.selectedTaskId !== expected.taskId) throw new Error(`Saved task selection is unavailable: ${expected.taskId ?? "project root"}`);
+  if (tasks.selectedTaskId !== expected.taskId)
+    throw new Error(`Saved task selection is unavailable: ${expected.taskId ?? "project root"}`);
   return { roots, workspace };
 }
 

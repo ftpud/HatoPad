@@ -1,5 +1,47 @@
 import { FileText, LoaderCircle, Search, X } from "lucide-react";
 
-export function QuickFilter({ value, placeholder, label, onChange, contentSearch, contentSearchLoading, onContentSearchChange }: { value: string; placeholder: string; label: string; onChange(value: string): void; contentSearch?: boolean; contentSearchLoading?: boolean; onContentSearchChange?(enabled: boolean): void }) {
-  return <div className="quick-filter"><Search size={13} /><input aria-label={label} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />{value && <button title="Clear filter" aria-label="Clear filter" onClick={() => onChange("")}><X size={12} /></button>}{onContentSearchChange && <button className={contentSearch ? "active" : ""} title={contentSearch ? "Filter by file name" : "Filter by file contents"} aria-label="Filter by file contents" aria-pressed={contentSearch} onClick={() => onContentSearchChange(!contentSearch)}>{contentSearchLoading ? <LoaderCircle className="quick-filter-spinner" size={13} /> : <FileText size={13} />}</button>}</div>;
+export function QuickFilter({
+  value,
+  placeholder,
+  label,
+  onChange,
+  contentSearch,
+  contentSearchLoading,
+  onContentSearchChange,
+}: {
+  value: string;
+  placeholder: string;
+  label: string;
+  onChange(value: string): void;
+  contentSearch?: boolean;
+  contentSearchLoading?: boolean;
+  onContentSearchChange?(enabled: boolean): void;
+}) {
+  return (
+    <div className="quick-filter">
+      <Search size={13} />
+      <input
+        aria-label={label}
+        value={value}
+        placeholder={placeholder}
+        onChange={(event) => onChange(event.target.value)}
+      />
+      {value && (
+        <button title="Clear filter" aria-label="Clear filter" onClick={() => onChange("")}>
+          <X size={12} />
+        </button>
+      )}
+      {onContentSearchChange && (
+        <button
+          className={contentSearch ? "active" : ""}
+          title={contentSearch ? "Filter by file name" : "Filter by file contents"}
+          aria-label="Filter by file contents"
+          aria-pressed={contentSearch}
+          onClick={() => onContentSearchChange(!contentSearch)}
+        >
+          {contentSearchLoading ? <LoaderCircle className="quick-filter-spinner" size={13} /> : <FileText size={13} />}
+        </button>
+      )}
+    </div>
+  );
 }

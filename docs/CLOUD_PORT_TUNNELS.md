@@ -35,13 +35,13 @@ The authenticated maintenance connection also permits these port operations
 when protocol ranges overlap, without selecting a workspace/root/task or
 starting workspace services:
 
-| Operation | Purpose |
-| --- | --- |
-| `portTunnel.open {port}` | Connect to Core loopback; return a connection-owned opaque stream ID |
+| Operation                          | Purpose                                                                         |
+| ---------------------------------- | ------------------------------------------------------------------------------- |
+| `portTunnel.open {port}`           | Connect to Core loopback; return a connection-owned opaque stream ID            |
 | `portTunnel.write {streamId,data}` | Write canonical base64, at most 32 KiB decoded; acknowledge after the TCP write |
-| `portTunnel.read {streamId}` | Pull at most 32 KiB; wait up to one second, then return data/EOF |
-| `portTunnel.end {streamId}` | Send TCP FIN while still permitting replies |
-| `portTunnel.close {streamId}` | Destroy and release the stream |
+| `portTunnel.read {streamId}`       | Pull at most 32 KiB; wait up to one second, then return data/EOF                |
+| `portTunnel.end {streamId}`        | Send TCP FIN while still permitting replies                                     |
+| `portTunnel.close {streamId}`      | Destroy and release the stream                                                  |
 
 Core validates ports, IDs, fields and data at the request boundary, accepts no
 host/address input, and refuses forwarding to its own protocol listener. Stream

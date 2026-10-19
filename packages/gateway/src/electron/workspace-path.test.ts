@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { legacyRemoteMigrationCommand, parseDiscoveredWorkspaceDirectories, parseValidatedWorkspaceDirectory, quoteWorkspaceShellArgument, validateWorkspaceDirectoryInput, workspaceDiscoveryCommand, workspaceRegistrationCommand, workspaceUnregistrationCommand, workspaceValidationCommand } from "./workspace-path.js";
+import {
+  legacyRemoteMigrationCommand,
+  parseDiscoveredWorkspaceDirectories,
+  parseValidatedWorkspaceDirectory,
+  quoteWorkspaceShellArgument,
+  validateWorkspaceDirectoryInput,
+  workspaceDiscoveryCommand,
+  workspaceRegistrationCommand,
+  workspaceUnregistrationCommand,
+  workspaceValidationCommand,
+} from "./workspace-path.js";
 
 test("workspace discovery includes direct home folders and is bounded", () => {
   const command = workspaceDiscoveryCommand();
@@ -37,7 +47,10 @@ test("workspace validation shell-quotes apostrophes for both shell layers", () =
 });
 
 test("remote directory results are strictly parsed and bounded", () => {
-  assert.deepEqual(parseDiscoveredWorkspaceDirectories("/home/dev\n/home/dev/projects/api\nrelative\n/home/dev/projects/api\n"), ["/home/dev", "/home/dev/projects/api"]);
+  assert.deepEqual(
+    parseDiscoveredWorkspaceDirectories("/home/dev\n/home/dev/projects/api\nrelative\n/home/dev/projects/api\n"),
+    ["/home/dev", "/home/dev/projects/api"],
+  );
   assert.equal(parseValidatedWorkspaceDirectory("/srv/project\n"), "/srv/project");
   assert.throws(() => parseValidatedWorkspaceDirectory("/srv/a\n/srv/b\n"), /Could not validate/);
 });
@@ -62,9 +75,10 @@ test("remote preparation creates nested directories and treats shell syntax as p
     assert.equal(await readFile(file, "utf8"), "keep");
     await assert.rejects(execute("/bin/bash", ["-c", workspaceValidationCommand(file)]));
     await assert.rejects(execute("/bin/bash", ["-c", workspaceValidationCommand(path.join(file, "child"))]));
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
-
 
 test("remote preparation leaves nonempty folders and inherited Git repositories intact", async () => {
   const { execFile } = await import("node:child_process");
@@ -86,22 +100,43 @@ test("remote preparation leaves nonempty folders and inherited Git repositories 
     const child = path.join(repository, "new child");
     await execute("bash", ["-c", workspaceValidationCommand(child)]);
     await assert.rejects(access(path.join(child, ".git")), { code: "ENOENT" });
-    assert.equal((await execute("git", ["-C", child, "rev-parse", "--show-toplevel"])).stdout.trim(), await realpath(repository));
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+    assert.equal(
+      (await execute("git", ["-C", child, "rev-parse", "--show-toplevel"])).stdout.trim(),
+      await realpath(repository),
+    );
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test("pre-rename remote files move without overwriting and the registry is copied", async () => {
   const { execFileSync } = await import("node:child_process");
   const { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } = await import("node:fs");
-  const os = await import("node:os"); const path = await import("node:path");
+  const os = await import("node:os");
+  const path = await import("node:path");
   const home = mkdtempSync(path.join(os.tmpdir(), "legacy-remote-"));
-  writeFileSync(path.join(home, ".vibe-server-abc.release"), "release-1"); writeFileSync(path.join(home, ".vibe-server-abc.pid"), "123");
-  writeFileSync(path.join(home, ".vibe-server-keep.release"), "old"); writeFileSync(path.join(home, ".hatopad-server-keep.release"), "new");
+  writeFileSync(path.join(home, ".vibe-server-abc.release"), "release-1");
+  writeFileSync(path.join(home, ".vibe-server-abc.pid"), "123");
+  writeFileSync(path.join(home, ".vibe-server-keep.release"), "old");
+  writeFileSync(path.join(home, ".hatopad-server-keep.release"), "new");
   mkdirSync(path.join(home, ".vibe-deploy/releases/r1"), { recursive: true });
-  mkdirSync(path.join(home, ".remote-ide/workspaces"), { recursive: true }); writeFileSync(path.join(home, ".remote-ide/workspaces/state.json"), "{}");
-  mkdirSync(path.join(home, ".vibe")); writeFileSync(path.join(home, ".vibe/workspaces"), "/srv/a\n");
-  const run = () => execFileSync("bash", ["-c", legacyRemoteMigrationCommand().replace(/^bash -lc '/, "").slice(0, -1)], { env: { ...process.env, HOME: home } });
-  run(); run();
+  mkdirSync(path.join(home, ".remote-ide/workspaces"), { recursive: true });
+  writeFileSync(path.join(home, ".remote-ide/workspaces/state.json"), "{}");
+  mkdirSync(path.join(home, ".vibe"));
+  writeFileSync(path.join(home, ".vibe/workspaces"), "/srv/a\n");
+  const run = () =>
+    execFileSync(
+      "bash",
+      [
+        "-c",
+        legacyRemoteMigrationCommand()
+          .replace(/^bash -lc '/, "")
+          .slice(0, -1),
+      ],
+      { env: { ...process.env, HOME: home } },
+    );
+  run();
+  run();
   assert.equal(readFileSync(path.join(home, ".hatopad-server-abc.release"), "utf8"), "release-1");
   assert.equal(readFileSync(path.join(home, ".hatopad-server-abc.pid"), "utf8"), "123");
   assert.equal(readFileSync(path.join(home, ".hatopad-server-keep.release"), "utf8"), "new");

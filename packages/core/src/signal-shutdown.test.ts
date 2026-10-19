@@ -16,8 +16,12 @@ class FakeRuntime implements ShutdownSignalRuntime {
     this.listeners.get(signal)?.delete(listener);
   }
 
-  exit(code: number): void { this.exits.push(code); }
-  log(error: unknown): void { this.errors.push(error); }
+  exit(code: number): void {
+    this.exits.push(code);
+  }
+  log(error: unknown): void {
+    this.errors.push(error);
+  }
 
   signal(signal: ShutdownSignal): void {
     for (const listener of this.listeners.get(signal) ?? []) listener();
@@ -144,7 +148,9 @@ describe("installSignalShutdown", () => {
   it("rejects unbounded or invalid timeout values", () => {
     const runtime = new FakeRuntime();
     expect(() => installSignalShutdown(async () => {}, { runtime, timeoutMs: 0 })).toThrow(RangeError);
-    expect(() => installSignalShutdown(async () => {}, { runtime, timeoutMs: Number.POSITIVE_INFINITY })).toThrow(RangeError);
+    expect(() => installSignalShutdown(async () => {}, { runtime, timeoutMs: Number.POSITIVE_INFINITY })).toThrow(
+      RangeError,
+    );
     expect(runtime.listeners.size).toBe(0);
   });
 });

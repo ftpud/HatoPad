@@ -32,17 +32,20 @@ it("keeps each connection's task selection independent of other clients' switche
       sockets.push(socket);
       await once(socket, "open");
       let sequence = 0;
-      const request = (type: string, payload: unknown, rootId?: string) => new Promise<Record<string, any>>((resolve, reject) => {
-        const id = String(++sequence);
-        const timer = setTimeout(() => reject(new Error(`No response to ${type}`)), 15_000);
-        const message = (data: WebSocket.RawData) => {
-          const value = JSON.parse(data.toString());
-          if (value.id !== id) return;
-          clearTimeout(timer); socket.off("message", message); resolve(value);
-        };
-        socket.on("message", message);
-        socket.send(JSON.stringify({ id, type, payload, rootId }));
-      });
+      const request = (type: string, payload: unknown, rootId?: string) =>
+        new Promise<Record<string, any>>((resolve, reject) => {
+          const id = String(++sequence);
+          const timer = setTimeout(() => reject(new Error(`No response to ${type}`)), 15_000);
+          const message = (data: WebSocket.RawData) => {
+            const value = JSON.parse(data.toString());
+            if (value.id !== id) return;
+            clearTimeout(timer);
+            socket.off("message", message);
+            resolve(value);
+          };
+          socket.on("message", message);
+          socket.send(JSON.stringify({ id, type, payload, rootId }));
+        });
       await request("protocol.handshake", { compatibility: protocolCompatibility });
       const rootId = (await request("workspace.roots", {})).result.selectedRootId as string;
       return { request, rootId };

@@ -9,17 +9,62 @@ afterEach(cleanup);
 const context: AiContextSnapshot = {
   sections: [
     { id: "conversation", characters: 100, count: 1, entries: [] },
-    { id: "files", characters: 400, count: 1, entries: [{ id: "file", label: "src/main.ts", characters: 400, preview: "export const captured = true;", timestamp: "2026-10-15T10:00:00Z" }] },
+    {
+      id: "files",
+      characters: 400,
+      count: 1,
+      entries: [
+        {
+          id: "file",
+          label: "src/main.ts",
+          characters: 400,
+          preview: "export const captured = true;",
+          timestamp: "2026-10-15T10:00:00Z",
+        },
+      ],
+    },
   ],
-  history: [{ timestamp: "2026-10-15T10:00:00Z", used: 500, limit: 1000, characters: 2000 }, { timestamp: "2026-10-15T10:01:00Z", used: 200, limit: 1000, characters: 2200 }],
+  history: [
+    { timestamp: "2026-10-15T10:00:00Z", used: 500, limit: 1000, characters: 2000 },
+    { timestamp: "2026-10-15T10:01:00Z", used: 200, limit: 1000, characters: 2200 },
+  ],
   compactions: 1,
 };
-const session: AiSession = { id: "one", model: "test", reasoning: "", status: "done", messages: [], context, contextUsed: 200, contextLimit: 1000 };
-const callbacks = { onProviderChange: vi.fn(), onConfigurationChange: vi.fn(), onAttachmentsChange: vi.fn(), onSend: vi.fn(), onSteer: vi.fn(), onInterrupt: vi.fn(), onNewSession: vi.fn(), onSwitchSession: vi.fn(), onRemoveSession: vi.fn(), onResolvePermission: vi.fn() };
+const session: AiSession = {
+  id: "one",
+  model: "test",
+  reasoning: "",
+  status: "done",
+  messages: [],
+  context,
+  contextUsed: 200,
+  contextLimit: 1000,
+};
+const callbacks = {
+  onProviderChange: vi.fn(),
+  onConfigurationChange: vi.fn(),
+  onAttachmentsChange: vi.fn(),
+  onSend: vi.fn(),
+  onSteer: vi.fn(),
+  onInterrupt: vi.fn(),
+  onNewSession: vi.fn(),
+  onSwitchSession: vi.fn(),
+  onRemoveSession: vi.fn(),
+  onResolvePermission: vi.fn(),
+};
 
 describe("context inspector", () => {
   it("opens under the AI header, inspects file bars, and closes when the session changes", () => {
-    const props = { ...callbacks, provider: "test", providers: [], session, sessions: [session], models: [], attachments: [], permissionOwner: { provider: "test" } };
+    const props = {
+      ...callbacks,
+      provider: "test",
+      providers: [],
+      session,
+      sessions: [session],
+      models: [],
+      attachments: [],
+      permissionOwner: { provider: "test" },
+    };
     const view = render(<AiPanel {...props} />);
     const toggle = screen.getByRole("button", { name: /Inspect context.*20%/ });
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
@@ -37,7 +82,13 @@ describe("context inspector", () => {
   });
 
   it("offers the same clickable context pie in a working workflow Chatbox", () => {
-    render(<BlockRunDetails block={{ id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } }} state={{ blockId: "chat", status: "running", context, contextUsed: 200, contextLimit: 1000 }} onClose={vi.fn()} />);
+    render(
+      <BlockRunDetails
+        block={{ id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } }}
+        state={{ blockId: "chat", status: "running", context, contextUsed: 200, contextLimit: 1000 }}
+        onClose={vi.fn()}
+      />,
+    );
     const toggle = screen.getByRole("button", { name: /Inspect context.*20%/ });
     fireEvent.click(toggle);
     const inspector = screen.getByRole("region", { name: "Context inspector" });

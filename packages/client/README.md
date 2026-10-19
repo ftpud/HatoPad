@@ -6,10 +6,10 @@ window.desktop, storage or environment credentials. A standard WebSocket global
 must be provided by the host (modern browsers and Node 22+).
 
 ```ts
-import { CoreClient } from '@hatopad/client';
+import { CoreClient } from "@hatopad/client";
 const client = new CoreClient();
-await client.connect({ url: 'wss://core.example/socket' });
-const tasks = await client.request('tasks.list', {});
+await client.connect({ url: "wss://core.example/socket" });
+const tasks = await client.request("tasks.list", {});
 client.disconnect();
 ```
 

@@ -3,7 +3,6 @@ import type { FileTreeNode, WorkspaceRoot } from "@hatopad/protocol";
 import { readSetting } from "./settings";
 
 export function useProjectPanelState() {
-
   const [tree, setTree] = useState<FileTreeNode[]>([]);
 
   const [projectFilter, setProjectFilter] = useState("");
@@ -26,7 +25,13 @@ export function useProjectPanelState() {
 
   const [projectSelection, setProjectSelection] = useState<Set<string>>(new Set());
 
-  const [projectTransfer, setProjectTransfer] = useState<{ operationId: string; token: string; label: string; bytes: number; total: number }>();
+  const [projectTransfer, setProjectTransfer] = useState<{
+    operationId: string;
+    token: string;
+    label: string;
+    bytes: number;
+    total: number;
+  }>();
   return {
     tree,
     setTree,
@@ -51,6 +56,6 @@ export function useProjectPanelState() {
     projectSelection,
     setProjectSelection,
     projectTransfer,
-    setProjectTransfer
+    setProjectTransfer,
   };
 }

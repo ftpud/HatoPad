@@ -2,11 +2,23 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GitCommitPanel } from "./GitCommitPanel";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("GitCommitPanel", () => {
   const renderPanel = (onCommit = vi.fn(), message = "Describe the change", selectedCount = 2) => {
-    render(<GitCommitPanel message={message} selectedCount={selectedCount} operationRunning={false} committing={false} onMessageChange={() => undefined} onCommit={onCommit} />);
+    render(
+      <GitCommitPanel
+        message={message}
+        selectedCount={selectedCount}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={() => undefined}
+        onCommit={onCommit}
+      />,
+    );
     return { onCommit, textarea: screen.getByRole("textbox", { name: "Commit message" }) };
   };
 
@@ -41,7 +53,16 @@ describe("GitCommitPanel", () => {
   it("publishes only after typing has been idle", () => {
     vi.useFakeTimers();
     const onMessageChange = vi.fn();
-    render(<GitCommitPanel message="" selectedCount={1} operationRunning={false} committing={false} onMessageChange={onMessageChange} onCommit={vi.fn()} />);
+    render(
+      <GitCommitPanel
+        message=""
+        selectedCount={1}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={onMessageChange}
+        onCommit={vi.fn()}
+      />,
+    );
     const textarea = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(textarea, { target: { value: "F" } });
     fireEvent.change(textarea, { target: { value: "Fi" } });
@@ -56,7 +77,16 @@ describe("GitCommitPanel", () => {
 
   it("publishes immediately on blur", () => {
     const onMessageChange = vi.fn();
-    render(<GitCommitPanel message="" selectedCount={1} operationRunning={false} committing={false} onMessageChange={onMessageChange} onCommit={vi.fn()} />);
+    render(
+      <GitCommitPanel
+        message=""
+        selectedCount={1}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={onMessageChange}
+        onCommit={vi.fn()}
+      />,
+    );
     const textarea = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(textarea, { target: { value: "Ready" } });
     fireEvent.blur(textarea);
@@ -65,8 +95,18 @@ describe("GitCommitPanel", () => {
 
   it("commits the latest local draft before its save timer fires", () => {
     vi.useFakeTimers();
-    const onMessageChange = vi.fn(); const onCommit = vi.fn();
-    render(<GitCommitPanel message="Old" selectedCount={1} operationRunning={false} committing={false} onMessageChange={onMessageChange} onCommit={onCommit} />);
+    const onMessageChange = vi.fn();
+    const onCommit = vi.fn();
+    render(
+      <GitCommitPanel
+        message="Old"
+        selectedCount={1}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={onMessageChange}
+        onCommit={onCommit}
+      />,
+    );
     const textarea = screen.getByRole("textbox", { name: "Commit message" });
     fireEvent.change(textarea, { target: { value: "Newest message" } });
     fireEvent.keyDown(textarea, { key: "Enter", ctrlKey: true });
@@ -76,7 +116,18 @@ describe("GitCommitPanel", () => {
 
   it("enables amend when the index has staged changes", () => {
     const onAmend = vi.fn();
-    render(<GitCommitPanel message="" selectedCount={0} operationRunning={false} committing={false} onMessageChange={() => undefined} onCommit={vi.fn()} stagedCount={2} onAmend={onAmend} />);
+    render(
+      <GitCommitPanel
+        message=""
+        selectedCount={0}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={() => undefined}
+        onCommit={vi.fn()}
+        stagedCount={2}
+        onAmend={onAmend}
+      />,
+    );
     const amend = screen.getByRole("button", { name: "Amend staged (2)" }) as HTMLButtonElement;
     expect(amend.disabled).toBe(false);
     fireEvent.click(amend);
@@ -84,7 +135,18 @@ describe("GitCommitPanel", () => {
   });
 
   it("explains why amend is unavailable without staged changes", () => {
-    render(<GitCommitPanel message="" selectedCount={0} operationRunning={false} committing={false} onMessageChange={() => undefined} onCommit={vi.fn()} stagedCount={0} onAmend={vi.fn()} />);
+    render(
+      <GitCommitPanel
+        message=""
+        selectedCount={0}
+        operationRunning={false}
+        committing={false}
+        onMessageChange={() => undefined}
+        onCommit={vi.fn()}
+        stagedCount={0}
+        onAmend={vi.fn()}
+      />,
+    );
     const amend = screen.getByRole("button", { name: "Amend staged" }) as HTMLButtonElement;
     expect(amend.disabled).toBe(true);
     expect(amend.title).toBe("Stage changes before amending");

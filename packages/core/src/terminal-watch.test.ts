@@ -5,7 +5,12 @@ const session = (output: string) => ({ terminalId: "t1", status: "running" as co
 
 describe("terminal watch snapshots", () => {
   it("reports metadata without output", () => {
-    expect(watchSummary({ ...session("héllo"), displayName: "dev" })).toEqual({ terminalId: "t1", status: "running", displayName: "dev", outputBytes: 6 });
+    expect(watchSummary({ ...session("héllo"), displayName: "dev" })).toEqual({
+      terminalId: "t1",
+      status: "running",
+      displayName: "dev",
+      outputBytes: 6,
+    });
     expect(JSON.stringify(watchSummary(session("secret")))).not.toContain("secret");
   });
   it("returns whole output within the limit", () => {

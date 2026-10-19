@@ -13,5 +13,9 @@ it("keeps separate workflow tabs for different roots and tasks", () => {
   const task = openWorkflowEditor(root.tabs, workflow, "root", "task");
   const other = openWorkflowEditor(task.tabs, workflow, "other", "task");
   expect(new Set(other.tabs.map((tab) => tab.id)).size).toBe(3);
-  expect(other.tabs.map((tab) => [tab.rootId, tab.workflowTaskId])).toEqual([["root", undefined], ["root", "task"], ["other", "task"]]);
+  expect(other.tabs.map((tab) => [tab.rootId, tab.workflowTaskId])).toEqual([
+    ["root", undefined],
+    ["root", "task"],
+    ["other", "task"],
+  ]);
 });

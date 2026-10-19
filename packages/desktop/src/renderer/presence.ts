@@ -13,7 +13,12 @@ export function startPresenceReporting(current: () => CoreClient | undefined, do
     if (!client?.isConnected() || !client.supports("client.presence")) return;
     void client.request("client.presence", { visible: doc.visibilityState === "visible" }).catch(() => undefined);
   };
-  const timer = setInterval(() => { if (doc.visibilityState === "visible") report(); }, presenceReportIntervalMs);
+  const timer = setInterval(() => {
+    if (doc.visibilityState === "visible") report();
+  }, presenceReportIntervalMs);
   doc.addEventListener("visibilitychange", report);
-  return () => { clearInterval(timer); doc.removeEventListener("visibilitychange", report); };
+  return () => {
+    clearInterval(timer);
+    doc.removeEventListener("visibilitychange", report);
+  };
 }

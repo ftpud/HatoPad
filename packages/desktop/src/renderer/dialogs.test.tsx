@@ -6,7 +6,14 @@ afterEach(cleanup);
 it("collects validated text, supports cancel, choices and confirmation", async () => {
   render(<DialogHost />);
   let name!: Promise<string | undefined>;
-  act(() => { name = requestText({ title: "Create branch", label: "Branch name", validate: gitRefNameError, confirmLabel: "Create" }); });
+  act(() => {
+    name = requestText({
+      title: "Create branch",
+      label: "Branch name",
+      validate: gitRefNameError,
+      confirmLabel: "Create",
+    });
+  });
   const input = await screen.findByRole("textbox", { name: "Branch name" });
   expect(document.activeElement).toBe(input);
   fireEvent.change(input, { target: { value: "bad name" } });
@@ -17,18 +24,37 @@ it("collects validated text, supports cancel, choices and confirmation", async (
   await expect(name).resolves.toBe("feature/ok");
 
   let cancelled!: Promise<string | undefined>;
-  act(() => { cancelled = requestText({ title: "Rename", label: "Name", defaultValue: "x" }); });
+  act(() => {
+    cancelled = requestText({ title: "Rename", label: "Name", defaultValue: "x" });
+  });
   fireEvent.keyDown(window, { key: "Escape" });
   await expect(cancelled).resolves.toBeUndefined();
 
   let fields!: Promise<Record<string, string> | undefined>;
-  act(() => { fields = requestFields({ title: "Upstream", fields: [{ id: "root", label: "Root", choices: [{ value: "a", label: "A" }, { value: "b", label: "B" }] }, { id: "dir", label: "Directory", optional: true }] }); });
+  act(() => {
+    fields = requestFields({
+      title: "Upstream",
+      fields: [
+        {
+          id: "root",
+          label: "Root",
+          choices: [
+            { value: "a", label: "A" },
+            { value: "b", label: "B" },
+          ],
+        },
+        { id: "dir", label: "Directory", optional: true },
+      ],
+    });
+  });
   fireEvent.change(await screen.findByRole("combobox", { name: "Root" }), { target: { value: "b" } });
   fireEvent.click(screen.getByRole("button", { name: "OK" }));
   await expect(fields).resolves.toEqual({ root: "b", dir: "" });
 
   let confirmed!: Promise<boolean>;
-  act(() => { confirmed = requestConfirm({ title: "Delete tag?", message: "Delete v1?", confirmLabel: "Delete", danger: true }); });
+  act(() => {
+    confirmed = requestConfirm({ title: "Delete tag?", message: "Delete v1?", confirmLabel: "Delete", danger: true });
+  });
   expect((await screen.findByRole("alertdialog")).textContent).toContain("Delete v1?");
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
   await expect(confirmed).resolves.toBe(true);

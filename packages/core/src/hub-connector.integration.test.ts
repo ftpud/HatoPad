@@ -11,10 +11,16 @@ import { TestRelay } from "@hatopad/relay/testing";
 import { createServer, shutdownCore } from "./server.js";
 
 const cleanups: Array<() => Promise<unknown> | unknown> = [];
-afterEach(async () => { vi.unstubAllEnvs(); for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+afterEach(async () => {
+  vi.unstubAllEnvs();
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
 
 const until = async (check: () => boolean, label: string) => {
-  for (let i = 0; i < 300; i += 1) { if (check()) return; await new Promise((r) => setTimeout(r, 10)); }
+  for (let i = 0; i < 300; i += 1) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
   throw new Error(`timed out: ${label}`);
 };
 
@@ -30,11 +36,21 @@ it("relays two independent browser channels to a real Core with the local token 
 
   const relay = new TestRelay({ credentials: ["device-credential"] });
   let hubSocket: WebSocket | undefined;
-  const hub = await new Promise<WebSocketServer>((resolve) => { const server: WebSocketServer = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => resolve(server)); });
-  cleanups.push(() => new Promise<void>((done) => { for (const client of hub.clients) client.terminate(); hub.close(() => done()); }));
+  const hub = await new Promise<WebSocketServer>((resolve) => {
+    const server: WebSocketServer = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => resolve(server));
+  });
+  cleanups.push(
+    () =>
+      new Promise<void>((done) => {
+        for (const client of hub.clients) client.terminate();
+        hub.close(() => done());
+      }),
+  );
   hub.on("connection", (socket) => {
     hubSocket = socket;
-    socket.on("message", (data) => { for (const reply of relay.receive(data.toString())) socket.send(reply); });
+    socket.on("message", (data) => {
+      for (const reply of relay.receive(data.toString())) socket.send(reply);
+    });
   });
 
   const statuses: ConnectorStatus[] = [];
@@ -44,7 +60,7 @@ it("relays two independent browser channels to a real Core with the local token 
     credential: "device-credential",
     localCoreUrl: `ws://127.0.0.1:${corePort}`,
     localToken: token,
-    onStatus: (status) => statuses.push(status)
+    onStatus: (status) => statuses.push(status),
   });
   cleanups.push(() => connector.stop());
   connector.start();
@@ -55,11 +71,18 @@ it("relays two independent browser channels to a real Core with the local token 
   await until(() => channels.every(({ channel }) => relay.isChannelReady(channel)), "channels ready");
 
   const send = (channel: string, message: unknown) => hubSocket!.send(relay.sendData(channel, message));
-  const replies = (channel: string, id: string) => relay.received.filter((r) => r.channel === channel && (r.payload as { id?: string }).id === id);
+  const replies = (channel: string, id: string) =>
+    relay.received.filter((r) => r.channel === channel && (r.payload as { id?: string }).id === id);
   // The browser sends a wrong token; Core must still accept because the connector replaces it.
-  for (const { channel } of channels) send(channel, { id: "h", type: "protocol.handshake", payload: { compatibility: protocolCompatibility, token: "browser-guess" } });
+  for (const { channel } of channels)
+    send(channel, {
+      id: "h",
+      type: "protocol.handshake",
+      payload: { compatibility: protocolCompatibility, token: "browser-guess" },
+    });
   await until(() => channels.every(({ channel }) => replies(channel, "h").length === 1), "handshakes");
-  for (const { channel } of channels) expect(replies(channel, "h")[0]!.payload).toMatchObject({ ok: true, result: { compatible: true } });
+  for (const { channel } of channels)
+    expect(replies(channel, "h")[0]!.payload).toMatchObject({ ok: true, result: { compatible: true } });
 
   // Requests are answered per channel; Core's per-connection state is independent.
   for (const { channel } of channels) send(channel, { id: "r", type: "workspace.roots", payload: {} });
@@ -73,6 +96,9 @@ it("relays two independent browser channels to a real Core with the local token 
   hubSocket!.terminate();
   await until(() => statuses.some((s) => s.state === "offline"), "offline");
   const direct = new WebSocket(`ws://127.0.0.1:${corePort}`);
-  await new Promise((resolve, reject) => { direct.once("open", resolve); direct.once("error", reject); });
+  await new Promise((resolve, reject) => {
+    direct.once("open", resolve);
+    direct.once("error", reject);
+  });
   direct.close();
 }, 20_000);

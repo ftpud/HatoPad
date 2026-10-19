@@ -1,4 +1,9 @@
-import type { TerminalSessionSnapshot, TerminalWatchSummary, TerminalWatchSnapshot, TerminalAttachResult } from "../types/terminal.js";
+import type {
+  TerminalSessionSnapshot,
+  TerminalWatchSummary,
+  TerminalWatchSnapshot,
+  TerminalAttachResult,
+} from "../types/terminal.js";
 
 export type TerminalOperations = {
   "terminal.list": { payload: Record<string, never>; result: { terminals: TerminalSessionSnapshot[] } };
@@ -9,7 +14,12 @@ export type TerminalOperations = {
   "terminal.watch.ack": { payload: { watchId: string; sequence: number }; result: Record<string, never> };
   "terminal.watch.detach": { payload: { watchId: string }; result: Record<string, never> };
   "terminal.watch.list": { payload: Record<string, never>; result: { terminals: TerminalWatchSummary[] } };
-  "terminal.watch.attach": { payload: { terminalId: string; maxBytes?: number; follow?: boolean }; result: { state: "available"; terminal: TerminalWatchSnapshot; watchId?: string } | { state: "stale"; reason: "session-unavailable" } };
+  "terminal.watch.attach": {
+    payload: { terminalId: string; maxBytes?: number; follow?: boolean };
+    result:
+      | { state: "available"; terminal: TerminalWatchSnapshot; watchId?: string }
+      | { state: "stale"; reason: "session-unavailable" };
+  };
   "terminal.attach": {
     payload: { terminalId: string };
     result: TerminalAttachResult;

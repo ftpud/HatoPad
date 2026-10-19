@@ -10,18 +10,40 @@ class FakePty {
   private onDataListener?: (data: string) => void;
   private onExitListener?: (event: { exitCode: number; signal?: number }) => void;
 
-  write(data: string): void { this.writes.push(data); }
-  resize(cols: number, rows: number): void { this.resizes.push([cols, rows]); }
-  kill(): void { this.killed = true; }
-  onData(listener: (data: string) => void): { dispose(): void } { this.dataListeners += 1; this.onDataListener = listener; return { dispose() {} }; }
-  onExit(listener: (event: { exitCode: number; signal?: number }) => void): { dispose(): void } { this.exitListeners += 1; this.onExitListener = listener; return { dispose() {} }; }
-  emitData(data: string): void { this.onDataListener?.(data); }
-  emitExit(exitCode: number): void { this.onExitListener?.({ exitCode }); }
+  write(data: string): void {
+    this.writes.push(data);
+  }
+  resize(cols: number, rows: number): void {
+    this.resizes.push([cols, rows]);
+  }
+  kill(): void {
+    this.killed = true;
+  }
+  onData(listener: (data: string) => void): { dispose(): void } {
+    this.dataListeners += 1;
+    this.onDataListener = listener;
+    return { dispose() {} };
+  }
+  onExit(listener: (event: { exitCode: number; signal?: number }) => void): { dispose(): void } {
+    this.exitListeners += 1;
+    this.onExitListener = listener;
+    return { dispose() {} };
+  }
+  emitData(data: string): void {
+    this.onDataListener?.(data);
+  }
+  emitExit(exitCode: number): void {
+    this.onExitListener?.({ exitCode });
+  }
 }
 
 function setup() {
   const ptys: FakePty[] = [];
-  const factory: TerminalPtyFactory = vi.fn(() => { const pty = new FakePty(); ptys.push(pty); return pty; });
+  const factory: TerminalPtyFactory = vi.fn(() => {
+    const pty = new FakePty();
+    ptys.push(pty);
+    return pty;
+  });
   const events: unknown[] = [];
   return { host: new TerminalSessionHost((event) => events.push(event), factory), ptys, factory, events };
 }
@@ -33,8 +55,15 @@ describe("TerminalSessionHost", () => {
     ptys[0]!.emitData("before switch\r\n");
 
     // Leaving a task and losing a renderer socket do not call a lifecycle method on the host.
-    expect(host.attach("/workspace/task-a", created.terminalId)).toMatchObject({ terminalId: created.terminalId, status: "running", output: "before switch\r\n" });
-    expect(host.attach("/workspace/task-a", created.terminalId)).toMatchObject({ terminalId: created.terminalId, status: "running" });
+    expect(host.attach("/workspace/task-a", created.terminalId)).toMatchObject({
+      terminalId: created.terminalId,
+      status: "running",
+      output: "before switch\r\n",
+    });
+    expect(host.attach("/workspace/task-a", created.terminalId)).toMatchObject({
+      terminalId: created.terminalId,
+      status: "running",
+    });
     expect(factory).toHaveBeenCalledTimes(1);
     expect(ptys[0]!.dataListeners).toBe(1);
     expect(ptys[0]!.exitListeners).toBe(1);

@@ -25,11 +25,22 @@ describe("WorkspaceTaskStore", () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-path-root-"));
     const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-path-state-"));
     const store = new WorkspaceTaskStore(root, state);
-    expect(store.taskPath("legacy-task_42")).toBe(path.join(state, `${crypto.createHash("sha256").update(root).digest("hex")}-tasks`, "legacy-task_42", "workspace"));
+    expect(store.taskPath("legacy-task_42")).toBe(
+      path.join(
+        state,
+        `${crypto.createHash("sha256").update(root).digest("hex")}-tasks`,
+        "legacy-task_42",
+        "workspace",
+      ),
+    );
 
     for (const id of ["", ".", "..", "../outside", "nested/task", "nested\\task", "bad\0id", undefined, null, 42]) {
       let error: unknown;
-      try { store.taskPath(id as string); } catch (caught) { error = caught; }
+      try {
+        store.taskPath(id as string);
+      } catch (caught) {
+        error = caught;
+      }
       expect(error).toMatchObject({ code: "INVALID_REQUEST" });
     }
   });
@@ -40,9 +51,20 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     const store = new WorkspaceTaskStore(root, state);
-    const branchesBefore = (await execFileAsync("git", ["-C", root, "branch", "--list", "--format=%(refname:short)"])).stdout;
+    const branchesBefore = (await execFileAsync("git", ["-C", root, "branch", "--list", "--format=%(refname:short)"]))
+      .stdout;
     const worktreesBefore = (await execFileAsync("git", ["-C", root, "worktree", "list", "--porcelain"])).stdout;
     const invalid: Array<[unknown, unknown, unknown, unknown]> = [
       [42, false, false, false],
@@ -51,12 +73,18 @@ describe("WorkspaceTaskStore", () => {
       ["feature/invalid-select-flag", false, false, "false"],
     ];
     for (const [branch, existing, remote, select] of invalid) {
-      await expect(store.create(branch as string, existing as boolean, remote as boolean, select as boolean)).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+      await expect(
+        store.create(branch as string, existing as boolean, remote as boolean, select as boolean),
+      ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     }
 
-    expect((await execFileAsync("git", ["-C", root, "branch", "--list", "--format=%(refname:short)"])).stdout).toBe(branchesBefore);
+    expect((await execFileAsync("git", ["-C", root, "branch", "--list", "--format=%(refname:short)"])).stdout).toBe(
+      branchesBefore,
+    );
     expect((await execFileAsync("git", ["-C", root, "worktree", "list", "--porcelain"])).stdout).toBe(worktreesBefore);
-    await expect(readdir(path.join(state, `${crypto.createHash("sha256").update(root).digest("hex")}-tasks`))).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(
+      readdir(path.join(state, `${crypto.createHash("sha256").update(root).digest("hex")}-tasks`)),
+    ).rejects.toMatchObject({ code: "ENOENT" });
   });
 
   it("preserves overlapping registry updates from separate Core processes", async () => {
@@ -77,23 +105,36 @@ describe("WorkspaceTaskStore", () => {
     ]);
 
     await Promise.all([
-      runTaskStoreOperation(root, state, { method: "create", args: ["feature/concurrent-create", false, false, false] }),
+      runTaskStoreOperation(root, state, {
+        method: "create",
+        args: ["feature/concurrent-create", false, false, false],
+      }),
       runTaskStoreOperation(root, state, { method: "rename", args: [renameTask.id, "Renamed concurrently"] }),
       runTaskStoreOperation(root, state, { method: "select", args: [selectedTask.id] }),
       runTaskStoreOperation(root, state, { method: "setArchived", args: [archivedTask.id, true] }),
-      runTaskStoreOperation(root, state, { method: "updateMetadata", args: [metadataTask.id, { name: "Updated concurrently", status: "finished", archived: true }] }),
+      runTaskStoreOperation(root, state, {
+        method: "updateMetadata",
+        args: [metadataTask.id, { name: "Updated concurrently", status: "finished", archived: true }],
+      }),
       runTaskStoreOperation(root, state, { method: "setStatus", args: [selectedTask.id, "finished"] }),
     ]);
 
     const registry = await store.list();
     expect(registry.tasks).toHaveLength(5);
-    expect(registry.tasks).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: renameTask.id, name: "Renamed concurrently" }),
-      expect.objectContaining({ id: selectedTask.id, status: "finished" }),
-      expect.objectContaining({ id: archivedTask.id, archived: true }),
-      expect.objectContaining({ id: metadataTask.id, name: "Updated concurrently", status: "finished", archived: true }),
-      expect.objectContaining({ branch: "feature/concurrent-create" }),
-    ]));
+    expect(registry.tasks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: renameTask.id, name: "Renamed concurrently" }),
+        expect.objectContaining({ id: selectedTask.id, status: "finished" }),
+        expect.objectContaining({ id: archivedTask.id, archived: true }),
+        expect.objectContaining({
+          id: metadataTask.id,
+          name: "Updated concurrently",
+          status: "finished",
+          archived: true,
+        }),
+        expect.objectContaining({ branch: "feature/concurrent-create" }),
+      ]),
+    );
     expect(registry.selectedTaskId).toBe(selectedTask.id);
 
     for (const task of registry.tasks) await store.delete(task.id);
@@ -112,7 +153,9 @@ describe("WorkspaceTaskStore", () => {
     const task = await store.create("feature/status", false, false, false);
     expect(task.status).toBe("active");
     await expect(store.setStatus(task.id, "finished")).resolves.toMatchObject({ id: task.id, status: "finished" });
-    await expect(store.list()).resolves.toMatchObject({ tasks: [expect.objectContaining({ id: task.id, status: "finished" })] });
+    await expect(store.list()).resolves.toMatchObject({
+      tasks: [expect.objectContaining({ id: task.id, status: "finished" })],
+    });
     await store.delete(task.id);
   });
 
@@ -131,12 +174,31 @@ describe("WorkspaceTaskStore", () => {
     const renamed = await store.rename(task.id, "Polished lifecycle");
     expect(renamed).toMatchObject({ name: "Polished lifecycle", branch: "feature/lifecycle", archived: false });
     const archived = await store.setArchived(task.id, true);
-    expect(archived).toMatchObject({ name: "Polished lifecycle", branch: "feature/lifecycle", status: "active", archived: true });
+    expect(archived).toMatchObject({
+      name: "Polished lifecycle",
+      branch: "feature/lifecycle",
+      status: "active",
+      archived: true,
+    });
     await expect(access(store.taskPath(task.id))).resolves.toBeUndefined();
-    await expect(execFileAsync("git", ["-C", root, "rev-parse", "--verify", "feature/lifecycle"])).resolves.toBeDefined();
-    await expect(new WorkspaceTaskStore(root, state).list()).resolves.toMatchObject({ tasks: [expect.objectContaining({ id: task.id, name: "Polished lifecycle", archived: true })] });
+    await expect(
+      execFileAsync("git", ["-C", root, "rev-parse", "--verify", "feature/lifecycle"]),
+    ).resolves.toBeDefined();
+    await expect(new WorkspaceTaskStore(root, state).list()).resolves.toMatchObject({
+      tasks: [expect.objectContaining({ id: task.id, name: "Polished lifecycle", archived: true })],
+    });
     await store.updateMetadata(task.id, { name: "Configured task", status: "finished", archived: false });
-    await expect(new WorkspaceTaskStore(root, state).list()).resolves.toMatchObject({ tasks: [expect.objectContaining({ id: task.id, name: "Configured task", status: "finished", archived: false, branch: "feature/lifecycle" })] });
+    await expect(new WorkspaceTaskStore(root, state).list()).resolves.toMatchObject({
+      tasks: [
+        expect.objectContaining({
+          id: task.id,
+          name: "Configured task",
+          status: "finished",
+          archived: false,
+          branch: "feature/lifecycle",
+        }),
+      ],
+    });
     await expect(access(store.taskPath(task.id))).resolves.toBeUndefined();
 
     await store.delete(task.id);
@@ -163,7 +225,9 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["-C", firstWorkspace, "add", "tracked.txt"]);
     await execFileAsync("git", ["-C", firstWorkspace, "commit", "-m", "Old message"]);
     const oldCommit = (await execFileAsync("git", ["-C", firstWorkspace, "rev-parse", "HEAD"])).stdout.trim();
-    const oldTree = (await execFileAsync("git", ["-C", firstWorkspace, "show", "-s", "--format=%T", "HEAD"])).stdout.trim();
+    const oldTree = (
+      await execFileAsync("git", ["-C", firstWorkspace, "show", "-s", "--format=%T", "HEAD"])
+    ).stdout.trim();
     await writeFile(path.join(firstWorkspace, "staged.txt"), "staged\n");
     await execFileAsync("git", ["-C", firstWorkspace, "add", "staged.txt"]);
     await writeFile(path.join(firstWorkspace, "unstaged.txt"), "unstaged\n");
@@ -171,15 +235,25 @@ describe("WorkspaceTaskStore", () => {
     const message = "New subject\n\nDetailed body";
 
     await expect(store.updateGitCommitMessage(first.id, message)).resolves.toEqual({
-      task: first, previousCommit: oldCommit, commit: expect.not.stringMatching(oldCommit), previousMessage: "Old message", message
+      task: first,
+      previousCommit: oldCommit,
+      commit: expect.not.stringMatching(oldCommit),
+      previousMessage: "Old message",
+      message,
     });
-    expect((await execFileAsync("git", ["-C", firstWorkspace, "log", "-1", "--format=%B"])).stdout.trimEnd()).toBe(message);
-    expect((await execFileAsync("git", ["-C", firstWorkspace, "show", "-s", "--format=%T", "HEAD"])).stdout.trim()).toBe(oldTree);
+    expect((await execFileAsync("git", ["-C", firstWorkspace, "log", "-1", "--format=%B"])).stdout.trimEnd()).toBe(
+      message,
+    );
+    expect(
+      (await execFileAsync("git", ["-C", firstWorkspace, "show", "-s", "--format=%T", "HEAD"])).stdout.trim(),
+    ).toBe(oldTree);
     expect((await execFileAsync("git", ["-C", firstWorkspace, "status", "--porcelain"])).stdout).toBe(statusBefore);
     expect((await execFileAsync("git", ["-C", secondWorkspace, "rev-parse", "HEAD"])).stdout.trim()).toBe(rootHead);
     expect((await execFileAsync("git", ["-C", root, "rev-parse", "HEAD"])).stdout.trim()).toBe(rootHead);
     await expect(store.updateGitCommitMessage("missing-task", "Message")).rejects.toThrow("does not exist");
-    await expect(store.updateGitCommitMessage(first.id, " \n\t ")).rejects.toThrow("must contain at least one non-whitespace character");
+    await expect(store.updateGitCommitMessage(first.id, " \n\t ")).rejects.toThrow(
+      "must contain at least one non-whitespace character",
+    );
 
     await store.delete(first.id);
     await store.delete(second.id);
@@ -218,21 +292,44 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     const store = new WorkspaceTaskStore(root, state);
     const first = await store.create("feature/message-one", false, false, false);
     const second = await store.create("feature/message-two", false, false, false);
     const firstState = new WorkspaceStateStore(store.taskPath(first.id), state);
     const secondState = new WorkspaceStateStore(store.taskPath(second.id), state);
 
-    await expect(store.setCommitMessage(store.taskPath(first.id), "Initial draft")).resolves.toMatchObject({ task: first, overwritten: false });
+    await expect(store.setCommitMessage(store.taskPath(first.id), "Initial draft")).resolves.toMatchObject({
+      task: first,
+      overwritten: false,
+    });
     const multiline = "Subject\n\nBody line one\n  Body line two\n";
-    await expect(store.setCommitMessage(store.taskPath(first.id), multiline)).resolves.toEqual({ task: first, message: multiline, overwritten: true });
+    await expect(store.setCommitMessage(store.taskPath(first.id), multiline)).resolves.toEqual({
+      task: first,
+      message: multiline,
+      overwritten: true,
+    });
     await expect(firstState.load()).resolves.toMatchObject({ gitCommitMessage: multiline });
     await expect(secondState.load()).resolves.toEqual({ openFiles: [] });
-    await expect(store.setCommitMessage(root, "Wrong task")).rejects.toThrow("requires a current HatoPad task workspace");
-    await expect(store.setCommitMessage(store.taskPath(first.id), " \n\t ")).rejects.toThrow("must contain at least one non-whitespace character");
-    await expect(store.setCommitMessage(store.taskPath(first.id), "x".repeat(10_001))).rejects.toThrow("must be at most 10000 characters");
+    await expect(store.setCommitMessage(root, "Wrong task")).rejects.toThrow(
+      "requires a current HatoPad task workspace",
+    );
+    await expect(store.setCommitMessage(store.taskPath(first.id), " \n\t ")).rejects.toThrow(
+      "must contain at least one non-whitespace character",
+    );
+    await expect(store.setCommitMessage(store.taskPath(first.id), "x".repeat(10_001))).rejects.toThrow(
+      "must be at most 10000 characters",
+    );
     await expect(secondState.load()).resolves.toEqual({ openFiles: [] });
 
     await store.delete(first.id);
@@ -245,14 +342,26 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
 
     const store = new WorkspaceTaskStore(root, state);
     const task = await store.createRandom(false);
 
     expect(task.branch).toMatch(/^task\/[0-9a-f]{8}$/);
     expect((await store.list()).selectedTaskId).toBeUndefined();
-    expect((await execFileAsync("git", ["-C", store.taskPath(task.id), "branch", "--show-current"])).stdout.trim()).toBe(task.branch);
+    expect(
+      (await execFileAsync("git", ["-C", store.taskPath(task.id), "branch", "--show-current"])).stdout.trim(),
+    ).toBe(task.branch);
     await store.delete(task.id);
   });
 
@@ -262,7 +371,17 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     const rootBranch = (await execFileAsync("git", ["-C", root, "branch", "--show-current"])).stdout.trim();
 
     const store = new WorkspaceTaskStore(root, state);
@@ -273,17 +392,52 @@ describe("WorkspaceTaskStore", () => {
     expect((await store.list()).selectedTaskId).toBe(task.id);
     expect((await lstat(path.join(selected.workspace, ".git"))).isFile()).toBe(true);
     expect(await readFile(path.join(selected.workspace, ".git"), "utf8")).toContain("gitdir:");
-    expect((await execFileAsync("git", ["-C", root, "worktree", "list", "--porcelain"])).stdout).toContain(`worktree ${await realpath(selected.workspace)}`);
-    expect((await execFileAsync("git", ["-C", selected.workspace, "branch", "--show-current"])).stdout.trim()).toBe("feature/task-one");
+    expect((await execFileAsync("git", ["-C", root, "worktree", "list", "--porcelain"])).stdout).toContain(
+      `worktree ${await realpath(selected.workspace)}`,
+    );
+    expect((await execFileAsync("git", ["-C", selected.workspace, "branch", "--show-current"])).stdout.trim()).toBe(
+      "feature/task-one",
+    );
     // Like `git switch -C`: a repository without remotes gives the task branch no upstream.
-    await expect(execFileAsync("git", ["-C", selected.workspace, "rev-parse", "--abbrev-ref", "@{upstream}"])).rejects.toBeTruthy();
+    await expect(
+      execFileAsync("git", ["-C", selected.workspace, "rev-parse", "--abbrev-ref", "@{upstream}"]),
+    ).rejects.toBeTruthy();
     await writeFile(path.join(selected.workspace, "tracked.txt"), "task\n");
     expect(await readFile(path.join(root, "tracked.txt"), "utf8")).toBe("root\n");
     await execFileAsync("git", ["-C", selected.workspace, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", selected.workspace, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "task change"]);
-    expect((await execFileAsync("git", ["-C", selected.workspace, "rev-list", "--left-right", "--count", `${rootBranch}...HEAD`])).stdout.trim()).toBe("0\t1");
+    await execFileAsync("git", [
+      "-C",
+      selected.workspace,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "task change",
+    ]);
+    expect(
+      (
+        await execFileAsync("git", [
+          "-C",
+          selected.workspace,
+          "rev-list",
+          "--left-right",
+          "--count",
+          `${rootBranch}...HEAD`,
+        ])
+      ).stdout.trim(),
+    ).toBe("0\t1");
     expect((await store.merge(task.id)).targetBranch).toBe(rootBranch);
-    await expect(store.integrations()).resolves.toEqual([expect.objectContaining({ taskId: task.id, status: "completed", expectedHead: expect.any(String), candidateRevision: expect.any(String), test: expect.objectContaining({ exitCode: 0 }) })]);
+    await expect(store.integrations()).resolves.toEqual([
+      expect.objectContaining({
+        taskId: task.id,
+        status: "completed",
+        expectedHead: expect.any(String),
+        candidateRevision: expect.any(String),
+        test: expect.objectContaining({ exitCode: 0 }),
+      }),
+    ]);
     const integrations = await store.integrations();
     const additionalTask = await store.create("feature/preserve-integrations", false, false, false);
     await expect(store.integrations()).resolves.toEqual(integrations);
@@ -296,7 +450,9 @@ describe("WorkspaceTaskStore", () => {
     await expect(store.integrations()).resolves.toEqual(integrations);
     expect((await store.list()).tasks).toEqual([]);
     await expect(access(path.dirname(selected.workspace))).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(execFileAsync("git", ["-C", root, "show-ref", "--verify", "refs/heads/feature/task-one"])).rejects.toBeTruthy();
+    await expect(
+      execFileAsync("git", ["-C", root, "show-ref", "--verify", "refs/heads/feature/task-one"]),
+    ).rejects.toBeTruthy();
   });
 
   it("creates a new task from the root tip that publishes to a same-named remote branch with plain git push", async () => {
@@ -322,13 +478,19 @@ describe("WorkspaceTaskStore", () => {
     expect(task.baseBranch).toBe(rootBranch);
     expect((await execFileAsync("git", ["-C", workspace, "rev-parse", "HEAD"])).stdout.trim()).toBe(rootHead);
     // Not the base's upstream: the branch tracks origin/feature/pushable, which the first push creates.
-    expect((await execFileAsync("git", ["-C", workspace, "status", "--short", "--branch"])).stdout.trim()).toBe("## feature/pushable...origin/feature/pushable [gone]");
+    expect((await execFileAsync("git", ["-C", workspace, "status", "--short", "--branch"])).stdout.trim()).toBe(
+      "## feature/pushable...origin/feature/pushable [gone]",
+    );
     await writeFile(path.join(workspace, "tracked.txt"), "task commit\n");
     await execFileAsync("git", ["-C", workspace, "add", "tracked.txt"]);
     await execFileAsync("git", ["-C", workspace, "commit", "-m", "task commit"]);
     await execFileAsync("git", ["-C", workspace, "-c", "push.default=simple", "push"]);
-    expect((await execFileAsync("git", ["-C", workspace, "status", "--short", "--branch"])).stdout.trim()).toBe("## feature/pushable...origin/feature/pushable");
-    expect((await execFileAsync("git", ["--git-dir", remote, "rev-parse", "refs/heads/feature/pushable"])).stdout.trim()).toBe((await execFileAsync("git", ["-C", workspace, "rev-parse", "HEAD"])).stdout.trim());
+    expect((await execFileAsync("git", ["-C", workspace, "status", "--short", "--branch"])).stdout.trim()).toBe(
+      "## feature/pushable...origin/feature/pushable",
+    );
+    expect(
+      (await execFileAsync("git", ["--git-dir", remote, "rev-parse", "refs/heads/feature/pushable"])).stdout.trim(),
+    ).toBe((await execFileAsync("git", ["-C", workspace, "rev-parse", "HEAD"])).stdout.trim());
     await store.delete(task.id);
   });
 
@@ -365,8 +527,12 @@ describe("WorkspaceTaskStore", () => {
     expect(await readFile(path.join(root, "staged.txt"), "utf8")).toBe("staged main work\n");
     expect(await readFile(path.join(root, "local.txt"), "utf8")).toBe("uncommitted main work\n");
     expect((await execFileAsync("git", ["-C", root, "status", "--porcelain"])).stdout).toContain("?? local.txt");
-    expect((await execFileAsync("git", ["-C", root, "diff", "--cached", "--name-only"])).stdout.trim()).toBe("staged.txt");
-    expect((await execFileAsync("git", ["-C", root, "log", "-1", "--pretty=%s"])).stdout.trim()).toBe("Complete task: feature/smart-merge");
+    expect((await execFileAsync("git", ["-C", root, "diff", "--cached", "--name-only"])).stdout.trim()).toBe(
+      "staged.txt",
+    );
+    expect((await execFileAsync("git", ["-C", root, "log", "-1", "--pretty=%s"])).stdout.trim()).toBe(
+      "Complete task: feature/smart-merge",
+    );
     expect((await execFileAsync("git", ["-C", workspace, "rev-parse", "HEAD^1"])).stdout.trim()).toBe(mainHead);
   });
 
@@ -376,7 +542,17 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     await execFileAsync("git", ["-C", root, "branch", "feature/existing"]);
 
     const store = new WorkspaceTaskStore(root, state);
@@ -384,7 +560,9 @@ describe("WorkspaceTaskStore", () => {
     const selected = await store.select(task.id);
 
     expect(task.branch).toBe("feature/existing");
-    expect((await execFileAsync("git", ["-C", selected.workspace, "branch", "--show-current"])).stdout.trim()).toBe("feature/existing");
+    expect((await execFileAsync("git", ["-C", selected.workspace, "branch", "--show-current"])).stdout.trim()).toBe(
+      "feature/existing",
+    );
     await store.delete(task.id);
   });
 
@@ -397,7 +575,17 @@ describe("WorkspaceTaskStore", () => {
     await writeFile(path.join(root, "unstaged.txt"), "base\n");
     await writeFile(path.join(root, "deleted.txt"), "base\n");
     await execFileAsync("git", ["-C", root, "add", "."]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     await writeFile(path.join(root, "staged.txt"), "staged\n");
     await execFileAsync("git", ["-C", root, "add", "staged.txt"]);
     await writeFile(path.join(root, "unstaged.txt"), "unstaged\n");
@@ -414,7 +602,9 @@ describe("WorkspaceTaskStore", () => {
     expect(await readFile(path.join(workspace, "untracked.txt"), "utf8")).toBe("untracked\n");
     expect(await readFile(path.join(workspace, "ignored.txt"), "utf8")).toBe("ignored\n");
     await expect(access(path.join(workspace, "deleted.txt"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect((await execFileAsync("git", ["-C", workspace, "diff", "--cached", "--name-only"])).stdout).toContain("staged.txt");
+    expect((await execFileAsync("git", ["-C", workspace, "diff", "--cached", "--name-only"])).stdout).toContain(
+      "staged.txt",
+    );
     expect((await execFileAsync("git", ["-C", workspace, "status", "--porcelain"])).stdout).toContain("unstaged.txt");
     expect(await readFile(path.join(root, "unstaged.txt"), "utf8")).toBe("unstaged\n");
   });
@@ -427,14 +617,26 @@ describe("WorkspaceTaskStore", () => {
     await mkdir(path.join(root, "node_modules", "some-dep"), { recursive: true });
     await writeFile(path.join(root, "node_modules", "some-dep", "index.js"), "module.exports = 1;\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
 
     const store = new WorkspaceTaskStore(root, state);
     const task = await store.create("feature/task-dependencies");
     const workspace = store.taskPath(task.id);
 
     await expect(access(path.join(workspace, "node_modules"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect(await readFile(path.join(root, "node_modules", "some-dep", "index.js"), "utf8")).toBe("module.exports = 1;\n");
+    expect(await readFile(path.join(root, "node_modules", "some-dep", "index.js"), "utf8")).toBe(
+      "module.exports = 1;\n",
+    );
   });
 
   it("removes node_modules symlinks from existing task worktrees", async () => {
@@ -444,7 +646,17 @@ describe("WorkspaceTaskStore", () => {
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await mkdir(path.join(root, "node_modules"));
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
 
     const store = new WorkspaceTaskStore(root, state);
     const task = await store.create("feature/existing-symlink");
@@ -463,7 +675,17 @@ describe("WorkspaceTaskStore", () => {
     await execFileAsync("git", ["init", root]);
     await writeFile(path.join(root, "tracked.txt"), "root\n");
     await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
-    await execFileAsync("git", ["-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "initial"]);
+    await execFileAsync("git", [
+      "-C",
+      root,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "commit",
+      "-m",
+      "initial",
+    ]);
     const store = new WorkspaceTaskStore(root, state);
     const task = await store.create("feature/legacy");
     const workspace = store.taskPath(task.id);
@@ -479,11 +701,17 @@ describe("WorkspaceTaskStore", () => {
     expect((await lstat(path.join(workspace, ".git"))).isFile()).toBe(true);
     expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("legacy staged\n");
     expect(await readFile(path.join(workspace, "untracked.txt"), "utf8")).toBe("legacy untracked\n");
-    expect((await execFileAsync("git", ["-C", workspace, "diff", "--cached", "--name-only"])).stdout.trim()).toBe("tracked.txt");
+    expect((await execFileAsync("git", ["-C", workspace, "diff", "--cached", "--name-only"])).stdout.trim()).toBe(
+      "tracked.txt",
+    );
   });
 });
 
-function runTaskStoreOperation(root: string, state: string, operation: { method: string; args: unknown[] }): Promise<void> {
+function runTaskStoreOperation(
+  root: string,
+  state: string,
+  operation: { method: string; args: unknown[] },
+): Promise<void> {
   const moduleUrl = new URL("./tasks.ts", import.meta.url).href;
   const script = `import { WorkspaceTaskStore } from ${JSON.stringify(moduleUrl)};\nconst store = new WorkspaceTaskStore(process.env.TASK_ROOT, process.env.TASK_STATE);\nconst operation = JSON.parse(process.env.TASK_OPERATION);\nawait store[operation.method](...operation.args);`;
   return new Promise((resolve, reject) => {
@@ -493,8 +721,12 @@ function runTaskStoreOperation(root: string, state: string, operation: { method:
       stdio: ["ignore", "ignore", "pipe"],
     });
     let stderr = "";
-    child.stderr.setEncoding("utf8").on("data", (chunk: string) => { stderr += chunk; });
+    child.stderr.setEncoding("utf8").on("data", (chunk: string) => {
+      stderr += chunk;
+    });
     child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve() : reject(new Error(`Task store subprocess failed (${code}): ${stderr}`)));
+    child.once("close", (code) =>
+      code === 0 ? resolve() : reject(new Error(`Task store subprocess failed (${code}): ${stderr}`)),
+    );
   });
 }

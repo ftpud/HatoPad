@@ -10,7 +10,7 @@ export function orderPinnedTabs(tabs: EditorTab[]): EditorTab[] {
 }
 
 export function togglePinnedTab(tabs: EditorTab[], id: string): EditorTab[] {
-  return orderPinnedTabs(tabs.map((tab) => tab.id === id ? { ...tab, pinned: !tab.pinned } : tab));
+  return orderPinnedTabs(tabs.map((tab) => (tab.id === id ? { ...tab, pinned: !tab.pinned } : tab)));
 }
 
 export function pinnedFilePaths(tabs: EditorTab[]): string[] {

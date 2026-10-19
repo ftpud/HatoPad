@@ -3,15 +3,37 @@ import type { HarnessRun } from "@hatopad/protocol";
 import type { EditorTab } from "./model";
 import { workflowDocumentOptions, restoreWorkflowDocuments } from "./workflow-documents";
 
-const file = (path: string): EditorTab => ({ id: path, type: "file", rootId: "root", title: path, path, content: "", savedContent: "", dirty: false, loading: false });
-const runs = [{ id: "run", definition: { blocks: [{ id: "report", type: "markdown", label: "Report" }] }, blocks: [{ blockId: "report", output: "# Report\nUpdated result" }] }] as HarnessRun[];
+const file = (path: string): EditorTab => ({
+  id: path,
+  type: "file",
+  rootId: "root",
+  title: path,
+  path,
+  content: "",
+  savedContent: "",
+  dirty: false,
+  loading: false,
+});
+const runs = [
+  {
+    id: "run",
+    definition: { blocks: [{ id: "report", type: "markdown", label: "Report" }] },
+    blocks: [{ blockId: "report", output: "# Report\nUpdated result" }],
+  },
+] as HarnessRun[];
 const saved = [{ runId: "run", blockId: "report", position: 1, active: true, markdownMode: "preview" as const }];
 
 it("restores workflow Markdown and the active document from Core output alongside ordinary files", () => {
   const restored = restoreWorkflowDocuments([file("first.ts"), file("last.ts")], saved, runs, "root");
   expect(restored.tabs.map((tab) => tab.title)).toEqual(["first.ts", "Report.md", "last.ts"]);
   const report = restored.tabs[1]!;
-  expect(report).toMatchObject({ type: "workflowDocument", content: "# Report\nUpdated result", markdownMode: "preview", workflowRunId: "run", workflowBlockId: "report" });
+  expect(report).toMatchObject({
+    type: "workflowDocument",
+    content: "# Report\nUpdated result",
+    markdownMode: "preview",
+    workflowRunId: "run",
+    workflowBlockId: "report",
+  });
   expect(restored.activeTabId).toBe(report.id);
   expect(workflowDocumentOptions(restored.tabs, restored.activeTabId, "root")).toEqual({ workflowDocuments: saved });
 });

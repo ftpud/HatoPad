@@ -5,10 +5,22 @@ export const protocolCompatibility = {"minimum":19,"maximum":19};
 export function compatibleCoreTags(tags: string[], compatibility: { minimum: number; maximum: number }): string[] {
   const versions = new Map<string, number[]>();
   for (const tag of tags) {
-    const match = /^core-protocol-(\d+)-v(\d+)\.(\d+)\.(\d+)$/.exec(tag); if (!match) continue;
+    const match = /^core-protocol-(\d+)-v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+    if (!match) continue;
     const [wire, ...version] = match.slice(1).map(Number);
-    if (!Number.isSafeInteger(wire) || wire! < compatibility.minimum || wire! > compatibility.maximum || version.some(value => !Number.isSafeInteger(value))) continue;
+    if (
+      !Number.isSafeInteger(wire) ||
+      wire! < compatibility.minimum ||
+      wire! > compatibility.maximum ||
+      version.some((value) => !Number.isSafeInteger(value))
+    )
+      continue;
     versions.set(tag, version);
   }
-  return [...versions.keys()].sort((a, b) => { const av = versions.get(a)!, bv = versions.get(b)!; for (let index = 0; index < 3; index++) if (av[index] !== bv[index]) return bv[index]! - av[index]!; return b.localeCompare(a); });
+  return [...versions.keys()].sort((a, b) => {
+    const av = versions.get(a)!,
+      bv = versions.get(b)!;
+    for (let index = 0; index < 3; index++) if (av[index] !== bv[index]) return bv[index]! - av[index]!;
+    return b.localeCompare(a);
+  });
 }

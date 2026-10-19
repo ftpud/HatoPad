@@ -1,5 +1,3 @@
-
-
 export type JavaProjectOptions = {
   type: "maven";
   pomPath: string;
@@ -26,7 +24,12 @@ export type JavaRunConfiguration = {
   environment?: Record<string, string>;
 };
 
-export type JavaToolCheck = { tool: "Maven" | "Java" | "Java compiler" | "Java debugger"; executable: string; ok: boolean; message: string };
+export type JavaToolCheck = {
+  tool: "Maven" | "Java" | "Java compiler" | "Java debugger";
+  executable: string;
+  ok: boolean;
+  message: string;
+};
 
 export const javaConfigurationPath = ".settings/java.json";
 
@@ -34,7 +37,14 @@ export type JavaMainClass = { className: string; path: string };
 
 export type JavaBreakpoint = { path: string; line: number; className: string };
 
-export type JavaDebugVariable = { name: string; value: string; reference?: string; type?: string; objectId?: string; indexedCount?: number };
+export type JavaDebugVariable = {
+  name: string;
+  value: string;
+  reference?: string;
+  type?: string;
+  objectId?: string;
+  indexedCount?: number;
+};
 
 export type JavaDebugState = {
   /** Workspace-relative source file for the current paused frame. */
@@ -57,17 +67,36 @@ export type JavaApplyChangesResult = {
   warnings?: string[];
 };
 
-export type JavaDiagnostic = { path: string; line: number; column: number; severity: "error" | "warning"; message: string };
+export type JavaDiagnostic = {
+  path: string;
+  line: number;
+  column: number;
+  severity: "error" | "warning";
+  message: string;
+};
 
 export type JavaTypeSuggestion = { simpleName: string; qualifiedName: string; source: "project" | "dependency" };
 
 export type JavaLspRange = { startLine: number; startColumn: number; endLine: number; endColumn: number };
 
-export type JavaLspCompletion = { label: string; detail?: string; insertText: string; range?: JavaLspRange; additionalTextEdits: { range: JavaLspRange; text: string }[] };
+export type JavaLspCompletion = {
+  label: string;
+  detail?: string;
+  insertText: string;
+  range?: JavaLspRange;
+  additionalTextEdits: { range: JavaLspRange; text: string }[];
+};
 
 export type JavaLspLocation = { path: string } & JavaLspRange;
 
-export type WorkspaceSymbol = { name: string; kind: number; path: string; line: number; column: number; container?: string };
+export type WorkspaceSymbol = {
+  name: string;
+  kind: number;
+  path: string;
+  line: number;
+  column: number;
+  container?: string;
+};
 
 export type RootedJavaDiagnostic = JavaDiagnostic & { rootId: string };
 

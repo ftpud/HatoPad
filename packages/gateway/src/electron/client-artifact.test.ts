@@ -20,7 +20,10 @@ test("downloaded client includes standalone workspace dependencies", async () =>
       const root = path.join(source, "packages", name);
       await mkdir(path.join(root, "dist"), { recursive: true });
       await writeFile(path.join(root, "package.json"), JSON.stringify({ type: "module", exports: "./dist/index.js" }));
-      await writeFile(path.join(root, "dist/index.js"), name === "protocol" ? 'export { ready } from "@hatopad/acp";' : 'export const ready = true;');
+      await writeFile(
+        path.join(root, "dist/index.js"),
+        name === "protocol" ? 'export { ready } from "@hatopad/acp";' : "export const ready = true;",
+      );
       await symlink(`../../packages/${name}`, path.join(source, "node_modules/@hatopad", name));
     }
     for (const name of ["ws", "ssh2", "asn1", "bcrypt-pbkdf", "tweetnacl", "safer-buffer"]) {
@@ -29,12 +32,25 @@ test("downloaded client includes standalone workspace dependencies", async () =>
     }
     for (const file of ["package.json", "compatibility.json"]) await writeFile(path.join(desktop, file), "{}");
     for (const directory of ["dist-electron", "dist-renderer"]) await mkdir(path.join(desktop, directory));
-    execFileSync("bash", ["-ec", clientArchiveCommand()], { cwd: desktop, env: { ...process.env, remote_archive: path.join(temporary, "client.tar.gz") } });
+    execFileSync("bash", ["-ec", clientArchiveCommand()], {
+      cwd: desktop,
+      env: { ...process.env, remote_archive: path.join(temporary, "client.tar.gz") },
+    });
     execFileSync("tar", ["-xzf", path.join(temporary, "client.tar.gz"), "-C", destination]);
     await rm(source, { recursive: true });
     await validateClientRuntime(destination);
-    execFileSync(process.execPath, ["--input-type=module", "-e", 'import { ready } from "@hatopad/protocol"; import {Client} from "ssh2"; if (!ready || typeof Client !== "function") process.exit(1);'], { cwd: destination });
+    execFileSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "-e",
+        'import { ready } from "@hatopad/protocol"; import {Client} from "ssh2"; if (!ready || typeof Client !== "function") process.exit(1);',
+      ],
+      { cwd: destination },
+    );
     await rm(path.join(destination, "node_modules/@hatopad/protocol"), { recursive: true });
     await assert.rejects(validateClientRuntime(destination));
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });

@@ -5,7 +5,10 @@ import type { LanguageDescriptor, LanguageService } from "./service.js";
 /** Creates a service for one workspace root; called lazily and at most once per root and language. */
 export type LanguageServiceFactory = (workspace: string) => LanguageService;
 
-interface Registration { descriptor: LanguageDescriptor; create: LanguageServiceFactory }
+interface Registration {
+  descriptor: LanguageDescriptor;
+  create: LanguageServiceFactory;
+}
 
 /**
  * Registry of language services. Descriptors are cheap and known up front;
@@ -22,7 +25,9 @@ export class LanguageRegistry {
     return this;
   }
 
-  list(): LanguageDescriptor[] { return [...this.registrations.values()].map((entry) => entry.descriptor); }
+  list(): LanguageDescriptor[] {
+    return [...this.registrations.values()].map((entry) => entry.descriptor);
+  }
 
   descriptor(id: string): LanguageDescriptor {
     const entry = this.registrations.get(id);
@@ -52,25 +57,38 @@ export class LanguageRegistry {
 /** Per-root cache of live services with guaranteed disposal. */
 export class LanguageSessions {
   private readonly services = new Map<string, LanguageService>();
-  constructor(readonly registry: LanguageRegistry, private readonly workspace: string) {}
+  constructor(
+    readonly registry: LanguageRegistry,
+    private readonly workspace: string,
+  ) {}
 
   get(id: string): LanguageService {
     let service = this.services.get(id);
-    if (!service) { service = this.registry.create(id, this.workspace); this.services.set(id, service); }
+    if (!service) {
+      service = this.registry.create(id, this.workspace);
+      this.services.set(id, service);
+    }
     return service;
   }
 
   /** Throws a stable error when a capability is not advertised, so routes never call unsupported operations. */
   require(id: string, capability: keyof LanguageDescriptor["capabilities"]): LanguageService {
-    if (!this.registry.descriptor(id).capabilities[capability]) throw new CoreError("INVALID_REQUEST", `Language '${id}' does not support ${capability}`);
+    if (!this.registry.descriptor(id).capabilities[capability])
+      throw new CoreError("INVALID_REQUEST", `Language '${id}' does not support ${capability}`);
     return this.get(id);
   }
 
   async dispose(): Promise<void> {
     const services = [...this.services.values()];
     this.services.clear();
-    const results = await Promise.allSettled(services.map((service) => Promise.resolve().then(() => service.dispose())));
+    const results = await Promise.allSettled(
+      services.map((service) => Promise.resolve().then(() => service.dispose())),
+    );
     const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-    if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Could not dispose language services");
+    if (failures.length)
+      throw new AggregateError(
+        failures.map((result) => result.reason),
+        "Could not dispose language services",
+      );
   }
 }

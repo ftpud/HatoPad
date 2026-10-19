@@ -38,25 +38,48 @@ export function editorTabLabel(tab: EditorTab): string {
 }
 /** Renderer-only recovery state. A recreated tab is a new Core-owned shell, never a restored process. */
 export type TerminalRecovery = "reattached" | "recreated";
-export type TerminalTab = { id: string; terminalId: string; rootId?: string; title: string; status: "running" | "exited" | "unavailable"; exitCode?: number; recovery?: TerminalRecovery; hasUnreadOutput?: boolean };
+export type TerminalTab = {
+  id: string;
+  terminalId: string;
+  rootId?: string;
+  title: string;
+  status: "running" | "exited" | "unavailable";
+  exitCode?: number;
+  recovery?: TerminalRecovery;
+  hasUnreadOutput?: boolean;
+};
 export type TerminalGroup = { id: string; tabs: TerminalTab[]; activeTabId?: string };
 export type LayoutModel = { panels: Panel[]; editorGroups: EditorGroup[]; terminalGroup: TerminalGroup };
 
 export const initialLayout: LayoutModel = {
-  panels: [{ id: "explorer", type: "explorer" }, { id: "main-editor", type: "editor" }],
+  panels: [
+    { id: "explorer", type: "explorer" },
+    { id: "main-editor", type: "editor" },
+  ],
   editorGroups: [{ id: "primary", tabs: [] }],
-  terminalGroup: { id: "terminal-primary", tabs: [] }
+  terminalGroup: { id: "terminal-primary", tabs: [] },
 };
 
 /** Replaces one root's restored state without discarding tabs owned by other roots. */
-export function mergeRootOwnedTabs<T extends { rootId?: string }>(existing: T[], restored: T[], rootId: string, identity: (item: T) => string): T[] {
+export function mergeRootOwnedTabs<T extends { rootId?: string }>(
+  existing: T[],
+  restored: T[],
+  rootId: string,
+  identity: (item: T) => string,
+): T[] {
   const restoredByIdentity = new Map(restored.map((item) => [identity(item), item]));
   const merged: T[] = [];
   for (const item of existing) {
     if (!item.rootId) continue;
-    if (item.rootId !== rootId) { merged.push(item); continue; }
+    if (item.rootId !== rootId) {
+      merged.push(item);
+      continue;
+    }
     const replacement = restoredByIdentity.get(identity(item));
-    if (replacement) { merged.push(replacement); restoredByIdentity.delete(identity(item)); }
+    if (replacement) {
+      merged.push(replacement);
+      restoredByIdentity.delete(identity(item));
+    }
   }
   merged.push(...restoredByIdentity.values());
   return merged;

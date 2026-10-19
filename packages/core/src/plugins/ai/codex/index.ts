@@ -9,39 +9,117 @@ import { readCodexAccountQuota } from "./codex-usage.js";
 import { providerInstallations, type InstallationSpec } from "../../../ai/provider-installations.js";
 
 const WEB_SEARCH_MODES = ["live", "indexed", "cached", "disabled"];
-const GPT_6_SOL: AiModel = { id: "gpt-6-sol", name: "GPT-6 Sol", defaultReasoning: "medium", reasoningLevels: ["none", "low", "medium", "high", "xhigh", "max"], note: "When Codex does not advertise this model, selecting it starts a new Codex thread. Access depends on your account." };
+const GPT_6_SOL: AiModel = {
+  id: "gpt-6-sol",
+  name: "GPT-6 Sol",
+  defaultReasoning: "medium",
+  reasoningLevels: ["none", "low", "medium", "high", "xhigh", "max"],
+  note: "When Codex does not advertise this model, selecting it starts a new Codex thread. Access depends on your account.",
+};
 
-type CodexCatalogueEntry = { slug?: unknown; display_name?: unknown; description?: unknown; context_window?: unknown; max_context_window?: unknown; input_modalities?: unknown; visibility?: unknown; default_reasoning_level?: unknown; supported_reasoning_levels?: unknown; upgrade?: { model?: unknown; retirement_at?: unknown } | null };
+type CodexCatalogueEntry = {
+  slug?: unknown;
+  display_name?: unknown;
+  description?: unknown;
+  context_window?: unknown;
+  max_context_window?: unknown;
+  input_modalities?: unknown;
+  visibility?: unknown;
+  default_reasoning_level?: unknown;
+  supported_reasoning_levels?: unknown;
+  upgrade?: { model?: unknown; retirement_at?: unknown } | null;
+};
 
 export class CodexSessionManager extends StdioAcpProvider {
   readonly descriptor: AiProviderDescriptor = {
-    id: "codex", name: "Codex ACP", description: "Codex through the standard Agent Client Protocol.",
-    settings: { title: "Codex settings", description: "These settings are applied through ACP session modes and configuration options.", sections: [{ id: "tools", name: "Tools & access", description: "Capabilities available while Codex works." }, { id: "features", name: "Session features", description: "How HatoPad works with the running session." }] },
+    id: "codex",
+    name: "Codex ACP",
+    description: "Codex through the standard Agent Client Protocol.",
+    settings: {
+      title: "Codex settings",
+      description: "These settings are applied through ACP session modes and configuration options.",
+      sections: [
+        { id: "tools", name: "Tools & access", description: "Capabilities available while Codex works." },
+        { id: "features", name: "Session features", description: "How HatoPad works with the running session." },
+      ],
+    },
     capabilities: { models: true, usage: true, mcp: true, agents: true, contextWindow: true, skills: true },
     options: [
-      { id: "mode", name: "Agent mode", description: "Choose read-only analysis, normal workspace editing, or full access when advertised by the ACP server.", section: "tools", type: "select", defaultValue: "agent", choices: [{ value: "read-only", name: "Read only" }, { value: "agent", name: "Workspace agent" }, { value: "agent-full-access", name: "Full access" }] },
-      { id: "webSearch", name: "Web search", description: "Codex searches the web by default. Choose a different source, or disable it entirely.", section: "tools", type: "select", defaultValue: "default", choices: [{ value: "default", name: "Codex default" }, { value: "live", name: "Live" }, { value: "indexed", name: "Indexed" }, { value: "cached", name: "Cached" }, { value: "disabled", name: "Disabled" }] },
+      {
+        id: "mode",
+        name: "Agent mode",
+        description:
+          "Choose read-only analysis, normal workspace editing, or full access when advertised by the ACP server.",
+        section: "tools",
+        type: "select",
+        defaultValue: "agent",
+        choices: [
+          { value: "read-only", name: "Read only" },
+          { value: "agent", name: "Workspace agent" },
+          { value: "agent-full-access", name: "Full access" },
+        ],
+      },
+      {
+        id: "webSearch",
+        name: "Web search",
+        description: "Codex searches the web by default. Choose a different source, or disable it entirely.",
+        section: "tools",
+        type: "select",
+        defaultValue: "default",
+        choices: [
+          { value: "default", name: "Codex default" },
+          { value: "live", name: "Live" },
+          { value: "indexed", name: "Indexed" },
+          { value: "cached", name: "Cached" },
+          { value: "disabled", name: "Disabled" },
+        ],
+      },
       { ...ASK_QUESTIONS_OPTION, section: "features" },
-      { ...LIVE_STEERING_OPTION, section: "features" }
-    ]
+      { ...LIVE_STEERING_OPTION, section: "features" },
+    ],
   };
 
   /** The adapter depends on its compatible Codex CLI. `CODEX_ACP_COMMAND` selects an existing adapter instead. */
-  protected readonly installationSpec: InstallationSpec = { package: "@agentclientprotocol/codex-acp", bin: "dist/index.js", override: () => process.env.CODEX_ACP_COMMAND,
+  protected readonly installationSpec: InstallationSpec = {
+    package: "@agentclientprotocol/codex-acp",
+    bin: "dist/index.js",
+    override: () => process.env.CODEX_ACP_COMMAND,
     // ACP v2 (experimental) ships only in preview builds, which negotiate it per connection.
-    protocols: { v2: { distTag: "preview" } } };
+    protocols: { v2: { distTag: "preview" } },
+  };
 
   protected command(configuration: AiConfiguration): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
     // `features.web_search` is deprecated and makes Codex emit an error item on
     // every turn; the supported form is a top-level `web_search` source mode.
     const webSearch = String(configuration.webSearch ?? "default");
-    const config = { ...(WEB_SEARCH_MODES.includes(webSearch) ? { web_search: webSearch } : {}), ...(configuration.model === GPT_6_SOL.id ? { model: GPT_6_SOL.id, ...(typeof configuration.reasoning === "string" && configuration.reasoning ? { model_reasoning_effort: configuration.reasoning } : {}) } : {}) };
+    const config = {
+      ...(WEB_SEARCH_MODES.includes(webSearch) ? { web_search: webSearch } : {}),
+      ...(configuration.model === GPT_6_SOL.id
+        ? {
+            model: GPT_6_SOL.id,
+            ...(typeof configuration.reasoning === "string" && configuration.reasoning
+              ? { model_reasoning_effort: configuration.reasoning }
+              : {}),
+          }
+        : {}),
+    };
     const env = { INITIAL_AGENT_MODE: String(configuration.mode ?? "agent"), CODEX_CONFIG: JSON.stringify(config) };
-    if (process.env.CODEX_ACP_COMMAND) return { command: process.env.CODEX_ACP_COMMAND, args: [], env: { CODEX_PATH: process.env.CODEX_PATH ?? "codex", ...env } };
-    return { command: process.execPath, args: [this.installedAgent()], env: { ...(process.env.CODEX_PATH ? { CODEX_PATH: process.env.CODEX_PATH } : {}), ...env } };
+    if (process.env.CODEX_ACP_COMMAND)
+      return {
+        command: process.env.CODEX_ACP_COMMAND,
+        args: [],
+        env: { CODEX_PATH: process.env.CODEX_PATH ?? "codex", ...env },
+      };
+    return {
+      command: process.execPath,
+      args: [this.installedAgent()],
+      env: { ...(process.env.CODEX_PATH ? { CODEX_PATH: process.env.CODEX_PATH } : {}), ...env },
+    };
   }
 
-  protected supportsUnlistedModel(model: string): boolean { return model === GPT_6_SOL.id; }
+  protected supportsUnlistedModel(model: string): boolean {
+    return model === GPT_6_SOL.id;
+  }
 
   async usage(workspace?: string): Promise<AiUsage> {
     const usage = await super.usage(workspace);
@@ -58,7 +136,9 @@ export class CodexSessionManager extends StdioAcpProvider {
       }
       const accountQuota = await readCodexAccountQuota(command, [...args, "app-server", "--stdio"]);
       return accountQuota ? { ...usage, accountQuota } : usage;
-    } catch { return usage; }
+    } catch {
+      return usage;
+    }
   }
 
   /** Codex publishes context windows and retirement notices only in its own cache. */
@@ -70,31 +150,63 @@ export class CodexSessionManager extends StdioAcpProvider {
       const entry = catalogue.get(model.id);
       if (!entry) return model;
       const contextWindow = typeof entry.context_window === "number" ? entry.context_window : undefined;
-      const maxContextWindow = typeof entry.max_context_window === "number" && entry.max_context_window !== contextWindow ? entry.max_context_window : undefined;
-      const modalities = Array.isArray(entry.input_modalities) ? entry.input_modalities.filter((item): item is string => typeof item === "string") : [];
-      const upgrade = entry.upgrade && typeof entry.upgrade.model === "string" ? `Being retired${typeof entry.upgrade.retirement_at === "string" ? ` on ${entry.upgrade.retirement_at.slice(0, 10)}` : ""}; use ${entry.upgrade.model} instead.` : undefined;
+      const maxContextWindow =
+        typeof entry.max_context_window === "number" && entry.max_context_window !== contextWindow
+          ? entry.max_context_window
+          : undefined;
+      const modalities = Array.isArray(entry.input_modalities)
+        ? entry.input_modalities.filter((item): item is string => typeof item === "string")
+        : [];
+      const upgrade =
+        entry.upgrade && typeof entry.upgrade.model === "string"
+          ? `Being retired${typeof entry.upgrade.retirement_at === "string" ? ` on ${entry.upgrade.retirement_at.slice(0, 10)}` : ""}; use ${entry.upgrade.model} instead.`
+          : undefined;
       return {
         ...model,
         ...(model.description ? {} : typeof entry.description === "string" ? { description: entry.description } : {}),
         ...(contextWindow ? { contextWindow } : {}),
         ...(maxContextWindow ? { maxContextWindow } : {}),
         ...(modalities.length > 0 ? { inputModalities: modalities } : {}),
-        ...(upgrade ? { note: upgrade } : {})
+        ...(upgrade ? { note: upgrade } : {}),
       };
     });
   }
 
   private async catalogue(): Promise<Map<string, CodexCatalogueEntry>> {
     try {
-      const cache = JSON.parse(await readFile(path.join(os.homedir(), ".codex", "models_cache.json"), "utf8")) as { models?: CodexCatalogueEntry[] };
-      return new Map((cache.models ?? []).filter((item): item is CodexCatalogueEntry & { slug: string } => typeof item.slug === "string").map((item) => [item.slug, item] as const));
-    } catch { return new Map(); }
+      const cache = JSON.parse(await readFile(path.join(os.homedir(), ".codex", "models_cache.json"), "utf8")) as {
+        models?: CodexCatalogueEntry[];
+      };
+      return new Map(
+        (cache.models ?? [])
+          .filter((item): item is CodexCatalogueEntry & { slug: string } => typeof item.slug === "string")
+          .map((item) => [item.slug, item] as const),
+      );
+    } catch {
+      return new Map();
+    }
   }
 
   protected async fallbackModels(): Promise<AiModel[]> {
     const catalogue = await this.catalogue();
     // Codex marks catalogue entries as "list" or "hide"; anything not explicitly listed is internal.
-    const models = [...catalogue.values()].filter((item) => item.visibility === "list").map((item) => ({ id: item.slug as string, name: typeof item.display_name === "string" ? item.display_name : item.slug as string, defaultReasoning: typeof item.default_reasoning_level === "string" ? item.default_reasoning_level : "medium", reasoningLevels: Array.isArray(item.supported_reasoning_levels) ? item.supported_reasoning_levels.map((level) => (level as { effort?: unknown }).effort).filter((effort): effort is string => typeof effort === "string") : ["medium"], reasoningDescriptions: Object.fromEntries((Array.isArray(item.supported_reasoning_levels) ? item.supported_reasoning_levels : []).map((level) => [(level as { effort?: unknown }).effort, (level as { description?: unknown }).description]).filter((pair): pair is [string, string] => typeof pair[0] === "string" && typeof pair[1] === "string")) }));
+    const models = [...catalogue.values()]
+      .filter((item) => item.visibility === "list")
+      .map((item) => ({
+        id: item.slug as string,
+        name: typeof item.display_name === "string" ? item.display_name : (item.slug as string),
+        defaultReasoning: typeof item.default_reasoning_level === "string" ? item.default_reasoning_level : "medium",
+        reasoningLevels: Array.isArray(item.supported_reasoning_levels)
+          ? item.supported_reasoning_levels
+              .map((level) => (level as { effort?: unknown }).effort)
+              .filter((effort): effort is string => typeof effort === "string")
+          : ["medium"],
+        reasoningDescriptions: Object.fromEntries(
+          (Array.isArray(item.supported_reasoning_levels) ? item.supported_reasoning_levels : [])
+            .map((level) => [(level as { effort?: unknown }).effort, (level as { description?: unknown }).description])
+            .filter((pair): pair is [string, string] => typeof pair[0] === "string" && typeof pair[1] === "string"),
+        ),
+      }));
     if (models.length > 0) return models;
     return [GPT_6_SOL];
   }

@@ -39,13 +39,60 @@ import { handlePluginsRequest } from "./plugins.js";
 import { handleJavaRequest } from "./java.js";
 import { createRequestContext, type SessionServices } from "./context.js";
 
-export async function handleRequest(services: SessionServices, tasks: WorkspaceTaskStore, acp: AcpRegistry, usefulFiles: UsefulFilesStore, agents: AgentsStore, harnesses: HarnessStore, harnessRunner: HarnessRunner, workflowApps: WorkflowAppService, terminalHost: TerminalSessionHost, runConfigs: RunConfigService, aiTimers: AiTimerService, schedules: ScheduleService, triggers: TriggerService, remoteTransfers: RemoteTransferService, rootWorkspace: string, request: Request, bridgeWorkspace = rootWorkspace): Promise<unknown> {
-  const context = createRequestContext(services, tasks, acp, usefulFiles, agents, harnesses, harnessRunner, workflowApps, terminalHost, runConfigs, aiTimers, schedules, triggers, remoteTransfers, rootWorkspace, request, bridgeWorkspace);
+export async function handleRequest(
+  services: SessionServices,
+  tasks: WorkspaceTaskStore,
+  acp: AcpRegistry,
+  usefulFiles: UsefulFilesStore,
+  agents: AgentsStore,
+  harnesses: HarnessStore,
+  harnessRunner: HarnessRunner,
+  workflowApps: WorkflowAppService,
+  terminalHost: TerminalSessionHost,
+  runConfigs: RunConfigService,
+  aiTimers: AiTimerService,
+  schedules: ScheduleService,
+  triggers: TriggerService,
+  remoteTransfers: RemoteTransferService,
+  rootWorkspace: string,
+  request: Request,
+  bridgeWorkspace = rootWorkspace,
+): Promise<unknown> {
+  const context = createRequestContext(
+    services,
+    tasks,
+    acp,
+    usefulFiles,
+    agents,
+    harnesses,
+    harnessRunner,
+    workflowApps,
+    terminalHost,
+    runConfigs,
+    aiTimers,
+    schedules,
+    triggers,
+    remoteTransfers,
+    rootWorkspace,
+    request,
+    bridgeWorkspace,
+  );
   const { filesystem, workspacePath } = context;
   if (request.type !== "workspace.open") filesystem.getWorkspace();
   if (request.type === "filesystem.remoteTransferBegin") return remoteTransfers.begin(workspacePath, request.payload);
-  if (request.type === "filesystem.remoteTransferCancel") return { cancelled: remoteTransfers.cancel(request.payload.token) };
-  if (["harnesses.autopilot", "harnesses.steer", "harnesses.append", "harnesses.permission.resolve", "harnesses.answer", "harnesses.pause.resume", "harnesses.pause.retry"].includes(request.type)) {
+  if (request.type === "filesystem.remoteTransferCancel")
+    return { cancelled: remoteTransfers.cancel(request.payload.token) };
+  if (
+    [
+      "harnesses.autopilot",
+      "harnesses.steer",
+      "harnesses.append",
+      "harnesses.permission.resolve",
+      "harnesses.answer",
+      "harnesses.pause.resume",
+      "harnesses.pause.retry",
+    ].includes(request.type)
+  ) {
     const { runId } = request.payload as { runId: string };
     const run = await harnessRunner.readRun(runId);
     if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
@@ -53,7 +100,8 @@ export async function handleRequest(services: SessionServices, tasks: WorkspaceT
     for (const block of run.blocks.filter((block) => block.workspace)) {
       await validateWorkflowTarget(run, block.workspace!, { tasks, rootWorkspace, workspacePath });
     }
-  }  switch (request.type) {
+  }
+  switch (request.type) {
     case "workspace.open":
     case "workspace.saveOptions":
       return handleWorkspaceRequest(context, request);

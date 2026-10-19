@@ -21,7 +21,7 @@ export class ChannelTable {
 
   constructor(
     private readonly limits: RelayLimits,
-    private readonly now: () => number = Date.now
+    private readonly now: () => number = Date.now,
   ) {}
 
   get size(): number {

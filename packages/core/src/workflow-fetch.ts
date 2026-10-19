@@ -17,7 +17,11 @@ export function rememberFetch(cursors: FetchCursors, key: string, cursor: FetchC
  * The cursor remembers the end of the delivered text, so rolled-off history is detected by
  * its anchor going missing; `gap` then reports that earlier unread data is no longer retained.
  */
-export function takeUnfetchedText(cursors: FetchCursors, key: string, text: string): { text: string; hasMore: boolean; gap: boolean } {
+export function takeUnfetchedText(
+  cursors: FetchCursors,
+  key: string,
+  text: string,
+): { text: string; hasMore: boolean; gap: boolean } {
   const cursor = cursors.get(key);
   let start = 0;
   let gap = false;
@@ -30,6 +34,7 @@ export function takeUnfetchedText(cursors: FetchCursors, key: string, text: stri
     }
   }
   const end = Math.min(text.length, start + FETCH_CHUNK_CHARS);
-  if (end > 0 && (end > start || typeof cursor !== "object" || gap)) rememberFetch(cursors, key, { anchor: text.slice(Math.max(0, end - ANCHOR_CHARS), end), length: end });
+  if (end > 0 && (end > start || typeof cursor !== "object" || gap))
+    rememberFetch(cursors, key, { anchor: text.slice(Math.max(0, end - ANCHOR_CHARS), end), length: end });
   return { text: text.slice(start, end), hasMore: end < text.length, gap };
 }

@@ -30,6 +30,6 @@ export function useWorkspaceTasks() {
     taskSwitchSequence,
     taskSwitchActive,
     queuedTaskSwitch,
-    switchTaskRef
+    switchTaskRef,
   };
 }

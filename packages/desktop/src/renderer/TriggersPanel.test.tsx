@@ -4,12 +4,37 @@ import type { WorkspaceTrigger } from "@hatopad/protocol";
 import { TriggersPanel } from "./TriggersPanel";
 
 afterEach(cleanup);
-const trigger = (extra: Partial<WorkspaceTrigger> = {}): WorkspaceTrigger => ({ id: "trigger-a", rootId: "root", name: "Build watcher", enabled: true, fireCount: 2, createdAt: "2026-10-07T00:00:00.000Z", source: { type: "file", path: "/work/build.log", events: ["changed"] }, action: { type: "prompt", provider: "codex", prompt: "Review the failure" }, ...extra });
+const trigger = (extra: Partial<WorkspaceTrigger> = {}): WorkspaceTrigger => ({
+  id: "trigger-a",
+  rootId: "root",
+  name: "Build watcher",
+  enabled: true,
+  fireCount: 2,
+  createdAt: "2026-10-07T00:00:00.000Z",
+  source: { type: "file", path: "/work/build.log", events: ["changed"] },
+  action: { type: "prompt", provider: "codex", prompt: "Review the failure" },
+  ...extra,
+});
 function setup(triggers: WorkspaceTrigger[] = []) {
   const onAction = vi.fn(async () => undefined);
   const onCreate = vi.fn(async () => undefined);
   const onError = vi.fn();
-  render(<TriggersPanel triggers={triggers} workflows={[]} roots={[]} providers={[{ id: "codex", name: "Codex" } as never]} tasks={[]} defaultProvider="codex" onLoadAgents={async () => []} onLoadModels={async () => []} onCreate={onCreate} onAction={onAction} onRefresh={async () => undefined} onError={onError} />);
+  render(
+    <TriggersPanel
+      triggers={triggers}
+      workflows={[]}
+      roots={[]}
+      providers={[{ id: "codex", name: "Codex" } as never]}
+      tasks={[]}
+      defaultProvider="codex"
+      onLoadAgents={async () => []}
+      onLoadModels={async () => []}
+      onCreate={onCreate}
+      onAction={onAction}
+      onRefresh={async () => undefined}
+      onError={onError}
+    />,
+  );
   return { onAction, onCreate, onError };
 }
 
@@ -22,13 +47,17 @@ describe("Triggers tool window", () => {
   });
 
   it("describes the watched source, skips and errors and controls the exact trigger", async () => {
-    const { onAction } = setup([trigger({ lastSkipped: "Target agent is busy", lastError: "Pipe failed", lastEvent: "changed: /work/build.log" })]);
+    const { onAction } = setup([
+      trigger({ lastSkipped: "Target agent is busy", lastError: "Pipe failed", lastEvent: "changed: /work/build.log" }),
+    ]);
     expect(screen.getByText("File /work/build.log · changed")).toBeTruthy();
     expect(screen.getByText("Skipped: Target agent is busy")).toBeTruthy();
     expect(screen.getByRole("alert").textContent).toBe("Pipe failed");
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith("trigger-a", "pause"));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Run now" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Run now" }));
     await waitFor(() => expect(onAction).toHaveBeenCalledWith("trigger-a", "fire"));
   });
@@ -40,28 +69,65 @@ describe("Triggers tool window", () => {
     fireEvent.change(screen.getByLabelText("Watch"), { target: { value: "fifo" } });
     fireEvent.change(screen.getByLabelText("Pipe path"), { target: { value: "/tmp/events" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Handle it" } });
-    await waitFor(() => expect((screen.getByRole("button", { name: "Create trigger" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Create trigger" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create trigger" }));
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ name: "Pipe", source: { type: "fifo", path: "/tmp/events" }, action: expect.objectContaining({ type: "prompt", prompt: "Handle it" }) })));
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Pipe",
+          source: { type: "fifo", path: "/tmp/events" },
+          action: expect.objectContaining({ type: "prompt", prompt: "Handle it" }),
+        }),
+      ),
+    );
   });
 
   it("sends the chosen model and reasoning effort with a prompt trigger", async () => {
     const onCreate = vi.fn(async () => undefined);
-    const models = [{ id: "m1", name: "Model One", reasoningLevels: ["low", "high"], defaultReasoning: "low" }] as never[];
-    render(<TriggersPanel triggers={[]} workflows={[]} roots={[]} providers={[{ id: "codex", name: "Codex" } as never]} tasks={[]} defaultProvider="codex" onLoadAgents={async () => []} onLoadModels={async () => models} onCreate={onCreate} onAction={vi.fn()} onRefresh={async () => undefined} onError={vi.fn()} />);
+    const models = [
+      { id: "m1", name: "Model One", reasoningLevels: ["low", "high"], defaultReasoning: "low" },
+    ] as never[];
+    render(
+      <TriggersPanel
+        triggers={[]}
+        workflows={[]}
+        roots={[]}
+        providers={[{ id: "codex", name: "Codex" } as never]}
+        tasks={[]}
+        defaultProvider="codex"
+        onLoadAgents={async () => []}
+        onLoadModels={async () => models}
+        onCreate={onCreate}
+        onAction={vi.fn()}
+        onRefresh={async () => undefined}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "New trigger" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Modelled" } });
     fireEvent.change(screen.getByLabelText("File or folder path"), { target: { value: "/tmp/f" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Go" } });
     expect(screen.queryByRole("button", { name: "codex model" })).toBeNull();
     fireEvent.change(screen.getByLabelText("Session"), { target: { value: "new" } });
-    await waitFor(() => expect((screen.getByRole("button", { name: "codex model" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "codex model" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "codex model" }));
     fireEvent.click(screen.getByText("Model One"));
     fireEvent.change(screen.getByLabelText("Reasoning effort"), { target: { value: "high" } });
-    await waitFor(() => expect((screen.getByRole("button", { name: "Create trigger" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Create trigger" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Create trigger" }));
-    await waitFor(() => expect(onCreate).toHaveBeenCalledWith(expect.objectContaining({ action: expect.objectContaining({ type: "prompt", newSession: true, model: "m1", reasoning: "high" }) })));
+    await waitFor(() =>
+      expect(onCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: expect.objectContaining({ type: "prompt", newSession: true, model: "m1", reasoning: "high" }),
+        }),
+      ),
+    );
   });
 
   it("hides provider, agent and model choices for workflow triggers", () => {

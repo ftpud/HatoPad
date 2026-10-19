@@ -10,18 +10,25 @@ type MarkdownLink =
 
 export function resolveMarkdownLink(href: string, sourcePath: string, workspacePath = ""): MarkdownLink {
   if (href.startsWith("#")) {
-    try { return { type: "fragment", id: decodeURIComponent(href.slice(1)) }; }
-    catch { return { type: "unsupported" }; }
+    try {
+      return { type: "fragment", id: decodeURIComponent(href.slice(1)) };
+    } catch {
+      return { type: "unsupported" };
+    }
   }
 
   let url: URL;
-  try { url = new URL(href); }
-  catch {
+  try {
+    url = new URL(href);
+  } catch {
     const target = href.split(/[?#]/, 1)[0];
     if (!target) return { type: "unsupported" };
     let decoded: string;
-    try { decoded = decodeURIComponent(target).replaceAll("\\", "/"); }
-    catch { return { type: "unsupported" }; }
+    try {
+      decoded = decodeURIComponent(target).replaceAll("\\", "/");
+    } catch {
+      return { type: "unsupported" };
+    }
     const base = sourcePath.includes("/") ? sourcePath.slice(0, sourcePath.lastIndexOf("/")) : "";
     const path = normalizeWorkspacePath(decoded.startsWith("/") ? decoded.slice(1) : `${base}/${decoded}`);
     return path ? { type: "file", path } : { type: "unsupported" };
@@ -31,8 +38,11 @@ export function resolveMarkdownLink(href: string, sourcePath: string, workspaceP
   if (url.protocol !== "file:" || url.host) return { type: "unsupported" };
 
   let filePath: string;
-  try { filePath = decodeURIComponent(url.pathname).replaceAll("\\", "/"); }
-  catch { return { type: "unsupported" }; }
+  try {
+    filePath = decodeURIComponent(url.pathname).replaceAll("\\", "/");
+  } catch {
+    return { type: "unsupported" };
+  }
   const workspace = workspacePath.replaceAll("\\", "/").replace(/\/$/, "");
   if (!workspace || (filePath !== workspace && !filePath.startsWith(`${workspace}/`))) return { type: "unsupported" };
   const path = normalizeWorkspacePath(filePath.slice(workspace.length + 1));
@@ -68,7 +78,15 @@ export function toggleMarkdownTask(source: string, taskIndex: number, checked: b
   return lines.join("\n");
 }
 
-export function MarkdownPreview({ children, sourcePath, workspacePath, renderPre, onOpenFile, onOpenExternal, onChange }: {
+export function MarkdownPreview({
+  children,
+  sourcePath,
+  workspacePath,
+  renderPre,
+  onOpenFile,
+  onOpenExternal,
+  onChange,
+}: {
   children: string;
   sourcePath: string;
   workspacePath?: string;
@@ -87,21 +105,35 @@ export function MarkdownPreview({ children, sourcePath, workspacePath, renderPre
     else if (link.type === "fragment") document.getElementById(link.id)?.scrollIntoView();
   };
 
-  return <ReactMarkdown
-    remarkPlugins={[remarkGfm]}
-    urlTransform={markdownUrlTransform}
-    components={{
-      ...(renderPre ? { pre: renderPre } : {}),
-      a: ({ href, children: label, ...props }) => <a {...props} href={href} onClick={(event) => followLink(event, href)}>{label}</a>,
-      input: ({ node: _node, ...props }) => {
-        if (props.type !== "checkbox" || !onChange) return <input {...props} />;
-        const index = taskIndex;
-        taskIndex += 1;
-        return <input {...props} disabled={false} onChange={(event: ChangeEvent<HTMLInputElement>) => {
-            const content = toggleMarkdownTask(children, index, event.target.checked);
-            if (content !== children) onChange(content);
-          }} />;
-      }
-    }}
-  >{children}</ReactMarkdown>;
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      urlTransform={markdownUrlTransform}
+      components={{
+        ...(renderPre ? { pre: renderPre } : {}),
+        a: ({ href, children: label, ...props }) => (
+          <a {...props} href={href} onClick={(event) => followLink(event, href)}>
+            {label}
+          </a>
+        ),
+        input: ({ node: _node, ...props }) => {
+          if (props.type !== "checkbox" || !onChange) return <input {...props} />;
+          const index = taskIndex;
+          taskIndex += 1;
+          return (
+            <input
+              {...props}
+              disabled={false}
+              onChange={(event: ChangeEvent<HTMLInputElement>) => {
+                const content = toggleMarkdownTask(children, index, event.target.checked);
+                if (content !== children) onChange(content);
+              }}
+            />
+          );
+        },
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
 }

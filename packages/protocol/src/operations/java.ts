@@ -1,4 +1,18 @@
-import type { JavaProjectOptions, JavaProjectNode, JavaToolCheck, RootedWorkspaceSymbol, JavaMainClass, JavaBreakpoint, JavaApplyChangesResult, JavaDebugVariable, RootedJavaDiagnostic, JavaTypeSuggestion, JavaLspCompletion, RootedJavaLspLocation, JavaSemanticToken } from "../types/java.js";
+import type {
+  JavaProjectOptions,
+  JavaProjectNode,
+  JavaToolCheck,
+  RootedWorkspaceSymbol,
+  JavaMainClass,
+  JavaBreakpoint,
+  JavaApplyChangesResult,
+  JavaDebugVariable,
+  RootedJavaDiagnostic,
+  JavaTypeSuggestion,
+  JavaLspCompletion,
+  RootedJavaLspLocation,
+  JavaSemanticToken,
+} from "../types/java.js";
 import type { FileRevision } from "../types/filesystem.js";
 
 export type JavaOperations = {
@@ -30,7 +44,10 @@ export type JavaOperations = {
     payload: Record<string, never>;
     result: { tree: JavaProjectNode[] };
   };
-  "java.workspaceSymbols": { payload: { query: string; limit?: number }; result: { symbols: RootedWorkspaceSymbol[]; truncated: boolean } };
+  "java.workspaceSymbols": {
+    payload: { query: string; limit?: number };
+    result: { symbols: RootedWorkspaceSymbol[]; truncated: boolean };
+  };
   "java.listMainClasses": {
     payload: Record<string, never>;
     result: { classes: JavaMainClass[] };
@@ -83,8 +100,17 @@ export type JavaOperations = {
     payload: { prefix: string };
     result: { suggestions: JavaTypeSuggestion[] };
   };
-  "java.completion": { payload: { path: string; content: string; line: number; column: number }; result: { items: JavaLspCompletion[] } };
-  "java.definition": { payload: { path: string; content: string; line: number; column: number }; result: { locations: RootedJavaLspLocation[] } };
-  "java.references": { payload: { path: string; content: string; line: number; column: number }; result: { locations: RootedJavaLspLocation[] } };
+  "java.completion": {
+    payload: { path: string; content: string; line: number; column: number };
+    result: { items: JavaLspCompletion[] };
+  };
+  "java.definition": {
+    payload: { path: string; content: string; line: number; column: number };
+    result: { locations: RootedJavaLspLocation[] };
+  };
+  "java.references": {
+    payload: { path: string; content: string; line: number; column: number };
+    result: { locations: RootedJavaLspLocation[] };
+  };
   "java.semanticTokens": { payload: { path: string; content: string }; result: { tokens: JavaSemanticToken[] } };
 };

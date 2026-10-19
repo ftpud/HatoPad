@@ -1,9 +1,24 @@
 import { useState } from "react";
-import type { AgentFile, AgentFileScope, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, JavaTypeSuggestion, RootedJavaLspLocation, RunConfig, RunConfigScope, UsefulFile, UsefulFileScope, WorkspaceTask } from "@hatopad/protocol";
+import type {
+  AgentFile,
+  AgentFileScope,
+  FileRevision,
+  FileTreeNode,
+  GitBranch as GitBranchInfo,
+  GitDiffHunk,
+  GitHistoryRewritePreview,
+  GitStatusEntry,
+  JavaTypeSuggestion,
+  RootedJavaLspLocation,
+  RunConfig,
+  RunConfigScope,
+  UsefulFile,
+  UsefulFileScope,
+  WorkspaceTask,
+} from "@hatopad/protocol";
 import { type EditorTab } from "./model";
 
 export function useShellDialogs() {
-
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const [storageOpen, setStorageOpen] = useState(false);
@@ -22,27 +37,55 @@ export function useShellDialogs() {
 
   const [runConfigMenu, setRunConfigMenu] = useState<{ x: number; y: number; config: RunConfig }>();
 
-  const [usefulDialog, setUsefulDialog] = useState<{ mode: "create" | "rename"; scope: UsefulFileScope; file?: UsefulFile }>();
+  const [usefulDialog, setUsefulDialog] = useState<{
+    mode: "create" | "rename";
+    scope: UsefulFileScope;
+    file?: UsefulFile;
+  }>();
 
-  const [agentDialog, setAgentDialog] = useState<{ mode: "create" | "rename"; scope: Exclude<AgentFileScope, "workspace">; file?: AgentFile }>();
+  const [agentDialog, setAgentDialog] = useState<{
+    mode: "create" | "rename";
+    scope: Exclude<AgentFileScope, "workspace">;
+    file?: AgentFile;
+  }>();
 
   const [workspaceRootDialogOpen, setWorkspaceRootDialogOpen] = useState(false);
 
-  const [gitHunkDialog, setGitHunkDialog] = useState<{ x: number; y: number; path: string; hunk: GitDiffHunk; originalContent: string; modifiedContent: string; error?: string }>();
+  const [gitHunkDialog, setGitHunkDialog] = useState<{
+    x: number;
+    y: number;
+    path: string;
+    hunk: GitDiffHunk;
+    originalContent: string;
+    modifiedContent: string;
+    error?: string;
+  }>();
 
   const [branchMenu, setBranchMenu] = useState<{ branches: GitBranchInfo[]; selected?: string; loading: boolean }>();
 
   const [gitRollbackDialog, setGitRollbackDialog] = useState<GitStatusEntry[]>();
 
-  const [gitRewriteDialog, setGitRewriteDialog] = useState<{ action: "amend" | "undo"; preview: GitHistoryRewritePreview }>();
+  const [gitRewriteDialog, setGitRewriteDialog] = useState<{
+    action: "amend" | "undo";
+    preview: GitHistoryRewritePreview;
+  }>();
 
   const [gitStashDialog, setGitStashDialog] = useState(false);
 
-  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@hatopad/protocol").GitPullPreview; error?: string }>();
+  const [gitPullDialog, setGitPullDialog] = useState<{
+    preview: import("@hatopad/protocol").GitPullPreview;
+    error?: string;
+  }>();
 
-  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@hatopad/protocol").GitRebasePreview; error?: string }>();
+  const [gitRebaseDialog, setGitRebaseDialog] = useState<{
+    preview: import("@hatopad/protocol").GitRebasePreview;
+    error?: string;
+  }>();
 
-  const [importChoices, setImportChoices] = useState<{ suggestions: JavaTypeSuggestion[]; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }>();
+  const [importChoices, setImportChoices] = useState<{
+    suggestions: JavaTypeSuggestion[];
+    range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+  }>();
 
   const [javaUsages, setJavaUsages] = useState<RootedJavaLspLocation[]>();
 
@@ -50,11 +93,27 @@ export function useShellDialogs() {
 
   const [treeContextMenu, setTreeContextMenu] = useState<{ x: number; y: number; nodes: FileTreeNode[] }>();
 
-  const [projectPathDialog, setProjectPathDialog] = useState<{ mode: "file" | "directory" | "rename"; node: FileTreeNode; parentPath: string }>();
+  const [projectPathDialog, setProjectPathDialog] = useState<{
+    mode: "file" | "directory" | "rename";
+    node: FileTreeNode;
+    parentPath: string;
+  }>();
 
-  const [editorGitMenu, setEditorGitMenu] = useState<{ x: number; y: number; path: string; startLine?: number; endLine?: number; content?: string }>();
+  const [editorGitMenu, setEditorGitMenu] = useState<{
+    x: number;
+    y: number;
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    content?: string;
+  }>();
 
-  const [gitRollbackMenu, setGitRollbackMenu] = useState<{ x: number; y: number; entry: GitStatusEntry; taskRef?: string }>();
+  const [gitRollbackMenu, setGitRollbackMenu] = useState<{
+    x: number;
+    y: number;
+    entry: GitStatusEntry;
+    taskRef?: string;
+  }>();
 
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tab: EditorTab }>();
 
@@ -64,7 +123,13 @@ export function useShellDialogs() {
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
 
-  const [externalConflict, setExternalConflict] = useState<{ tabId: string; path: string; externalContent: string; externalRevision: FileRevision; error?: string }>();
+  const [externalConflict, setExternalConflict] = useState<{
+    tabId: string;
+    path: string;
+    externalContent: string;
+    externalRevision: FileRevision;
+    error?: string;
+  }>();
   return {
     settingsOpen,
     setSettingsOpen,
@@ -127,6 +192,6 @@ export function useShellDialogs() {
     commandPaletteOpen,
     setCommandPaletteOpen,
     externalConflict,
-    setExternalConflict
+    setExternalConflict,
   };
 }

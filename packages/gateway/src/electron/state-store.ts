@@ -14,11 +14,16 @@ export class JsonStateStore<T> {
     this.backupPath = `${filePath}.bak`;
   }
 
-  flush(): Promise<void> { return this.transactionTail; }
+  flush(): Promise<void> {
+    return this.transactionTail;
+  }
 
   async read(): Promise<T> {
     const operation = this.transactionTail.then(() => this.readUnlocked());
-    this.transactionTail = operation.then(() => undefined, () => undefined);
+    this.transactionTail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     return operation;
   }
 
@@ -29,7 +34,10 @@ export class JsonStateStore<T> {
       await this.writeUnlocked(state);
       return { state, result };
     });
-    this.transactionTail = operation.then(() => undefined, () => undefined);
+    this.transactionTail = operation.then(
+      () => undefined,
+      () => undefined,
+    );
     return operation;
   }
 
@@ -46,8 +54,11 @@ export class JsonStateStore<T> {
         throw backupError;
       }
       let recovered: T;
-      try { recovered = this.decode(contents); }
-      catch (error) { throw recoveryError(this.filePath, this.backupPath, error); }
+      try {
+        recovered = this.decode(contents);
+      } catch (error) {
+        throw recoveryError(this.filePath, this.backupPath, error);
+      }
       console.warn(`Gateway state file ${this.filePath} was missing; restoring last-good backup ${this.backupPath}.`);
       await this.replacePrimary(contents);
       return recovered;
@@ -57,17 +68,24 @@ export class JsonStateStore<T> {
       return this.decode(contents);
     } catch (primaryError) {
       let backup: string;
-      try { backup = await readFile(this.backupPath, "utf8"); }
-      catch (backupError) {
+      try {
+        backup = await readFile(this.backupPath, "utf8");
+      } catch (backupError) {
         if (isMissing(backupError)) throw recoveryError(this.filePath, this.backupPath, primaryError);
         throw backupError;
       }
       let recovered: T;
-      try { recovered = this.decode(backup); }
-      catch (backupError) { throw recoveryError(this.filePath, this.backupPath, backupError, primaryError); }
+      try {
+        recovered = this.decode(backup);
+      } catch (backupError) {
+        throw recoveryError(this.filePath, this.backupPath, backupError, primaryError);
+      }
       console.warn(`Gateway state file ${this.filePath} is corrupt; restoring last-good backup ${this.backupPath}.`);
-      try { await this.replacePrimary(backup); }
-      catch (restoreError) { throw recoveryError(this.filePath, this.backupPath, restoreError, primaryError); }
+      try {
+        await this.replacePrimary(backup);
+      } catch (restoreError) {
+        throw recoveryError(this.filePath, this.backupPath, restoreError, primaryError);
+      }
       return recovered;
     }
   }
@@ -100,7 +118,9 @@ export class JsonStateStore<T> {
       await writeTemporary(temporary, contents);
       await rename(temporary, this.filePath);
       await syncDirectory(path.dirname(this.filePath));
-    } finally { await rm(temporary, { force: true }); }
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 }
 
@@ -109,7 +129,9 @@ async function writeTemporary(filePath: string, contents: string | Buffer): Prom
   try {
     await file.writeFile(contents);
     await file.sync();
-  } finally { await file.close(); }
+  } finally {
+    await file.close();
+  }
 }
 
 async function syncDirectory(directory: string): Promise<void> {
@@ -119,7 +141,9 @@ async function syncDirectory(directory: string): Promise<void> {
     await handle.sync();
   } catch {
     // Directory syncing is unsupported on some filesystems; file contents are synced before promotion.
-  } finally { await handle?.close(); }
+  } finally {
+    await handle?.close();
+  }
 }
 
 function isMissing(error: unknown): boolean {
@@ -127,6 +151,11 @@ function isMissing(error: unknown): boolean {
 }
 
 function recoveryError(primary: string, backup: string, cause: unknown, primaryCause?: unknown): Error {
-  const details = [cause, primaryCause].filter(Boolean).map((error) => error instanceof Error ? error.message : String(error));
-  return new Error(`Gateway state at ${primary} is corrupt and could not be restored from ${backup}${details.length ? `: ${details.join("; ")}` : ""}`, { cause });
+  const details = [cause, primaryCause]
+    .filter(Boolean)
+    .map((error) => (error instanceof Error ? error.message : String(error)));
+  return new Error(
+    `Gateway state at ${primary} is corrupt and could not be restored from ${backup}${details.length ? `: ${details.join("; ")}` : ""}`,
+    { cause },
+  );
 }

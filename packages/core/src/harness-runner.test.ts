@@ -4,62 +4,291 @@ import { mkdtemp } from "node:fs/promises";
 import { describe, expect, it, vi } from "vitest";
 import type { AiSession, HarnessBlock, HarnessOperationKind } from "@hatopad/protocol";
 import { AiProviderError } from "@hatopad/acp";
-import { classifyWorkflowFailure, connectedInput, HarnessRunner, nextWatchdogReset, isRecoverableWorkflowError } from "./harness-runner.js";
+import {
+  classifyWorkflowFailure,
+  connectedInput,
+  HarnessRunner,
+  nextWatchdogReset,
+  isRecoverableWorkflowError,
+} from "./harness-runner.js";
 import { HarnessStore } from "./harnesses.js";
 
 // Workflow journals use disk-backed queues; allow bounded disk latency under the full CI suite.
 
 describe("HarnessRunner", () => {
   it("reconciles a completed provider turn after restart without sending its prompt again", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-restart-complete-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Recovery");
-    const definition = await store.update({ ...created, blocks: [{ id: "first", type: "prompt", label: "First", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "second", type: "prompt", label: "Second", prompt: "Use {{input}}", position: { x: 0, y: 0 } }], edges: [{ id: "next", from: "first", to: "second" }] });
-    await store.saveRun({ id: "recover-complete", harnessId: definition.id, harnessVersion: definition.version, definition, executionPlan: { version: 1, createdAt: "now", definitionVersion: definition.version, order: ["first", "second"], blocks: [{ blockId: "first", incoming: [], outgoing: ["next"] }, { blockId: "second", incoming: ["next"], outgoing: [] }] }, input: "request", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "first", status: "running", provider: "codex", workspace: "/workflow/first", sessionId: "session-first", attempts: [{ id: "attempt-first", index: 1, status: "running", startedAt: "now", operationId: "attempt-operation" }] }, { blockId: "second", status: "waiting" }], operations: [{ id: "attempt-operation", idempotencyKey: "block-attempt:first:1", kind: "block_attempt", status: "intent", blockId: "first", attemptId: "attempt-first", createdAt: "now", updatedAt: "now" }, { id: "prompt-operation", idempotencyKey: "prompt:first:attempt-first", kind: "prompt_delivery", status: "intent", blockId: "first", attemptId: "attempt-first", createdAt: "now", updatedAt: "now" }] });
-    const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => session(`${block.id}:${prompt}`)); const append = vi.fn();
-    const runner = new HarnessRunner(store, () => undefined); await runner.recover(dispatch, "codex", append, { session: async () => ({ ...session("session-first"), messages: [{ id: "answer", role: "assistant", text: "recovered output", timestamp: "now" }] }), timer: async () => false });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-restart-complete-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Recovery");
+    const definition = await store.update({
+      ...created,
+      blocks: [
+        { id: "first", type: "prompt", label: "First", prompt: "{{input}}", position: { x: 0, y: 0 } },
+        { id: "second", type: "prompt", label: "Second", prompt: "Use {{input}}", position: { x: 0, y: 0 } },
+      ],
+      edges: [{ id: "next", from: "first", to: "second" }],
+    });
+    await store.saveRun({
+      id: "recover-complete",
+      harnessId: definition.id,
+      harnessVersion: definition.version,
+      definition,
+      executionPlan: {
+        version: 1,
+        createdAt: "now",
+        definitionVersion: definition.version,
+        order: ["first", "second"],
+        blocks: [
+          { blockId: "first", incoming: [], outgoing: ["next"] },
+          { blockId: "second", incoming: ["next"], outgoing: [] },
+        ],
+      },
+      input: "request",
+      status: "running",
+      createdAt: "now",
+      startedAt: "now",
+      blocks: [
+        {
+          blockId: "first",
+          status: "running",
+          provider: "codex",
+          workspace: "/workflow/first",
+          sessionId: "session-first",
+          attempts: [
+            { id: "attempt-first", index: 1, status: "running", startedAt: "now", operationId: "attempt-operation" },
+          ],
+        },
+        { blockId: "second", status: "waiting" },
+      ],
+      operations: [
+        {
+          id: "attempt-operation",
+          idempotencyKey: "block-attempt:first:1",
+          kind: "block_attempt",
+          status: "intent",
+          blockId: "first",
+          attemptId: "attempt-first",
+          createdAt: "now",
+          updatedAt: "now",
+        },
+        {
+          id: "prompt-operation",
+          idempotencyKey: "prompt:first:attempt-first",
+          kind: "prompt_delivery",
+          status: "intent",
+          blockId: "first",
+          attemptId: "attempt-first",
+          createdAt: "now",
+          updatedAt: "now",
+        },
+      ],
+    });
+    const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => session(`${block.id}:${prompt}`));
+    const append = vi.fn();
+    const runner = new HarnessRunner(store, () => undefined);
+    await runner.recover(dispatch, "codex", append, {
+      session: async () => ({
+        ...session("session-first"),
+        messages: [{ id: "answer", role: "assistant", text: "recovered output", timestamp: "now" }],
+      }),
+      timer: async () => false,
+    });
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    const run = (await store.runs())[0]!; expect(dispatch).toHaveBeenCalledTimes(1); expect(dispatch.mock.calls[0]?.[0].id).toBe("second"); expect(dispatch.mock.calls[0]?.[1]).toContain("recovered output"); expect(append).not.toHaveBeenCalled();
-    expect(run.blocks[0]).toMatchObject({ status: "succeeded", output: "recovered output" }); expect(run.operations?.filter((operation) => operation.blockId === "first").every((operation) => operation.status === "succeeded")).toBe(true);
+    const run = (await store.runs())[0]!;
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect(dispatch.mock.calls[0]?.[0].id).toBe("second");
+    expect(dispatch.mock.calls[0]?.[1]).toContain("recovered output");
+    expect(append).not.toHaveBeenCalled();
+    expect(run.blocks[0]).toMatchObject({ status: "succeeded", output: "recovered output" });
+    expect(
+      run.operations
+        ?.filter((operation) => operation.blockId === "first")
+        .every((operation) => operation.status === "succeeded"),
+    ).toBe(true);
   });
 
   it("pauses an orphaned provider turn until the user explicitly resumes it", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-restart-orphan-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Recovery");
-    const definition = await store.update({ ...created, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [] });
-    await store.saveRun({ id: "recover-orphan", harnessId: definition.id, harnessVersion: definition.version, definition, executionPlan: { version: 1, createdAt: "now", definitionVersion: definition.version, order: ["worker"], blocks: [{ blockId: "worker", incoming: [], outgoing: [] }] }, input: "request", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "worker", status: "running", provider: "codex", workspace: "/workflow/worker", sessionId: "missing" }] });
-    const dispatch = vi.fn(); const append = vi.fn(async (_block: HarnessBlock, _prompt: string) => session("continued")); const runner = new HarnessRunner(store, () => undefined);
-    const recovered = await runner.recover(dispatch, "codex", append, { session: async () => undefined, timer: async () => false });
-    expect(recovered[0]).toMatchObject({ status: "retry_scheduled", blocks: [{ status: "retry_scheduled", failureReason: "recovery_orphaned", error: expect.stringContaining("no longer exists") }] }); expect(dispatch).not.toHaveBeenCalled(); expect(append).not.toHaveBeenCalled();
-    const pauseId = recovered[0]!.blocks[0]!.pauseId!; await runner.retryPause("recover-orphan", "worker", pauseId);
-    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 }); expect(append).toHaveBeenCalledOnce(); expect(append.mock.calls[0]?.[1]).toContain("Continue your interrupted work");
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-restart-orphan-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Recovery");
+    const definition = await store.update({
+      ...created,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    await store.saveRun({
+      id: "recover-orphan",
+      harnessId: definition.id,
+      harnessVersion: definition.version,
+      definition,
+      executionPlan: {
+        version: 1,
+        createdAt: "now",
+        definitionVersion: definition.version,
+        order: ["worker"],
+        blocks: [{ blockId: "worker", incoming: [], outgoing: [] }],
+      },
+      input: "request",
+      status: "running",
+      createdAt: "now",
+      startedAt: "now",
+      blocks: [
+        {
+          blockId: "worker",
+          status: "running",
+          provider: "codex",
+          workspace: "/workflow/worker",
+          sessionId: "missing",
+        },
+      ],
+    });
+    const dispatch = vi.fn();
+    const append = vi.fn(async (_block: HarnessBlock, _prompt: string) => session("continued"));
+    const runner = new HarnessRunner(store, () => undefined);
+    const recovered = await runner.recover(dispatch, "codex", append, {
+      session: async () => undefined,
+      timer: async () => false,
+    });
+    expect(recovered[0]).toMatchObject({
+      status: "retry_scheduled",
+      blocks: [
+        {
+          status: "retry_scheduled",
+          failureReason: "recovery_orphaned",
+          error: expect.stringContaining("no longer exists"),
+        },
+      ],
+    });
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(append).not.toHaveBeenCalled();
+    const pauseId = recovered[0]!.blocks[0]!.pauseId!;
+    await runner.retryPause("recover-orphan", "worker", pauseId);
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    expect(append).toHaveBeenCalledOnce();
+    expect(append.mock.calls[0]?.[1]).toContain("Continue your interrupted work");
   });
 
   it("persists a versioned execution plan, attempts, and terminal operation journal", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-journal-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Journal");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [] });
-    const runner = new HarnessRunner(store, () => undefined); await runner.start(definition.id, "work", async (_block, _prompt, runtime) => { await runtime.started("/workflow/worker"); return session("session-1"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-journal-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Journal");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
+      await runtime.started("/workflow/worker");
+      return session("session-1");
+    });
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    const run = (await store.runs())[0]!; const attempt = run.blocks[0]!.attempts?.[0]!;
-    expect(run.executionPlan).toMatchObject({ version: 1, definitionVersion: 2, order: ["worker"], blocks: [{ blockId: "worker", incoming: [], outgoing: [] }] });
-    expect(attempt).toMatchObject({ index: 1, status: "succeeded", sessionId: "session-1", workspace: "/workflow/worker" });
-    expect(run.operations?.map((operation) => operation.kind)).toEqual(expect.arrayContaining(["dependency_decision", "block_attempt", "prompt_delivery", "session_binding", "terminal_outcome"]));
+    const run = (await store.runs())[0]!;
+    const attempt = run.blocks[0]!.attempts?.[0]!;
+    expect(run.executionPlan).toMatchObject({
+      version: 1,
+      definitionVersion: 2,
+      order: ["worker"],
+      blocks: [{ blockId: "worker", incoming: [], outgoing: [] }],
+    });
+    expect(attempt).toMatchObject({
+      index: 1,
+      status: "succeeded",
+      sessionId: "session-1",
+      workspace: "/workflow/worker",
+    });
+    expect(run.operations?.map((operation) => operation.kind)).toEqual(
+      expect.arrayContaining([
+        "dependency_decision",
+        "block_attempt",
+        "prompt_delivery",
+        "session_binding",
+        "terminal_outcome",
+      ]),
+    );
     expect(run.operations?.every((operation) => operation.status === "succeeded")).toBe(true);
     expect(run.operations?.find((operation) => operation.id === attempt.operationId)?.attemptId).toBe(attempt.id);
   });
 
   it("refuses a new run when the persisted active-run limit is reached", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-active-run-limit-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Limited runs");
-    const definition = await store.update({ ...created, settings: { maxActiveRuns: 1 }, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); const runner = new HarnessRunner(store, () => undefined);
-    await runner.start(definition.id, "first", async () => { await waiting; return session("done"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-active-run-limit-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Limited runs");
+    const definition = await store.update({
+      ...created,
+      settings: { maxActiveRuns: 1 },
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    await runner.start(definition.id, "first", async () => {
+      await waiting;
+      return session("done");
+    });
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("running"), { timeout: 4_000 });
     await expect(runner.start(definition.id, "second", async () => session("done"))).rejects.toThrow("limit is 1");
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
   });
 
   it("does not dispatch a block after its persisted attempt limit is reached", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-attempt-limit-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Limited attempts");
-    const definition = await store.update({ ...created, settings: { maxBlockAttempts: 1 }, blocks: [{ id: "worker", type: "review", label: "Worker", prompt: "Review", review: { revision: "abc1234" }, position: { x: 0, y: 0 } }], edges: [] });
-    await store.saveRun({ id: "attempt-limit", harnessId: definition.id, harnessVersion: definition.version, definition, executionPlan: { version: 1, createdAt: "now", definitionVersion: definition.version, order: ["worker"], blocks: [{ blockId: "worker", incoming: [], outgoing: [] }] }, input: "work", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "worker", status: "queued", attempts: [{ id: "first", index: 1, status: "failed", startedAt: "now", completedAt: "now", operationId: "first-operation" }] }] });
-    const dispatch = vi.fn(async () => session("done")); const runner = new HarnessRunner(store, () => undefined);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-attempt-limit-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Limited attempts");
+    const definition = await store.update({
+      ...created,
+      settings: { maxBlockAttempts: 1 },
+      blocks: [
+        {
+          id: "worker",
+          type: "review",
+          label: "Worker",
+          prompt: "Review",
+          review: { revision: "abc1234" },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    });
+    await store.saveRun({
+      id: "attempt-limit",
+      harnessId: definition.id,
+      harnessVersion: definition.version,
+      definition,
+      executionPlan: {
+        version: 1,
+        createdAt: "now",
+        definitionVersion: definition.version,
+        order: ["worker"],
+        blocks: [{ blockId: "worker", incoming: [], outgoing: [] }],
+      },
+      input: "work",
+      status: "running",
+      createdAt: "now",
+      startedAt: "now",
+      blocks: [
+        {
+          blockId: "worker",
+          status: "queued",
+          attempts: [
+            {
+              id: "first",
+              index: 1,
+              status: "failed",
+              startedAt: "now",
+              completedAt: "now",
+              operationId: "first-operation",
+            },
+          ],
+        },
+      ],
+    });
+    const dispatch = vi.fn(async () => session("done"));
+    const runner = new HarnessRunner(store, () => undefined);
     await runner.recover(dispatch);
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
     expect(dispatch).not.toHaveBeenCalled();
@@ -67,9 +296,25 @@ describe("HarnessRunner", () => {
   });
 
   it("rejects an oversized dynamic stack before scheduling downstream blocks", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-stack-limit-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Limited stack");
-    const definition = await store.update({ ...created, settings: { maxStackSize: 1 }, blocks: [{ id: "root", type: "prompt", label: "Root", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [{ id: "next", from: "root", to: "worker" }] });
-    const runner = new HarnessRunner(store, () => undefined); const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => { if (block.id === "root") await runner.runStack(runtime.runId, runtime.blockId, ["one", "two"]); return session("done"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-stack-limit-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Limited stack");
+    const definition = await store.update({
+      ...created,
+      settings: { maxStackSize: 1 },
+      blocks: [
+        { id: "root", type: "prompt", label: "Root", prompt: "{{input}}", position: { x: 0, y: 0 } },
+        { id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      ],
+      edges: [{ id: "next", from: "root", to: "worker" }],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
+        if (block.id === "root") await runner.runStack(runtime.runId, runtime.blockId, ["one", "two"]);
+        return session("done");
+      },
+    );
     await runner.start(definition.id, "work", dispatch);
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
     expect(dispatch).toHaveBeenCalledTimes(1);
@@ -77,31 +322,90 @@ describe("HarnessRunner", () => {
   });
 
   it("deduplicates a concurrent external operation by its stable key", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-operation-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Operation");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let releaseBlock!: () => void; const blockWaiting = new Promise<void>((resolve) => { releaseBlock = resolve; }); const runner = new HarnessRunner(store, () => undefined);
-    const run = await runner.start(definition.id, "work", async () => { await blockWaiting; return session("done"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-operation-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Operation");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let releaseBlock!: () => void;
+    const blockWaiting = new Promise<void>((resolve) => {
+      releaseBlock = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async () => {
+      await blockWaiting;
+      return session("done");
+    });
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("running"), { timeout: 4_000 });
-    let releaseEffect!: () => void; const effectWaiting = new Promise<void>((resolve) => { releaseEffect = resolve; }); const effect = vi.fn(async () => { await effectWaiting; return { taskId: "task-1" }; });
-    const first = runner.runOperation(run.id, "worker", "task_create", "create-task", { branch: "feature" }, effect); const replay = runner.runOperation(run.id, "worker", "task_create", "create-task", { branch: "feature" }, effect);
-    releaseEffect(); expect(await Promise.all([first, replay])).toEqual([{ taskId: "task-1" }, { taskId: "task-1" }]); expect(effect).toHaveBeenCalledOnce();
-    expect((await store.runs())[0]?.operations?.find((operation) => operation.idempotencyKey === "worker:create-task")).toMatchObject({ kind: "task_create", status: "succeeded", result: { taskId: "task-1" } });
-    const uncertain = vi.fn(async () => { throw new Error("reply lost after task creation"); });
-    await expect(runner.runOperation(run.id, "worker", "task_create", "uncertain-task", { branch: "uncertain" }, uncertain)).rejects.toThrow("reply lost");
-    expect((await store.runs())[0]?.operations?.find((operation) => operation.idempotencyKey === "worker:uncertain-task")).toMatchObject({ status: "intent", error: "reply lost after task creation" });
+    let releaseEffect!: () => void;
+    const effectWaiting = new Promise<void>((resolve) => {
+      releaseEffect = resolve;
+    });
+    const effect = vi.fn(async () => {
+      await effectWaiting;
+      return { taskId: "task-1" };
+    });
+    const first = runner.runOperation(run.id, "worker", "task_create", "create-task", { branch: "feature" }, effect);
+    const replay = runner.runOperation(run.id, "worker", "task_create", "create-task", { branch: "feature" }, effect);
+    releaseEffect();
+    expect(await Promise.all([first, replay])).toEqual([{ taskId: "task-1" }, { taskId: "task-1" }]);
+    expect(effect).toHaveBeenCalledOnce();
+    expect(
+      (await store.runs())[0]?.operations?.find((operation) => operation.idempotencyKey === "worker:create-task"),
+    ).toMatchObject({ kind: "task_create", status: "succeeded", result: { taskId: "task-1" } });
+    const uncertain = vi.fn(async () => {
+      throw new Error("reply lost after task creation");
+    });
+    await expect(
+      runner.runOperation(run.id, "worker", "task_create", "uncertain-task", { branch: "uncertain" }, uncertain),
+    ).rejects.toThrow("reply lost");
+    expect(
+      (await store.runs())[0]?.operations?.find((operation) => operation.idempotencyKey === "worker:uncertain-task"),
+    ).toMatchObject({ status: "intent", error: "reply lost after task creation" });
     const reconcile = vi.fn(async () => ({ taskId: "task-existing" }));
-    await expect(runner.runOperation(run.id, "worker", "task_create", "uncertain-task", { branch: "uncertain" }, uncertain, reconcile)).resolves.toEqual({ taskId: "task-existing" });
-    expect(uncertain).toHaveBeenCalledOnce(); expect(reconcile).toHaveBeenCalledOnce();
-    releaseBlock(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    await expect(
+      runner.runOperation(
+        run.id,
+        "worker",
+        "task_create",
+        "uncertain-task",
+        { branch: "uncertain" },
+        uncertain,
+        reconcile,
+      ),
+    ).resolves.toEqual({ taskId: "task-existing" });
+    expect(uncertain).toHaveBeenCalledOnce();
+    expect(reconcile).toHaveBeenCalledOnce();
+    releaseBlock();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
   });
 
   it("persists feature prerequisites, refuses premature dispatch, and releases newly ready work after merge", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-features-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Features");
-    await store.update({ ...definition, blocks: [{ id: "planner", type: "task", label: "Planner", prompt: "plan", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const pending = new Promise<void>((resolve) => { release = resolve; }); const runner = new HarnessRunner(store, () => undefined);
-    const run = await runner.start(definition.id, "work", async () => { await pending; return session("planned"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-features-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Features");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "planner", type: "task", label: "Planner", prompt: "plan", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async () => {
+      await pending;
+      return session("planned");
+    });
     await vi.waitFor(() => expect(runner.isActive(run.id)).toBe(true), { timeout: 4_000 });
-    const planned = await runner.planFeatures(run.id, [{ id: "foundation", prompt: "Build foundation" }, { id: "ui", prompt: "Build UI", prerequisites: ["foundation"] }]);
+    const planned = await runner.planFeatures(run.id, [
+      { id: "foundation", prompt: "Build foundation" },
+      { id: "ui", prompt: "Build UI", prerequisites: ["foundation"] },
+    ]);
     expect(planned.map((feature) => feature.status)).toEqual(["planned", "planned"]);
     await expect(runner.dispatchFeature(run.id, "ui", "task-ui")).rejects.toThrow("foundation");
     await runner.dispatchFeature(run.id, "foundation", "task-foundation");
@@ -109,60 +413,162 @@ describe("HarnessRunner", () => {
     expect(completed.ready).toMatchObject([{ id: "ui", status: "planned" }]);
     await runner.dispatchFeature(run.id, "ui", "task-ui");
     await runner.completeFeature(run.id, "task-ui", "b".repeat(40));
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    expect((await store.runs())[0]?.features).toMatchObject([{ id: "foundation", status: "completed", commit: "a".repeat(40) }, { id: "ui", status: "completed", commit: "b".repeat(40) }]);
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    expect((await store.runs())[0]?.features).toMatchObject([
+      { id: "foundation", status: "completed", commit: "a".repeat(40) },
+      { id: "ui", status: "completed", commit: "b".repeat(40) },
+    ]);
   });
 
-  it.each(["task_create", "prompt_delivery", "timer_fire", "merge"] satisfies HarnessOperationKind[])("recovers a %s crash before or after its side effect exactly once", async (kind) => {
-    for (const crash of ["before", "after"] as const) {
-      const stateDirectory = await mkdtemp(path.join(os.tmpdir(), `workflow-${kind}-${crash}-`)); const store = new HarnessStore("/workspace", stateDirectory); const created = await store.create("Crash recovery");
-      const definition = await store.update({ ...created, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "finish", position: { x: 0, y: 0 } }], edges: [] });
-      const pauseId = `${kind}-${crash}-pause`; const operationKey = `worker:${kind}-operation`; const now = new Date().toISOString();
-      await store.saveRun({ id: `${kind}-${crash}`, harnessId: definition.id, harnessVersion: definition.version, definition, executionPlan: { version: 1, createdAt: now, definitionVersion: definition.version, order: ["worker"], blocks: [{ blockId: "worker", incoming: [], outgoing: [] }] }, input: "request", status: "retry_scheduled", createdAt: now, startedAt: now, blocks: [{ blockId: "worker", status: "retry_scheduled", pauseId, error: "Core stopped at the fault point", failureReason: "recovery_orphaned" }], operations: [{ id: `${kind}-${crash}-operation-id`, idempotencyKey: operationKey, kind, status: "intent", blockId: "worker", createdAt: now, updatedAt: now }] });
-      const runner = new HarnessRunner(store, () => undefined); const dispatch = vi.fn(async () => session("completed"));
-      await runner.recover(dispatch, "test");
-      let external = crash === "after" ? { id: `${kind}-existing` } : undefined; const effect = vi.fn(async () => { external = { id: `${kind}-created` }; return external; }); const reconcile = vi.fn(async () => external ?? null);
-      const result = await runner.runOperation(`${kind}-${crash}`, "worker", kind, `${kind}-operation`, { fault: crash }, effect, reconcile);
-      expect(result).toEqual(crash === "after" ? { id: `${kind}-existing` } : { id: `${kind}-created` }); expect(effect).toHaveBeenCalledTimes(crash === "after" ? 0 : 1); expect(reconcile).toHaveBeenCalledOnce();
-      await runner.retryPause(`${kind}-${crash}`, "worker", pauseId);
-      await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-      const operation = (await store.runs())[0]!.operations?.find((item) => item.idempotencyKey === operationKey); expect(operation).toMatchObject({ status: "succeeded", result }); expect(dispatch).toHaveBeenCalledOnce();
-    }
-  });
+  it.each(["task_create", "prompt_delivery", "timer_fire", "merge"] satisfies HarnessOperationKind[])(
+    "recovers a %s crash before or after its side effect exactly once",
+    async (kind) => {
+      for (const crash of ["before", "after"] as const) {
+        const stateDirectory = await mkdtemp(path.join(os.tmpdir(), `workflow-${kind}-${crash}-`));
+        const store = new HarnessStore("/workspace", stateDirectory);
+        const created = await store.create("Crash recovery");
+        const definition = await store.update({
+          ...created,
+          blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "finish", position: { x: 0, y: 0 } }],
+          edges: [],
+        });
+        const pauseId = `${kind}-${crash}-pause`;
+        const operationKey = `worker:${kind}-operation`;
+        const now = new Date().toISOString();
+        await store.saveRun({
+          id: `${kind}-${crash}`,
+          harnessId: definition.id,
+          harnessVersion: definition.version,
+          definition,
+          executionPlan: {
+            version: 1,
+            createdAt: now,
+            definitionVersion: definition.version,
+            order: ["worker"],
+            blocks: [{ blockId: "worker", incoming: [], outgoing: [] }],
+          },
+          input: "request",
+          status: "retry_scheduled",
+          createdAt: now,
+          startedAt: now,
+          blocks: [
+            {
+              blockId: "worker",
+              status: "retry_scheduled",
+              pauseId,
+              error: "Core stopped at the fault point",
+              failureReason: "recovery_orphaned",
+            },
+          ],
+          operations: [
+            {
+              id: `${kind}-${crash}-operation-id`,
+              idempotencyKey: operationKey,
+              kind,
+              status: "intent",
+              blockId: "worker",
+              createdAt: now,
+              updatedAt: now,
+            },
+          ],
+        });
+        const runner = new HarnessRunner(store, () => undefined);
+        const dispatch = vi.fn(async () => session("completed"));
+        await runner.recover(dispatch, "test");
+        let external = crash === "after" ? { id: `${kind}-existing` } : undefined;
+        const effect = vi.fn(async () => {
+          external = { id: `${kind}-created` };
+          return external;
+        });
+        const reconcile = vi.fn(async () => external ?? null);
+        const result = await runner.runOperation(
+          `${kind}-${crash}`,
+          "worker",
+          kind,
+          `${kind}-operation`,
+          { fault: crash },
+          effect,
+          reconcile,
+        );
+        expect(result).toEqual(crash === "after" ? { id: `${kind}-existing` } : { id: `${kind}-created` });
+        expect(effect).toHaveBeenCalledTimes(crash === "after" ? 0 : 1);
+        expect(reconcile).toHaveBeenCalledOnce();
+        await runner.retryPause(`${kind}-${crash}`, "worker", pauseId);
+        await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+        const operation = (await store.runs())[0]!.operations?.find((item) => item.idempotencyKey === operationKey);
+        expect(operation).toMatchObject({ status: "succeeded", result });
+        expect(dispatch).toHaveBeenCalledOnce();
+      }
+    },
+  );
 
   it("recovers owned children with bounded retries and includes children in cancellation", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-children-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-children-"));
+    const store = new HarnessStore("/workspace", state);
     const definition = await store.create("Children");
-    await store.update({ ...definition, settings: { maxChildTasks: 1 }, blocks: [{ id: "owner", type: "task", label: "Owner", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
+    await store.update({
+      ...definition,
+      settings: { maxChildTasks: 1 },
+      blocks: [{ id: "owner", type: "task", label: "Owner", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const runner = new HarnessRunner(store, () => undefined);
-    const run = await runner.start(definition.id, "work", async () => { await waiting; return session("done"); });
+    const run = await runner.start(definition.id, "work", async () => {
+      await waiting;
+      return session("done");
+    });
     await vi.waitFor(() => expect(runner.isActive(run.id)).toBe(true), { timeout: 4_000 });
     const child = { taskId: "child", blockId: "owner", provider: "codex", workspace: "/child" };
     try {
-      await runner.registerChild(run.id, child); await runner.registerChild(run.id, child);
+      await runner.registerChild(run.id, child);
+      await runner.registerChild(run.id, child);
       expect((await store.runs())[0]?.children).toHaveLength(1);
-      await expect(runner.registerChild(run.id, { ...child, taskId: "another-child", workspace: "/another-child" })).rejects.toThrow("limit of 1 child task");
+      await expect(
+        runner.registerChild(run.id, { ...child, taskId: "another-child", workspace: "/another-child" }),
+      ).rejects.toThrow("limit of 1 child task");
       const resume = vi.fn();
       await runner.recoverChildren(run.id, async () => session("healthy"), resume);
       expect(resume).not.toHaveBeenCalled();
-      const failed = { ...session("failed"), status: "error" as const, messages: [{ id: "error", role: "error" as const, text: "Usage limit reached", timestamp: "now" }] };
+      const failed = {
+        ...session("failed"),
+        status: "error" as const,
+        messages: [{ id: "error", role: "error" as const, text: "Usage limit reached", timestamp: "now" }],
+      };
       for (let i = 0; i < 5; i++) await runner.recoverChildren(run.id, async () => failed, resume);
       expect(resume).toHaveBeenCalledTimes(3);
       expect((await store.runs())[0]?.children?.[0]?.recoveryAttempts).toBe(3);
-      const interrupt = vi.fn(async () => { release(); });
+      const interrupt = vi.fn(async () => {
+        release();
+      });
       await runner.cancel(run.id, interrupt);
       expect(interrupt).toHaveBeenCalledWith("codex", expect.objectContaining({ workspace: "/child" }));
       await runner.recoverChildren(run.id, async () => failed, resume);
       expect(resume).toHaveBeenCalledTimes(3);
-    } finally { release(); }
+    } finally {
+      release();
+    }
   });
   it("waits for all exhausted quota windows and tolerates missing reset information", () => {
     const now = Date.parse("2026-09-18T00:00:00Z");
     const primary = { usedPercent: 100, remainingPercent: 0, resetsAt: "2026-09-18T01:00:00Z" };
     const secondary = { usedPercent: 100, remainingPercent: 0, resetsAt: "2026-09-19T00:00:00Z" };
-    expect(nextWatchdogReset({ supported: true, accountQuota: { primary, secondary } }, now)).toBe("2026-09-19T00:00:00.000Z");
-    expect(nextWatchdogReset({ supported: true, accountQuota: { primary: { ...primary, remainingPercent: 50, usedPercent: 50 }, secondary } }, now)).toBe("2026-09-19T00:00:00.000Z");
+    expect(nextWatchdogReset({ supported: true, accountQuota: { primary, secondary } }, now)).toBe(
+      "2026-09-19T00:00:00.000Z",
+    );
+    expect(
+      nextWatchdogReset(
+        {
+          supported: true,
+          accountQuota: { primary: { ...primary, remainingPercent: 50, usedPercent: 50 }, secondary },
+        },
+        now,
+      ),
+    ).toBe("2026-09-19T00:00:00.000Z");
     expect(nextWatchdogReset(undefined, now)).toBe("2026-09-18T00:05:00.000Z");
     expect(isRecoverableWorkflowError("Internal error: You've hit your usage limit")).toBe(true);
     expect(isRecoverableWorkflowError("Merge conflict in main.ts")).toBe(false);
@@ -172,16 +578,33 @@ describe("HarnessRunner", () => {
     expect(classifyWorkflowFailure("Approval required for tool call")).toBe("permission_required");
     expect(classifyWorkflowFailure("requires user input")).toBe("user_input_required");
     expect(classifyWorkflowFailure("Invalid request")).toBe("permanent");
-    expect(classifyWorkflowFailure(new AiProviderError({ kind: "transient_transport", message: "opaque provider failure" }))).toBe("transient_transport");
+    expect(
+      classifyWorkflowFailure(new AiProviderError({ kind: "transient_transport", message: "opaque provider failure" })),
+    ).toBe("transient_transport");
   });
 
   it("backs off transport failures and never retries permanent or paused failures", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-policy-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-policy-"));
+    const store = new HarnessStore("/workspace", state);
     const definition = await store.create("Retry policy");
-    const blocks: HarnessBlock[] = ["watchdog", "transport", "permission"].map((id) => ({ id, type: "prompt", label: id, prompt: "work", watchdog: id === "watchdog", position: { x: 0, y: 0 } }));
+    const blocks: HarnessBlock[] = ["watchdog", "transport", "permission"].map((id) => ({
+      id,
+      type: "prompt",
+      label: id,
+      prompt: "work",
+      watchdog: id === "watchdog",
+      position: { x: 0, y: 0 },
+    }));
     await store.update({ ...definition, blocks, edges: [] });
-    let release!: () => void; const sleeping = new Promise<void>((resolve) => { release = resolve; });
-    const runner = new HarnessRunner(store, () => undefined, 4, { maxAttempts: 2, transportBackoffMs: 200, jitterRatio: 0 });
+    let release!: () => void;
+    const sleeping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined, 4, {
+      maxAttempts: 2,
+      transportBackoffMs: 200,
+      jitterRatio: 0,
+    });
     const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now());
     const run = await runner.start(definition.id, "work", async (block) => {
       if (block.id === "watchdog") await sleeping;
@@ -190,7 +613,15 @@ describe("HarnessRunner", () => {
       return session("done");
     });
     try {
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.filter((block) => block.status === "failed" || block.status === "retry_scheduled")).toHaveLength(2), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect(
+            (await store.runs())[0]?.blocks.filter(
+              (block) => block.status === "failed" || block.status === "retry_scheduled",
+            ),
+          ).toHaveLength(2),
+        { timeout: 4_000 },
+      );
       const current = (await store.runs())[0]!;
       expect(current.blocks.find((block) => block.blockId === "transport")?.failureReason).toBe("transient_transport");
       expect(current.blocks.find((block) => block.blockId === "transport")?.retryAt).toBeTruthy();
@@ -198,41 +629,105 @@ describe("HarnessRunner", () => {
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: [] });
       clock.mockReturnValue(Date.parse(current.blocks.find((block) => block.blockId === "transport")!.retryAt!) + 1);
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: ["transport"] });
-    } finally { clock.mockRestore(); await runner.cancel(run.id, async () => release()); release(); }
+    } finally {
+      clock.mockRestore();
+      await runner.cancel(run.id, async () => release());
+      release();
+    }
   });
 
   it("uses the workflow retry policy instead of the runner default", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-saved-retry-policy-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Saved retry policy");
-    await store.update({ ...definition, settings: { retry: { maxAttempts: 1 } }, blocks: [
-      { id: "watchdog", type: "prompt", label: "watchdog", prompt: "watch", watchdog: true, position: { x: 0, y: 0 } },
-      { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }
-    ], edges: [] });
-    let release!: () => void; const sleeping = new Promise<void>((resolve) => { release = resolve; }); const runner = new HarnessRunner(store, () => undefined, 4, { maxAttempts: 3, transportBackoffMs: 0, jitterRatio: 0 });
-    const run = await runner.start(definition.id, "work", async (block) => { if (block.id === "watchdog") await sleeping; if (block.id === "worker") throw new Error("ETIMEDOUT"); return session("done"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-saved-retry-policy-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Saved retry policy");
+    await store.update({
+      ...definition,
+      settings: { retry: { maxAttempts: 1 } },
+      blocks: [
+        {
+          id: "watchdog",
+          type: "prompt",
+          label: "watchdog",
+          prompt: "watch",
+          watchdog: true,
+          position: { x: 0, y: 0 },
+        },
+        { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    });
+    let release!: () => void;
+    const sleeping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined, 4, {
+      maxAttempts: 3,
+      transportBackoffMs: 0,
+      jitterRatio: 0,
+    });
+    const run = await runner.start(definition.id, "work", async (block) => {
+      if (block.id === "watchdog") await sleeping;
+      if (block.id === "worker") throw new Error("ETIMEDOUT");
+      return session("done");
+    });
     try {
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.status).toBe("retry_scheduled"), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.status).toBe(
+            "retry_scheduled",
+          ),
+        { timeout: 4_000 },
+      );
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: ["worker"] });
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.attempts).toHaveLength(2), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.attempts).toHaveLength(2),
+        { timeout: 4_000 },
+      );
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: [] });
-    } finally { await runner.cancel(run.id, async () => release()); release(); }
+    } finally {
+      await runner.cancel(run.id, async () => release());
+      release();
+    }
   });
 
   it("bounds persisted and downstream workflow output to its configured limit", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-output-limit-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Output limit");
-    await store.update({ ...definition, settings: { outputLimitChars: 1_000 }, blocks: [
-      { id: "first", type: "prompt", label: "first", prompt: "work", position: { x: 0, y: 0 } },
-      { id: "second", type: "prompt", label: "second", prompt: "{{input}}", position: { x: 0, y: 0 } }
-    ], edges: [{ id: "next", from: "first", to: "second" }] });
-    const longOutput = "x".repeat(1_500); const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => session(block.id === "first" ? longOutput : prompt));
-    const runner = new HarnessRunner(store, () => undefined); await runner.start(definition.id, "request", dispatch);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-output-limit-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Output limit");
+    await store.update({
+      ...definition,
+      settings: { outputLimitChars: 1_000 },
+      blocks: [
+        { id: "first", type: "prompt", label: "first", prompt: "work", position: { x: 0, y: 0 } },
+        { id: "second", type: "prompt", label: "second", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      ],
+      edges: [{ id: "next", from: "first", to: "second" }],
+    });
+    const longOutput = "x".repeat(1_500);
+    const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) =>
+      session(block.id === "first" ? longOutput : prompt),
+    );
+    const runner = new HarnessRunner(store, () => undefined);
+    await runner.start(definition.id, "request", dispatch);
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    const run = (await store.runs())[0]!; expect(run.blocks.find((block) => block.blockId === "first")?.output).toHaveLength(1_000); expect(dispatch.mock.calls.find((call) => call[0].id === "second")?.[1]).toHaveLength(1_000);
+    const run = (await store.runs())[0]!;
+    expect(run.blocks.find((block) => block.blockId === "first")?.output).toHaveLength(1_000);
+    expect(dispatch.mock.calls.find((call) => call[0].id === "second")?.[1]).toHaveLength(1_000);
   });
 
   it("does not dispatch an oversized rendered workflow prompt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-prompt-limit-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Prompt limit");
-    await store.update({ ...definition, settings: { promptLimitChars: 1_000 }, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [] });
-    const dispatch = vi.fn(async () => session("done")); const runner = new HarnessRunner(store, () => undefined);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-prompt-limit-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Prompt limit");
+    await store.update({
+      ...definition,
+      settings: { promptLimitChars: 1_000 },
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    const dispatch = vi.fn(async () => session("done"));
+    const runner = new HarnessRunner(store, () => undefined);
     await runner.start(definition.id, "x".repeat(1_001), dispatch);
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
     expect(dispatch).not.toHaveBeenCalled();
@@ -240,48 +735,116 @@ describe("HarnessRunner", () => {
   });
 
   it("fails a workflow when provider-reported usage exceeds its token budget", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-token-budget-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Token budget");
-    await store.update({ ...definition, settings: { tokenBudget: 1_000 }, blocks: [{ id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    const runner = new HarnessRunner(store, () => undefined); await runner.start(definition.id, "work", async () => ({ ...session("done"), tokens: { total: 1_001, input: 500, output: 501 } }));
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-token-budget-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Token budget");
+    await store.update({
+      ...definition,
+      settings: { tokenBudget: 1_000 },
+      blocks: [{ id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    await runner.start(definition.id, "work", async () => ({
+      ...session("done"),
+      tokens: { total: 1_001, input: 500, output: 501 },
+    }));
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
-    const run = (await store.runs())[0]!; expect(run.error).toContain("token budget"); expect(run.blocks[0]?.tokens?.total).toBe(1_001);
+    const run = (await store.runs())[0]!;
+    expect(run.error).toContain("token budget");
+    expect(run.blocks[0]?.tokens?.total).toBe(1_001);
   });
 
   it("fails a workflow after its configured run duration expires", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-run-duration-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Run duration");
-    await store.update({ ...definition, settings: { maxRunDurationMs: 60_000 }, blocks: [{ id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    const runner = new HarnessRunner(store, () => undefined); let clock: ReturnType<typeof vi.spyOn> | undefined;
-    await runner.start(definition.id, "work", async () => { const now = Date.now(); clock = vi.spyOn(Date, "now").mockReturnValue(now + 60_001); return session("done"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-run-duration-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Run duration");
+    await store.update({
+      ...definition,
+      settings: { maxRunDurationMs: 60_000 },
+      blocks: [{ id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    let clock: ReturnType<typeof vi.spyOn> | undefined;
+    await runner.start(definition.id, "work", async () => {
+      const now = Date.now();
+      clock = vi.spyOn(Date, "now").mockReturnValue(now + 60_001);
+      return session("done");
+    });
     try {
       await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
       expect((await store.runs())[0]?.error).toContain("run duration");
-    } finally { clock?.mockRestore(); }
+    } finally {
+      clock?.mockRestore();
+    }
   });
 
   it("stops retries whose next backoff exceeds the elapsed retry budget", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-budget-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-budget-"));
+    const store = new HarnessStore("/workspace", state);
     const definition = await store.create("Retry budget");
-    await store.update({ ...definition, blocks: [
-      { id: "watchdog", type: "prompt", label: "watchdog", prompt: "watch", watchdog: true, position: { x: 0, y: 0 } },
-      { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }
-    ], edges: [] });
-    const runner = new HarnessRunner(store, () => undefined, 4, { maxAttempts: 5, transportBackoffMs: 1_000, maxElapsedMs: 500, jitterRatio: 0 });
-    await runner.start(definition.id, "work", async (block, _prompt, runtime) => block.watchdog ? runner.watch(runtime.runId, block.id, async () => ({ supported: false })) : Promise.reject(new AiProviderError({ kind: "transient_transport", message: "provider unavailable" })));
+    await store.update({
+      ...definition,
+      blocks: [
+        {
+          id: "watchdog",
+          type: "prompt",
+          label: "watchdog",
+          prompt: "watch",
+          watchdog: true,
+          position: { x: 0, y: 0 },
+        },
+        { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    });
+    const runner = new HarnessRunner(store, () => undefined, 4, {
+      maxAttempts: 5,
+      transportBackoffMs: 1_000,
+      maxElapsedMs: 500,
+      jitterRatio: 0,
+    });
+    await runner.start(definition.id, "work", async (block, _prompt, runtime) =>
+      block.watchdog
+        ? runner.watch(runtime.runId, block.id, async () => ({ supported: false }))
+        : Promise.reject(new AiProviderError({ kind: "transient_transport", message: "provider unavailable" })),
+    );
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("failed"), { timeout: 4_000 });
     const worker = (await store.runs())[0]!.blocks.find((block) => block.blockId === "worker")!;
     expect(worker).toMatchObject({ status: "failed", failureReason: "transient_transport" });
-    expect(worker.recoveryAttempts).toBeUndefined(); expect(worker.retryAt).toBeUndefined();
+    expect(worker.recoveryAttempts).toBeUndefined();
+    expect(worker.retryAt).toBeUndefined();
     expect(worker.retryStartedAt).toBeTruthy();
     expect(worker.error).toContain("Automatic retry budget exhausted");
   });
 
   it("blocks malformed structured output until the user retries the exact attempt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-schema-output-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Typed output");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", outputSchema: { type: "object", required: ["summary"], properties: { summary: { type: "string" } } }, position: { x: 0, y: 0 } }], edges: [] });
-    let calls = 0; const runner = new HarnessRunner(store, () => undefined);
-    const run = await runner.start(definition.id, "work", async () => session(++calls === 1 ? "not JSON" : '{"summary":"fixed"}'));
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-schema-output-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Typed output");
+    await store.update({
+      ...definition,
+      blocks: [
+        {
+          id: "worker",
+          type: "prompt",
+          label: "Worker",
+          prompt: "work",
+          outputSchema: { type: "object", required: ["summary"], properties: { summary: { type: "string" } } },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    });
+    let calls = 0;
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async () =>
+      session(++calls === 1 ? "not JSON" : '{"summary":"fixed"}'),
+    );
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("retry_scheduled"), { timeout: 4_000 });
-    const blocked = (await store.runs())[0]!; const worker = blocked.blocks[0]!;
+    const blocked = (await store.runs())[0]!;
+    const worker = blocked.blocks[0]!;
     expect(worker).toMatchObject({ status: "retry_scheduled", failureReason: "schema_validation" });
     expect(worker.structuredOutput).toBeUndefined();
     await runner.retryPause(run.id, "worker", worker.pauseId!);
@@ -291,11 +854,25 @@ describe("HarnessRunner", () => {
 
   it("stops a sleeping Core watchdog when delivery succeeds", async () => {
     const state = await mkdtemp(path.join(os.tmpdir(), "core-watchdog-"));
-    const store = new HarnessStore("/workspace", state); const definition = await store.create("Core watchdog");
-    await store.update({ ...definition, blocks: ["watchdog", "main"].map((id) => ({ id, label: id, prompt: "work", type: "prompt" as const, watchdog: id === "watchdog", position: { x: 0, y: 0 } })), edges: [] });
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Core watchdog");
+    await store.update({
+      ...definition,
+      blocks: ["watchdog", "main"].map((id) => ({
+        id,
+        label: id,
+        prompt: "work",
+        type: "prompt" as const,
+        watchdog: id === "watchdog",
+        position: { x: 0, y: 0 },
+      })),
+      edges: [],
+    });
     const runner = new HarnessRunner(store, () => undefined);
     const usage = vi.fn(async () => ({ supported: false }));
-    const run = await runner.start(definition.id, "work", async (block, _prompt, runtime) => block.watchdog ? runner.watch(runtime.runId, block.id, usage) : session("complete"));
+    const run = await runner.start(definition.id, "work", async (block, _prompt, runtime) =>
+      block.watchdog ? runner.watch(runtime.runId, block.id, usage) : session("complete"),
+    );
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
     const completed = (await store.runs())[0]!;
     expect(completed.blocks.find((b) => b.blockId === "main")?.status).toBe("succeeded");
@@ -303,18 +880,27 @@ describe("HarnessRunner", () => {
     expect(watchdog.status).toBe("succeeded");
     expect(watchdog.waitingUntil).toBeUndefined();
     expect(watchdog.sessionId).toBeUndefined();
-    expect(watchdog.log?.some((entry) => entry.message === "Core watchdog stopped because delivery reached a terminal state")).toBe(true);
+    expect(
+      watchdog.log?.some(
+        (entry) => entry.message === "Core watchdog stopped because delivery reached a terminal state",
+      ),
+    ).toBe(true);
     await vi.waitFor(() => expect(runner.isActive(run.id)).toBe(false), { timeout: 4_000 });
     expect(usage).toHaveBeenCalledOnce();
   });
 
   it("stops the Core watchdog when delivery fails permanently", async () => {
     const state = await mkdtemp(path.join(os.tmpdir(), "terminal-workflow-watchdog-"));
-    const store = new HarnessStore("/workspace", state); const definition = await store.create("Terminal watchdog");
-    await store.update({ ...definition, blocks: [
-      { id: "watchdog", label: "watchdog", prompt: "", type: "prompt", watchdog: true, position: { x: 0, y: 0 } },
-      { id: "main", label: "main", prompt: "work", type: "prompt", position: { x: 0, y: 0 } }
-    ], edges: [] });
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Terminal watchdog");
+    await store.update({
+      ...definition,
+      blocks: [
+        { id: "watchdog", label: "watchdog", prompt: "", type: "prompt", watchdog: true, position: { x: 0, y: 0 } },
+        { id: "main", label: "main", prompt: "work", type: "prompt", position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    });
     const runner = new HarnessRunner(store, () => undefined);
     const run = await runner.start(definition.id, "work", async (block, _prompt, runtime) => {
       if (block.watchdog) return runner.watch(runtime.runId, block.id, async () => ({ supported: false }));
@@ -329,85 +915,208 @@ describe("HarnessRunner", () => {
 
   it("runs the pipeline beside a sleeping watchdog and resumes failures without replaying completed stages", async () => {
     const state = await mkdtemp(path.join(os.tmpdir(), "workflow-watchdog-"));
-    const store = new HarnessStore("/workspace", state); const definition = await store.create("Independent watchdog");
-    const blocks: HarnessBlock[] = ["watchdog", "plan", "implement", "report"].map((id) => ({ id, type: "prompt", label: id, prompt: "{{input}}", position: { x: 0, y: 0 }, ...(id === "watchdog" ? { watchdog: true } : {}) }));
-    await store.update({ ...definition, blocks, edges: [{ id: "a", from: "plan", to: "implement" }, { id: "b", from: "implement", to: "report" }] });
-    let release!: () => void; const sleeping = new Promise<void>((resolve) => { release = resolve; });
-    const runner = new HarnessRunner(store, () => undefined);
-    const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, context: { started(workspace: string): Promise<void> }) => {
-      await context.started(`/session/${block.id}`);
-      if (block.id === "watchdog") await sleeping;
-      if (block.id === "implement") throw new Error("Usage limit reached");
-      return session(block.id);
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Independent watchdog");
+    const blocks: HarnessBlock[] = ["watchdog", "plan", "implement", "report"].map((id) => ({
+      id,
+      type: "prompt",
+      label: id,
+      prompt: "{{input}}",
+      position: { x: 0, y: 0 },
+      ...(id === "watchdog" ? { watchdog: true } : {}),
+    }));
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "a", from: "plan", to: "implement" },
+        { id: "b", from: "implement", to: "report" },
+      ],
     });
+    let release!: () => void;
+    const sleeping = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, context: { started(workspace: string): Promise<void> }) => {
+        await context.started(`/session/${block.id}`);
+        if (block.id === "watchdog") await sleeping;
+        if (block.id === "implement") throw new Error("Usage limit reached");
+        return session(block.id);
+      },
+    );
     const append = vi.fn(async () => session("recovered"));
     const run = await runner.start(definition.id, "request", dispatch, "test", append);
     try {
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((b) => b.blockId === "implement")?.status).toBe("retry_scheduled"), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect((await store.runs())[0]?.blocks.find((b) => b.blockId === "implement")?.status).toBe(
+            "retry_scheduled",
+          ),
+        { timeout: 4_000 },
+      );
       expect((await store.runs())[0]?.status).toBe("retry_scheduled");
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: ["implement"] });
       expect(await runner.resumeFailed(run.id, "watchdog")).toEqual({ resumed: [] });
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((b) => b.blockId === "report")?.status).toBe("succeeded"), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect((await store.runs())[0]?.blocks.find((b) => b.blockId === "report")?.status).toBe("succeeded"),
+        { timeout: 4_000 },
+      );
       expect(append).toHaveBeenCalledOnce();
-      expect(append.mock.calls[0]).toEqual(expect.arrayContaining([expect.objectContaining({ workspace: "/session/implement" })]));
+      expect(append.mock.calls[0]).toEqual(
+        expect.arrayContaining([expect.objectContaining({ workspace: "/session/implement" })]),
+      );
       expect(dispatch.mock.calls.filter(([b]) => b.id === "plan")).toHaveLength(1);
       await runner.cancel(run.id, async () => release());
       await expect(runner.resumeFailed(run.id, "watchdog")).rejects.toThrow("no longer active");
-    } finally { release(); }
+    } finally {
+      release();
+    }
   });
   it("runs blocks in dependency order and passes connected output as input", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-runner-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Flow");
-    await store.update({ ...definition, blocks: [{ id: "one", type: "prompt", label: "One", prompt: "Plan {{input}}", position: { x: 0, y: 0 } }, { id: "two", type: "prompt", label: "Two", prompt: "Build {{input}}", position: { x: 1, y: 1 } }], edges: [{ id: "edge", from: "one", to: "two" }] });
-    const dispatch = vi.fn(async (_block, prompt: string) => ({ id: prompt, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: prompt, role: "assistant" as const, text: prompt.startsWith("Plan feature") ? "the plan" : "complete", timestamp: "now" }] }));
-    const runner = new HarnessRunner(store, () => undefined); const started = await runner.start(definition.id, "feature", dispatch, "test");
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-runner-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Flow");
+    await store.update({
+      ...definition,
+      blocks: [
+        { id: "one", type: "prompt", label: "One", prompt: "Plan {{input}}", position: { x: 0, y: 0 } },
+        { id: "two", type: "prompt", label: "Two", prompt: "Build {{input}}", position: { x: 1, y: 1 } },
+      ],
+      edges: [{ id: "edge", from: "one", to: "two" }],
+    });
+    const dispatch = vi.fn(async (_block, prompt: string) => ({
+      id: prompt,
+      model: "test",
+      reasoning: "low",
+      status: "done" as const,
+      messages: [
+        {
+          id: prompt,
+          role: "assistant" as const,
+          text: prompt.startsWith("Plan feature") ? "the plan" : "complete",
+          timestamp: "now",
+        },
+      ],
+    }));
+    const runner = new HarnessRunner(store, () => undefined);
+    const started = await runner.start(definition.id, "feature", dispatch, "test");
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
     const completed = (await store.runs())[0]!;
-    expect(completed.status).toBe("succeeded"); expect(dispatch.mock.calls.map((call) => call[1].split("\n\nWorkflow runtime")[0])).toEqual(["Plan feature", "Build the plan"]); expect(completed.id).toBe(started.id);
+    expect(completed.status).toBe("succeeded");
+    expect(dispatch.mock.calls.map((call) => call[1].split("\n\nWorkflow runtime")[0])).toEqual([
+      "Plan feature",
+      "Build the plan",
+    ]);
+    expect(completed.id).toBe(started.id);
   });
 
-  it.each([true, undefined])("cycles through a loop edge (explicit: %s) without rescheduling the initial graph", async (loop) => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cycle-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Cycle");
-    const blocks: HarnessBlock[] = [{ id: "draft", type: "task", label: "Draft", prompt: "Draft {{input}}", position: { x: 0, y: 0 } }, { id: "review", type: "prompt", label: "Review", prompt: "Review {{input}}", position: { x: 200, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "forward", from: "draft", to: "review" }, { id: "loop", from: "review", to: "draft", label: "revise", loop }] });
-    const runner = new HarnessRunner(store, () => undefined); const append = vi.fn(async (_block: HarnessBlock, prompt: string) => session(`revised:${prompt}`));
-    const dispatch = vi.fn(async (block: HarnessBlock, prompt: string, runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> }) => {
-      await runtime.started(`/sessions/${block.id}`);
-      if (block.id === "review") await runner.runStack(runtime.runId, runtime.blockId, ["Address the review"], "revise");
-      return session(prompt);
-    });
-    await runner.start(definition.id, "feature", dispatch, "test", append);
-    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    expect(dispatch.mock.calls.map((call) => call[0].id)).toEqual(["draft", "review"]);
-    expect(append).toHaveBeenCalledWith(expect.objectContaining({ id: "draft" }), "Address the review", expect.objectContaining({ workspace: "/sessions/draft" }));
-  });
+  it.each([true, undefined])(
+    "cycles through a loop edge (explicit: %s) without rescheduling the initial graph",
+    async (loop) => {
+      const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cycle-"));
+      const store = new HarnessStore("/workspace", state);
+      const definition = await store.create("Cycle");
+      const blocks: HarnessBlock[] = [
+        { id: "draft", type: "task", label: "Draft", prompt: "Draft {{input}}", position: { x: 0, y: 0 } },
+        { id: "review", type: "prompt", label: "Review", prompt: "Review {{input}}", position: { x: 200, y: 0 } },
+      ];
+      await store.update({
+        ...definition,
+        blocks,
+        edges: [
+          { id: "forward", from: "draft", to: "review" },
+          { id: "loop", from: "review", to: "draft", label: "revise", loop },
+        ],
+      });
+      const runner = new HarnessRunner(store, () => undefined);
+      const append = vi.fn(async (_block: HarnessBlock, prompt: string) => session(`revised:${prompt}`));
+      const dispatch = vi.fn(
+        async (
+          block: HarnessBlock,
+          prompt: string,
+          runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> },
+        ) => {
+          await runtime.started(`/sessions/${block.id}`);
+          if (block.id === "review")
+            await runner.runStack(runtime.runId, runtime.blockId, ["Address the review"], "revise");
+          return session(prompt);
+        },
+      );
+      await runner.start(definition.id, "feature", dispatch, "test", append);
+      await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+      expect(dispatch.mock.calls.map((call) => call[0].id)).toEqual(["draft", "review"]);
+      expect(append).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "draft" }),
+        "Address the review",
+        expect.objectContaining({ workspace: "/sessions/draft" }),
+      );
+    },
+  );
 
   it("keeps an asynchronous AI-routed loop active across repeated session appends", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-async-cycle-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Cycle");
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-async-cycle-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Cycle");
     const blocks: HarnessBlock[] = [
       { id: "start", type: "prompt", label: "START", prompt: "Start", position: { x: 0, y: 0 } },
       { id: "check", type: "prompt", label: "CHECK", prompt: "Check", routing: "ai", position: { x: 200, y: 0 } },
-      { id: "exit", type: "prompt", label: "EXIT", prompt: "Exit", position: { x: 400, y: 0 } }
+      { id: "exit", type: "prompt", label: "EXIT", prompt: "Exit", position: { x: 400, y: 0 } },
     ];
-    await store.update({ ...definition, blocks, edges: [
-      { id: "check", from: "start", to: "check", label: "CHECK", execution: "async" },
-      { id: "continue", from: "check", to: "start", label: "CONTINUE", loop: true, execution: "async" },
-      { id: "exit", from: "check", to: "exit", label: "EXIT", execution: "async" }
-    ] });
-    const runner = new HarnessRunner(store, () => undefined); let starts = 0; let checks = 0;
-    const append = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string; workspace: string }) => {
-      // START uses routing=all, so its ordinary CHECK edge must advance without
-      // relying on the provider to repeat the workflow_run_stack tool call.
-      if (block.id === "start") starts += 1;
-      if (block.id === "check") { checks += 1; await runner.runStack(runtime.runId, runtime.blockId, [checks < 3 ? `continue ${checks}` : "done"], checks < 3 ? "CONTINUE" : "EXIT"); }
-      return session(`${block.id} complete`);
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "check", from: "start", to: "check", label: "CHECK", execution: "async" },
+        { id: "continue", from: "check", to: "start", label: "CONTINUE", loop: true, execution: "async" },
+        { id: "exit", from: "check", to: "exit", label: "EXIT", execution: "async" },
+      ],
     });
-    const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> }) => {
-      await runtime.started(`/sessions/${block.id}`);
-      if (block.id === "check") { checks += 1; await runner.runStack(runtime.runId, runtime.blockId, ["continue initial"], "CONTINUE"); }
-      return session(`${block.id} complete`);
-    });
+    const runner = new HarnessRunner(store, () => undefined);
+    let starts = 0;
+    let checks = 0;
+    const append = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string; workspace: string }) => {
+        // START uses routing=all, so its ordinary CHECK edge must advance without
+        // relying on the provider to repeat the workflow_run_stack tool call.
+        if (block.id === "start") starts += 1;
+        if (block.id === "check") {
+          checks += 1;
+          await runner.runStack(
+            runtime.runId,
+            runtime.blockId,
+            [checks < 3 ? `continue ${checks}` : "done"],
+            checks < 3 ? "CONTINUE" : "EXIT",
+          );
+        }
+        return session(`${block.id} complete`);
+      },
+    );
+    const dispatch = vi.fn(
+      async (
+        block: HarnessBlock,
+        _prompt: string,
+        runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> },
+      ) => {
+        await runtime.started(`/sessions/${block.id}`);
+        if (block.id === "check") {
+          checks += 1;
+          await runner.runStack(runtime.runId, runtime.blockId, ["continue initial"], "CONTINUE");
+        }
+        return session(`${block.id} complete`);
+      },
+    );
     await runner.start(definition.id, "go", dispatch, "test", append);
-    await vi.waitFor(async () => { const current = (await store.runs())[0]; if (current?.status === "failed") throw new Error(current.error); expect(current?.status).toBe("succeeded"); }, { timeout: 4_000 });
+    await vi.waitFor(
+      async () => {
+        const current = (await store.runs())[0];
+        if (current?.status === "failed") throw new Error(current.error);
+        expect(current?.status).toBe("succeeded");
+      },
+      { timeout: 4_000 },
+    );
     await vi.waitFor(() => expect(dispatch.mock.calls.map((call) => call[0].id)).toContain("exit"), { timeout: 4_000 });
     expect({ starts, checks }).toEqual({ starts: 2, checks: 3 });
     expect(append.mock.calls.map((call) => call[0].id)).toEqual(["start", "check", "start", "check"]);
@@ -415,32 +1124,87 @@ describe("HarnessRunner", () => {
   });
 
   it("returns immediately across an async connection but keeps the workflow active", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-async-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Async");
-    const blocks: HarnessBlock[] = [{ id: "planner", type: "prompt", label: "Planner", prompt: "Plan", position: { x: 0, y: 0 } }, { id: "worker", type: "task", label: "Worker", prompt: "{{input}}", position: { x: 200, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "async", from: "planner", to: "worker", execution: "async" }] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); let toolResult: unknown;
-    const runner = new HarnessRunner(store, () => undefined); const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
-      if (block.id === "planner") toolResult = await runner.runStack(runtime.runId, runtime.blockId, ["build"]);
-      if (block.id === "worker") await waiting;
-      return session(block.id);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-async-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Async");
+    const blocks: HarnessBlock[] = [
+      { id: "planner", type: "prompt", label: "Planner", prompt: "Plan", position: { x: 0, y: 0 } },
+      { id: "worker", type: "task", label: "Worker", prompt: "{{input}}", position: { x: 200, y: 0 } },
+    ];
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [{ id: "async", from: "planner", to: "worker", execution: "async" }],
     });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let toolResult: unknown;
+    const runner = new HarnessRunner(store, () => undefined);
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
+        if (block.id === "planner") toolResult = await runner.runStack(runtime.runId, runtime.blockId, ["build"]);
+        if (block.id === "worker") await waiting;
+        return session(block.id);
+      },
+    );
     const run = await runner.start(definition.id, "feature", dispatch, "test");
-    await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "planner")?.status).toBe("succeeded"), { timeout: 4_000 });
+    await vi.waitFor(
+      async () =>
+        expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "planner")?.status).toBe("succeeded"),
+      { timeout: 4_000 },
+    );
     expect(toolResult).toEqual({ blocks: [{ blockId: "worker", output: "" }] });
     expect((await store.runs())[0]?.status).toBe("running");
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    expect(dispatch.mock.calls.map((call) => call[0].id)).toEqual(["planner", "worker"]); expect(runner.isActive(run.id)).toBe(false);
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    expect(dispatch.mock.calls.map((call) => call[0].id)).toEqual(["planner", "worker"]);
+    expect(runner.isActive(run.id)).toBe(false);
   });
 
   it("combines direct predecessor outputs for a join block", () => {
-    const blocks = [{ id: "a", type: "prompt" as const, label: "Research", prompt: "", position: { x: 0, y: 0 } }, { id: "b", type: "prompt" as const, label: "Review", prompt: "", position: { x: 0, y: 0 } }, { id: "c", type: "prompt" as const, label: "Write", prompt: "", position: { x: 0, y: 0 } }];
-    expect(connectedInput("c", "original", blocks, [{ id: "ac", from: "a", to: "c" }, { id: "bc", from: "b", to: "c" }], new Map([["a", "facts"], ["b", "notes"]]))).toBe("## Research\nfacts\n\n## Review\nnotes");
+    const blocks = [
+      { id: "a", type: "prompt" as const, label: "Research", prompt: "", position: { x: 0, y: 0 } },
+      { id: "b", type: "prompt" as const, label: "Review", prompt: "", position: { x: 0, y: 0 } },
+      { id: "c", type: "prompt" as const, label: "Write", prompt: "", position: { x: 0, y: 0 } },
+    ];
+    expect(
+      connectedInput(
+        "c",
+        "original",
+        blocks,
+        [
+          { id: "ac", from: "a", to: "c" },
+          { id: "bc", from: "b", to: "c" },
+        ],
+        new Map([
+          ["a", "facts"],
+          ["b", "notes"],
+        ]),
+      ),
+    ).toBe("## Research\nfacts\n\n## Review\nnotes");
   });
 
   it("cancels a persisted running run after the server restarts", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-restart-")); const store = new HarnessStore("/workspace", state);
-    await store.saveRun({ id: "orphan", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "one", status: "succeeded", output: "done" }, { blockId: "two", status: "running", startedAt: "now" }, { blockId: "three", status: "queued" }] });
-    const changed = vi.fn(); const interrupt = vi.fn();
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-restart-"));
+    const store = new HarnessStore("/workspace", state);
+    await store.saveRun({
+      id: "orphan",
+      harnessId: "flow",
+      harnessVersion: 1,
+      input: "task",
+      status: "running",
+      createdAt: "now",
+      startedAt: "now",
+      blocks: [
+        { blockId: "one", status: "succeeded", output: "done" },
+        { blockId: "two", status: "running", startedAt: "now" },
+        { blockId: "three", status: "queued" },
+      ],
+    });
+    const changed = vi.fn();
+    const interrupt = vi.fn();
 
     const cancelled = await new HarnessRunner(store, changed).cancel("orphan", interrupt);
 
@@ -452,30 +1216,74 @@ describe("HarnessRunner", () => {
   });
 
   it("interrupts each running block before persisting its cancelled state", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-")); const store = new HarnessStore("/workspace", state);
-    await store.saveRun({ id: "active", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", startedAt: "now", blocks: [{ blockId: "left", status: "running", provider: "codex" }, { blockId: "right", status: "running", provider: "claude" }] });
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-"));
+    const store = new HarnessStore("/workspace", state);
+    await store.saveRun({
+      id: "active",
+      harnessId: "flow",
+      harnessVersion: 1,
+      input: "task",
+      status: "running",
+      createdAt: "now",
+      startedAt: "now",
+      blocks: [
+        { blockId: "left", status: "running", provider: "codex" },
+        { blockId: "right", status: "running", provider: "claude" },
+      ],
+    });
     const interrupt = vi.fn().mockResolvedValue(undefined);
 
     await new HarnessRunner(store, () => undefined).cancel("active", interrupt);
 
-    expect(interrupt.mock.calls).toEqual([["codex", { runId: "active", blockId: "left" }], ["claude", { runId: "active", blockId: "right" }]]);
+    expect(interrupt.mock.calls).toEqual([
+      ["codex", { runId: "active", blockId: "left" }],
+      ["claude", { runId: "active", blockId: "right" }],
+    ]);
   });
 
   it("persists partial cancellation failures for the user", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-error-")); const store = new HarnessStore("/workspace", state);
-    await store.saveRun({ id: "active", harnessId: "flow", harnessVersion: 1, input: "task", status: "running", createdAt: "now", blocks: [{ blockId: "left", status: "running", provider: "codex" }, { blockId: "right", status: "running", provider: "claude" }] });
-    const cancelled = await new HarnessRunner(store, () => undefined).cancel("active", async (provider) => { if (provider === "claude") throw new Error("provider offline"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-error-"));
+    const store = new HarnessStore("/workspace", state);
+    await store.saveRun({
+      id: "active",
+      harnessId: "flow",
+      harnessVersion: 1,
+      input: "task",
+      status: "running",
+      createdAt: "now",
+      blocks: [
+        { blockId: "left", status: "running", provider: "codex" },
+        { blockId: "right", status: "running", provider: "claude" },
+      ],
+    });
+    const cancelled = await new HarnessRunner(store, () => undefined).cancel("active", async (provider) => {
+      if (provider === "claude") throw new Error("provider offline");
+    });
     expect(cancelled.cleanupErrors).toEqual(["Could not stop block right: provider offline"]);
     expect((await store.runs())[0]?.cleanupErrors).toEqual(cancelled.cleanupErrors);
   });
 
   it("keeps cancellation terminal when a provider completes during cleanup", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-race-")); const store = new HarnessStore("/workspace", state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-cancel-race-"));
+    const store = new HarnessStore("/workspace", state);
     const definition = await store.create("Cancellation race");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
-    const runner = new HarnessRunner(store, () => undefined); const run = await runner.start(definition.id, "work", async () => { await waiting; return session("late-success"); });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.blocks[0]?.status).toBe("running"), { timeout: 4_000 });
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async () => {
+      await waiting;
+      return session("late-success");
+    });
+    await vi.waitFor(async () => expect((await store.runs())[0]?.blocks[0]?.status).toBe("running"), {
+      timeout: 4_000,
+    });
 
     await runner.cancel(run.id, async () => release());
     await vi.waitFor(() => expect(runner.isActive(run.id)).toBe(false), { timeout: 4_000 });
@@ -486,15 +1294,60 @@ describe("HarnessRunner", () => {
   });
 
   it("does not fire a reconciled timer operation after cancellation is durable", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-timer-reconcile-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Timer cancellation race");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let releaseTurn!: () => void; const turnWaiting = new Promise<void>((resolve) => { releaseTurn = resolve; }); let started!: () => void; const turnStarted = new Promise<void>((resolve) => { started = resolve; });
-    const runner = new HarnessRunner(store, () => undefined); const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => { await runtime.started("/workflow/worker"); started(); await turnWaiting; return session("late"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-timer-reconcile-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Timer cancellation race");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let releaseTurn!: () => void;
+    const turnWaiting = new Promise<void>((resolve) => {
+      releaseTurn = resolve;
+    });
+    let started!: () => void;
+    const turnStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
+      await runtime.started("/workflow/worker");
+      started();
+      await turnWaiting;
+      return session("late");
+    });
     await turnStarted;
-    await expect(runner.runTimerOperation(run.id, "worker", "timer-fire:once", { timerId: "once" }, async () => { throw new Error("timer reply lost"); })).rejects.toThrow("timer reply lost");
-    let releaseReconcile!: () => void; const reconciling = new Promise<void>((resolve) => { releaseReconcile = resolve; }); const fire = vi.fn(async () => true);
-    const resumed = runner.runTimerOperation(run.id, "worker", "timer-fire:once", { timerId: "once" }, fire, async () => { await reconciling; return null; });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.operations?.find((operation) => operation.idempotencyKey === "worker:timer-fire:once")?.status).toBe("intent"), { timeout: 4_000 });
+    await expect(
+      runner.runTimerOperation(run.id, "worker", "timer-fire:once", { timerId: "once" }, async () => {
+        throw new Error("timer reply lost");
+      }),
+    ).rejects.toThrow("timer reply lost");
+    let releaseReconcile!: () => void;
+    const reconciling = new Promise<void>((resolve) => {
+      releaseReconcile = resolve;
+    });
+    const fire = vi.fn(async () => true);
+    const resumed = runner.runTimerOperation(
+      run.id,
+      "worker",
+      "timer-fire:once",
+      { timerId: "once" },
+      fire,
+      async () => {
+        await reconciling;
+        return null;
+      },
+    );
+    await vi.waitFor(
+      async () =>
+        expect(
+          (await store.runs())[0]?.operations?.find(
+            (operation) => operation.idempotencyKey === "worker:timer-fire:once",
+          )?.status,
+        ).toBe("intent"),
+      { timeout: 4_000 },
+    );
     await runner.cancel(run.id, async () => releaseTurn());
     releaseReconcile();
     await expect(resumed).rejects.toThrow();
@@ -503,14 +1356,45 @@ describe("HarnessRunner", () => {
   });
 
   it("does not dispatch a stack target after cancellation races its launch", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-stack-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Stack cancellation race");
-    await store.update({ ...definition, blocks: ["root", "worker"].map((id) => ({ id, type: "prompt" as const, label: id, prompt: "work", position: { x: 0, y: 0 } })), edges: [{ id: "root-worker", from: "root", to: "worker" }] });
-    let workerClaimed!: () => void; const workerClaim = new Promise<void>((resolve) => { workerClaimed = resolve; }); let releaseRoot!: () => void; const rootWaiting = new Promise<void>((resolve) => { releaseRoot = resolve; });
-    const runner = new HarnessRunner(store, (runId) => { void store.runs().then((runs) => { if (runs.find((run) => run.id === runId)?.blocks.find((block) => block.blockId === "worker")?.status === "running") workerClaimed(); }); });
-    const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
-      if (block.id === "root") { await runner.runStack(runtime.runId, runtime.blockId, ["downstream"]); await rootWaiting; }
-      return session(block.id);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-stack-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Stack cancellation race");
+    await store.update({
+      ...definition,
+      blocks: ["root", "worker"].map((id) => ({
+        id,
+        type: "prompt" as const,
+        label: id,
+        prompt: "work",
+        position: { x: 0, y: 0 },
+      })),
+      edges: [{ id: "root-worker", from: "root", to: "worker" }],
     });
+    let workerClaimed!: () => void;
+    const workerClaim = new Promise<void>((resolve) => {
+      workerClaimed = resolve;
+    });
+    let releaseRoot!: () => void;
+    const rootWaiting = new Promise<void>((resolve) => {
+      releaseRoot = resolve;
+    });
+    const runner = new HarnessRunner(store, (runId) => {
+      void store.runs().then((runs) => {
+        if (
+          runs.find((run) => run.id === runId)?.blocks.find((block) => block.blockId === "worker")?.status === "running"
+        )
+          workerClaimed();
+      });
+    });
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
+        if (block.id === "root") {
+          await runner.runStack(runtime.runId, runtime.blockId, ["downstream"]);
+          await rootWaiting;
+        }
+        return session(block.id);
+      },
+    );
     const run = await runner.start(definition.id, "work", dispatch, "test");
     await workerClaim;
     await runner.cancel(run.id, async () => releaseRoot());
@@ -519,16 +1403,49 @@ describe("HarnessRunner", () => {
   });
 
   it("does not restart a retry after cancellation races its wake-up", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-retry-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Retry cancellation race");
-    await store.update({ ...definition, blocks: [{ id: "watchdog", type: "prompt", label: "watchdog", prompt: "watch", watchdog: true, position: { x: 0, y: 0 } }, { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let releaseWatchdog!: () => void; const watchdogWaiting = new Promise<void>((resolve) => { releaseWatchdog = resolve; }); let attempts = 0;
-    const runner = new HarnessRunner(store, () => undefined, 2, { maxAttempts: 2, transportBackoffMs: 0, jitterRatio: 0 });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-retry-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Retry cancellation race");
+    await store.update({
+      ...definition,
+      blocks: [
+        {
+          id: "watchdog",
+          type: "prompt",
+          label: "watchdog",
+          prompt: "watch",
+          watchdog: true,
+          position: { x: 0, y: 0 },
+        },
+        { id: "worker", type: "prompt", label: "worker", prompt: "work", position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    });
+    let releaseWatchdog!: () => void;
+    const watchdogWaiting = new Promise<void>((resolve) => {
+      releaseWatchdog = resolve;
+    });
+    let attempts = 0;
+    const runner = new HarnessRunner(store, () => undefined, 2, {
+      maxAttempts: 2,
+      transportBackoffMs: 0,
+      jitterRatio: 0,
+    });
     const run = await runner.start(definition.id, "work", async (block) => {
       if (block.id === "watchdog") await watchdogWaiting;
-      if (block.id === "worker") { attempts += 1; throw new AiProviderError({ kind: "transient_transport", message: "offline" }); }
+      if (block.id === "worker") {
+        attempts += 1;
+        throw new AiProviderError({ kind: "transient_transport", message: "offline" });
+      }
       return session("watchdog");
     });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.status).toBe("retry_scheduled"), { timeout: 4_000 });
+    await vi.waitFor(
+      async () =>
+        expect((await store.runs())[0]?.blocks.find((block) => block.blockId === "worker")?.status).toBe(
+          "retry_scheduled",
+        ),
+      { timeout: 4_000 },
+    );
     const wake = runner.resumeFailed(run.id, "watchdog");
     await runner.cancel(run.id, async () => releaseWatchdog());
     await wake;
@@ -537,74 +1454,228 @@ describe("HarnessRunner", () => {
   });
 
   it("fans out ready blocks concurrently and waits for all before joining", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-fanout-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Fan out");
-    const blocks = ["root", "left", "right", "join"].map((id) => ({ id, type: "prompt" as const, label: id, prompt: "{{input}}", position: { x: 0, y: 0 } }));
-    await store.update({ ...definition, blocks, edges: [{ id: "rl", from: "root", to: "left" }, { id: "rr", from: "root", to: "right" }, { id: "lj", from: "left", to: "join" }, { id: "rj", from: "right", to: "join" }] });
-    let active = 0; let maxActive = 0; let siblingsStarted = 0; const completed: string[] = [];
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-fanout-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Fan out");
+    const blocks = ["root", "left", "right", "join"].map((id) => ({
+      id,
+      type: "prompt" as const,
+      label: id,
+      prompt: "{{input}}",
+      position: { x: 0, y: 0 },
+    }));
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "rl", from: "root", to: "left" },
+        { id: "rr", from: "root", to: "right" },
+        { id: "lj", from: "left", to: "join" },
+        { id: "rj", from: "right", to: "join" },
+      ],
+    });
+    let active = 0;
+    let maxActive = 0;
+    let siblingsStarted = 0;
+    const completed: string[] = [];
     let releaseSiblings!: () => void;
-    const siblingsWaiting = new Promise<void>((resolve) => { releaseSiblings = resolve; });
+    const siblingsWaiting = new Promise<void>((resolve) => {
+      releaseSiblings = resolve;
+    });
     const dispatch = vi.fn(async (block: HarnessBlock) => {
-      active += 1; maxActive = Math.max(maxActive, active);
-      if (block.id === "left" || block.id === "right") { siblingsStarted += 1; await siblingsWaiting; }
-      active -= 1; completed.push(block.id);
-      return { id: block.id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text: block.id, timestamp: "now" }] };
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (block.id === "left" || block.id === "right") {
+        siblingsStarted += 1;
+        await siblingsWaiting;
+      }
+      active -= 1;
+      completed.push(block.id);
+      return {
+        id: block.id,
+        model: "test",
+        reasoning: "low",
+        status: "done" as const,
+        messages: [{ id: block.id, role: "assistant" as const, text: block.id, timestamp: "now" }],
+      };
     });
     const runner = new HarnessRunner(store, () => undefined);
     await runner.start(definition.id, "go", dispatch, "test");
-    try { await vi.waitFor(() => expect(siblingsStarted).toBe(2), { timeout: 4_000 }); }
-    finally { releaseSiblings(); await runner.drain(); }
+    try {
+      await vi.waitFor(() => expect(siblingsStarted).toBe(2), { timeout: 4_000 });
+    } finally {
+      releaseSiblings();
+      await runner.drain();
+    }
     expect((await store.runs())[0]?.status).toBe("succeeded");
-    expect(maxActive).toBe(2); expect(completed.at(-1)).toBe("join");
+    expect(maxActive).toBe(2);
+    expect(completed.at(-1)).toBe("join");
   });
 
   it("uses the workflow concurrency limit for graph dispatch and asynchronous stack launches", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-shared-scheduler-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Shared scheduler");
-    const blocks: HarnessBlock[] = ["root", "left", "right"].map((id) => ({ id, type: "prompt", label: id, prompt: "{{input}}", position: { x: 0, y: 0 } }));
-    await store.update({ ...definition, settings: { concurrency: 1 }, blocks, edges: [{ id: "left", from: "root", to: "left", execution: "async" }, { id: "right", from: "root", to: "right", execution: "async" }] });
-    const runner = new HarnessRunner(store, () => undefined, 4); let active = 0; let maxActive = 0;
-    const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
-      active += 1; maxActive = Math.max(maxActive, active);
-      if (block.id === "root") await runner.runStack(runtime.runId, runtime.blockId, ["downstream"]);
-      else await new Promise((resolve) => setTimeout(resolve, 15));
-      active -= 1; return session(block.id);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-shared-scheduler-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Shared scheduler");
+    const blocks: HarnessBlock[] = ["root", "left", "right"].map((id) => ({
+      id,
+      type: "prompt",
+      label: id,
+      prompt: "{{input}}",
+      position: { x: 0, y: 0 },
+    }));
+    await store.update({
+      ...definition,
+      settings: { concurrency: 1 },
+      blocks,
+      edges: [
+        { id: "left", from: "root", to: "left", execution: "async" },
+        { id: "right", from: "root", to: "right", execution: "async" },
+      ],
     });
+    const runner = new HarnessRunner(store, () => undefined, 4);
+    let active = 0;
+    let maxActive = 0;
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        if (block.id === "root") await runner.runStack(runtime.runId, runtime.blockId, ["downstream"]);
+        else await new Promise((resolve) => setTimeout(resolve, 15));
+        active -= 1;
+        return session(block.id);
+      },
+    );
     await runner.start(definition.id, "go", dispatch, "test");
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    expect(maxActive).toBe(1); expect(dispatch.mock.calls.map((call) => call[0].id).sort()).toEqual(["left", "right", "root"]);
+    expect(maxActive).toBe(1);
+    expect(dispatch.mock.calls.map((call) => call[0].id).sort()).toEqual(["left", "right", "root"]);
   });
 
   it("serializes hot input with the active block session and tracks it through completion", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-hot-input-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Hot input");
-    await store.update({ ...definition, blocks: [{ id: "root", type: "prompt", label: "root", prompt: "{{input}}", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); let started!: () => void; const ready = new Promise<void>((resolve) => { started = resolve; });
-    let active = 0; let maxActive = 0; const runner = new HarnessRunner(store, () => undefined, 1);
-    const run = await runner.start(definition.id, "initial", async (_block, _prompt, runtime) => { active += 1; maxActive = Math.max(maxActive, active); await runtime.started("/session/root"); started(); await waiting; active -= 1; return session("initial"); }, "test", async () => { active += 1; maxActive = Math.max(maxActive, active); await new Promise((resolve) => setTimeout(resolve, 15)); active -= 1; return session("appended"); });
-    await ready; await runner.appendInput(run.id, "follow-up"); release();
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-hot-input-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Hot input");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "root", type: "prompt", label: "root", prompt: "{{input}}", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started!: () => void;
+    const ready = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    const runner = new HarnessRunner(store, () => undefined, 1);
+    const run = await runner.start(
+      definition.id,
+      "initial",
+      async (_block, _prompt, runtime) => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await runtime.started("/session/root");
+        started();
+        await waiting;
+        active -= 1;
+        return session("initial");
+      },
+      "test",
+      async () => {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        active -= 1;
+        return session("appended");
+      },
+    );
+    await ready;
+    await runner.appendInput(run.id, "follow-up");
+    release();
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    const completed = (await store.runs())[0]!; expect(maxActive).toBe(1); expect(completed.blocks[0]?.output).toBe("appended");
+    const completed = (await store.runs())[0]!;
+    expect(maxActive).toBe(1);
+    expect(completed.blocks[0]?.output).toBe("appended");
   });
 
   it("bounds parallel fan-out and hot input without duplicate dispatches or concurrent session writes", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-fanout-hot-input-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Fan out with input");
-    const blocks: HarnessBlock[] = ["root", "left", "right"].map((id) => ({ id, type: "prompt", label: id, prompt: "{{input}}", position: { x: 0, y: 0 } }));
-    await store.update({ ...definition, blocks, edges: [{ id: "root-left", from: "root", to: "left" }, { id: "root-right", from: "root", to: "right" }] });
-    let releaseRoot!: () => void; const rootWaiting = new Promise<void>((resolve) => { releaseRoot = resolve; }); let rootStarted!: () => void; const rootReady = new Promise<void>((resolve) => { rootStarted = resolve; });
-    let active = 0; let maxActive = 0; let rootWrites = 0; let maxRootWrites = 0; const dispatches = new Map<string, number>(); const runner = new HarnessRunner(store, () => undefined, 2);
-    const enter = (blockId: string, initial = false) => { active += 1; maxActive = Math.max(maxActive, active); if (initial) dispatches.set(blockId, (dispatches.get(blockId) ?? 0) + 1); if (blockId === "root") { rootWrites += 1; maxRootWrites = Math.max(maxRootWrites, rootWrites); } };
-    const leave = (blockId: string) => { if (blockId === "root") rootWrites -= 1; active -= 1; };
-    const append = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { workspace: string }) => {
-      expect(runtime.workspace).toBe("/sessions/root"); enter(block.id);
-      try { await new Promise((resolve) => setTimeout(resolve, 15)); return session(`${block.id}-appended`); }
-      finally { leave(block.id); }
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-fanout-hot-input-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Fan out with input");
+    const blocks: HarnessBlock[] = ["root", "left", "right"].map((id) => ({
+      id,
+      type: "prompt",
+      label: id,
+      prompt: "{{input}}",
+      position: { x: 0, y: 0 },
+    }));
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "root-left", from: "root", to: "left" },
+        { id: "root-right", from: "root", to: "right" },
+      ],
     });
-    const run = await runner.start(definition.id, "initial", async (block, _prompt, runtime) => {
-      enter(block.id, true);
+    let releaseRoot!: () => void;
+    const rootWaiting = new Promise<void>((resolve) => {
+      releaseRoot = resolve;
+    });
+    let rootStarted!: () => void;
+    const rootReady = new Promise<void>((resolve) => {
+      rootStarted = resolve;
+    });
+    let active = 0;
+    let maxActive = 0;
+    let rootWrites = 0;
+    let maxRootWrites = 0;
+    const dispatches = new Map<string, number>();
+    const runner = new HarnessRunner(store, () => undefined, 2);
+    const enter = (blockId: string, initial = false) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      if (initial) dispatches.set(blockId, (dispatches.get(blockId) ?? 0) + 1);
+      if (blockId === "root") {
+        rootWrites += 1;
+        maxRootWrites = Math.max(maxRootWrites, rootWrites);
+      }
+    };
+    const leave = (blockId: string) => {
+      if (blockId === "root") rootWrites -= 1;
+      active -= 1;
+    };
+    const append = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { workspace: string }) => {
+      expect(runtime.workspace).toBe("/sessions/root");
+      enter(block.id);
       try {
-        if (block.id === "root") { await runtime.started("/sessions/root"); rootStarted(); await rootWaiting; }
-        else await new Promise((resolve) => setTimeout(resolve, 15));
-        return session(`${block.id}-initial`);
-      } finally { leave(block.id); }
-    }, "test", append);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        return session(`${block.id}-appended`);
+      } finally {
+        leave(block.id);
+      }
+    });
+    const run = await runner.start(
+      definition.id,
+      "initial",
+      async (block, _prompt, runtime) => {
+        enter(block.id, true);
+        try {
+          if (block.id === "root") {
+            await runtime.started("/sessions/root");
+            rootStarted();
+            await rootWaiting;
+          } else await new Promise((resolve) => setTimeout(resolve, 15));
+          return session(`${block.id}-initial`);
+        } finally {
+          leave(block.id);
+        }
+      },
+      "test",
+      append,
+    );
     await rootReady;
     await runner.appendInput(run.id, "follow-up");
     releaseRoot();
@@ -616,10 +1687,42 @@ describe("HarnessRunner", () => {
   });
 
   it("lets AI select one named path and skips the other paths", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-routing-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Route");
-    const blocks = [{ id: "router", type: "prompt" as const, label: "Router", prompt: "Choose", routing: "ai" as const, position: { x: 0, y: 0 } }, { id: "left", type: "prompt" as const, label: "Left", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "right", type: "prompt" as const, label: "Right", prompt: "{{input}}", position: { x: 0, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "left-edge", from: "router", to: "left", label: "left" }, { id: "right-edge", from: "router", to: "right", label: "right" }] });
-    const runner = new HarnessRunner(store, () => undefined); const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => { if (block.id === "router") await runner.runStack(runtime.runId, runtime.blockId, ["selected work"], "right"); return { id: block.id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text: "finished", timestamp: "now" }] }; });
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-routing-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Route");
+    const blocks = [
+      {
+        id: "router",
+        type: "prompt" as const,
+        label: "Router",
+        prompt: "Choose",
+        routing: "ai" as const,
+        position: { x: 0, y: 0 },
+      },
+      { id: "left", type: "prompt" as const, label: "Left", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "right", type: "prompt" as const, label: "Right", prompt: "{{input}}", position: { x: 0, y: 0 } },
+    ];
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "left-edge", from: "router", to: "left", label: "left" },
+        { id: "right-edge", from: "router", to: "right", label: "right" },
+      ],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const dispatch = vi.fn(
+      async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string }) => {
+        if (block.id === "router") await runner.runStack(runtime.runId, runtime.blockId, ["selected work"], "right");
+        return {
+          id: block.id,
+          model: "test",
+          reasoning: "low",
+          status: "done" as const,
+          messages: [{ id: block.id, role: "assistant" as const, text: "finished", timestamp: "now" }],
+        };
+      },
+    );
     await runner.start(definition.id, "go", dispatch, "test");
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
     const run = (await store.runs())[0]!;
@@ -629,10 +1732,39 @@ describe("HarnessRunner", () => {
   });
 
   it("starts an any-join after the first active input without waiting for slower paths", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-any-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Any join");
-    const blocks: HarnessBlock[] = [{ id: "root", type: "prompt", label: "Root", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "slow", type: "prompt", label: "Slow", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "fast", type: "prompt", label: "Fast", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "join", type: "prompt", label: "Join", prompt: "Join {{input}}", join: "any", position: { x: 0, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "rs", from: "root", to: "slow" }, { id: "rf", from: "root", to: "fast" }, { id: "sj", from: "slow", to: "join" }, { id: "fj", from: "fast", to: "join" }] });
-    const events: string[] = []; const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => { events.push(`${block.id}-start`); if (block.id === "slow") await new Promise((resolve) => setTimeout(resolve, 150)); if (block.id === "fast") await new Promise((resolve) => setTimeout(resolve, 5)); events.push(`${block.id}-done`); return { id: block.id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text: block.id, timestamp: "now" }] }; });
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-any-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Any join");
+    const blocks: HarnessBlock[] = [
+      { id: "root", type: "prompt", label: "Root", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "slow", type: "prompt", label: "Slow", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "fast", type: "prompt", label: "Fast", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "join", type: "prompt", label: "Join", prompt: "Join {{input}}", join: "any", position: { x: 0, y: 0 } },
+    ];
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "rs", from: "root", to: "slow" },
+        { id: "rf", from: "root", to: "fast" },
+        { id: "sj", from: "slow", to: "join" },
+        { id: "fj", from: "fast", to: "join" },
+      ],
+    });
+    const events: string[] = [];
+    const dispatch = vi.fn(async (block: HarnessBlock, prompt: string) => {
+      events.push(`${block.id}-start`);
+      if (block.id === "slow") await new Promise((resolve) => setTimeout(resolve, 150));
+      if (block.id === "fast") await new Promise((resolve) => setTimeout(resolve, 5));
+      events.push(`${block.id}-done`);
+      return {
+        id: block.id,
+        model: "test",
+        reasoning: "low",
+        status: "done" as const,
+        messages: [{ id: block.id, role: "assistant" as const, text: block.id, timestamp: "now" }],
+      };
+    });
     await new HarnessRunner(store, () => undefined).start(definition.id, "go", dispatch, "test");
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
     expect(events.indexOf("join-start")).toBeLessThan(events.indexOf("slow-done"));
@@ -640,59 +1772,184 @@ describe("HarnessRunner", () => {
   });
 
   it("lets an upstream AI create distinct downstream stack items and waits for all of them", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-dynamic-stack-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Dynamic stack");
-    const blocks: HarnessBlock[] = [{ id: "planner", type: "prompt", label: "Planner", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "worker", type: "prompt", label: "Worker", prompt: "Work {{iteration}}: {{input}}", position: { x: 0, y: 0 } }, { id: "finish", type: "prompt", label: "Finish", prompt: "Finish {{input}}", position: { x: 0, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "pw", from: "planner", to: "worker" }, { id: "wf", from: "worker", to: "finish" }] });
-    const runner = new HarnessRunner(store, () => undefined); const calls: Array<{ id: string; prompt: string }> = []; let toolResult: unknown; const dispatch = vi.fn(async (block: HarnessBlock, prompt: string, runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> }) => { calls.push({ id: block.id, prompt }); if (block.id === "planner") toolResult = await runner.runStack(runtime.runId, runtime.blockId, ["research user prompt", "implement user prompt", "review user prompt"]); if (block.id === "worker") await runtime.started("/sessions/worker"); const text = block.id === "planner" ? `I reviewed the stack results: ${JSON.stringify(toolResult)}` : block.id === "worker" ? `result ${calls.filter((call) => call.id === "worker").length}` : "done"; return { id: `${block.id}-${calls.length}`, model: "test", reasoning: "low", status: "done" as const, messages: [{ id: block.id, role: "assistant" as const, text, timestamp: "now" }] }; });
-    const append = vi.fn(async (block: HarnessBlock, prompt: string) => { calls.push({ id: block.id, prompt }); return session(`result ${calls.filter((call) => call.id === "worker").length}`); });
-    await runner.start(definition.id, "Create 3 stacks for downstream flow with the user prompt", dispatch, "test", append);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-dynamic-stack-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Dynamic stack");
+    const blocks: HarnessBlock[] = [
+      { id: "planner", type: "prompt", label: "Planner", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      {
+        id: "worker",
+        type: "prompt",
+        label: "Worker",
+        prompt: "Work {{iteration}}: {{input}}",
+        position: { x: 0, y: 0 },
+      },
+      { id: "finish", type: "prompt", label: "Finish", prompt: "Finish {{input}}", position: { x: 0, y: 0 } },
+    ];
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "pw", from: "planner", to: "worker" },
+        { id: "wf", from: "worker", to: "finish" },
+      ],
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const calls: Array<{ id: string; prompt: string }> = [];
+    let toolResult: unknown;
+    const dispatch = vi.fn(
+      async (
+        block: HarnessBlock,
+        prompt: string,
+        runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> },
+      ) => {
+        calls.push({ id: block.id, prompt });
+        if (block.id === "planner")
+          toolResult = await runner.runStack(runtime.runId, runtime.blockId, [
+            "research user prompt",
+            "implement user prompt",
+            "review user prompt",
+          ]);
+        if (block.id === "worker") await runtime.started("/sessions/worker");
+        const text =
+          block.id === "planner"
+            ? `I reviewed the stack results: ${JSON.stringify(toolResult)}`
+            : block.id === "worker"
+              ? `result ${calls.filter((call) => call.id === "worker").length}`
+              : "done";
+        return {
+          id: `${block.id}-${calls.length}`,
+          model: "test",
+          reasoning: "low",
+          status: "done" as const,
+          messages: [{ id: block.id, role: "assistant" as const, text, timestamp: "now" }],
+        };
+      },
+    );
+    const append = vi.fn(async (block: HarnessBlock, prompt: string) => {
+      calls.push({ id: block.id, prompt });
+      return session(`result ${calls.filter((call) => call.id === "worker").length}`);
+    });
+    await runner.start(
+      definition.id,
+      "Create 3 stacks for downstream flow with the user prompt",
+      dispatch,
+      "test",
+      append,
+    );
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    const run = (await store.runs())[0]!; const workerCalls = calls.filter((call) => call.id === "worker"); const finishCall = calls.find((call) => call.id === "finish");
-    expect(calls[0]?.prompt).toContain("workflow_run_stack"); expect(calls[0]?.prompt).toContain("appended to that same session"); expect(calls[0]?.prompt).toContain("timer_set");
-    expect(workerCalls).toHaveLength(3); expect(workerCalls.map((call) => call.prompt.split("\n\nWorkflow runtime")[0])).toEqual(["Work 1: research user prompt", "Work 2: implement user prompt", "Work 3: review user prompt"]);
-    expect(finishCall?.prompt).toContain("## Stack item 3\nresult 3"); expect(toolResult).toEqual({ blocks: [{ blockId: "worker", output: expect.stringContaining("## Stack item 3\nresult 3") }] }); expect(run.blocks[0]?.output).toContain("I reviewed the stack results"); expect(run.blocks[1]?.plannedRuns).toBe(3); expect(run.blocks[1]?.iterations).toHaveLength(3);
+    const run = (await store.runs())[0]!;
+    const workerCalls = calls.filter((call) => call.id === "worker");
+    const finishCall = calls.find((call) => call.id === "finish");
+    expect(calls[0]?.prompt).toContain("workflow_run_stack");
+    expect(calls[0]?.prompt).toContain("appended to that same session");
+    expect(calls[0]?.prompt).toContain("timer_set");
+    expect(workerCalls).toHaveLength(3);
+    expect(workerCalls.map((call) => call.prompt.split("\n\nWorkflow runtime")[0])).toEqual([
+      "Work 1: research user prompt",
+      "Work 2: implement user prompt",
+      "Work 3: review user prompt",
+    ]);
+    expect(finishCall?.prompt).toContain("## Stack item 3\nresult 3");
+    expect(toolResult).toEqual({
+      blocks: [{ blockId: "worker", output: expect.stringContaining("## Stack item 3\nresult 3") }],
+    });
+    expect(run.blocks[0]?.output).toContain("I reviewed the stack results");
+    expect(run.blocks[1]?.plannedRuns).toBe(3);
+    expect(run.blocks[1]?.iterations).toHaveLength(3);
   });
 
   it("appends a later upstream prompt to an already-running downstream session", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-persistent-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Persistent sessions");
-    const blocks: HarnessBlock[] = [{ id: "first", type: "prompt", label: "First", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "later", type: "prompt", label: "Later", prompt: "{{input}}", position: { x: 0, y: 0 } }, { id: "worker", type: "task", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } }];
-    await store.update({ ...definition, blocks, edges: [{ id: "fw", from: "first", to: "worker" }, { id: "lw", from: "later", to: "worker" }] });
-    const runner = new HarnessRunner(store, () => undefined); const append = vi.fn(async (_block: HarnessBlock, prompt: string, runtime: { workspace: string }) => session(`appended:${runtime.workspace}:${prompt}`));
-    const dispatch = vi.fn(async (block: HarnessBlock, _prompt: string, runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> }) => {
-      if (block.id === "first") await runner.runStack(runtime.runId, runtime.blockId, ["initial"]);
-      if (block.id === "later") { await new Promise((resolve) => setTimeout(resolve, 40)); await runner.runStack(runtime.runId, runtime.blockId, ["follow-up"]); }
-      if (block.id === "worker") { await runtime.started("/sessions/worker"); await new Promise((resolve) => setTimeout(resolve, 120)); }
-      return session(block.id);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-persistent-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Persistent sessions");
+    const blocks: HarnessBlock[] = [
+      { id: "first", type: "prompt", label: "First", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "later", type: "prompt", label: "Later", prompt: "{{input}}", position: { x: 0, y: 0 } },
+      { id: "worker", type: "task", label: "Worker", prompt: "{{input}}", position: { x: 0, y: 0 } },
+    ];
+    await store.update({
+      ...definition,
+      blocks,
+      edges: [
+        { id: "fw", from: "first", to: "worker" },
+        { id: "lw", from: "later", to: "worker" },
+      ],
     });
+    const runner = new HarnessRunner(store, () => undefined);
+    const append = vi.fn(async (_block: HarnessBlock, prompt: string, runtime: { workspace: string }) =>
+      session(`appended:${runtime.workspace}:${prompt}`),
+    );
+    const dispatch = vi.fn(
+      async (
+        block: HarnessBlock,
+        _prompt: string,
+        runtime: { runId: string; blockId: string; started(workspace: string): Promise<void> },
+      ) => {
+        if (block.id === "first") await runner.runStack(runtime.runId, runtime.blockId, ["initial"]);
+        if (block.id === "later") {
+          await new Promise((resolve) => setTimeout(resolve, 40));
+          await runner.runStack(runtime.runId, runtime.blockId, ["follow-up"]);
+        }
+        if (block.id === "worker") {
+          await runtime.started("/sessions/worker");
+          await new Promise((resolve) => setTimeout(resolve, 120));
+        }
+        return session(block.id);
+      },
+    );
     await runner.start(definition.id, "build", dispatch, "test", append);
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
-    expect(append).toHaveBeenCalledWith(expect.objectContaining({ id: "worker" }), "follow-up", expect.objectContaining({ workspace: "/sessions/worker" }));
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "worker" }),
+      "follow-up",
+      expect.objectContaining({ workspace: "/sessions/worker" }),
+    );
   });
 
   it("steers a Chatbox while waiting for a timer", async () => {
     const store = new HarnessStore("/workspace", await mkdtemp(path.join(os.tmpdir(), "timer-steer-")));
     const created = await store.create("Timer");
-    const definition = await store.update({ ...created, blocks: [{ id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } }, { id: "room", type: "meeting", label: "Room", prompt: "", position: { x: 200, y: 0 } }], edges: [{ id: "chat-room", from: "chat", to: "room", type: "use" }] });
+    const definition = await store.update({
+      ...created,
+      blocks: [
+        { id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } },
+        { id: "room", type: "meeting", label: "Room", prompt: "", position: { x: 200, y: 0 } },
+      ],
+      edges: [{ id: "chat-room", from: "chat", to: "room", type: "use" }],
+    });
     const runner = new HarnessRunner(store, () => {});
     let release!: () => void;
-    const waiting = new Promise<void>((resolve) => { release = resolve; });
-    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
-      await runtime.started("/workflow/chat");
-      await runtime.activity({ ...session("owned"), status: "in_progress" }, "2099-01-01T00:00:00.000Z");
-      await waiting;
-      return session("owned");
-    }, "test");
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const run = await runner.start(
+      definition.id,
+      "work",
+      async (_block, _prompt, runtime) => {
+        await runtime.started("/workflow/chat");
+        await runtime.activity({ ...session("owned"), status: "in_progress" }, "2099-01-01T00:00:00.000Z");
+        await waiting;
+        return session("owned");
+      },
+      "test",
+    );
     const steer = vi.fn(async () => session("owned"));
     try {
       await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("waiting_timer"));
       await expect(runner.steerChat(run.id, "chat", "stale", "Wake up", steer)).rejects.toThrow();
       await runner.steerChat(run.id, "chat", "owned", "Wake up", steer);
       await vi.waitFor(() => expect(steer).toHaveBeenCalledWith("test", "/workflow/chat", "Wake up"));
-    } finally { release(); }
+    } finally {
+      release();
+    }
     await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("succeeded"));
-    const messages = (await runner.readRun(run.id))!.blocks.find((block) => block.blockId === "room")!.meeting!.messages;
+    const messages = (await runner.readRun(run.id))!.blocks.find((block) => block.blockId === "room")!.meeting!
+      .messages;
     expect(messages.map((message) => message.text)).toEqual([
-      "[Status] Chat started activity.", "[Status] Chat is waiting for a timer.", "[Status] Chat is idle.",
+      "[Status] Chat started activity.",
+      "[Status] Chat is waiting for a timer.",
+      "[Status] Chat is idle.",
     ]);
   });
 
@@ -700,136 +1957,404 @@ describe("HarnessRunner", () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "workflow-autopilot-"));
     const store = new HarnessStore("/workspace", directory);
     const created = await store.create("Autopilot");
-    const definition = await store.update({ ...created, blocks: [{ id: "chat", type: "chatbox", label: "Chat", prompt: "", autopilot: false, position: { x: 0, y: 0 } }], edges: [] });
+    const definition = await store.update({
+      ...created,
+      blocks: [{ id: "chat", type: "chatbox", label: "Chat", prompt: "", autopilot: false, position: { x: 0, y: 0 } }],
+      edges: [],
+    });
     const runner = new HarnessRunner(store, () => {});
     let release!: () => void;
-    const waiting = new Promise<void>((resolve) => { release = resolve; });
-    const running: AiSession = { id: "owned", model: "test", reasoning: "", status: "in_progress", configuration: { autopilot: false }, availableOptions: [{ id: "autopilot", name: "Autopilot", description: "", type: "boolean", defaultValue: false, permissionApproval: true }], messages: [] };
-    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
-      await runtime.started("/workflow/chat");
-      await runtime.activity({ ...running, pendingPermission: { id: "permission", title: "Run command", toolCallId: "tool", options: [{ optionId: "yes", name: "Allow", kind: "allow_once" }] } });
-      await waiting;
-      return { ...running, status: "done" };
-    }, "test");
-    const configure = vi.fn(async (_provider, _workspace, _sessionId, enabled) => ({ ...running, configuration: { autopilot: enabled } }));
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const running: AiSession = {
+      id: "owned",
+      model: "test",
+      reasoning: "",
+      status: "in_progress",
+      configuration: { autopilot: false },
+      availableOptions: [
+        {
+          id: "autopilot",
+          name: "Autopilot",
+          description: "",
+          type: "boolean",
+          defaultValue: false,
+          permissionApproval: true,
+        },
+      ],
+      messages: [],
+    };
+    const run = await runner.start(
+      definition.id,
+      "work",
+      async (_block, _prompt, runtime) => {
+        await runtime.started("/workflow/chat");
+        await runtime.activity({
+          ...running,
+          pendingPermission: {
+            id: "permission",
+            title: "Run command",
+            toolCallId: "tool",
+            options: [{ optionId: "yes", name: "Allow", kind: "allow_once" }],
+          },
+        });
+        await waiting;
+        return { ...running, status: "done" };
+      },
+      "test",
+    );
+    const configure = vi.fn(async (_provider, _workspace, _sessionId, enabled) => ({
+      ...running,
+      configuration: { autopilot: enabled },
+    }));
     try {
-      await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("awaiting_permission"), { timeout: 4_000 });
-      await expect(runner.setAutopilot(run.id, "chat", "stale", true, configure)).rejects.toThrow("no longer available");
+      await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("awaiting_permission"), {
+        timeout: 4_000,
+      });
+      await expect(runner.setAutopilot(run.id, "chat", "stale", true, configure)).rejects.toThrow(
+        "no longer available",
+      );
       expect(configure).not.toHaveBeenCalled();
       const resumed = await runner.setAutopilot(run.id, "chat", "owned", true, configure);
       expect(configure).toHaveBeenCalledWith("test", "/workflow/chat", "owned", true);
-      expect(resumed).toMatchObject({ status: "running", blocks: [expect.objectContaining({ autopilot: true, status: "running", sessionId: "owned" })] });
+      expect(resumed).toMatchObject({
+        status: "running",
+        blocks: [expect.objectContaining({ autopilot: true, status: "running", sessionId: "owned" })],
+      });
       expect(resumed.blocks[0]?.pendingPermission).toBeUndefined();
       expect(resumed.definition?.blocks[0]?.autopilot).toBe(false);
       expect((await runner.setAutopilot(run.id, "chat", "owned", false, configure)).blocks[0]?.autopilot).toBe(false);
-    } finally { release(); }
+    } finally {
+      release();
+    }
     await vi.waitFor(async () => expect((await runner.readRun(run.id))?.status).toBe("succeeded"), { timeout: 4_000 });
     expect((await runner.setAutopilot(run.id, "chat", "owned", true, configure)).blocks[0]?.autopilot).toBe(true);
   });
 
   it("resolves a permission only for its exact paused workflow attempt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-permission-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Permission");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-permission-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Permission");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const runner = new HarnessRunner(store, () => undefined);
     const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
       await runtime.started("/workflow/worker");
-      await runtime.activity({ id: "session-1", model: "test", reasoning: "low", status: "in_progress", pendingPermission: { id: "permission-1", title: "Run command", toolCallId: "tool-1", options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }] }, messages: [] });
-      await waiting; return session("session-1");
+      await runtime.activity({
+        id: "session-1",
+        model: "test",
+        reasoning: "low",
+        status: "in_progress",
+        pendingPermission: {
+          id: "permission-1",
+          title: "Run command",
+          toolCallId: "tool-1",
+          options: [{ optionId: "allow", name: "Allow", kind: "allow_once" }],
+        },
+        messages: [],
+      });
+      await waiting;
+      return session("session-1");
     });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_permission"), { timeout: 4_000 });
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_permission"), {
+      timeout: 4_000,
+    });
     const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!;
-    await expect(runner.resolvePermission(run.id, "worker", "wrong-session", pauseId, "permission-1", "allow", vi.fn())).rejects.toThrow("different workflow session");
-    const resolve = vi.fn(async () => ({ id: "session-1", model: "test", reasoning: "low", status: "in_progress" as const, messages: [] }));
-    const resumed = await runner.resolvePermission(run.id, "worker", "session-1", pauseId, "permission-1", "allow", resolve);
+    await expect(
+      runner.resolvePermission(run.id, "worker", "wrong-session", pauseId, "permission-1", "allow", vi.fn()),
+    ).rejects.toThrow("different workflow session");
+    const resolve = vi.fn(async () => ({
+      id: "session-1",
+      model: "test",
+      reasoning: "low",
+      status: "in_progress" as const,
+      messages: [],
+    }));
+    const resumed = await runner.resolvePermission(
+      run.id,
+      "worker",
+      "session-1",
+      pauseId,
+      "permission-1",
+      "allow",
+      resolve,
+    );
     expect(resolve).toHaveBeenCalledWith("codex", "/workflow/worker", "permission-1", "allow");
-    expect(resumed.status).toBe("running"); expect(resumed.blocks[0]).toMatchObject({ status: "running", sessionId: "session-1" }); expect(resumed.blocks[0]?.pendingPermission).toBeUndefined();
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    expect(resumed.status).toBe("running");
+    expect(resumed.blocks[0]).toMatchObject({ status: "running", sessionId: "session-1" });
+    expect(resumed.blocks[0]?.pendingPermission).toBeUndefined();
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
   });
 
   it("delivers an answer to the exact workflow session and records it", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-question-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Question");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-question-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Question");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const runner = new HarnessRunner(store, () => undefined);
     const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
       await runtime.started("/workflow/worker");
-      await runtime.activity({ id: "session-2", model: "test", reasoning: "low", status: "user_prompt", messages: [{ id: "question", role: "assistant", text: "Which branch?", timestamp: "now" }] });
-      await waiting; return session("session-2");
+      await runtime.activity({
+        id: "session-2",
+        model: "test",
+        reasoning: "low",
+        status: "user_prompt",
+        messages: [{ id: "question", role: "assistant", text: "Which branch?", timestamp: "now" }],
+      });
+      await waiting;
+      return session("session-2");
     });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_user_input"), { timeout: 4_000 });
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_user_input"), {
+      timeout: 4_000,
+    });
     const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!;
-    const answer = vi.fn(async () => ({ id: "session-2", model: "test", reasoning: "low", status: "in_progress" as const, messages: [] }));
+    const answer = vi.fn(async () => ({
+      id: "session-2",
+      model: "test",
+      reasoning: "low",
+      status: "in_progress" as const,
+      messages: [],
+    }));
     const resumed = await runner.answerQuestion(run.id, "worker", "session-2", pauseId, " feature/auth ", answer);
     expect(answer).toHaveBeenCalledWith("codex", "/workflow/worker", "feature/auth");
     expect(resumed.blocks[0]?.log?.at(-1)?.message).toBe("Provider resumed work");
     expect(resumed.blocks[0]?.log?.some((entry) => entry.message === "User answer: feature/auth")).toBe(true);
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
   });
 
   it("fires the timer for the exact paused attempt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-timer-resume-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Timer");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); const runner = new HarnessRunner(store, () => undefined);
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-timer-resume-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Timer");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
     const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
-      await runtime.started("/workflow/worker"); await runtime.activity({ id: "session-timer", model: "test", reasoning: "low", status: "done", messages: [] }, "2099-01-01T00:00:00.000Z");
-      await waiting; return session("session-timer");
+      await runtime.started("/workflow/worker");
+      await runtime.activity(
+        { id: "session-timer", model: "test", reasoning: "low", status: "done", messages: [] },
+        "2099-01-01T00:00:00.000Z",
+      );
+      await waiting;
+      return session("session-timer");
     });
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("waiting_timer"), { timeout: 4_000 });
-    const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!; const fire = vi.fn().mockResolvedValue(true);
+    const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!;
+    const fire = vi.fn().mockResolvedValue(true);
     await expect(runner.resumeTimer(run.id, "worker", "stale-pause", fire)).rejects.toThrow("different paused attempt");
     const resumed = await runner.resumeTimer(run.id, "worker", pauseId, fire);
-    expect(fire).toHaveBeenCalledWith("codex", "/workflow/worker"); expect(resumed).toMatchObject({ status: "running", blocks: [{ status: "running", pauseId: undefined }] });
-    release(); await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
+    expect(fire).toHaveBeenCalledWith("codex", "/workflow/worker");
+    expect(resumed).toMatchObject({ status: "running", blocks: [{ status: "running", pauseId: undefined }] });
+    release();
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
   });
 
   it("retries the exact scheduled attempt immediately", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-now-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Retry");
-    await store.update({ ...definition, blocks: [{ id: "watchdog", type: "prompt", label: "Watchdog", prompt: "watch", watchdog: true, position: { x: 0, y: 0 } }, { id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); let attempts = 0; const runner = new HarnessRunner(store, () => undefined, 4, { maxAttempts: 3, transportBackoffMs: 60_000 });
-    const run = await runner.start(definition.id, "work", async (block) => { if (block.watchdog) { await waiting; return session("watchdog"); } attempts += 1; throw new Error("ETIMEDOUT"); });
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-retry-now-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Retry");
+    await store.update({
+      ...definition,
+      blocks: [
+        {
+          id: "watchdog",
+          type: "prompt",
+          label: "Watchdog",
+          prompt: "watch",
+          watchdog: true,
+          position: { x: 0, y: 0 },
+        },
+        { id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } },
+      ],
+      edges: [],
+    });
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let attempts = 0;
+    const runner = new HarnessRunner(store, () => undefined, 4, { maxAttempts: 3, transportBackoffMs: 60_000 });
+    const run = await runner.start(definition.id, "work", async (block) => {
+      if (block.watchdog) {
+        await waiting;
+        return session("watchdog");
+      }
+      attempts += 1;
+      throw new Error("ETIMEDOUT");
+    });
     try {
-      await vi.waitFor(async () => expect((await store.runs())[0]?.blocks.find((item) => item.blockId === "worker")?.status).toBe("retry_scheduled"), { timeout: 4_000 });
+      await vi.waitFor(
+        async () =>
+          expect((await store.runs())[0]?.blocks.find((item) => item.blockId === "worker")?.status).toBe(
+            "retry_scheduled",
+          ),
+        { timeout: 4_000 },
+      );
       const pauseId = (await store.runs())[0]!.blocks.find((item) => item.blockId === "worker")!.pauseId!;
       await expect(runner.retryPause(run.id, "worker", "stale-pause")).rejects.toThrow("different paused attempt");
-      await runner.retryPause(run.id, "worker", pauseId); await vi.waitFor(() => expect(attempts).toBe(2), { timeout: 4_000 });
-    } finally { await runner.cancel(run.id, async () => release()); release(); }
+      await runner.retryPause(run.id, "worker", pauseId);
+      await vi.waitFor(() => expect(attempts).toBe(2), { timeout: 4_000 });
+    } finally {
+      await runner.cancel(run.id, async () => release());
+      release();
+    }
   });
 
   it("cancels and interrupts a provider-backed paused attempt", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-pause-cancel-")); const store = new HarnessStore("/workspace", state); const definition = await store.create("Cancel pause");
-    await store.update({ ...definition, blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }], edges: [] });
-    let release!: () => void; const waiting = new Promise<void>((resolve) => { release = resolve; }); const runner = new HarnessRunner(store, () => undefined);
-    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
-      await runtime.started("/workflow/worker"); await runtime.activity({ id: "session-cancel", model: "test", reasoning: "low", status: "user_prompt", messages: [{ id: "q", role: "assistant", text: "Continue?", timestamp: "now" }] });
-      await waiting; return session("session-cancel");
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-pause-cancel-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Cancel pause");
+    await store.update({
+      ...definition,
+      blocks: [{ id: "worker", type: "prompt", label: "Worker", prompt: "work", position: { x: 0, y: 0 } }],
+      edges: [],
     });
-    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_user_input"), { timeout: 4_000 });
-    const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!; const interrupt = vi.fn(async () => release());
+    let release!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async (_block, _prompt, runtime) => {
+      await runtime.started("/workflow/worker");
+      await runtime.activity({
+        id: "session-cancel",
+        model: "test",
+        reasoning: "low",
+        status: "user_prompt",
+        messages: [{ id: "q", role: "assistant", text: "Continue?", timestamp: "now" }],
+      });
+      await waiting;
+      return session("session-cancel");
+    });
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("awaiting_user_input"), {
+      timeout: 4_000,
+    });
+    const pauseId = (await store.runs())[0]!.blocks[0]!.pauseId!;
+    const interrupt = vi.fn(async () => release());
     const cancelled = await runner.cancelPause(run.id, "worker", pauseId, interrupt);
-    expect(cancelled.status).toBe("cancelled"); expect(interrupt).toHaveBeenCalledWith("codex", { runId: run.id, blockId: "worker", workspace: "/workflow/worker" });
+    expect(cancelled.status).toBe("cancelled");
+    expect(interrupt).toHaveBeenCalledWith("codex", {
+      runId: run.id,
+      blockId: "worker",
+      workspace: "/workflow/worker",
+    });
   });
 
   it("persists findings, corrects their owning session, and reruns the review on the new revision", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-correction-")); const store = new HarnessStore("/workspace", state); const created = await store.create("Correction");
-    const oldRevision = "a".repeat(40); const newRevision = "b".repeat(40);
-    const definition = await store.update({ ...created, blocks: [
-      { id: "implement", type: "task", label: "Implement", prompt: "implement", position: { x: 0, y: 0 } },
-      { id: "review", type: "review", label: "Review", prompt: "review", review: { revision: oldRevision, correction: { ownerBlockId: "implement", maxCycles: 2 } }, position: { x: 100, y: 0 } }
-    ], edges: [{ id: "to-review", from: "implement", to: "review" }] });
-    let reviewCalls = 0; const append = vi.fn(async () => ({ ...session("corrected"), messages: [{ id: "corrected", role: "assistant" as const, text: JSON.stringify({ revision: newRevision }), timestamp: "now" }] }));
+    const state = await mkdtemp(path.join(os.tmpdir(), "workflow-correction-"));
+    const store = new HarnessStore("/workspace", state);
+    const created = await store.create("Correction");
+    const oldRevision = "a".repeat(40);
+    const newRevision = "b".repeat(40);
+    const definition = await store.update({
+      ...created,
+      blocks: [
+        { id: "implement", type: "task", label: "Implement", prompt: "implement", position: { x: 0, y: 0 } },
+        {
+          id: "review",
+          type: "review",
+          label: "Review",
+          prompt: "review",
+          review: { revision: oldRevision, correction: { ownerBlockId: "implement", maxCycles: 2 } },
+          position: { x: 100, y: 0 },
+        },
+      ],
+      edges: [{ id: "to-review", from: "implement", to: "review" }],
+    });
+    let reviewCalls = 0;
+    const append = vi.fn(async () => ({
+      ...session("corrected"),
+      messages: [
+        {
+          id: "corrected",
+          role: "assistant" as const,
+          text: JSON.stringify({ revision: newRevision }),
+          timestamp: "now",
+        },
+      ],
+    }));
     const runner = new HarnessRunner(store, () => undefined);
-    await runner.start(definition.id, "work", async (block, _prompt, runtime) => {
-      if (block.id === "implement") { await runtime.started("/workflow/implement"); return session("implemented"); }
-      reviewCalls += 1;
-      const revision = block.review!.revision;
-      return { ...session(`review-${reviewCalls}`), messages: [{ id: `review-${reviewCalls}`, role: "assistant" as const, text: JSON.stringify({ revision, findings: reviewCalls === 1 ? [{ id: "missing-test", message: "Add a regression test", ownerBlockId: "implement" }] : [] }), timestamp: "now" }] };
-    }, "test", append);
+    await runner.start(
+      definition.id,
+      "work",
+      async (block, _prompt, runtime) => {
+        if (block.id === "implement") {
+          await runtime.started("/workflow/implement");
+          return session("implemented");
+        }
+        reviewCalls += 1;
+        const revision = block.review!.revision;
+        return {
+          ...session(`review-${reviewCalls}`),
+          messages: [
+            {
+              id: `review-${reviewCalls}`,
+              role: "assistant" as const,
+              text: JSON.stringify({
+                revision,
+                findings:
+                  reviewCalls === 1
+                    ? [{ id: "missing-test", message: "Add a regression test", ownerBlockId: "implement" }]
+                    : [],
+              }),
+              timestamp: "now",
+            },
+          ],
+        };
+      },
+      "test",
+      append,
+    );
     await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("succeeded"), { timeout: 4_000 });
     const run = (await store.runs())[0]!;
-    expect(reviewCalls).toBe(2); expect(append).toHaveBeenCalledWith(expect.objectContaining({ id: "implement" }), expect.stringContaining("missing-test"), expect.anything());
-    expect(run.corrections).toMatchObject([{ status: "corrected", revision: oldRevision, correctedRevision: newRevision, findings: [{ ownerBlockId: "implement", revision: oldRevision }] }]);
+    expect(reviewCalls).toBe(2);
+    expect(append).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "implement" }),
+      expect.stringContaining("missing-test"),
+      expect.anything(),
+    );
+    expect(run.corrections).toMatchObject([
+      {
+        status: "corrected",
+        revision: oldRevision,
+        correctedRevision: newRevision,
+        findings: [{ ownerBlockId: "implement", revision: oldRevision }],
+      },
+    ]);
   });
 });
 
-function session(id: string) { return { id, model: "test", reasoning: "low", status: "done" as const, messages: [{ id, role: "assistant" as const, text: id, timestamp: "now" }] }; }
+function session(id: string) {
+  return {
+    id,
+    model: "test",
+    reasoning: "low",
+    status: "done" as const,
+    messages: [{ id, role: "assistant" as const, text: id, timestamp: "now" }],
+  };
+}

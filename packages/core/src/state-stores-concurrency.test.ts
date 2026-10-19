@@ -12,7 +12,15 @@ it("preserves timer mutations and coherent option backups across independent Cor
   const directory = await mkdtemp(path.join(os.tmpdir(), "state-store-processes-"));
   const timersModule = new URL("./ai-timers.ts", import.meta.url).href;
   const optionsModule = new URL("./workspace-state.ts", import.meta.url).href;
-  const run = (name: string, cancel = false) => promisify(execFile)(process.execPath, ["--import", "tsx", "--input-type=module", "-e", `
+  const run = (name: string, cancel = false) =>
+    promisify(execFile)(
+      process.execPath,
+      [
+        "--import",
+        "tsx",
+        "--input-type=module",
+        "-e",
+        `
     import { AiTimerStore } from ${JSON.stringify(timersModule)};
     import { WorkspaceStateStore } from ${JSON.stringify(optionsModule)};
     const timers = new AiTimerStore('/workspace', process.argv[1]);
@@ -21,7 +29,11 @@ it("preserves timer mutations and coherent option backups across independent Cor
       ${cancel ? "await timers.removeWorkspace('/task/first-' + index);" : `await timers.set('/task/${name}-' + index, 'provider', 'continue', 60);`}
       await options.save({openFiles:[],gitCommitMessage:${JSON.stringify(name)} + '-' + index});
     }
-  `, directory], { timeout: 20_000 });
+  `,
+        directory,
+      ],
+      { timeout: 20_000 },
+    );
   try {
     await Promise.all([run("first"), run("second")]);
     const timers = new AiTimerStore("/workspace", directory);
@@ -36,5 +48,7 @@ it("preserves timer mutations and coherent option backups across independent Cor
     const optionsFile = path.join(directory, `${createHash("sha256").update("/workspace").digest("hex")}.json`);
     expect(JSON.parse(await readFile(`${optionsFile}.bak`, "utf8")).gitCommitMessage).toMatch(/^(remove|third)-[0-7]$/);
     expect((await readdir(directory)).some((name) => name.endsWith(".tmp") || name.endsWith(".lock"))).toBe(false);
-  } finally { await rm(directory, { recursive: true, force: true }); }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 }, 30_000);

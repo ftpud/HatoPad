@@ -1,9 +1,15 @@
 import { useState } from "react";
-import type { LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, RootedJavaDiagnostic } from "@hatopad/protocol";
+import type {
+  LanguageDescriptor,
+  JavaBreakpoint,
+  JavaDebugState,
+  JavaProjectNode,
+  JavaProjectOptions,
+  RootedJavaDiagnostic,
+} from "@hatopad/protocol";
 import { type RunProject, type RunProjectProcess } from "./run-projects";
 
 export function useLanguagePanelState() {
-
   const [languages, setLanguages] = useState<LanguageDescriptor[]>([]);
 
   const [runProjects, setRunProjects] = useState<RunProject[]>([]);
@@ -63,6 +69,6 @@ export function useLanguagePanelState() {
     javaDiagnostics,
     setJavaDiagnostics,
     javaChecking,
-    setJavaChecking
+    setJavaChecking,
   };
 }

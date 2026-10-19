@@ -20,7 +20,9 @@ it("closes on Escape and returns focus to its control", () => {
   expect(document.activeElement).toBe(trigger);
 });
 it("labels a cloud connection with an icon and its cloud origin instead of the loopback bridge", () => {
-  render(<ConnectionMenu host="127.0.0.1" port="41234" cloudOrigin="https://hub.example" connected onDisconnect={vi.fn()} />);
+  render(
+    <ConnectionMenu host="127.0.0.1" port="41234" cloudOrigin="https://hub.example" connected onDisconnect={vi.fn()} />,
+  );
   const trigger = screen.getByRole("button", { name: "Core connection" });
   expect(screen.getByText("Cloud")).toBeTruthy();
   expect(screen.queryByText("Local Core")).toBeNull();
@@ -32,7 +34,15 @@ it("labels a cloud connection with an icon and its cloud origin instead of the l
   expect(screen.queryByText("127.0.0.1:41234")).toBeNull();
 });
 it("keeps cloud identity when disconnected while showing Offline", () => {
-  render(<ConnectionMenu host="127.0.0.1" port="41234" cloudOrigin="https://hub.example" connected={false} onDisconnect={vi.fn()} />);
+  render(
+    <ConnectionMenu
+      host="127.0.0.1"
+      port="41234"
+      cloudOrigin="https://hub.example"
+      connected={false}
+      onDisconnect={vi.fn()}
+    />,
+  );
   expect(screen.getByText("Offline")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Core connection" }).querySelector("svg.lucide-cloud")).toBeTruthy();
 });

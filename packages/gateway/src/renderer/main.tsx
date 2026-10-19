@@ -8,4 +8,8 @@ import "./styles.css";
 const removeWindowChrome = installGatewayWindowChrome(document.documentElement, window.gateway);
 if (import.meta.hot) import.meta.hot.dispose(removeWindowChrome);
 
-ReactDOM.createRoot(document.getElementById("root")!).render(<React.StrictMode><App /></React.StrictMode>);
+ReactDOM.createRoot(document.getElementById("root")!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);

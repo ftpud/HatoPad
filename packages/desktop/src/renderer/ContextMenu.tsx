@@ -23,17 +23,32 @@ export function ContextMenu({ children, onKeyDown, ...props }: HTMLAttributes<HT
       if (owner?.isConnected) owner.focus();
     };
     document.addEventListener("keydown", escape);
-    return () => { document.removeEventListener("keydown", escape); if (!nested && menu.contains(document.activeElement) && owner?.isConnected) owner.focus(); };
+    return () => {
+      document.removeEventListener("keydown", escape);
+      if (!nested && menu.contains(document.activeElement) && owner?.isConnected) owner.focus();
+    };
   }, []);
   const navigate = (event: KeyboardEvent<HTMLDivElement>) => {
     onKeyDown?.(event);
     if (event.defaultPrevented || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-    const controls = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")].filter((button) => !button.closest(".context-submenu") || button.closest(".context-menu") === event.currentTarget);
+    const controls = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")].filter(
+      (button) => !button.closest(".context-submenu") || button.closest(".context-menu") === event.currentTarget,
+    );
     if (!controls.length) return;
-    event.preventDefault(); event.stopPropagation();
+    event.preventDefault();
+    event.stopPropagation();
     const current = controls.indexOf(document.activeElement as HTMLButtonElement);
-    const next = event.key === "Home" ? 0 : event.key === "End" ? controls.length - 1 : (current + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length;
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? controls.length - 1
+          : (current + (event.key === "ArrowDown" ? 1 : -1) + controls.length) % controls.length;
     controls[next]?.focus();
   };
-  return <div {...props} ref={root} role="menu" onKeyDown={navigate}>{children}</div>;
+  return (
+    <div {...props} ref={root} role="menu" onKeyDown={navigate}>
+      {children}
+    </div>
+  );
 }

@@ -8,25 +8,103 @@ import type { WorkspaceRootId } from "./workspace.js";
 export type ProtocolCompatibility = { minimum: number; maximum: number };
 
 /** Additive operations a Core advertises in its handshake; absent on older Cores, which reject the matching requests with INVALID_REQUEST. */
-export const coreCapabilities = ["overview.summary", "ai.messages", "filesystem.readFile.maxBytes", "git.diff.maxBytes", "overview.workflowAttention", "harnesses.progress", "tasks.switch.includeTree", "ai.get.summary", "ai.sessions.paging", "session.responseLimit", "workspace.selectRoot.includeTree", "filesystem.listDirectory", "session.pendingBounds", "overview.activity", "workspace.open.includeTree", "pending.truncatedFlag", "tasks.lifecycle", "automation.management", "git.summary", "taskGit.summary", "tasks.commitMessage", "overview.counts", "terminal.watch", "harnesses.blockDetail", "terminal.watch.flowControl", "taskGit.files", "taskGit.revert", "triggers.history", "ai.configureNext", "overview.work", "attention.read", "harnesses.control", "harnesses.inspect", "harnesses.invoke", "inventory.page", "tasks.paging", "overview.events", "harnesses.templates", "useful.read.maxBytes", "automation.paging", "core.gitUpdate", "ports.tunnel", "client.presence"] as const;
+export const coreCapabilities = [
+  "overview.summary",
+  "ai.messages",
+  "filesystem.readFile.maxBytes",
+  "git.diff.maxBytes",
+  "overview.workflowAttention",
+  "harnesses.progress",
+  "tasks.switch.includeTree",
+  "ai.get.summary",
+  "ai.sessions.paging",
+  "session.responseLimit",
+  "workspace.selectRoot.includeTree",
+  "filesystem.listDirectory",
+  "session.pendingBounds",
+  "overview.activity",
+  "workspace.open.includeTree",
+  "pending.truncatedFlag",
+  "tasks.lifecycle",
+  "automation.management",
+  "git.summary",
+  "taskGit.summary",
+  "tasks.commitMessage",
+  "overview.counts",
+  "terminal.watch",
+  "harnesses.blockDetail",
+  "terminal.watch.flowControl",
+  "taskGit.files",
+  "taskGit.revert",
+  "triggers.history",
+  "ai.configureNext",
+  "overview.work",
+  "attention.read",
+  "harnesses.control",
+  "harnesses.inspect",
+  "harnesses.invoke",
+  "inventory.page",
+  "tasks.paging",
+  "overview.events",
+  "harnesses.templates",
+  "useful.read.maxBytes",
+  "automation.paging",
+  "core.gitUpdate",
+  "ports.tunnel",
+  "client.presence",
+] as const;
 
 export type CoreCapability = (typeof coreCapabilities)[number];
 
 export function protocolRangeIsValid(range: ProtocolCompatibility): boolean {
-  return Number.isInteger(range.minimum) && Number.isInteger(range.maximum) && range.minimum > 0 && range.minimum <= range.maximum;
+  return (
+    Number.isInteger(range.minimum) &&
+    Number.isInteger(range.maximum) &&
+    range.minimum > 0 &&
+    range.minimum <= range.maximum
+  );
 }
 
 export function protocolRangesOverlap(left: ProtocolCompatibility, right: ProtocolCompatibility): boolean {
-  return protocolRangeIsValid(left) && protocolRangeIsValid(right) && left.minimum <= right.maximum && right.minimum <= left.maximum;
+  return (
+    protocolRangeIsValid(left) &&
+    protocolRangeIsValid(right) &&
+    left.minimum <= right.maximum &&
+    right.minimum <= left.maximum
+  );
 }
 
-export type CoreUpdateStatus = { branch: 'dev' | 'main'; available: boolean; updateAvailable: boolean; canUpdate: boolean; phase: 'idle' | 'restarting'; current?: string; latest?: string; tag?: string; reason?: string };
+export type CoreUpdateStatus = {
+  branch: "dev" | "main";
+  available: boolean;
+  updateAvailable: boolean;
+  canUpdate: boolean;
+  phase: "idle" | "restarting";
+  current?: string;
+  latest?: string;
+  tag?: string;
+  reason?: string;
+};
 
 export type RequestType = keyof ProtocolOperations;
 
 /** All nested relative paths and opaque root-owned references inherit this envelope root. */
 export type Request<T extends RequestType = RequestType> = T extends RequestType
-  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "client.presence" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId })
+  ? { id: string; type: T; payload: ProtocolOperations[T]["payload"] } & (T extends
+      | `portTunnel.${string}`
+      | "protocol.maintenance"
+      | "core.update.check"
+      | "core.update.apply"
+      | "protocol.handshake"
+      | "protocol.keepAlive"
+      | "client.presence"
+      | "workspace.roots"
+      | "workspace.addRoot"
+      | "overview.summary"
+      | "overview.work"
+      | "overview.events"
+      ? { rootId?: never }
+      : { rootId: WorkspaceRootId })
   : never;
 
 export type ErrorCode =
@@ -56,5 +134,19 @@ export type ErrorCode =
 export type ProtocolError = { code: ErrorCode; message: string };
 
 export type Response<T extends RequestType = RequestType> =
-  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends `portTunnel.${string}` | "protocol.maintenance" | "core.update.check" | "core.update.apply" | "protocol.handshake" | "protocol.keepAlive" | "client.presence" | "workspace.roots" | "workspace.addRoot" | "overview.summary" | "overview.work" | "overview.events" ? { rootId?: never } : { rootId: WorkspaceRootId }))
+  | ({ id: string; ok: true; result: ProtocolOperations[T]["result"] } & (T extends
+      | `portTunnel.${string}`
+      | "protocol.maintenance"
+      | "core.update.check"
+      | "core.update.apply"
+      | "protocol.handshake"
+      | "protocol.keepAlive"
+      | "client.presence"
+      | "workspace.roots"
+      | "workspace.addRoot"
+      | "overview.summary"
+      | "overview.work"
+      | "overview.events"
+      ? { rootId?: never }
+      : { rootId: WorkspaceRootId }))
   | { id: string; ok: false; error: ProtocolError };

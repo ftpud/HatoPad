@@ -5,10 +5,23 @@ contextBridge.exposeInMainWorld("gateway", {
   onFullscreenChange(listener: (fullscreen: boolean) => void): () => void {
     let disposed = false;
     let receivedEvent = false;
-    const handler = (_event: unknown, fullscreen: unknown) => { if (typeof fullscreen === "boolean") { receivedEvent = true; listener(fullscreen); } };
+    const handler = (_event: unknown, fullscreen: unknown) => {
+      if (typeof fullscreen === "boolean") {
+        receivedEvent = true;
+        listener(fullscreen);
+      }
+    };
     ipcRenderer.on("gateway:fullscreen-changed", handler);
-    void ipcRenderer.invoke("gateway:window-fullscreen").then((fullscreen: unknown) => { if (!disposed && !receivedEvent && typeof fullscreen === "boolean") listener(fullscreen); }).catch(() => undefined);
-    return () => { disposed = true; ipcRenderer.removeListener("gateway:fullscreen-changed", handler); };
+    void ipcRenderer
+      .invoke("gateway:window-fullscreen")
+      .then((fullscreen: unknown) => {
+        if (!disposed && !receivedEvent && typeof fullscreen === "boolean") listener(fullscreen);
+      })
+      .catch(() => undefined);
+    return () => {
+      disposed = true;
+      ipcRenderer.removeListener("gateway:fullscreen-changed", handler);
+    };
   },
   cloudSaveOrigin: (origin: string) => ipcRenderer.invoke("gateway:cloudSaveOrigin", origin),
   cloudGet: () => ipcRenderer.invoke("gateway:cloudGet"),
@@ -30,7 +43,8 @@ contextBridge.exposeInMainWorld("gateway", {
   testConnection: (value: unknown) => ipcRenderer.invoke("gateway:testConnection", value),
   saveConnection: (value: unknown) => ipcRenderer.invoke("gateway:saveConnection", value),
   deleteConnection: (id: string) => ipcRenderer.invoke("gateway:deleteConnection", id),
-  discoverWorkspaceDirectories: (connectionId: string) => ipcRenderer.invoke("gateway:discoverWorkspaceDirectories", connectionId),
+  discoverWorkspaceDirectories: (connectionId: string) =>
+    ipcRenderer.invoke("gateway:discoverWorkspaceDirectories", connectionId),
   pickWorkspaceDirectory: () => ipcRenderer.invoke("gateway:pickWorkspaceDirectory"),
   saveWorkspace: (value: unknown) => ipcRenderer.invoke("gateway:saveWorkspace", value),
   deleteWorkspace: (id: string) => ipcRenderer.invoke("gateway:deleteWorkspace", id),
@@ -43,7 +57,19 @@ contextBridge.exposeInMainWorld("gateway", {
   cancelProvisioning: (id: string) => ipcRenderer.invoke("gateway:cancelProvisioning", id),
   stopServer: (id: string) => ipcRenderer.invoke("gateway:stopServer", id),
   startClient: (id: string) => ipcRenderer.invoke("gateway:startClient", id),
-  onStatus: (listener: (id: string, status: unknown) => void) => { const handler = (_event: unknown, id: string, status: unknown) => listener(id, status); ipcRenderer.on("gateway:status", handler); return () => ipcRenderer.removeListener("gateway:status", handler); },
-  onTunnelStatus: (listener: (id: string, status: unknown) => void) => { const handler = (_event: unknown, id: string, status: unknown) => listener(id, status); ipcRenderer.on("gateway:tunnelStatus", handler); return () => ipcRenderer.removeListener("gateway:tunnelStatus", handler); },
-  onConnectionStatus: (listener: (id: string, status: unknown) => void) => { const handler = (_event: unknown, id: string, status: unknown) => listener(id, status); ipcRenderer.on("gateway:connectionStatus", handler); return () => ipcRenderer.removeListener("gateway:connectionStatus", handler); }
+  onStatus: (listener: (id: string, status: unknown) => void) => {
+    const handler = (_event: unknown, id: string, status: unknown) => listener(id, status);
+    ipcRenderer.on("gateway:status", handler);
+    return () => ipcRenderer.removeListener("gateway:status", handler);
+  },
+  onTunnelStatus: (listener: (id: string, status: unknown) => void) => {
+    const handler = (_event: unknown, id: string, status: unknown) => listener(id, status);
+    ipcRenderer.on("gateway:tunnelStatus", handler);
+    return () => ipcRenderer.removeListener("gateway:tunnelStatus", handler);
+  },
+  onConnectionStatus: (listener: (id: string, status: unknown) => void) => {
+    const handler = (_event: unknown, id: string, status: unknown) => listener(id, status);
+    ipcRenderer.on("gateway:connectionStatus", handler);
+    return () => ipcRenderer.removeListener("gateway:connectionStatus", handler);
+  },
 });

@@ -10,5 +10,7 @@ if (app.isPackaged && process.argv.includes(EDITOR_FLAG)) {
   const bundle = await loadBundle(process.resourcesPath);
   // Same settings directory as the standalone HatoPad, separate from Gateway's.
   app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));
-  await import(pathToFileURL(path.join(process.resourcesPath, "bundle", bundle.desktopApp, "dist-electron", "main.js")).href);
+  await import(
+    pathToFileURL(path.join(process.resourcesPath, "bundle", bundle.desktopApp, "dist-electron", "main.js")).href
+  );
 } else await import("./main.js");

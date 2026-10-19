@@ -1,4 +1,11 @@
-export function openTaskFromSummary({ taskId, pendingPermission, sideLayout, openClassicAi, openFocusedAi, switchTask }: {
+export function openTaskFromSummary({
+  taskId,
+  pendingPermission,
+  sideLayout,
+  openClassicAi,
+  openFocusedAi,
+  switchTask,
+}: {
   taskId?: string;
   pendingPermission: boolean;
   sideLayout: "classic" | "ai-focused";

@@ -4,11 +4,21 @@ import type { FileTreeNode } from "@hatopad/protocol";
 import { QuickOpenDialog, rankQuickOpenFiles, workspaceFiles } from "./QuickOpenDialog";
 
 const tree: FileTreeNode[] = [
-  { name: "src", path: "src", type: "directory", children: [
-    { name: "components", path: "src/components", type: "directory", children: [{ name: "ProjectTree.tsx", path: "src/components/ProjectTree.tsx", type: "file" }] },
-    { name: "quick-project.ts", path: "src/quick-project.ts", type: "file" }
-  ] },
-  { name: "README.md", path: "README.md", type: "file" }
+  {
+    name: "src",
+    path: "src",
+    type: "directory",
+    children: [
+      {
+        name: "components",
+        path: "src/components",
+        type: "directory",
+        children: [{ name: "ProjectTree.tsx", path: "src/components/ProjectTree.tsx", type: "file" }],
+      },
+      { name: "quick-project.ts", path: "src/quick-project.ts", type: "file" },
+    ],
+  },
+  { name: "README.md", path: "README.md", type: "file" },
 ];
 
 afterEach(cleanup);
@@ -16,18 +26,28 @@ afterEach(cleanup);
 describe("Quick Open matching", () => {
   it("flattens Core-owned tree files and ranks filename prefixes above loose path matches", () => {
     const files = workspaceFiles(tree);
-    expect(files.map((file) => file.path)).toEqual(["src/components/ProjectTree.tsx", "src/quick-project.ts", "README.md"]);
-    expect(rankQuickOpenFiles(files, "pro").map((file) => file.path)).toEqual(["src/components/ProjectTree.tsx", "src/quick-project.ts"]);
+    expect(files.map((file) => file.path)).toEqual([
+      "src/components/ProjectTree.tsx",
+      "src/quick-project.ts",
+      "README.md",
+    ]);
+    expect(rankQuickOpenFiles(files, "pro").map((file) => file.path)).toEqual([
+      "src/components/ProjectTree.tsx",
+      "src/quick-project.ts",
+    ]);
   });
 
   it("supports case-insensitive subsequence matching and excludes non-matches", () => {
-    expect(rankQuickOpenFiles(workspaceFiles(tree), "PTX").map((file) => file.path)).toEqual(["src/components/ProjectTree.tsx"]);
+    expect(rankQuickOpenFiles(workspaceFiles(tree), "PTX").map((file) => file.path)).toEqual([
+      "src/components/ProjectTree.tsx",
+    ]);
   });
 });
 
 describe("QuickOpenDialog keyboard interaction", () => {
   it("navigates, opens the active file, and closes with Escape", () => {
-    const onOpen = vi.fn(); const onClose = vi.fn();
+    const onOpen = vi.fn();
+    const onClose = vi.fn();
     render(<QuickOpenDialog files={workspaceFiles(tree)} onOpen={onOpen} onClose={onClose} />);
     const input = screen.getByRole("combobox", { name: "Search workspace files" });
     expect(document.activeElement).toBe(input);

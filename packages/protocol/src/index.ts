@@ -1,8 +1,47 @@
 // Public entry point; domain modules preserve the protocol package API.
-export { compatibleCoreTags } from './core-releases.js';
+export { compatibleCoreTags } from "./core-releases.js";
 export { applyLegacyEnvironment, applyLegacyEnvironmentWithWarning } from "./legacy-env.js";
 export { protocolCompatibility, serverProtocolVersion } from "./protocol-versions.js";
-export type { AiAuthentication, AiAuthMethod, AiAuthInput, AiProviderInstallation, AiProviderOrigin, AiProtocolVersion, AiCredentialSource, AiContextCategory, AiContextEntry, AiContextSection, AiContextSnapshot, AiAgent, AiAgentPreset, AiCommand, AiConfiguration, AiContentBlock, AiFailure, AiFailureKind, AiMessage, AiModel, AiMcpServer, AiOption, AiPermissionRequest, AiQuestionAction, AiQuestionAnswer, AiQuestionChoice, AiQuestionField, AiQuestionRequest, AiProvider, AiProviderCapabilities, AiProviderDescriptor, AiSession, AiSettingsLayout, AiSettingsSection, AiStatus, AiTaskSummary, AiTokenUsage, AiUsage } from "@hatopad/acp";
+export type {
+  AiAuthentication,
+  AiAuthMethod,
+  AiAuthInput,
+  AiProviderInstallation,
+  AiProviderOrigin,
+  AiProtocolVersion,
+  AiCredentialSource,
+  AiContextCategory,
+  AiContextEntry,
+  AiContextSection,
+  AiContextSnapshot,
+  AiAgent,
+  AiAgentPreset,
+  AiCommand,
+  AiConfiguration,
+  AiContentBlock,
+  AiFailure,
+  AiFailureKind,
+  AiMessage,
+  AiModel,
+  AiMcpServer,
+  AiOption,
+  AiPermissionRequest,
+  AiQuestionAction,
+  AiQuestionAnswer,
+  AiQuestionChoice,
+  AiQuestionField,
+  AiQuestionRequest,
+  AiProvider,
+  AiProviderCapabilities,
+  AiProviderDescriptor,
+  AiSession,
+  AiSettingsLayout,
+  AiSettingsSection,
+  AiStatus,
+  AiTaskSummary,
+  AiTokenUsage,
+  AiUsage,
+} from "@hatopad/acp";
 export { isServerEvent, serverEventTypes } from "./server-events.js";
 export * from "./operations/index.js";
 export * from "./types/storage.js";

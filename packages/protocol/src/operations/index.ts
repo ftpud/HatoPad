@@ -28,4 +28,32 @@ import type { PluginsOperations } from "./plugins.js";
 import type { LanguageOperations } from "./language.js";
 import type { JavaOperations } from "./java.js";
 
-export type ProtocolOperations = PortTunnelOperations & CoreOperations & StorageOperations & ProtocolSessionOperations & ClientOperations & WorkspaceOperations & InventoryOperations & TasksOperations & SchedulesOperations & TriggersOperations & ProcessesOperations & TimersOperations & AiOperations & ToolsOperations & SkillsOperations & AttentionOperations & OverviewOperations & UsefulOperations & RunConfigOperations & AgentsOperations & HarnessesOperations & HttpOperations & FilesystemOperations & TerminalOperations & GitOperations & TaskGitOperations & PluginsOperations & LanguageOperations & JavaOperations;
+export type ProtocolOperations = PortTunnelOperations &
+  CoreOperations &
+  StorageOperations &
+  ProtocolSessionOperations &
+  ClientOperations &
+  WorkspaceOperations &
+  InventoryOperations &
+  TasksOperations &
+  SchedulesOperations &
+  TriggersOperations &
+  ProcessesOperations &
+  TimersOperations &
+  AiOperations &
+  ToolsOperations &
+  SkillsOperations &
+  AttentionOperations &
+  OverviewOperations &
+  UsefulOperations &
+  RunConfigOperations &
+  AgentsOperations &
+  HarnessesOperations &
+  HttpOperations &
+  FilesystemOperations &
+  TerminalOperations &
+  GitOperations &
+  TaskGitOperations &
+  PluginsOperations &
+  LanguageOperations &
+  JavaOperations;

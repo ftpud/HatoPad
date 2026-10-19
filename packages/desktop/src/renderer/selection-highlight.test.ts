@@ -24,11 +24,19 @@ it("paints nonempty selections, clears collapsed selections, and releases listen
   const codeEditor = {
     createDecorationsCollection: () => ({ set, clear }),
     getSelections: () => selections,
-    onDidChangeCursorSelection: (callback: () => void) => { change = callback; return listener; },
-    onDidDispose: (callback: () => void) => { dispose = callback; return disposal; }
+    onDidChangeCursorSelection: (callback: () => void) => {
+      change = callback;
+      return listener;
+    },
+    onDidDispose: (callback: () => void) => {
+      dispose = callback;
+      return disposal;
+    },
   } as unknown as editor.ICodeEditor;
   highlightEditorSelection(codeEditor);
-  expect(set).toHaveBeenLastCalledWith([{ range: selection, options: expect.objectContaining({ inlineClassName: "hatopad-code-selection" }) }]);
+  expect(set).toHaveBeenLastCalledWith([
+    { range: selection, options: expect.objectContaining({ inlineClassName: "hatopad-code-selection" }) },
+  ]);
   selections = [selection, { ...selection, startLineNumber: 4, endLineNumber: 4 }];
   change();
   expect(set.mock.calls.at(-1)![0]).toHaveLength(2);

@@ -5,7 +5,7 @@ import {
   parseRelayFrame,
   serializeRelayFrame,
   type RelayFrame,
-  type RelayLimits
+  type RelayLimits,
 } from "./index.js";
 
 export interface TestRelayOptions {
@@ -43,7 +43,8 @@ export class TestRelay {
 
     if (!this.authenticated) {
       if (frame.type !== "hello") return this.reply({ type: "error", code: "unauthenticated" });
-      if (!this.options.credentials.includes(frame.credential)) return this.reply({ type: "error", code: "unauthenticated" });
+      if (!this.options.credentials.includes(frame.credential))
+        return this.reply({ type: "error", code: "unauthenticated" });
       const relay = negotiateRelayVersion(frame.relay);
       if (relay === undefined) return this.reply({ type: "error", code: "incompatible" });
       this.authenticated = true;
@@ -58,7 +59,8 @@ export class TestRelay {
       case "channel.data":
       case "channel.close": {
         const check = this.table.accept(frame);
-        if (!check.ok) return this.reply({ type: "error", code: check.code, channel: frame.channel, generation: frame.generation });
+        if (!check.ok)
+          return this.reply({ type: "error", code: check.code, channel: frame.channel, generation: frame.generation });
         if (frame.type === "channel.data") this.received.push({ channel: frame.channel, payload: frame.payload });
         return [];
       }

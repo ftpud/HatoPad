@@ -17,8 +17,6 @@ This is an actively developed experiment. Expect rough edges and breaking change
 
 <img width="1392" height="912" alt="image" src="https://github.com/user-attachments/assets/de8cb0c2-82d4-48b1-b82a-270799bed5d4" />
 
-
-
 ## First run
 
 Use **HatoPad Gateway** to launch the editor. It handles remote installation, builds, updates, and the SSH connection for you.

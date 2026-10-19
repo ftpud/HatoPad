@@ -11,15 +11,28 @@ export interface MessagePage {
 
 function bounded(value: unknown, fallback: number, max: number, name: string): number {
   if (value === undefined) return fallback;
-  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > max) throw new CoreError("INVALID_REQUEST", `${name} must be an integer from 1 to ${max}`);
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1 || value > max)
+    throw new CoreError("INVALID_REQUEST", `${name} must be an integer from 1 to ${max}`);
   return value;
 }
 
 /** Newest-first window over a session's messages, oldest-to-newest within the page. Never mutates the session. */
-export function pageMessages(session: Pick<AiSession, "messages">, request: { before?: unknown; limit?: unknown; maxTextLength?: unknown }): MessagePage {
+export function pageMessages(
+  session: Pick<AiSession, "messages">,
+  request: { before?: unknown; limit?: unknown; maxTextLength?: unknown },
+): MessagePage {
   const limit = bounded(request.limit, messagePageLimits.defaultMessages, messagePageLimits.maxMessages, "limit");
-  const maxText = bounded(request.maxTextLength, messagePageLimits.defaultText, messagePageLimits.maxText, "maxTextLength");
-  if (request.before !== undefined && (typeof request.before !== "string" || !request.before || request.before.length > 128)) throw new CoreError("INVALID_REQUEST", "before must be a message id");
+  const maxText = bounded(
+    request.maxTextLength,
+    messagePageLimits.defaultText,
+    messagePageLimits.maxText,
+    "maxTextLength",
+  );
+  if (
+    request.before !== undefined &&
+    (typeof request.before !== "string" || !request.before || request.before.length > 128)
+  )
+    throw new CoreError("INVALID_REQUEST", "before must be a message id");
   let end = session.messages.length;
   if (request.before !== undefined) {
     end = session.messages.findIndex((message) => message.id === request.before);

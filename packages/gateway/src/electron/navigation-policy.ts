@@ -6,23 +6,37 @@ export type IpcFrame = { url: string; isMainFrame: boolean };
 /** Trust only the configured renderer document, with query/hash state allowed. */
 export function isTrustedRendererUrl(candidate: string, rendererFilePath: string, devServerUrl?: string): boolean {
   let actual: URL;
-  try { actual = new URL(candidate); }
-  catch { return false; }
+  try {
+    actual = new URL(candidate);
+  } catch {
+    return false;
+  }
   if (actual.username || actual.password) return false;
 
   if (devServerUrl) {
     let configured: URL;
-    try { configured = new URL(devServerUrl); }
-    catch { return false; }
-    if ((configured.protocol !== "http:" && configured.protocol !== "https:") || configured.username || configured.password) return false;
+    try {
+      configured = new URL(devServerUrl);
+    } catch {
+      return false;
+    }
+    if (
+      (configured.protocol !== "http:" && configured.protocol !== "https:") ||
+      configured.username ||
+      configured.password
+    )
+      return false;
     return actual.origin === configured.origin && actual.pathname === configured.pathname;
   }
 
   if (actual.protocol !== "file:" || actual.host) return false;
   // Chromium may escape characters such as ~ that Node leaves literal. Compare
   // decoded filesystem paths, while rejecting invalid file URLs/encoded separators.
-  try { return fileURLToPath(actual) === path.resolve(rendererFilePath); }
-  catch { return false; }
+  try {
+    return fileURLToPath(actual) === path.resolve(rendererFilePath);
+  } catch {
+    return false;
+  }
 }
 
 export function isTrustedIpcFrame(
@@ -31,5 +45,7 @@ export function isTrustedIpcFrame(
   rendererFilePath: string,
   devServerUrl?: string,
 ): boolean {
-  return Boolean(belongsToAppWindow && frame?.isMainFrame && isTrustedRendererUrl(frame.url, rendererFilePath, devServerUrl));
+  return Boolean(
+    belongsToAppWindow && frame?.isMainFrame && isTrustedRendererUrl(frame.url, rendererFilePath, devServerUrl),
+  );
 }

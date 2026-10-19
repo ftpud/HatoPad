@@ -1,4 +1,20 @@
-import type { FileTreeNode, FilesystemSnapshotEntry, DirectoryEntry, FileRevision, FilesystemTransferKind, FilesystemTransferRequest, FilesystemTransferPreflight, FilesystemTransferResult, RemoteTransferDirection, RemoteTransferTicket, FilesystemDeletePreview, FilesystemDeleteResult, SearchResult, SearchReplacePreview, SearchReplaceApplyResult } from "../types/filesystem.js";
+import type {
+  FileTreeNode,
+  FilesystemSnapshotEntry,
+  DirectoryEntry,
+  FileRevision,
+  FilesystemTransferKind,
+  FilesystemTransferRequest,
+  FilesystemTransferPreflight,
+  FilesystemTransferResult,
+  RemoteTransferDirection,
+  RemoteTransferTicket,
+  FilesystemDeletePreview,
+  FilesystemDeleteResult,
+  SearchResult,
+  SearchReplacePreview,
+  SearchReplaceApplyResult,
+} from "../types/filesystem.js";
 import type { WorkspaceRootId } from "../types/workspace.js";
 
 export type FilesystemOperations = {
@@ -11,7 +27,10 @@ export type FilesystemOperations = {
     result: { entries: FilesystemSnapshotEntry[] };
   };
   /** Non-recursive, paged listing of one directory (`path` "" or omitted = workspace root; `limit` 1..100, default 50). Directories sort first; `nextCursor` is opaque; `truncated` means the directory had more entries than Core scans. */
-  "filesystem.listDirectory": { payload: { path?: string; limit?: number; cursor?: string }; result: { entries: DirectoryEntry[]; nextCursor?: string; truncated?: boolean } };
+  "filesystem.listDirectory": {
+    payload: { path?: string; limit?: number; cursor?: string };
+    result: { entries: DirectoryEntry[]; nextCursor?: string; truncated?: boolean };
+  };
   "filesystem.readFile": {
     /** `maxBytes` (1..2 MiB) rejects larger files with FILE_TOO_LARGE before reading; Desktop omits it. */
     payload: { path: string; maxBytes?: number };
@@ -34,11 +53,24 @@ export type FilesystemOperations = {
     result: { path: string };
   };
   "filesystem.transferPreflight": {
-    payload: { kind: FilesystemTransferKind; items: FilesystemTransferRequest[]; overwritePaths?: string[]; openFiles?: string[]; dirtyFiles?: string[] };
+    payload: {
+      kind: FilesystemTransferKind;
+      items: FilesystemTransferRequest[];
+      overwritePaths?: string[];
+      openFiles?: string[];
+      dirtyFiles?: string[];
+    };
     result: FilesystemTransferPreflight;
   };
   "filesystem.transferApply": {
-    payload: { kind: FilesystemTransferKind; items: FilesystemTransferRequest[]; overwritePaths?: string[]; openFiles?: string[]; dirtyFiles?: string[]; confirmed: boolean };
+    payload: {
+      kind: FilesystemTransferKind;
+      items: FilesystemTransferRequest[];
+      overwritePaths?: string[];
+      openFiles?: string[];
+      dirtyFiles?: string[];
+      confirmed: boolean;
+    };
     result: FilesystemTransferResult;
   };
   /** Creates a short-lived ticket for the separate binary transfer channel. File bodies never use this JSON operation. */
@@ -60,11 +92,25 @@ export type FilesystemOperations = {
     result: { path: string };
   };
   "filesystem.search": {
-    payload: { query: string; path: string; matchCase: boolean; include?: string; exclude?: string; filesOnly?: boolean };
+    payload: {
+      query: string;
+      path: string;
+      matchCase: boolean;
+      include?: string;
+      exclude?: string;
+      filesOnly?: boolean;
+    };
     result: { matches: SearchResult[]; truncated: boolean };
   };
   "filesystem.searchRoots": {
-    payload: { rootIds: WorkspaceRootId[]; query: string; path: string; matchCase: boolean; include?: string; exclude?: string };
+    payload: {
+      rootIds: WorkspaceRootId[];
+      query: string;
+      path: string;
+      matchCase: boolean;
+      include?: string;
+      exclude?: string;
+    };
     result: { matches: SearchResult[]; truncated: boolean };
   };
   "filesystem.readRootFile": {
@@ -72,7 +118,14 @@ export type FilesystemOperations = {
     result: { rootId: WorkspaceRootId; path: string; content: string; revision: FileRevision };
   };
   "filesystem.replacePreview": {
-    payload: { query: string; replacement: string; path: string; matchCase: boolean; include?: string; exclude?: string };
+    payload: {
+      query: string;
+      replacement: string;
+      path: string;
+      matchCase: boolean;
+      include?: string;
+      exclude?: string;
+    };
     result: SearchReplacePreview;
   };
   "filesystem.replaceApply": {

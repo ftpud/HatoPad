@@ -4,7 +4,13 @@ import { fileURLToPath } from "node:url";
 export const fakeAgentPath = fileURLToPath(new URL("../agent/fake-agent.mjs", import.meta.url));
 
 /** Prompt keywords understood by the fixture agent. */
-export const fixturePrompts = { permission: "PERMISSION", question: "QUESTION", edit: "EDIT", slow: "SLOW", failureOnce: "FAIL_ONCE" } as const;
+export const fixturePrompts = {
+  permission: "PERMISSION",
+  question: "QUESTION",
+  edit: "EDIT",
+  slow: "SLOW",
+  failureOnce: "FAIL_ONCE",
+} as const;
 
 export interface FixtureProviderDefinition {
   id: string;
@@ -29,6 +35,14 @@ export function fixtureProviderDefinition(id = "fixture-agent"): FixtureProvider
     command: process.execPath,
     args: [fakeAgentPath],
     models: [{ id: "model-a", name: "MODEL-A", reasoningLevels: ["low"] }],
-    options: [{ id: "askQuestions", name: "Questions", description: "Let the agent ask form questions", type: "boolean", defaultValue: false }]
+    options: [
+      {
+        id: "askQuestions",
+        name: "Questions",
+        description: "Let the agent ask form questions",
+        type: "boolean",
+        defaultValue: false,
+      },
+    ],
   };
 }

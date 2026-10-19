@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { GitDiffHunk, GitStatusEntry, GitUpstreamStatus, TaskCheckpoint } from "@hatopad/protocol";
 
 export function useGitPanelState() {
-
   /** Bumped on every repository change, including commits/pushes made outside HatoPad. */
   const [gitRevision, setGitRevision] = useState(0);
 
@@ -42,7 +41,12 @@ export function useGitPanelState() {
 
   const [gitLogHeight, setGitLogHeight] = useState(360);
 
-  const [gitHistory, setGitHistory] = useState<{ path: string; startLine?: number; endLine?: number; content?: string }>();
+  const [gitHistory, setGitHistory] = useState<{
+    path: string;
+    startLine?: number;
+    endLine?: number;
+    content?: string;
+  }>();
   return {
     gitRevision,
     setGitRevision,
@@ -83,6 +87,6 @@ export function useGitPanelState() {
     gitLogHeight,
     setGitLogHeight,
     gitHistory,
-    setGitHistory
+    setGitHistory,
   };
 }

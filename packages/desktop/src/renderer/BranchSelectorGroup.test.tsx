@@ -8,7 +8,19 @@ const branches = [
   { name: "origin/feature/demo", current: false, remote: true },
 ];
 function setup() {
-  const props = { current: "main", menu: { branches, loading: false }, onToggle: vi.fn(), onClose: vi.fn(), onRefresh: vi.fn(), onCreate: vi.fn(), onCheckout: vi.fn(), onRename: vi.fn(), onDelete: vi.fn(), onPublish: vi.fn(), onSetUpstream: vi.fn() };
+  const props = {
+    current: "main",
+    menu: { branches, loading: false },
+    onToggle: vi.fn(),
+    onClose: vi.fn(),
+    onRefresh: vi.fn(),
+    onCreate: vi.fn(),
+    onCheckout: vi.fn(),
+    onRename: vi.fn(),
+    onDelete: vi.fn(),
+    onPublish: vi.fn(),
+    onSetUpstream: vi.fn(),
+  };
   render(<BranchPicker {...props} />);
   return props;
 }

@@ -8,17 +8,34 @@ import { ScheduleService, validateSchedule } from "./schedules.js";
 
 const directories: string[] = [];
 const services: ScheduleService[] = [];
-afterEach(async () => { vi.useRealTimers(); for (const service of services.splice(0)) await service.close(); for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
-const input = (extra: Partial<ScheduleInput> = {}): ScheduleInput => ({ name: "Daily check", dueAt: new Date(Date.now() + 60_000).toISOString(), taskId: "task-a", action: { type: "prompt", provider: "codex", prompt: "Check the build", agent: { scope: "local", name: "reviewer.md" } }, ...extra });
+afterEach(async () => {
+  vi.useRealTimers();
+  for (const service of services.splice(0)) await service.close();
+  for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true });
+});
+const input = (extra: Partial<ScheduleInput> = {}): ScheduleInput => ({
+  name: "Daily check",
+  dueAt: new Date(Date.now() + 60_000).toISOString(),
+  taskId: "task-a",
+  action: {
+    type: "prompt",
+    provider: "codex",
+    prompt: "Check the build",
+    agent: { scope: "local", name: "reviewer.md" },
+  },
+  ...extra,
+});
 async function harness(deliver = vi.fn(async () => ({})), directory?: string) {
-  const state = directory ?? await mkdtemp(path.join(os.tmpdir(), "hatopad-schedules-"));
+  const state = directory ?? (await mkdtemp(path.join(os.tmpdir(), "hatopad-schedules-")));
   if (!directory) directories.push(state);
   const changed = vi.fn();
   const service = new ScheduleService("/workspace", deliver, changed, state);
-  services.push(service); await service.start();
+  services.push(service);
+  await service.start();
   return { service, state, deliver, changed };
 }
-const stateFile = (state: string) => path.join(state, `${crypto.createHash("sha256").update("/workspace").digest("hex")}-schedules.json`);
+const stateFile = (state: string) =>
+  path.join(state, `${crypto.createHash("sha256").update("/workspace").digest("hex")}-schedules.json`);
 
 describe("durable user schedules", () => {
   it("recovers a valid backup and rotates validated state through private atomic files", async () => {
@@ -32,7 +49,12 @@ describe("durable user schedules", () => {
 
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const recovered = new ScheduleService("/workspace", vi.fn(async () => ({})), vi.fn(), seeded.state);
+      const recovered = new ScheduleService(
+        "/workspace",
+        vi.fn(async () => ({})),
+        vi.fn(),
+        seeded.state,
+      );
       services.push(recovered);
       await recovered.start();
       expect(recovered.list()).toEqual([original]);
@@ -46,7 +68,9 @@ describe("durable user schedules", () => {
       expect((await stat(`${file}.bak`)).mode & 0o777).toBe(0o600);
       expect((await readdir(seeded.state)).some((name) => name.endsWith(".tmp"))).toBe(false);
       expect(originalBytes).not.toBe("{corrupt primary");
-    } finally { warning.mockRestore(); }
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("recovers from a backup when the primary is missing without restoring the primary on read", async () => {
@@ -59,21 +83,34 @@ describe("durable user schedules", () => {
     await unlink(file);
     const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     try {
-      const recovered = new ScheduleService("/workspace", vi.fn(async () => ({})), vi.fn(), seeded.state);
+      const recovered = new ScheduleService(
+        "/workspace",
+        vi.fn(async () => ({})),
+        vi.fn(),
+        seeded.state,
+      );
       services.push(recovered);
       await recovered.start();
       expect(recovered.list()).toEqual([schedule]);
       await expect(readFile(file)).rejects.toMatchObject({ code: "ENOENT" });
       expect(warning).toHaveBeenCalledWith(expect.stringContaining("primary is missing"));
-    } finally { warning.mockRestore(); }
+    } finally {
+      warning.mockRestore();
+    }
   });
 
   it("fails closed and preserves corrupt schedule bytes when no valid backup exists", async () => {
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-corrupt-")); directories.push(state);
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-corrupt-"));
+    directories.push(state);
     const file = stateFile(state);
-    const corrupt = "{\"schedules\":[null]}";
+    const corrupt = '{"schedules":[null]}';
     await writeFile(file, corrupt, "utf8");
-    const service = new ScheduleService("/workspace", vi.fn(async () => ({})), vi.fn(), state);
+    const service = new ScheduleService(
+      "/workspace",
+      vi.fn(async () => ({})),
+      vi.fn(),
+      state,
+    );
     services.push(service);
     await expect(service.start()).rejects.toMatchObject({ code: "READ_FAILED" });
     await expect(service.create("root-a", input())).rejects.toMatchObject({ code: "READ_FAILED" });
@@ -98,7 +135,10 @@ describe("durable user schedules", () => {
     const recovered = await harness(undefined, first.state);
     expect(recovered.service.list()).toEqual([schedule]);
     expect(await recovered.service.fire(schedule.id, true)).toBe(true);
-    expect(recovered.deliver).toHaveBeenCalledWith(expect.objectContaining({ rootId: "root-a", taskId: "task-a", action: input().action }), expect.any(Function));
+    expect(recovered.deliver).toHaveBeenCalledWith(
+      expect.objectContaining({ rootId: "root-a", taskId: "task-a", action: input().action }),
+      expect.any(Function),
+    );
     await recovered.service.close();
     const restarted = await harness(undefined, first.state);
     expect(restarted.service.list()[0]).toMatchObject({ enabled: false, lastRunAt: expect.any(String) });
@@ -108,7 +148,13 @@ describe("durable user schedules", () => {
 
   it("keeps recurring workflows enabled, records the run, and persists pause/delete", async () => {
     const { service, state, deliver } = await harness(vi.fn(async () => ({ workflowRunId: "run-1" })));
-    const schedule = await service.create("root-a", input({ intervalSeconds: 3600, action: { type: "workflow", provider: "codex", harnessId: "workflow-a", input: "Check release" } }));
+    const schedule = await service.create(
+      "root-a",
+      input({
+        intervalSeconds: 3600,
+        action: { type: "workflow", provider: "codex", harnessId: "workflow-a", input: "Check release" },
+      }),
+    );
     expect(await service.fire(schedule.id, true)).toBe(true);
     expect(service.list()[0]).toMatchObject({ enabled: true, lastWorkflowRunId: "run-1" });
     expect(Date.parse(service.list()[0]!.dueAt)).toBeGreaterThan(Date.now() + 3_500_000);
@@ -124,7 +170,11 @@ describe("durable user schedules", () => {
   });
 
   it("pauses a failed launch and reports the failure rather than retrying repeatedly", async () => {
-    const { service } = await harness(vi.fn(async () => { throw new Error("Target agent is busy"); }));
+    const { service } = await harness(
+      vi.fn(async () => {
+        throw new Error("Target agent is busy");
+      }),
+    );
     const schedule = await service.create("root-a", input({ intervalSeconds: 60 }));
     expect(await service.fire(schedule.id, true)).toBe(false);
     expect(service.list()[0]).toMatchObject({ enabled: false, lastError: "Target agent is busy" });
@@ -134,17 +184,32 @@ describe("durable user schedules", () => {
 
   it("prevents overlapping runs and lets deletion invalidate a launch waiting for its target", async () => {
     let release!: () => void;
-    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const sent = vi.fn();
-    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-race-")); directories.push(state);
-    const service = new ScheduleService("/workspace", async (_, active) => { await gate; if (active()) sent(); return {}; }, vi.fn(), state);
-    services.push(service); await service.start();
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-schedule-race-"));
+    directories.push(state);
+    const service = new ScheduleService(
+      "/workspace",
+      async (_, active) => {
+        await gate;
+        if (active()) sent();
+        return {};
+      },
+      vi.fn(),
+      state,
+    );
+    services.push(service);
+    await service.start();
     const schedule = await service.create("root-a", input({ intervalSeconds: 60 }));
     const firing = service.fire(schedule.id, true);
     await vi.waitFor(() => expect(service.list()[0]!.lastRunAt).toBeTruthy());
     expect(service.list()[0]!.launching).toBe(true);
     expect(await service.fire(schedule.id, true)).toBe(false);
-    await service.delete(schedule.id); release(); await firing;
+    await service.delete(schedule.id);
+    release();
+    await firing;
     expect(sent).not.toHaveBeenCalled();
     expect(service.list()).toEqual([]);
   });
@@ -169,7 +234,9 @@ describe("durable user schedules", () => {
     expect(service.list()).toHaveLength(8);
     expect(() => validateSchedule(input({ intervalSeconds: 0 }))).toThrow("intervals");
     expect(() => validateSchedule(input({ dueAt: "invalid" }))).toThrow("time");
-    await expect(service.create("root-a", input({ dueAt: new Date(Date.now() - 1000).toISOString() }))).rejects.toThrow("future");
+    await expect(service.create("root-a", input({ dueAt: new Date(Date.now() - 1000).toISOString() }))).rejects.toThrow(
+      "future",
+    );
   });
 
   it("preserves concurrent creations from separate service instances", async () => {
@@ -177,10 +244,15 @@ describe("durable user schedules", () => {
     const second = await harness(undefined, first.state);
     await Promise.all([
       first.service.create("root-a", input({ name: "First instance" })),
-      second.service.create("root-b", input({ name: "Second instance" }))
+      second.service.create("root-b", input({ name: "Second instance" })),
     ]);
     const recovered = await harness(undefined, first.state);
-    expect(recovered.service.list().map((item) => item.name).sort()).toEqual(["First instance", "Second instance"]);
+    expect(
+      recovered.service
+        .list()
+        .map((item) => item.name)
+        .sort(),
+    ).toEqual(["First instance", "Second instance"]);
   });
 
   it("claims one automatic occurrence across instances loaded before the due time", async () => {
@@ -201,28 +273,43 @@ describe("durable user schedules", () => {
 
 it("drains an admitted schedule delivery and its final state before closing", async () => {
   let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
   let entered!: () => void;
-  const started = new Promise<void>((resolve) => { entered = resolve; });
-  const { service, state } = await harness(vi.fn(async () => { entered(); await gate; return { workflowRunId: "drained-run" }; }));
+  const started = new Promise<void>((resolve) => {
+    entered = resolve;
+  });
+  const { service, state } = await harness(
+    vi.fn(async () => {
+      entered();
+      await gate;
+      return { workflowRunId: "drained-run" };
+    }),
+  );
   const schedule = await service.create("root-a", input());
   const firing = service.fire(schedule.id, true);
   try {
     await started;
     let closed = false;
-    const closing = service.close().then(() => { closed = true; });
+    const closing = service.close().then(() => {
+      closed = true;
+    });
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(closed).toBe(false);
     expect(await service.fire(schedule.id, true)).toBe(false);
     await expect(service.create("root-a", input())).rejects.toThrow("shutting down");
     await expect(service.setEnabled(schedule.id, true)).rejects.toThrow("shutting down");
     release();
-    await firing; await closing;
+    await firing;
+    await closing;
     const restarted = await harness(undefined, state);
     expect(restarted.service.list()[0]).toMatchObject({ enabled: false, lastWorkflowRunId: "drained-run" });
-  } finally { release(); await firing; }
+  } finally {
+    release();
+    await firing;
+  }
 });
-
 
 it("stops automatic retries when damaged state prevents recording a launch failure", async () => {
   vi.useFakeTimers();
@@ -249,10 +336,14 @@ it("updates schedules atomically with root ownership and stale revision checks",
   const { service } = await harness();
   const created = await service.create("root-a", input());
   const revision = service.list(true)[0]!.revision!;
-  await expect(service.update(created.id, "root-b", input({ name: "wrong root" }), true, revision)).rejects.toThrow("this root");
+  await expect(service.update(created.id, "root-b", input({ name: "wrong root" }), true, revision)).rejects.toThrow(
+    "this root",
+  );
   const updated = await service.update(created.id, "root-a", input({ name: "Updated" }), false, revision);
   expect(updated).toMatchObject({ id: created.id, name: "Updated", enabled: false, rootId: "root-a" });
   expect(updated.revision).not.toBe(revision);
-  await expect(service.update(created.id, "root-a", input({ name: "stale" }), true, revision)).rejects.toThrow("refresh");
+  await expect(service.update(created.id, "root-a", input({ name: "stale" }), true, revision)).rejects.toThrow(
+    "refresh",
+  );
   expect(service.list()[0]!.name).toBe("Updated");
 });

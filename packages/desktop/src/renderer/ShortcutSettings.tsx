@@ -51,17 +51,19 @@ export function ShortcutSettings({
   };
   const configurable = commands;
   return (
-    <section
-      className="shortcut-settings"
-      aria-labelledby="shortcut-settings-title"
-    >
+    <section className="shortcut-settings" aria-labelledby="shortcut-settings-title">
       <div className="shortcut-settings-header">
         <strong id="shortcut-settings-title">Keyboard shortcuts</strong>
-        <button className="settings-reset icon-button" aria-label="Reset all shortcuts" title="Reset all shortcuts" onClick={onReset}><RotateCcw size={14} /></button>
+        <button
+          className="settings-reset icon-button"
+          aria-label="Reset all shortcuts"
+          title="Reset all shortcuts"
+          onClick={onReset}
+        >
+          <RotateCcw size={14} />
+        </button>
       </div>
-      <small>
-        Choose a command, then press a shortcut. Backspace clears it.
-      </small>
+      <small>Choose a command, then press a shortcut. Backspace clears it.</small>
       {configurable.map((command) => (
         <div className="shortcut-row" key={command.id}>
           <label htmlFor={`shortcut-${command.id}`}>{command.label}</label>
@@ -73,9 +75,7 @@ export function ShortcutSettings({
               setEditing(command.id);
               setError("");
             }}
-            onKeyDown={(event) =>
-              editing === command.id && capture(command.id, event)
-            }
+            onKeyDown={(event) => editing === command.id && capture(command.id, event)}
           >
             {editing === command.id
               ? "Press keys…"

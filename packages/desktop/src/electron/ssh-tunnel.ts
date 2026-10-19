@@ -33,7 +33,9 @@ export class SshTunnel {
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
   }
 
-  get localPort(): number { return this.boundPort; }
+  get localPort(): number {
+    return this.boundPort;
+  }
 
   async start(): Promise<number> {
     this.stopped = false;
@@ -49,8 +51,14 @@ export class SshTunnel {
     });
     try {
       await new Promise<void>((resolve, reject) => {
-        const onError = (error: Error) => { server.off("listening", onListening); reject(error); };
-        const onListening = () => { server.off("error", onError); resolve(); };
+        const onError = (error: Error) => {
+          server.off("listening", onListening);
+          reject(error);
+        };
+        const onListening = () => {
+          server.off("error", onError);
+          resolve();
+        };
         server.once("error", onError);
         server.once("listening", onListening);
         server.listen(this.options.localPort, "127.0.0.1");
@@ -99,7 +107,10 @@ export class SshTunnel {
     const attempt = ++this.attempt;
     try {
       const ssh = await this.options.connect();
-      if (this.stopped || attempt !== this.attempt) { ssh.end(); return; }
+      if (this.stopped || attempt !== this.attempt) {
+        ssh.end();
+        return;
+      }
 
       const failed = (reason?: unknown) => this.transportFailed(ssh, reason);
       ssh.on("error", failed);
@@ -118,7 +129,11 @@ export class SshTunnel {
     if (this.stopped || this.ssh !== ssh) return;
     this.ssh = undefined;
     ssh.end();
-    this.options.onStatus?.("reconnecting", this.boundPort || this.options.localPort, reason === undefined ? undefined : asError(reason));
+    this.options.onStatus?.(
+      "reconnecting",
+      this.boundPort || this.options.localPort,
+      reason === undefined ? undefined : asError(reason),
+    );
     this.scheduleReconnect();
   }
 
@@ -138,10 +153,16 @@ export class SshTunnel {
 
   private forward(socket: Socket): void {
     const ssh = this.ssh;
-    if (!ssh) { socket.destroy(); return; }
+    if (!ssh) {
+      socket.destroy();
+      return;
+    }
     socket.on("error", () => socket.destroy());
     ssh.forwardOut("127.0.0.1", socket.remotePort ?? 0, "127.0.0.1", this.options.remotePort, (error, stream) => {
-      if (error) { socket.destroy(); return; }
+      if (error) {
+        socket.destroy();
+        return;
+      }
       this.pipe(socket, stream);
     });
   }

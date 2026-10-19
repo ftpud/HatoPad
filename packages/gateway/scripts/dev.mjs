@@ -11,7 +11,11 @@ const compile = spawnSync(executable("tsc"), ["-p", "tsconfig.electron.json"], {
 if (compile.status !== 0) process.exit(compile.status ?? 1);
 const vite = spawn(executable("vite"), [], { cwd: packageRoot, stdio: "inherit" });
 await waitOn({ resources: ["tcp:5174"], timeout: 30_000 });
-const electronRuntime = await electronExecutable({ packageRoot, productName: "HatoPad Gateway", bundleId: "com.hatopad.gateway" });
+const electronRuntime = await electronExecutable({
+  packageRoot,
+  productName: "HatoPad Gateway",
+  bundleId: "com.hatopad.gateway",
+});
 const desktopRuntime = await electronExecutable({
   packageRoot: path.resolve(packageRoot, "../desktop"),
   productName: "HatoPad",
@@ -29,6 +33,12 @@ const electron = spawn(electronRuntime, [packageRoot], {
   stdio: "inherit",
   shell: false,
 });
-const stop = (code = 0) => { vite.kill(); electron.kill(); setTimeout(() => process.exit(code), 100); };
-vite.on("exit", (code) => stop(code ?? 0)); electron.on("exit", (code) => stop(code ?? 0));
-process.on("SIGINT", () => stop()); process.on("SIGTERM", () => stop());
+const stop = (code = 0) => {
+  vite.kill();
+  electron.kill();
+  setTimeout(() => process.exit(code), 100);
+};
+vite.on("exit", (code) => stop(code ?? 0));
+electron.on("exit", (code) => stop(code ?? 0));
+process.on("SIGINT", () => stop());
+process.on("SIGTERM", () => stop());

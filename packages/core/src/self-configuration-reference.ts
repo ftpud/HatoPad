@@ -451,18 +451,21 @@ Minimal complete new workflow content (serialize this object as content):
 
 // Derive exact command documentation from the same schemas exposed over MCP.
 // This keeps required arguments, enum values and limits in sync with the handlers.
-const commands = [
-  "# App and workflow commands",
-  "Read only the relevant command section. Each section contains its use case and full JSON argument schema. These are MCP calls, not shell commands. A schema's required array identifies required arguments; other properties are optional. Do not pass fields outside the advertised schema.",
-  "## Availability and execution",
-  "Normal app sessions expose app commands. Flow sessions expose flow commands plus app commands except workflow_run_stack, workflow_resume_failed and workflow_plan_features. A skills-only server exposes skill_load only. The current tools/list response determines availability; this reference does not grant extra commands. workflow_run_stack is the legacy stack interface, while workflow_use_block is the flow interface. Workflow design is edited with configuration_write; there is no workflow-start MCP command in this catalogue. Use app run controls when execution is requested.",
-  "Actions that create tasks, send prompts, merge, delete tasks, rewrite commits or start/kill processes change runtime state. Saving configuration does not perform them. Stay within the user's requested work. For operations supporting idempotency_key, reuse a key only for retries of the same operation.",
-  ...[...appToolDefinitions, ...flowToolDefinitions].map((tool) =>
-    `## ${tool.name}\n\n${tool.description}\n\nArgument schema:\n\n\`\`\`json\n${JSON.stringify(tool.inputSchema, null, 2)}\n\`\`\``)
-].join("\n\n") + "\n";
+const commands =
+  [
+    "# App and workflow commands",
+    "Read only the relevant command section. Each section contains its use case and full JSON argument schema. These are MCP calls, not shell commands. A schema's required array identifies required arguments; other properties are optional. Do not pass fields outside the advertised schema.",
+    "## Availability and execution",
+    "Normal app sessions expose app commands. Flow sessions expose flow commands plus app commands except workflow_run_stack, workflow_resume_failed and workflow_plan_features. A skills-only server exposes skill_load only. The current tools/list response determines availability; this reference does not grant extra commands. workflow_run_stack is the legacy stack interface, while workflow_use_block is the flow interface. Workflow design is edited with configuration_write; there is no workflow-start MCP command in this catalogue. Use app run controls when execution is requested.",
+    "Actions that create tasks, send prompts, merge, delete tasks, rewrite commits or start/kill processes change runtime state. Saving configuration does not perform them. Stay within the user's requested work. For operations supporting idempotency_key, reuse a key only for retries of the same operation.",
+    ...[...appToolDefinitions, ...flowToolDefinitions].map(
+      (tool) =>
+        `## ${tool.name}\n\n${tool.description}\n\nArgument schema:\n\n\`\`\`json\n${JSON.stringify(tool.inputSchema, null, 2)}\n\`\`\``,
+    ),
+  ].join("\n\n") + "\n";
 
 export const CONFIGURATION_REFERENCES: Readonly<Record<string, string>> = {
   "configuration.md": configuration,
   "blocks.md": blocks,
-  "commands.md": commands
+  "commands.md": commands,
 };

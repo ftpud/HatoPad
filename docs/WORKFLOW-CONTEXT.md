@@ -138,15 +138,15 @@ with `hasMore: true` has further unfetched data (fetch again); `gap: true` means
 older unfetched data has already rolled off the retained buffer; `unchanged: true`
 means nothing new.
 
-| Block | Actions | `fetch` returns |
-| --- | --- | --- |
-| AI Agent (`ai`), Chatbox (`chatbox`) | omitted (run and wait), `start`, `status`, `tail`, `steer`, `fetch` | messages and activity not yet delivered to this caller (changed messages are re-sent) |
-| Meeting (`meeting`) | `publish`, `tail`, `diff` (default), `wait`, `fetch`, `status`, `shake` | unread messages from the caller's saved cursor (same as `diff`) |
-| Run App (`run_app`) | `start`, `status`, `kill`, `tail` (only those configured), `fetch` | log text since the last fetch (needs `tail` allowed) |
-| Terminal Control (`terminal_control`) | `list`, `open`, `open_and_run`, `run_and_wait`, `read`, `write`, `fetch` | terminal text since the last fetch (needs `terminal_id`) |
-| Task controls (`task_controls`) | `create`, `create_and_start`, `status`, `prompt`, `set_status`, `set_commit_message`, `update_commit_message`, `fetch` | task status, only when changed since the last fetch (optional `task_id`) |
-| Text, Markdown, Script, Timer, User Prompt, Yes/No Prompt | run (omit action); `fetch` | retained output not yet fetched; Timer and prompts run when used without `fetch` |
-| Skill (`skill`) | load (omit action) | not supported; skills load through policy checks |
+| Block                                                     | Actions                                                                                                                | `fetch` returns                                                                       |
+| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| AI Agent (`ai`), Chatbox (`chatbox`)                      | omitted (run and wait), `start`, `status`, `tail`, `steer`, `fetch`                                                    | messages and activity not yet delivered to this caller (changed messages are re-sent) |
+| Meeting (`meeting`)                                       | `publish`, `tail`, `diff` (default), `wait`, `fetch`, `status`, `shake`                                                | unread messages from the caller's saved cursor (same as `diff`)                       |
+| Run App (`run_app`)                                       | `start`, `status`, `kill`, `tail` (only those configured), `fetch`                                                     | log text since the last fetch (needs `tail` allowed)                                  |
+| Terminal Control (`terminal_control`)                     | `list`, `open`, `open_and_run`, `run_and_wait`, `read`, `write`, `fetch`                                               | terminal text since the last fetch (needs `terminal_id`)                              |
+| Task controls (`task_controls`)                           | `create`, `create_and_start`, `status`, `prompt`, `set_status`, `set_commit_message`, `update_commit_message`, `fetch` | task status, only when changed since the last fetch (optional `task_id`)              |
+| Text, Markdown, Script, Timer, User Prompt, Yes/No Prompt | run (omit action); `fetch`                                                                                             | retained output not yet fetched; Timer and prompts run when used without `fetch`      |
+| Skill (`skill`)                                           | load (omit action)                                                                                                     | not supported; skills load through policy checks                                      |
 
 Not callable by agents: Start button/input, and the legacy Prompt, Task, Review
 and Verification blocks. The read-only companions `workflow_block_output` (paged

@@ -9,16 +9,28 @@ const execute = promisify(execFile);
 export async function workspaceWatchOptions(workspace: string): Promise<ChokidarOptions> {
   const ignoredDirectories = new Set<string>();
   try {
-    const { stdout } = await execute("git", ["-C", workspace, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
-    for (const relative of stdout.split("\0")) if (relative.endsWith("/")) ignoredDirectories.add(path.resolve(workspace, relative));
-  } catch { /* Non-Git workspaces still support filesystem watching. */ }
+    const { stdout } = await execute(
+      "git",
+      ["-C", workspace, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+      { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 },
+    );
+    for (const relative of stdout.split("\0"))
+      if (relative.endsWith("/")) ignoredDirectories.add(path.resolve(workspace, relative));
+  } catch {
+    /* Non-Git workspaces still support filesystem watching. */
+  }
   return {
     ignoreInitial: true,
     followSymlinks: false,
     ignored: (target) => {
       const relative = path.relative(workspace, target);
-      if (relative.split(path.sep).some((part) => part === ".git" || part === "node_modules" || part === ".vibe-trash")) return true;
-      for (let current = path.resolve(target); current !== workspace && current !== path.dirname(current); current = path.dirname(current)) {
+      if (relative.split(path.sep).some((part) => part === ".git" || part === "node_modules" || part === ".vibe-trash"))
+        return true;
+      for (
+        let current = path.resolve(target);
+        current !== workspace && current !== path.dirname(current);
+        current = path.dirname(current)
+      ) {
         if (ignoredDirectories.has(current)) return true;
       }
       return false;
@@ -28,6 +40,6 @@ export async function workspaceWatchOptions(workspace: string): Promise<Chokidar
     usePolling: process.platform === "darwin" || process.env.HATOPAD_WATCH_POLLING === "1",
     interval: 1000,
     binaryInterval: 1500,
-    awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 }
+    awaitWriteFinish: { stabilityThreshold: 150, pollInterval: 50 },
   };
 }

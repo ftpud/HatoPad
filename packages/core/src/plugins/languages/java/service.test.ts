@@ -10,11 +10,21 @@ async function create() {
   const root = await mkdtemp(path.join(tmpdir(), "hatopad-lang-java-"));
   await mkdir(path.join(root, "src", "main", "java", "com", "example"), { recursive: true });
   await writeFile(path.join(root, "pom.xml"), "<project><modelVersion>4.0.0</modelVersion></project>");
-  await writeFile(path.join(root, "src", "main", "java", "com", "example", "App.java"), "package com.example; public interface App {}\n");
+  await writeFile(
+    path.join(root, "src", "main", "java", "com", "example", "App.java"),
+    "package com.example; public interface App {}\n",
+  );
   const filesystem = new WorkspaceFileSystem();
   await filesystem.open(root);
   const events = { output: vi.fn(), exit: vi.fn(), debugState: vi.fn(), semanticChanged: vi.fn() };
-  return { service: new JavaLanguageService(filesystem, new WorkspaceStateStore(root, await mkdtemp(path.join(tmpdir(), "hatopad-lang-state-"))), events), events };
+  return {
+    service: new JavaLanguageService(
+      filesystem,
+      new WorkspaceStateStore(root, await mkdtemp(path.join(tmpdir(), "hatopad-lang-state-"))),
+      events,
+    ),
+    events,
+  };
 }
 
 describe("JavaLanguageService", () => {
@@ -28,9 +38,14 @@ describe("JavaLanguageService", () => {
       expect(await service.detect()).toBe(true);
       const tree = await service.projectTree();
       expect(tree[0]).toMatchObject({ type: "sourceRoot", sourceKind: "source" });
-      expect(tree[0]?.children?.[0]?.children?.[0]).toMatchObject({ name: "App.java", extra: { javaType: { kind: "interface" } } });
+      expect(tree[0]?.children?.[0]?.children?.[0]).toMatchObject({
+        name: "App.java",
+        extra: { javaType: { kind: "interface" } },
+      });
       expect(await service.listRunTargets()).toEqual([]);
-    } finally { await service.dispose(); }
+    } finally {
+      await service.dispose();
+    }
   });
 
   it("requires a class name on breakpoints and advertises full capabilities", async () => {
@@ -39,6 +54,8 @@ describe("JavaLanguageService", () => {
       expect(service.descriptor.capabilities).toMatchObject({ build: true, run: true, debug: true, lsp: true });
       expect(() => service.validateExtra("breakpoint", {})).toThrow("className");
       await expect(service.setBreakpoints([{ path: "A.java", line: 1 }])).rejects.toThrow("className");
-    } finally { await service.dispose(); }
+    } finally {
+      await service.dispose();
+    }
   });
 });

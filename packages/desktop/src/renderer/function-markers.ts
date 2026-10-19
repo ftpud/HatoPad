@@ -1,6 +1,9 @@
 import type { editor } from "monaco-editor";
 
-export interface FunctionStart { line: number; name: string }
+export interface FunctionStart {
+  line: number;
+  name: string;
+}
 
 interface NavigationTree {
   text: string;
@@ -10,7 +13,10 @@ interface NavigationTree {
   childItems?: NavigationTree[];
 }
 
-export function navigationFunctionStarts(tree: NavigationTree | undefined, model: { getPositionAt(offset: number): { lineNumber: number } }): FunctionStart[] {
+export function navigationFunctionStarts(
+  tree: NavigationTree | undefined,
+  model: { getPositionAt(offset: number): { lineNumber: number } },
+): FunctionStart[] {
   const starts: FunctionStart[] = [];
   const visit = (item: NavigationTree) => {
     if (["function", "method", "constructor", "getter", "setter"].includes(item.kind)) {
@@ -28,13 +34,19 @@ export function functionStartDecorations(starts: FunctionStart[]): editor.IModel
   return starts.flatMap(({ line, name }) => {
     if (lines.has(line)) return [];
     lines.add(line);
-    return [{
-      range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
-      options: {
-        glyphMarginClassName: "function-start-marker",
-        glyphMargin: { position: 3 }, // Right lane; breakpoints use the center lane.
-        glyphMarginHoverMessage: { value: `Method / function declaration: ${name}`, supportHtml: false, isTrusted: false }
-      }
-    }];
+    return [
+      {
+        range: { startLineNumber: line, startColumn: 1, endLineNumber: line, endColumn: 1 },
+        options: {
+          glyphMarginClassName: "function-start-marker",
+          glyphMargin: { position: 3 }, // Right lane; breakpoints use the center lane.
+          glyphMarginHoverMessage: {
+            value: `Method / function declaration: ${name}`,
+            supportHtml: false,
+            isTrusted: false,
+          },
+        },
+      },
+    ];
   });
 }

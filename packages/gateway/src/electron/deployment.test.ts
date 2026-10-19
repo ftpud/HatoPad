@@ -7,20 +7,40 @@ import os from "node:os";
 import path from "node:path";
 import net from "node:net";
 import { createHash } from "node:crypto";
-import { activateRelease, activatedReleaseVerificationCommand, keptGitReleaseCommand, parseKeptGitRelease, WorkspaceOperations, coreHealthProbe, parseProvisionedRelease, serverActivationCommand, serverStopCommand, workspaceReleaseDirectory } from "./deployment.js";
+import {
+  activateRelease,
+  activatedReleaseVerificationCommand,
+  keptGitReleaseCommand,
+  parseKeptGitRelease,
+  WorkspaceOperations,
+  coreHealthProbe,
+  parseProvisionedRelease,
+  serverActivationCommand,
+  serverStopCommand,
+  workspaceReleaseDirectory,
+} from "./deployment.js";
 
 const exec = promisify(execFile);
 const oldRelease = `${"a".repeat(40)}-node137`;
 const candidateRelease = `${"b".repeat(40)}-node137`;
 
 test("parses a verified release and rejects malformed or mismatched identities", () => {
-  assert.deepEqual(parseProvisionedRelease(`logs\nHATOPAD_RESULT:${"b".repeat(40)}:1:${candidateRelease}\n`), { commit: "b".repeat(40), rebuilt: true, release: candidateRelease });
-  for (const release of ["../../arbitrary", oldRelease, `${candidateRelease};touch /tmp/bad`]) assert.throws(() => parseProvisionedRelease(`HATOPAD_RESULT:${"b".repeat(40)}:1:${release}\n`));
+  assert.deepEqual(parseProvisionedRelease(`logs\nHATOPAD_RESULT:${"b".repeat(40)}:1:${candidateRelease}\n`), {
+    commit: "b".repeat(40),
+    rebuilt: true,
+    release: candidateRelease,
+  });
+  for (const release of ["../../arbitrary", oldRelease, `${candidateRelease};touch /tmp/bad`])
+    assert.throws(() => parseProvisionedRelease(`HATOPAD_RESULT:${"b".repeat(40)}:1:${release}\n`));
   assert.throws(() => serverActivationCommand("../bad", "/workspace", 7331, candidateRelease, "true"));
 });
 
 test("generated activation and workspace resolution commands are valid Bash", async () => {
-  await exec("bash", ["-n", "-c", serverActivationCommand("test", "/workspace/it's a project", 7331, candidateRelease, "true")]);
+  await exec("bash", [
+    "-n",
+    "-c",
+    serverActivationCommand("test", "/workspace/it's a project", 7331, candidateRelease, "true"),
+  ]);
   await exec("bash", ["-n", "-c", workspaceReleaseDirectory("test")]);
   await exec("bash", ["-n", "-c", activatedReleaseVerificationCommand("test", 7331, candidateRelease, "true")]);
 });
@@ -31,17 +51,33 @@ test("activation refuses live storage maintenance and recovers a stale maintenan
   try {
     await mkdir(path.dirname(lock), { recursive: true });
     await writeFile(lock, JSON.stringify({ pid: process.pid, hostname: os.hostname(), token: "live" }));
-    await assert.rejects(exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], { env: { ...process.env, HOME: home }, timeout: 5000 }), (error: unknown) => {
-      assert.match(String((error as { stderr: string }).stderr), /Storage maintenance is running/); return true;
-    });
+    await assert.rejects(
+      exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], {
+        env: { ...process.env, HOME: home },
+        timeout: 5000,
+      }),
+      (error: unknown) => {
+        assert.match(String((error as { stderr: string }).stderr), /Storage maintenance is running/);
+        return true;
+      },
+    );
     // An impossible Linux PID makes this deterministic without targeting a process.
     await writeFile(lock, JSON.stringify({ pid: 2147483647, hostname: os.hostname(), token: "stale" }));
     await writeFile(path.join(home, ".hatopad-server-test.token"), "invalid");
-    await assert.rejects(exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], { env: { ...process.env, HOME: home }, timeout: 5000 }), (error: unknown) => {
-      assert.match(String((error as { stderr: string }).stderr), /Invalid Core session token file/); return true;
-    });
+    await assert.rejects(
+      exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], {
+        env: { ...process.env, HOME: home },
+        timeout: 5000,
+      }),
+      (error: unknown) => {
+        assert.match(String((error as { stderr: string }).stderr), /Invalid Core session token file/);
+        return true;
+      },
+    );
     await assert.rejects(readFile(lock), { code: "ENOENT" });
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("health probe performs a real WebSocket protocol handshake", async () => {
@@ -50,14 +86,20 @@ test("health probe performs a real WebSocket protocol handshake", async () => {
   let handshake: unknown;
   const token = "gateway-probe-test-token-01234567890123456789";
   const server = net.createServer((socket) => {
-    sockets.add(socket); socket.on("close", () => sockets.delete(socket));
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
     let upgraded = false;
     socket.on("data", (buffer) => {
       if (!upgraded) {
-        const key = buffer.toString().match(/Sec-WebSocket-Key:\s*(.+)\r\n/i)?.[1]?.trim();
+        const key = buffer
+          .toString()
+          .match(/Sec-WebSocket-Key:\s*(.+)\r\n/i)?.[1]
+          ?.trim();
         assert.ok(key);
         const accept = createHash("sha1").update(`${key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11`).digest("base64");
-        socket.write(`HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`);
+        socket.write(
+          `HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ${accept}\r\n\r\n`,
+        );
         upgraded = true;
       } else if (buffer[0] === 0x81) {
         const length = buffer[1]! & 0x7f;
@@ -74,7 +116,10 @@ test("health probe performs a real WebSocket protocol handshake", async () => {
   });
   try {
     await mkdir(path.join(root, "packages/protocol/dist"), { recursive: true });
-    await writeFile(path.join(root, "packages/protocol/dist/index.js"), "exports.protocolCompatibility={minimum:15,maximum:15};");
+    await writeFile(
+      path.join(root, "packages/protocol/dist/index.js"),
+      "exports.protocolCompatibility={minimum:15,maximum:15};",
+    );
     // Resolve ws from the installed application, as the deployed probe does.
     const { createRequire } = await import("node:module");
     const require = createRequire(import.meta.url);
@@ -83,8 +128,16 @@ test("health probe performs a real WebSocket protocol handshake", async () => {
     await writeFile(path.join(root, "node_modules/ws/index.js"), `module.exports=require(${JSON.stringify(wsRoot)});`);
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const address = server.address() as net.AddressInfo;
-    await exec(process.execPath, ["--input-type=commonjs", "-e", coreHealthProbe(address.port)], { cwd: root, timeout: 10_000, env: { ...process.env, HATOPAD_SESSION_TOKEN: token } });
-    assert.deepEqual(handshake, { id: "gateway-health", type: "protocol.handshake", payload: { compatibility: { minimum: 19, maximum: 19 }, token } });
+    await exec(process.execPath, ["--input-type=commonjs", "-e", coreHealthProbe(address.port)], {
+      cwd: root,
+      timeout: 10_000,
+      env: { ...process.env, HATOPAD_SESSION_TOKEN: token },
+    });
+    assert.deepEqual(handshake, {
+      id: "gateway-health",
+      type: "protocol.handshake",
+      payload: { compatibility: { minimum: 19, maximum: 19 }, token },
+    });
   } finally {
     for (const socket of sockets) socket.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
@@ -101,31 +154,68 @@ for (const healthy of [true, false]) {
     try {
       for (const release of [oldRelease, candidateRelease]) {
         const directory = path.join(home, ".hatopad-deploy/releases", release, "packages/core/dist");
-        await mkdir(directory, { recursive: true }); await writeFile(path.join(directory, "index.js"), "");
+        await mkdir(directory, { recursive: true });
+        await writeFile(path.join(directory, "index.js"), "");
       }
       await mkdir(bin);
-      await writeFile(path.join(bin, "node"), `#!/bin/bash\nif [ "$1" = 'packages/core/dist/index.js' ]; then exec -a "node packages/core/dist/index.js --gateway-workspace-id test --workspace /workspace/it's a project" sleep 60; fi\nif [ "$1" = '--input-type=commonjs' ]; then [ "$(basename "$PWD")" != "$FAIL_RELEASE" ]; exit $?; fi\nexit 99\n`, { mode: 0o755 });
+      await writeFile(
+        path.join(bin, "node"),
+        `#!/bin/bash\nif [ "$1" = 'packages/core/dist/index.js' ]; then exec -a "node packages/core/dist/index.js --gateway-workspace-id test --workspace /workspace/it's a project" sleep 60; fi\nif [ "$1" = '--input-type=commonjs' ]; then [ "$(basename "$PWD")" != "$FAIL_RELEASE" ]; exit $?; fi\nexit 99\n`,
+        { mode: 0o755 },
+      );
       await writeFile(selection, oldRelease);
       await writeFile(path.join(home, ".hatopad-server-test.token"), "c".repeat(healthy ? 256 : 32), { mode: 0o600 });
       let failed = false;
       try {
-        await exec("bash", ["-c", serverActivationCommand("test", "/workspace/it's a project", 7331, candidateRelease, "true")], {
-          env: { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, FAIL_RELEASE: healthy ? "none" : candidateRelease }, timeout: 15_000,
-        });
-      } catch (error) { failed = true; if (healthy) throw error; assert.match(String((error as { stderr: string }).stderr), /Previous Core release restored/); }
+        await exec(
+          "bash",
+          ["-c", serverActivationCommand("test", "/workspace/it's a project", 7331, candidateRelease, "true")],
+          {
+            env: {
+              ...process.env,
+              HOME: home,
+              PATH: `${bin}:${process.env.PATH}`,
+              FAIL_RELEASE: healthy ? "none" : candidateRelease,
+            },
+            timeout: 15_000,
+          },
+        );
+      } catch (error) {
+        failed = true;
+        if (healthy) throw error;
+        assert.match(String((error as { stderr: string }).stderr), /Previous Core release restored/);
+      }
       assert.equal(failed, !healthy);
       assert.equal(await readFile(selection, "utf8"), healthy ? candidateRelease : oldRelease);
-      assert.equal(await readFile(path.join(home, ".hatopad-deploy/releases", oldRelease, "packages/core/dist/index.js"), "utf8"), "");
+      assert.equal(
+        await readFile(path.join(home, ".hatopad-deploy/releases", oldRelease, "packages/core/dist/index.js"), "utf8"),
+        "",
+      );
       if (healthy) assert.equal(await readFile(`${selection}.previous`, "utf8"), oldRelease);
       if (healthy) {
         const environment = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}`, FAIL_RELEASE: "none" };
-        await exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, candidateRelease, "true")], { env: environment });
-        await assert.rejects(exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, oldRelease, "true")], { env: environment }), /does not match/);
-        await assert.rejects(exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, candidateRelease, "true")], { env: { ...environment, FAIL_RELEASE: candidateRelease } }));
+        await exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, candidateRelease, "true")], {
+          env: environment,
+        });
+        await assert.rejects(
+          exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, oldRelease, "true")], {
+            env: environment,
+          }),
+          /does not match/,
+        );
+        await assert.rejects(
+          exec("bash", ["-c", activatedReleaseVerificationCommand("test", 7331, candidateRelease, "true")], {
+            env: { ...environment, FAIL_RELEASE: candidateRelease },
+          }),
+        );
       }
       await assert.rejects(readFile(path.join(home, ".hatopad-deploy/activate-test.lock/pid")), { code: "ENOENT" });
     } finally {
-      try { process.kill(Number(await readFile(pidfile, "utf8")), "SIGKILL"); } catch { /* No surviving server. */ }
+      try {
+        process.kill(Number(await readFile(pidfile, "utf8")), "SIGKILL");
+      } catch {
+        /* No surviving server. */
+      }
       await rm(home, { recursive: true, force: true });
     }
   });
@@ -137,19 +227,35 @@ test("activation starts update-capable releases under the release supervisor and
   const bin = path.join(home, "bin");
   try {
     const release = path.join(home, ".hatopad-deploy/releases", candidateRelease);
-    await mkdir(path.join(release, "packages/core/dist"), { recursive: true }); await mkdir(path.join(release, "scripts"));
-    await writeFile(path.join(release, "packages/core/dist/index.js"), "// HATOPAD_CORE_RELEASE_MODE\n"); await writeFile(path.join(release, "scripts/core-release-service.mjs"), "");
+    await mkdir(path.join(release, "packages/core/dist"), { recursive: true });
+    await mkdir(path.join(release, "scripts"));
+    await writeFile(path.join(release, "packages/core/dist/index.js"), "// HATOPAD_CORE_RELEASE_MODE\n");
+    await writeFile(path.join(release, "scripts/core-release-service.mjs"), "");
     await mkdir(bin);
-    await writeFile(path.join(bin, "node"), `#!/bin/bash\nif [ "$1" = 'scripts/core-release-service.mjs' ]; then printf '%s\\n%s' "$HATOPAD_CORE_RELEASE_ROOT" "$HATOPAD_CORE_RELEASE_SELECTION" > "$HOME/supervisor-env"; exec -a "node scripts/core-release-service.mjs --gateway-workspace-id test --workspace /workspace" sleep 60; fi\nif [ "$1" = '--input-type=commonjs' ]; then exit 0; fi\nexit 99\n`, { mode: 0o755 });
+    await writeFile(
+      path.join(bin, "node"),
+      `#!/bin/bash\nif [ "$1" = 'scripts/core-release-service.mjs' ]; then printf '%s\\n%s' "$HATOPAD_CORE_RELEASE_ROOT" "$HATOPAD_CORE_RELEASE_SELECTION" > "$HOME/supervisor-env"; exec -a "node scripts/core-release-service.mjs --gateway-workspace-id test --workspace /workspace" sleep 60; fi\nif [ "$1" = '--input-type=commonjs' ]; then exit 0; fi\nexit 99\n`,
+      { mode: 0o755 },
+    );
     await writeFile(path.join(home, ".hatopad-server-test.token"), "c".repeat(64), { mode: 0o600 });
     const env = { ...process.env, HOME: home, PATH: `${bin}:${process.env.PATH}` };
-    await exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], { env, timeout: 15_000 });
-    assert.equal(await readFile(path.join(home, "supervisor-env"), "utf8"), `${path.join(home, ".hatopad-deploy")}\n${path.join(home, ".hatopad-server-test.release")}`);
+    await exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], {
+      env,
+      timeout: 15_000,
+    });
+    assert.equal(
+      await readFile(path.join(home, "supervisor-env"), "utf8"),
+      `${path.join(home, ".hatopad-deploy")}\n${path.join(home, ".hatopad-server-test.release")}`,
+    );
     const pid = Number(await readFile(pidfile, "utf8"));
     await exec("bash", ["-c", serverStopCommand("test", "/workspace", "true")], { env, timeout: 15_000 });
     assert.throws(() => process.kill(pid, 0));
   } finally {
-    try { process.kill(Number(await readFile(pidfile, "utf8")), "SIGKILL"); } catch { /* No surviving server. */ }
+    try {
+      process.kill(Number(await readFile(pidfile, "utf8")), "SIGKILL");
+    } catch {
+      /* No surviving server. */
+    }
     await rm(home, { recursive: true, force: true });
   }
 });
@@ -159,67 +265,132 @@ test("rejects malformed or out-of-range activation credentials before launching 
   try {
     for (const token of ["c".repeat(31), "c".repeat(257), `${"c".repeat(63)}!`]) {
       await writeFile(path.join(home, ".hatopad-server-test.token"), token, { mode: 0o600 });
-      await assert.rejects(exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], {
-        env: { ...process.env, HOME: home }, timeout: 5_000,
-      }), (error: unknown) => {
-        assert.match(String((error as { stderr?: string }).stderr), /Invalid Core session token file/);
-        return true;
-      });
+      await assert.rejects(
+        exec("bash", ["-c", serverActivationCommand("test", "/workspace", 7331, candidateRelease, "true")], {
+          env: { ...process.env, HOME: home },
+          timeout: 5_000,
+        }),
+        (error: unknown) => {
+          assert.match(String((error as { stderr?: string }).stderr), /Invalid Core session token file/);
+          return true;
+        },
+      );
     }
-  } finally { await rm(home, { recursive: true, force: true }); }
+  } finally {
+    await rm(home, { recursive: true, force: true });
+  }
 });
 
 test("coalesces duplicate workspace actions and releases failed operations", async () => {
   const operations = new WorkspaceOperations();
   let finish!: (value: number) => void;
   let calls = 0;
-  const first = operations.run("project", "start", () => { calls++; return new Promise<number>((resolve) => { finish = resolve; }); });
+  const first = operations.run("project", "start", () => {
+    calls++;
+    return new Promise<number>((resolve) => {
+      finish = resolve;
+    });
+  });
   const duplicate = operations.run("project", "start", async () => 99);
   assert.equal(first, duplicate);
-  await assert.rejects(operations.run("project", "stop", async () => {}), /busy with start/);
-  await Promise.resolve(); assert.equal(calls, 1); finish(42);
+  await assert.rejects(
+    operations.run("project", "stop", async () => {}),
+    /busy with start/,
+  );
+  await Promise.resolve();
+  assert.equal(calls, 1);
+  finish(42);
   assert.equal(await first, 42);
-  await assert.rejects(operations.run("project", "start", async () => { throw new Error("failed"); }), /failed/);
+  await assert.rejects(
+    operations.run("project", "start", async () => {
+      throw new Error("failed");
+    }),
+    /failed/,
+  );
   assert.equal(await operations.run("project", "start", async () => 7), 7);
 });
 
 for (const reason of ["Remote command exited with 143", "SSH command interrupted: connection closed"]) {
   test(`verifies activation after its marker and ${reason}`, async () => {
-    let activations = 0; let verifications = 0;
-    await activateRelease(candidateRelease, async (output) => {
-      activations++; output(`HATOPAD_ACTIVATED:${candidateRelease}`);
-      throw new Error(reason);
-    }, async () => { verifications++; });
-    assert.equal(activations, 1); assert.equal(verifications, 1);
+    let activations = 0;
+    let verifications = 0;
+    await activateRelease(
+      candidateRelease,
+      async (output) => {
+        activations++;
+        output(`HATOPAD_ACTIVATED:${candidateRelease}`);
+        throw new Error(reason);
+      },
+      async () => {
+        verifications++;
+      },
+    );
+    assert.equal(activations, 1);
+    assert.equal(verifications, 1);
   });
 }
 
 test("does not verify or replay a failed activation without the matching release marker", async () => {
   let verifications = 0;
-  await assert.rejects(activateRelease(candidateRelease, async (output) => {
-    output(`HATOPAD_ACTIVATED:${oldRelease}`); throw new Error("Activation failed");
-  }, async () => { verifications++; }), /Activation failed/);
+  await assert.rejects(
+    activateRelease(
+      candidateRelease,
+      async (output) => {
+        output(`HATOPAD_ACTIVATED:${oldRelease}`);
+        throw new Error("Activation failed");
+      },
+      async () => {
+        verifications++;
+      },
+    ),
+    /Activation failed/,
+  );
   assert.equal(verifications, 0);
 });
 
 test("retains failure when an activation marker cannot be verified", async () => {
-  await assert.rejects(activateRelease(candidateRelease, async (output) => {
-    output(`HATOPAD_ACTIVATED:${candidateRelease}`); throw new Error("Remote command exited with 143");
-  }, async () => { throw new Error("Core health check failed"); }), /could not be verified.*Core health check failed.*exited with 143/);
+  await assert.rejects(
+    activateRelease(
+      candidateRelease,
+      async (output) => {
+        output(`HATOPAD_ACTIVATED:${candidateRelease}`);
+        throw new Error("Remote command exited with 143");
+      },
+      async () => {
+        throw new Error("Core health check failed");
+      },
+    ),
+    /could not be verified.*Core health check failed.*exited with 143/,
+  );
 });
 
 test("accepts a normal successful activation without reconnecting", async () => {
   let verifications = 0;
-  await activateRelease(candidateRelease, async (output) => { output(`HATOPAD_ACTIVATED:${candidateRelease}`); }, async () => { verifications++; });
+  await activateRelease(
+    candidateRelease,
+    async (output) => {
+      output(`HATOPAD_ACTIVATED:${candidateRelease}`);
+    },
+    async () => {
+      verifications++;
+    },
+  );
   assert.equal(verifications, 0);
 });
 
 test("a bundled Gateway keeps only compatible, non-bundle Git releases", () => {
   const output = (range: object) => `noise\nHATOPAD_KEPT:${JSON.stringify(range)}\n`;
   const gateway = { minimum: 19, maximum: 19 };
-  assert.deepEqual(parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), oldRelease, gateway), { commit: oldRelease.split("-node")[0], rebuilt: false, release: oldRelease });
+  assert.deepEqual(parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), oldRelease, gateway), {
+    commit: oldRelease.split("-node")[0],
+    rebuilt: false,
+    release: oldRelease,
+  });
   assert.equal(parseKeptGitRelease(output({ minimum: 20, maximum: 20 }), oldRelease, gateway), undefined);
-  assert.equal(parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), `${"a".repeat(40)}-node137-bundle-test`, gateway), undefined);
+  assert.equal(
+    parseKeptGitRelease(output({ minimum: 19, maximum: 19 }), `${"a".repeat(40)}-node137-bundle-test`, gateway),
+    undefined,
+  );
   assert.equal(parseKeptGitRelease("", oldRelease, gateway), undefined);
   assert.equal(parseKeptGitRelease("HATOPAD_KEPT:not json", oldRelease, gateway), undefined);
   assert.throws(() => keptGitReleaseCommand(`${"a".repeat(40)}-node137-bundle-test`, "true"));

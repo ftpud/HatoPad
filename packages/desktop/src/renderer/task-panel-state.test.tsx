@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { restoredFocusedLeftPanels, initialTaskPanel, switchedTaskPanel, taskPanelPreferenceKey } from "./task-panel-state";
+import {
+  restoredFocusedLeftPanels,
+  initialTaskPanel,
+  switchedTaskPanel,
+  taskPanelPreferenceKey,
+} from "./task-panel-state";
 
 describe("task panel selection", () => {
   it("uses Task Git for the initial task when it has no explicit panel choice", () => {
@@ -18,7 +23,7 @@ describe("task panel selection", () => {
   it("respects a user's task-specific choice on initial entry and reconnect", () => {
     const values = new Map([
       [taskPanelPreferenceKey("classic", "task-a"), "project"],
-      [taskPanelPreferenceKey("ai-focused", "task-a"), "closed"]
+      [taskPanelPreferenceKey("ai-focused", "task-a"), "closed"],
     ]);
     const read = (key: string) => values.get(key) ?? null;
     expect(initialTaskPanel("classic", "task-a", read)).toEqual({ classic: "project" });
@@ -29,7 +34,9 @@ describe("task panel selection", () => {
     let currentSequence = 0;
     let panel = "project";
     const begin = () => ++currentSequence;
-    const apply = (sequence: number) => { if (sequence === currentSequence) panel = switchedTaskPanel("task")?.classic ?? panel; };
+    const apply = (sequence: number) => {
+      if (sequence === currentSequence) panel = switchedTaskPanel("task")?.classic ?? panel;
+    };
     const first = begin();
     const second = begin();
     apply(first);
@@ -45,8 +52,29 @@ describe("Proc navigation persistence", () => {
   });
   it("restores focused Proc exclusively while retaining Tasks and handling older saved preferences", () => {
     const current = { tasks: true, ai: true, harness: false, timers: false, triggers: false, proc: false };
-    expect(restoredFocusedLeftPanels(current, { proc: true })).toEqual({ tasks: true, ai: false, harness: false, timers: false, triggers: false, proc: true });
-    expect(restoredFocusedLeftPanels(current, { timers: true })).toEqual({ tasks: true, ai: false, harness: false, timers: true, triggers: false, proc: false });
-    expect(restoredFocusedLeftPanels(current, { triggers: true })).toEqual({ tasks: true, ai: false, harness: false, timers: false, triggers: true, proc: false });
+    expect(restoredFocusedLeftPanels(current, { proc: true })).toEqual({
+      tasks: true,
+      ai: false,
+      harness: false,
+      timers: false,
+      triggers: false,
+      proc: true,
+    });
+    expect(restoredFocusedLeftPanels(current, { timers: true })).toEqual({
+      tasks: true,
+      ai: false,
+      harness: false,
+      timers: true,
+      triggers: false,
+      proc: false,
+    });
+    expect(restoredFocusedLeftPanels(current, { triggers: true })).toEqual({
+      tasks: true,
+      ai: false,
+      harness: false,
+      timers: false,
+      triggers: true,
+      proc: false,
+    });
   });
 });

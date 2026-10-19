@@ -5,7 +5,34 @@ import path from "node:path";
 import { appendFile, chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import { createHash } from "node:crypto";
-import type { GitSummary, FileRevision, GitBranch, GitBranchDeletePreview, GitCommit, GitCommitFile, GitConflictOperationKind, GitConflictWorkspace, GitDiffHunk, GitHistoryRewritePreview, GitMergePreview, GitMergeRef, GitMergeResult, GitPullPreview, GitPullResult, GitPullStrategy, GitRebasePreview, GitRebaseResult, GitRebaseTodoItem, GitRollbackFailure, GitStash, GitStashInclusion, GitStashPreview, GitStatusEntry, GitTag, GitUpstreamStatus } from "@hatopad/protocol";
+import type {
+  GitSummary,
+  FileRevision,
+  GitBranch,
+  GitBranchDeletePreview,
+  GitCommit,
+  GitCommitFile,
+  GitConflictOperationKind,
+  GitConflictWorkspace,
+  GitDiffHunk,
+  GitHistoryRewritePreview,
+  GitMergePreview,
+  GitMergeRef,
+  GitMergeResult,
+  GitPullPreview,
+  GitPullResult,
+  GitPullStrategy,
+  GitRebasePreview,
+  GitRebaseResult,
+  GitRebaseTodoItem,
+  GitRollbackFailure,
+  GitStash,
+  GitStashInclusion,
+  GitStashPreview,
+  GitStatusEntry,
+  GitTag,
+  GitUpstreamStatus,
+} from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { WorkspaceFileSystem } from "./filesystem.js";
 import { serializedRootMutation } from "./root-mutation.js";
@@ -19,45 +46,109 @@ export class GitService {
 
   async status(): Promise<{ branch: string; entries: GitStatusEntry[]; upstream?: GitUpstreamStatus }> {
     try {
-      const { stdout } = await execFileAsync("git", ["-C", this.workspace, "status", "--porcelain=v1", "--branch", "-z", "--untracked-files=all"], {
-        encoding: "utf8",
-        maxBuffer: 4 * 1024 * 1024
-      });
+      const { stdout } = await execFileAsync(
+        "git",
+        ["-C", this.workspace, "status", "--porcelain=v1", "--branch", "-z", "--untracked-files=all"],
+        {
+          encoding: "utf8",
+          maxBuffer: 4 * 1024 * 1024,
+        },
+      );
       const status = parseGitStatus(stdout);
       // Older Core versions stored recovery payloads inside the worktree.
-      status.entries = status.entries.filter(entry => !isUntracked(entry) || (entry.path !== ".vibe-trash" && !entry.path.startsWith(".vibe-trash/")));
+      status.entries = status.entries.filter(
+        (entry) => !isUntracked(entry) || (entry.path !== ".vibe-trash" && !entry.path.startsWith(".vibe-trash/")),
+      );
       const upstream = await this.upstreamStatus();
       return { ...status, ...(upstream ? { upstream } : {}) };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (message.includes("not a git repository")) throw new CoreError("GIT_NOT_REPOSITORY", "Workspace is not a Git repository");
+      if (message.includes("not a git repository"))
+        throw new CoreError("GIT_NOT_REPOSITORY", "Workspace is not a Git repository");
       throw new CoreError("GIT_FAILED", `Could not read Git status: ${message}`);
     }
   }
 
   async summary(limit = 100, offset = 0): Promise<GitSummary> {
-    if (!Number.isInteger(limit) || limit < 1 || limit > 500 || !Number.isInteger(offset) || offset < 0 || offset > 1_000_000) throw new CoreError("INVALID_REQUEST", "Choose a valid summary page");
+    if (
+      !Number.isInteger(limit) ||
+      limit < 1 ||
+      limit > 500 ||
+      !Number.isInteger(offset) ||
+      offset < 0 ||
+      offset > 1_000_000
+    )
+      throw new CoreError("INVALID_REQUEST", "Choose a valid summary page");
     const status = await this.status();
-    let head = false; try { await this.git(["rev-parse", "--verify", "HEAD"]); head = true; } catch { /* Unborn branch. */ }
-    const outputs = head ? [await this.git(["diff", "--numstat", "-z", "--no-renames", "HEAD", "--"])] : await Promise.all([this.git(["diff", "--numstat", "-z", "--no-renames", "--"]), this.git(["diff", "--cached", "--numstat", "-z", "--no-renames", "--"])]);
-    const counts = new Map<string, { additions: number | null; deletions: number | null }>();
-    for (const output of outputs) for (const record of output.split("\0").filter(Boolean)) {
-      const first = record.indexOf("\t"), second = record.indexOf("\t", first + 1);
-      if (first < 0 || second < 0) continue;
-      const file = record.slice(second + 1), added = record.slice(0, first), removed = record.slice(first + 1, second);
-      const prior = counts.get(file);
-      const binary = added === "-" || removed === "-" || prior?.additions === null;
-      counts.set(file, { additions: binary ? null : (prior?.additions ?? 0) + Number(added), deletions: binary ? null : (prior?.deletions ?? 0) + Number(removed) });
+    let head = false;
+    try {
+      await this.git(["rev-parse", "--verify", "HEAD"]);
+      head = true;
+    } catch {
+      /* Unborn branch. */
     }
-    const entries: GitSummary["entries"] = status.entries.map(entry => {
-      const values = [counts.get(entry.path), ...(entry.originalPath ? [counts.get(entry.originalPath)] : [])].filter(value => value !== undefined);
-      const unknown = entry.indexStatus === "?" || values.length === 0 || values.some(value => value.additions === null);
-      const conflicted = entry.indexStatus === "U" || entry.worktreeStatus === "U" || ["AA", "DD"].includes(entry.indexStatus + entry.worktreeStatus);
-      return { ...entry, group: conflicted ? "conflicted" : entry.indexStatus === "?" ? "untracked" : entry.indexStatus !== " " ? "staged" : "working-tree", additions: unknown ? null : values.reduce((sum, value) => sum + (value.additions ?? 0), 0), deletions: unknown ? null : values.reduce((sum, value) => sum + (value.deletions ?? 0), 0) };
+    const outputs = head
+      ? [await this.git(["diff", "--numstat", "-z", "--no-renames", "HEAD", "--"])]
+      : await Promise.all([
+          this.git(["diff", "--numstat", "-z", "--no-renames", "--"]),
+          this.git(["diff", "--cached", "--numstat", "-z", "--no-renames", "--"]),
+        ]);
+    const counts = new Map<string, { additions: number | null; deletions: number | null }>();
+    for (const output of outputs)
+      for (const record of output.split("\0").filter(Boolean)) {
+        const first = record.indexOf("\t"),
+          second = record.indexOf("\t", first + 1);
+        if (first < 0 || second < 0) continue;
+        const file = record.slice(second + 1),
+          added = record.slice(0, first),
+          removed = record.slice(first + 1, second);
+        const prior = counts.get(file);
+        const binary = added === "-" || removed === "-" || prior?.additions === null;
+        counts.set(file, {
+          additions: binary ? null : (prior?.additions ?? 0) + Number(added),
+          deletions: binary ? null : (prior?.deletions ?? 0) + Number(removed),
+        });
+      }
+    const entries: GitSummary["entries"] = status.entries.map((entry) => {
+      const values = [counts.get(entry.path), ...(entry.originalPath ? [counts.get(entry.originalPath)] : [])].filter(
+        (value) => value !== undefined,
+      );
+      const unknown =
+        entry.indexStatus === "?" || values.length === 0 || values.some((value) => value.additions === null);
+      const conflicted =
+        entry.indexStatus === "U" ||
+        entry.worktreeStatus === "U" ||
+        ["AA", "DD"].includes(entry.indexStatus + entry.worktreeStatus);
+      return {
+        ...entry,
+        group: conflicted
+          ? "conflicted"
+          : entry.indexStatus === "?"
+            ? "untracked"
+            : entry.indexStatus !== " "
+              ? "staged"
+              : "working-tree",
+        additions: unknown ? null : values.reduce((sum, value) => sum + (value.additions ?? 0), 0),
+        deletions: unknown ? null : values.reduce((sum, value) => sum + (value.deletions ?? 0), 0),
+      };
     });
-    const revision = createHash("sha256").update(JSON.stringify({ ...status, entries })).digest("hex");
+    const revision = createHash("sha256")
+      .update(JSON.stringify({ ...status, entries }))
+      .digest("hex");
     const page = metadataPage(entries, offset, limit);
-    return { branch: status.branch, ...(status.upstream ? { upstream: status.upstream } : {}), clean: entries.length === 0, totalFiles: entries.length, conflicts: entries.filter(entry => entry.group === "conflicted").length, revision, additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0), deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0), unknownCounts: entries.filter(entry => entry.additions === null).length, entries: page.rows, ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}) };
+    return {
+      branch: status.branch,
+      ...(status.upstream ? { upstream: status.upstream } : {}),
+      clean: entries.length === 0,
+      totalFiles: entries.length,
+      conflicts: entries.filter((entry) => entry.group === "conflicted").length,
+      revision,
+      additions: entries.reduce((sum, entry) => sum + (entry.additions ?? 0), 0),
+      deletions: entries.reduce((sum, entry) => sum + (entry.deletions ?? 0), 0),
+      unknownCounts: entries.filter((entry) => entry.additions === null).length,
+      entries: page.rows,
+      ...(page.nextOffset !== undefined ? { nextOffset: page.nextOffset } : {}),
+    };
   }
 
   private async upstreamStatus(): Promise<GitUpstreamStatus | undefined> {
@@ -65,7 +156,7 @@ export class GitService {
       const upstream = (await this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])).trim();
       const [aheadOutput = "", behindOutput = ""] = await Promise.all([
         this.git(["rev-list", "--count", `${upstream}..HEAD`]),
-        this.git(["rev-list", "--count", `HEAD..${upstream}`])
+        this.git(["rev-list", "--count", `HEAD..${upstream}`]),
       ]);
       const ahead = Number(aheadOutput.trim());
       const behind = Number(behindOutput.trim());
@@ -79,7 +170,10 @@ export class GitService {
     }
   }
 
-  async diff(filePath: string, filesystem: WorkspaceFileSystem): Promise<{ path: string; originalContent: string; modifiedContent: string; hunks: GitDiffHunk[] }> {
+  async diff(
+    filePath: string,
+    filesystem: WorkspaceFileSystem,
+  ): Promise<{ path: string; originalContent: string; modifiedContent: string; hunks: GitDiffHunk[] }> {
     const status = await this.status();
     const entry = status.entries.find((item) => item.path === filePath);
     if (!entry) throw new CoreError("GIT_FAILED", `Path has no Git changes: ${filePath}`);
@@ -87,7 +181,10 @@ export class GitService {
     let originalContent = "";
     let modifiedContent = "";
     try {
-      const result = await execFileAsync("git", ["-C", this.workspace, "show", `HEAD:${headPath}`], { encoding: "utf8", maxBuffer: 3 * 1024 * 1024 });
+      const result = await execFileAsync("git", ["-C", this.workspace, "show", `HEAD:${headPath}`], {
+        encoding: "utf8",
+        maxBuffer: 3 * 1024 * 1024,
+      });
       originalContent = result.stdout;
     } catch {
       // New files and repositories without HEAD have no original content.
@@ -97,11 +194,15 @@ export class GitService {
       // The Git panel places mixed index/worktree entries in the Staged group.
       // Show the index snapshot there, otherwise an index-only change appears
       // unchanged because its working file is deliberately left untouched.
-      try { modifiedContent = await this.git(["show", `:${entry.path}`]); }
-      catch { /* A staged deletion has no index blob. */ }
+      try {
+        modifiedContent = await this.git(["show", `:${entry.path}`]);
+      } catch {
+        /* A staged deletion has no index blob. */
+      }
     } else {
-      try { modifiedContent = (await filesystem.read(entry.path)).content; }
-      catch (error) {
+      try {
+        modifiedContent = (await filesystem.read(entry.path)).content;
+      } catch (error) {
         if (!(error instanceof CoreError) || error.code !== "FILE_NOT_FOUND") throw error;
       }
     }
@@ -112,91 +213,188 @@ export class GitService {
     } else {
       const [indexPatch, worktreePatch] = await Promise.all([
         this.git(["diff", "--cached", "--unified=0", "--", entry.path]).catch(() => ""),
-        this.git(["diff", "--unified=0", "--", entry.path]).catch(() => "")
+        this.git(["diff", "--unified=0", "--", entry.path]).catch(() => ""),
       ]);
       hunks = [...parseDiffHunks(indexPatch, "index"), ...parseDiffHunks(worktreePatch, "worktree")];
     }
     return { path: entry.path, originalContent, modifiedContent, hunks };
   }
 
-  async stage(filePath: string, hunk?: GitDiffHunk): Promise<void> { await this.updateIndex("stage", filePath, hunk); }
-  async unstage(filePath: string, hunk?: GitDiffHunk): Promise<void> { await this.updateIndex("unstage", filePath, hunk); }
+  async stage(filePath: string, hunk?: GitDiffHunk): Promise<void> {
+    await this.updateIndex("stage", filePath, hunk);
+  }
+  async unstage(filePath: string, hunk?: GitDiffHunk): Promise<void> {
+    await this.updateIndex("unstage", filePath, hunk);
+  }
 
   async conflicts(): Promise<GitConflictWorkspace> {
     const entries = (await this.status()).entries.filter((entry) => entry.states.includes("conflict"));
-    if (!entries.length) throw new CoreError("GIT_FAILED", "There are no unresolved Git conflicts. Refresh Git status to continue.");
+    if (!entries.length)
+      throw new CoreError("GIT_FAILED", "There are no unresolved Git conflicts. Refresh Git status to continue.");
     const operation = await this.conflictOperation();
-    const files = await Promise.all(entries.map(async (entry) => {
-      this.validateConflictPath(entry.path);
-      const [base, ours, theirs, result] = await Promise.all([
-        this.showIndexStage(1, entry.path), this.showIndexStage(2, entry.path), this.showIndexStage(3, entry.path),
-        readFile(path.join(this.workspace, entry.path), "utf8").then((content) => content as string | undefined).catch(() => undefined)
-      ]);
-      return { path: entry.path, ...(base !== undefined ? { base } : {}), ...(ours !== undefined ? { ours } : {}), ...(theirs !== undefined ? { theirs } : {}), ...(result !== undefined ? { result } : {}), resultDeleted: result === undefined };
-    }));
+    const files = await Promise.all(
+      entries.map(async (entry) => {
+        this.validateConflictPath(entry.path);
+        const [base, ours, theirs, result] = await Promise.all([
+          this.showIndexStage(1, entry.path),
+          this.showIndexStage(2, entry.path),
+          this.showIndexStage(3, entry.path),
+          readFile(path.join(this.workspace, entry.path), "utf8")
+            .then((content) => content as string | undefined)
+            .catch(() => undefined),
+        ]);
+        return {
+          path: entry.path,
+          ...(base !== undefined ? { base } : {}),
+          ...(ours !== undefined ? { ours } : {}),
+          ...(theirs !== undefined ? { theirs } : {}),
+          ...(result !== undefined ? { result } : {}),
+          resultDeleted: result === undefined,
+        };
+      }),
+    );
     const native = operation !== "stash";
     return { operation, files, canContinue: native, canAbort: native, recovery: conflictRecovery(operation) };
   }
 
   async resolveConflict(filePath: string, result: string | null): Promise<GitConflictWorkspace> {
     this.validateConflictPath(filePath);
-    const entry = (await this.status()).entries.find((item) => item.path === filePath && item.states.includes("conflict"));
-    if (!entry) throw new CoreError("GIT_FAILED", `Path is no longer an unresolved conflict: ${filePath}. Refresh the conflict workspace.`);
+    const entry = (await this.status()).entries.find(
+      (item) => item.path === filePath && item.states.includes("conflict"),
+    );
+    if (!entry)
+      throw new CoreError(
+        "GIT_FAILED",
+        `Path is no longer an unresolved conflict: ${filePath}. Refresh the conflict workspace.`,
+      );
     const absolute = path.join(this.workspace, filePath);
-    if (result === null) { await rm(absolute, { force: true }); await this.git(["rm", "--cached", "--ignore-unmatch", "--", filePath]); }
-    else { await writeFile(absolute, result, "utf8"); await this.git(["add", "--", filePath]); }
-    if ((await this.status()).entries.some((item) => item.path === filePath && item.states.includes("conflict"))) throw new CoreError("GIT_FAILED", `Git did not accept the resolution for ${filePath}. Review the result and retry.`);
+    if (result === null) {
+      await rm(absolute, { force: true });
+      await this.git(["rm", "--cached", "--ignore-unmatch", "--", filePath]);
+    } else {
+      await writeFile(absolute, result, "utf8");
+      await this.git(["add", "--", filePath]);
+    }
+    if ((await this.status()).entries.some((item) => item.path === filePath && item.states.includes("conflict")))
+      throw new CoreError(
+        "GIT_FAILED",
+        `Git did not accept the resolution for ${filePath}. Review the result and retry.`,
+      );
     const remaining = (await this.status()).entries.filter((item) => item.states.includes("conflict"));
-    if (!remaining.length) { const operation = await this.conflictOperation(); const native = operation !== "stash"; return { operation, files: [], canContinue: native, canAbort: native, recovery: conflictRecovery(operation) }; }
+    if (!remaining.length) {
+      const operation = await this.conflictOperation();
+      const native = operation !== "stash";
+      return { operation, files: [], canContinue: native, canAbort: native, recovery: conflictRecovery(operation) };
+    }
     return this.conflicts();
   }
 
   async conflictAction(action: "continue" | "abort"): Promise<string> {
     const operation = await this.conflictOperation();
-    if (operation === "stash") throw new CoreError("GIT_FAILED", `Git stash has no native ${action} command. ${conflictRecovery(operation)}`);
+    if (operation === "stash")
+      throw new CoreError("GIT_FAILED", `Git stash has no native ${action} command. ${conflictRecovery(operation)}`);
     if (action === "continue") {
       const unresolved = (await this.status()).entries.filter((entry) => entry.states.includes("conflict"));
-      if (unresolved.length) throw new CoreError("GIT_FAILED", `Resolve every conflicted path before continuing: ${unresolved.map((entry) => entry.path).join(", ")}`);
+      if (unresolved.length)
+        throw new CoreError(
+          "GIT_FAILED",
+          `Resolve every conflicted path before continuing: ${unresolved.map((entry) => entry.path).join(", ")}`,
+        );
     }
     const command = operation === "cherry-pick" ? ["cherry-pick", `--${action}`] : [operation, `--${action}`];
     try {
-      await execFileAsync("git", ["-C", this.workspace, ...command], { encoding: "utf8", env: { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" } });
-      if (operation === "rebase" && (action === "abort" || !await this.rebaseInProgress())) await this.cleanupRebasePlan();
+      await execFileAsync("git", ["-C", this.workspace, ...command], {
+        encoding: "utf8",
+        env: { ...process.env, GIT_EDITOR: "true", GIT_SEQUENCE_EDITOR: "true" },
+      });
+      if (operation === "rebase" && (action === "abort" || !(await this.rebaseInProgress())))
+        await this.cleanupRebasePlan();
       return `${operation} ${action} completed`;
-    } catch (error) { throw new CoreError("GIT_FAILED", `Could not ${action} ${operation}. ${error instanceof Error ? error.message : String(error)} ${conflictRecovery(operation)}`); }
+    } catch (error) {
+      throw new CoreError(
+        "GIT_FAILED",
+        `Could not ${action} ${operation}. ${error instanceof Error ? error.message : String(error)} ${conflictRecovery(operation)}`,
+      );
+    }
   }
 
   private async conflictOperation(): Promise<GitConflictOperationKind> {
-    const exists = async (name: string, directory = false) => { try { const target = (await this.git(["rev-parse", "--git-path", name])).trim(); const info = await stat(path.resolve(this.workspace, target)); return directory ? info.isDirectory() : true; } catch { return false; } };
-    return detectConflictOperation({ rebase: await exists("rebase-merge", true) || await exists("rebase-apply", true), cherryPick: await exists("CHERRY_PICK_HEAD"), merge: await exists("MERGE_HEAD") });
+    const exists = async (name: string, directory = false) => {
+      try {
+        const target = (await this.git(["rev-parse", "--git-path", name])).trim();
+        const info = await stat(path.resolve(this.workspace, target));
+        return directory ? info.isDirectory() : true;
+      } catch {
+        return false;
+      }
+    };
+    return detectConflictOperation({
+      rebase: (await exists("rebase-merge", true)) || (await exists("rebase-apply", true)),
+      cherryPick: await exists("CHERRY_PICK_HEAD"),
+      merge: await exists("MERGE_HEAD"),
+    });
   }
 
   private validateConflictPath(filePath: string): void {
     const normalized = path.normalize(filePath);
-    if (!filePath || path.isAbsolute(filePath) || filePath.includes("\0") || normalized === ".." || normalized.startsWith(`..${path.sep}`)) throw new CoreError("INVALID_REQUEST", "Conflict path must stay inside the workspace");
+    if (
+      !filePath ||
+      path.isAbsolute(filePath) ||
+      filePath.includes("\0") ||
+      normalized === ".." ||
+      normalized.startsWith(`..${path.sep}`)
+    )
+      throw new CoreError("INVALID_REQUEST", "Conflict path must stay inside the workspace");
   }
 
   private async showIndexStage(stage: 1 | 2 | 3, filePath: string): Promise<string | undefined> {
-    try { return await this.git(["show", `:${stage}:${filePath}`]); } catch { return undefined; }
+    try {
+      return await this.git(["show", `:${stage}:${filePath}`]);
+    } catch {
+      return undefined;
+    }
   }
 
   async branches(): Promise<GitBranch[]> {
-    const output = await this.git(["for-each-ref", "--format=%(refname)%00%(refname:short)%00%(HEAD)%00", "refs/heads", "refs/remotes"]);
-    return output.split("\n").filter(Boolean).map((line) => { const [ref, name, head] = line.split("\0"); return { name: name!, current: head === "*", remote: ref!.startsWith("refs/remotes/") }; }).filter((item) => !item.name.endsWith("/HEAD"));
+    const output = await this.git([
+      "for-each-ref",
+      "--format=%(refname)%00%(refname:short)%00%(HEAD)%00",
+      "refs/heads",
+      "refs/remotes",
+    ]);
+    return output
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [ref, name, head] = line.split("\0");
+        return { name: name!, current: head === "*", remote: ref!.startsWith("refs/remotes/") };
+      })
+      .filter((item) => !item.name.endsWith("/HEAD"));
   }
 
   async tags(): Promise<GitTag[]> {
-    const output = await this.git(["for-each-ref", "--format=%(refname:strip=2)%00%(objectname)%00%(objecttype)", "refs/tags"]);
-    return output.split("\n").filter(Boolean).map((line) => {
-      const [name, target, type] = line.split("\0");
-      return { name: name!, target: target!, annotated: type === "tag" };
-    });
+    const output = await this.git([
+      "for-each-ref",
+      "--format=%(refname:strip=2)%00%(objectname)%00%(objecttype)",
+      "refs/tags",
+    ]);
+    return output
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => {
+        const [name, target, type] = line.split("\0");
+        return { name: name!, target: target!, annotated: type === "tag" };
+      });
   }
 
   async createTag(name: string, target: string): Promise<GitTag> {
-    validateTagName(name); validateHash(target);
-    try { await this.git(["cat-file", "-e", `${target}^{commit}`]); }
-    catch { throw new CoreError("INVALID_REQUEST", "Tag target must be an existing commit"); }
+    validateTagName(name);
+    validateHash(target);
+    try {
+      await this.git(["cat-file", "-e", `${target}^{commit}`]);
+    } catch {
+      throw new CoreError("INVALID_REQUEST", "Tag target must be an existing commit");
+    }
     await this.git(["tag", name, target]);
     const tag = (await this.tags()).find((item) => item.name === name);
     if (!tag) throw new CoreError("GIT_FAILED", `Git did not create local tag '${name}'`);
@@ -219,91 +417,263 @@ export class GitService {
   }
 
   async renameBranch(branch: string, newName: string): Promise<string> {
-    validateBranchName(branch); validateBranchName(newName);
+    validateBranchName(branch);
+    validateBranchName(newName);
     await this.ensureBranchNotCheckedOut(branch);
     await this.git(["branch", "-m", branch, newName]);
     return (await this.status()).branch;
   }
 
-  async createBranch(name: string): Promise<string> { validateBranchName(name); await this.git(["branch", name]); return name; }
-  async branchDeletePreview(branch: string, remote: boolean): Promise<GitBranchDeletePreview> { const reference = await this.branchReference(branch, remote); const unmerged = parseGitLog(await this.git(["log", "--max-count=50", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00", reference, "--not", "HEAD"])); return { branch, remote, unmerged, confirmationRequired: remote || unmerged.length > 0 }; }
-  async deleteBranch(branch: string, remote: boolean, force: boolean, confirm: boolean): Promise<void> {
-    if (typeof force !== "boolean" || typeof confirm !== "boolean") throw new CoreError("INVALID_REQUEST", "Branch deletion confirmation is required"); const reference = await this.branchReference(branch, remote);
-    if (!remote) { await this.ensureBranchNotCheckedOut(branch); const preview = await this.branchDeletePreview(branch, false); if ((force || preview.confirmationRequired) && !confirm) throw new CoreError("INVALID_REQUEST", "Confirm deletion of an unmerged or forced branch"); await this.git(["branch", force ? "-D" : "-d", branch]); return; }
-    if (!confirm) throw new CoreError("INVALID_REQUEST", "Confirm remote branch deletion"); const { remoteName, branchName } = splitRemoteBranch(reference); await this.networkGit(["push", remoteName, "--delete", branchName]);
+  async createBranch(name: string): Promise<string> {
+    validateBranchName(name);
+    await this.git(["branch", name]);
+    return name;
   }
-  async publishBranch(branch: string, remote: string, force: boolean, confirm: boolean): Promise<void> { validateBranchName(branch); await this.requireLocalBranch(branch); await this.requireRemote(remote); if (typeof force !== "boolean" || typeof confirm !== "boolean" || !confirm) throw new CoreError("INVALID_REQUEST", force ? "Confirm force publishing this branch" : "Confirm publishing this branch to the remote"); await this.networkGit(["push", ...(force ? ["--force-with-lease"] : []), "--set-upstream", remote, branch]); }
-  async setBranchUpstream(branch: string, remote: string, upstream: string, confirm: boolean): Promise<void> { validateBranchName(branch); validateBranchName(upstream); await this.requireLocalBranch(branch); await this.branchReference(`${remote}/${upstream}`, true); if (typeof confirm !== "boolean" || !confirm) throw new CoreError("INVALID_REQUEST", "Confirm changing this branch's upstream"); await this.git(["branch", "--set-upstream-to", `${remote}/${upstream}`, branch]); }
+  async branchDeletePreview(branch: string, remote: boolean): Promise<GitBranchDeletePreview> {
+    const reference = await this.branchReference(branch, remote);
+    const unmerged = parseGitLog(
+      await this.git([
+        "log",
+        "--max-count=50",
+        "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00",
+        reference,
+        "--not",
+        "HEAD",
+      ]),
+    );
+    return { branch, remote, unmerged, confirmationRequired: remote || unmerged.length > 0 };
+  }
+  async deleteBranch(branch: string, remote: boolean, force: boolean, confirm: boolean): Promise<void> {
+    if (typeof force !== "boolean" || typeof confirm !== "boolean")
+      throw new CoreError("INVALID_REQUEST", "Branch deletion confirmation is required");
+    const reference = await this.branchReference(branch, remote);
+    if (!remote) {
+      await this.ensureBranchNotCheckedOut(branch);
+      const preview = await this.branchDeletePreview(branch, false);
+      if ((force || preview.confirmationRequired) && !confirm)
+        throw new CoreError("INVALID_REQUEST", "Confirm deletion of an unmerged or forced branch");
+      await this.git(["branch", force ? "-D" : "-d", branch]);
+      return;
+    }
+    if (!confirm) throw new CoreError("INVALID_REQUEST", "Confirm remote branch deletion");
+    const { remoteName, branchName } = splitRemoteBranch(reference);
+    await this.networkGit(["push", remoteName, "--delete", branchName]);
+  }
+  async publishBranch(branch: string, remote: string, force: boolean, confirm: boolean): Promise<void> {
+    validateBranchName(branch);
+    await this.requireLocalBranch(branch);
+    await this.requireRemote(remote);
+    if (typeof force !== "boolean" || typeof confirm !== "boolean" || !confirm)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        force ? "Confirm force publishing this branch" : "Confirm publishing this branch to the remote",
+      );
+    await this.networkGit(["push", ...(force ? ["--force-with-lease"] : []), "--set-upstream", remote, branch]);
+  }
+  async setBranchUpstream(branch: string, remote: string, upstream: string, confirm: boolean): Promise<void> {
+    validateBranchName(branch);
+    validateBranchName(upstream);
+    await this.requireLocalBranch(branch);
+    await this.branchReference(`${remote}/${upstream}`, true);
+    if (typeof confirm !== "boolean" || !confirm)
+      throw new CoreError("INVALID_REQUEST", "Confirm changing this branch's upstream");
+    await this.git(["branch", "--set-upstream-to", `${remote}/${upstream}`, branch]);
+  }
 
   /** One page of history; `hasMore` tells clients to request the next page with `skip`. */
   async log(branch: string, limit = 200, skip = 0): Promise<{ commits: GitCommit[]; hasMore: boolean }> {
     if (!/^[\w./@{}~^:+-]+$/.test(branch)) throw new CoreError("INVALID_REQUEST", "Invalid Git branch");
-    const count = Math.max(1, Math.min(5000, Math.floor(limit))); const offset = Math.max(0, Math.floor(skip) || 0);
-    const commits = parseGitGraphLog(await this.git(["log", branch, "--graph", "--date-order", `--skip=${offset}`, `--max-count=${count + 1}`, "--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%P%x1f%D"]));
+    const count = Math.max(1, Math.min(5000, Math.floor(limit)));
+    const offset = Math.max(0, Math.floor(skip) || 0);
+    const commits = parseGitGraphLog(
+      await this.git([
+        "log",
+        branch,
+        "--graph",
+        "--date-order",
+        `--skip=${offset}`,
+        `--max-count=${count + 1}`,
+        "--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s%x1f%P%x1f%D",
+      ]),
+    );
     return { commits: commits.slice(0, count), hasMore: commits.length > count };
   }
 
   async mergePreview(source: GitMergeRef): Promise<GitMergePreview> {
     const { fullRef, refHead } = await this.resolveMergeRef(source);
     const status = await this.status();
-    if (status.branch === "HEAD") throw new CoreError("GIT_FAILED", "A local merge requires a checked-out branch; detached HEAD is not supported.");
+    if (status.branch === "HEAD")
+      throw new CoreError("GIT_FAILED", "A local merge requires a checked-out branch; detached HEAD is not supported.");
     const head = (await this.git(["rev-parse", "HEAD"])).trim();
     let mergeBase: string;
-    try { mergeBase = (await this.git(["merge-base", head, refHead])).trim(); }
-    catch { throw new CoreError("GIT_FAILED", `Cannot merge '${source.name}' because it has no common ancestor with ${status.branch}.`); }
+    try {
+      mergeBase = (await this.git(["merge-base", head, refHead])).trim();
+    } catch {
+      throw new CoreError(
+        "GIT_FAILED",
+        `Cannot merge '${source.name}' because it has no common ancestor with ${status.branch}.`,
+      );
+    }
     const alreadyMerged = await this.isAncestor(refHead, head);
-    const fastForward = !alreadyMerged && await this.isAncestor(head, refHead);
-    const outcome = alreadyMerged ? "already-merged" as const : fastForward ? "fast-forward" as const : "merge-commit" as const;
-    const listed = parseGitLog(await this.git(["log", "--max-count=101", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00", `${head}..${refHead}`]));
+    const fastForward = !alreadyMerged && (await this.isAncestor(head, refHead));
+    const outcome = alreadyMerged
+      ? ("already-merged" as const)
+      : fastForward
+        ? ("fast-forward" as const)
+        : ("merge-commit" as const);
+    const listed = parseGitLog(
+      await this.git(["log", "--max-count=101", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00", `${head}..${refHead}`]),
+    );
     const active = await this.activeOperation();
     const blockers = [
-      ...(status.entries.length ? [`Working tree must be clean (${status.entries.length} changed path${status.entries.length === 1 ? "" : "s"}).`] : []),
-      ...(active ? [`Finish or abort the active ${active} operation first.`] : [])
+      ...(status.entries.length
+        ? [
+            `Working tree must be clean (${status.entries.length} changed path${status.entries.length === 1 ? "" : "s"}).`,
+          ]
+        : []),
+      ...(active ? [`Finish or abort the active ${active} operation first.`] : []),
     ];
-    return { source, fullRef, branch: status.branch, head, refHead, mergeBase, outcome, incoming: listed.slice(0, 100), incomingTruncated: listed.length > 100, blockers, recovery: mergeRecovery(outcome) };
+    return {
+      source,
+      fullRef,
+      branch: status.branch,
+      head,
+      refHead,
+      mergeBase,
+      outcome,
+      incoming: listed.slice(0, 100),
+      incomingTruncated: listed.length > 100,
+      blockers,
+      recovery: mergeRecovery(outcome),
+    };
   }
 
-  async merge(source: GitMergeRef, expectedHead: string, expectedRefHead: string, expectedMergeBase: string): Promise<GitMergeResult> {
-    return serializedRootMutation(this.workspace, () => this.mergeSerialized(source, expectedHead, expectedRefHead, expectedMergeBase));
+  async merge(
+    source: GitMergeRef,
+    expectedHead: string,
+    expectedRefHead: string,
+    expectedMergeBase: string,
+  ): Promise<GitMergeResult> {
+    return serializedRootMutation(this.workspace, () =>
+      this.mergeSerialized(source, expectedHead, expectedRefHead, expectedMergeBase),
+    );
   }
 
-  private async mergeSerialized(source: GitMergeRef, expectedHead: string, expectedRefHead: string, expectedMergeBase: string): Promise<GitMergeResult> {
-    validateFullHash(expectedHead); validateFullHash(expectedRefHead); validateFullHash(expectedMergeBase);
+  private async mergeSerialized(
+    source: GitMergeRef,
+    expectedHead: string,
+    expectedRefHead: string,
+    expectedMergeBase: string,
+  ): Promise<GitMergeResult> {
+    validateFullHash(expectedHead);
+    validateFullHash(expectedRefHead);
+    validateFullHash(expectedMergeBase);
     const preview = await this.mergePreview(source);
-    if (preview.head !== expectedHead || preview.refHead !== expectedRefHead || preview.mergeBase !== expectedMergeBase) throw new CoreError("GIT_FAILED", "The branch, source ref, or merge base changed after preview. Refresh the preview before merging.");
+    if (preview.head !== expectedHead || preview.refHead !== expectedRefHead || preview.mergeBase !== expectedMergeBase)
+      throw new CoreError(
+        "GIT_FAILED",
+        "The branch, source ref, or merge base changed after preview. Refresh the preview before merging.",
+      );
     if (preview.blockers.length) throw new CoreError("GIT_FAILED", preview.blockers.join(" "));
-    if (preview.outcome === "already-merged") return { state: "completed", outcome: preview.outcome, branch: preview.branch, head: preview.head, message: `'${source.name}' is already merged into ${preview.branch}.`, recovery: preview.recovery };
+    if (preview.outcome === "already-merged")
+      return {
+        state: "completed",
+        outcome: preview.outcome,
+        branch: preview.branch,
+        head: preview.head,
+        message: `'${source.name}' is already merged into ${preview.branch}.`,
+        recovery: preview.recovery,
+      };
     try {
-      await execFileAsync("git", ["-C", this.workspace, "merge", preview.outcome === "fast-forward" ? "--ff-only" : "--no-ff", "--no-edit", preview.fullRef], { encoding: "utf8", env: { ...process.env, GIT_EDITOR: "true" } });
+      await execFileAsync(
+        "git",
+        [
+          "-C",
+          this.workspace,
+          "merge",
+          preview.outcome === "fast-forward" ? "--ff-only" : "--no-ff",
+          "--no-edit",
+          preview.fullRef,
+        ],
+        { encoding: "utf8", env: { ...process.env, GIT_EDITOR: "true" } },
+      );
     } catch (error) {
-      if (await this.activeOperation() === "merge" && (await this.status()).entries.some((entry) => entry.states.includes("conflict"))) {
-        return { state: "conflicts", outcome: preview.outcome, branch: preview.branch, head: (await this.git(["rev-parse", "HEAD"])).trim(), message: `Merge of '${source.name}' stopped for conflicts.`, recovery: mergeRecovery(preview.outcome) };
+      if (
+        (await this.activeOperation()) === "merge" &&
+        (await this.status()).entries.some((entry) => entry.states.includes("conflict"))
+      ) {
+        return {
+          state: "conflicts",
+          outcome: preview.outcome,
+          branch: preview.branch,
+          head: (await this.git(["rev-parse", "HEAD"])).trim(),
+          message: `Merge of '${source.name}' stopped for conflicts.`,
+          recovery: mergeRecovery(preview.outcome),
+        };
       }
-      throw new CoreError("GIT_FAILED", `Could not merge '${source.name}'. ${error instanceof Error ? error.message : String(error)} ${mergeRecovery(preview.outcome)}`);
+      throw new CoreError(
+        "GIT_FAILED",
+        `Could not merge '${source.name}'. ${error instanceof Error ? error.message : String(error)} ${mergeRecovery(preview.outcome)}`,
+      );
     }
     const head = (await this.git(["rev-parse", "HEAD"])).trim();
-    return { state: "completed", outcome: preview.outcome, branch: preview.branch, head, message: preview.outcome === "fast-forward" ? `Fast-forwarded ${preview.branch} to '${source.name}'.` : `Created a local merge commit from '${source.name}'.`, recovery: mergeRecovery(preview.outcome) };
+    return {
+      state: "completed",
+      outcome: preview.outcome,
+      branch: preview.branch,
+      head,
+      message:
+        preview.outcome === "fast-forward"
+          ? `Fast-forwarded ${preview.branch} to '${source.name}'.`
+          : `Created a local merge commit from '${source.name}'.`,
+      recovery: mergeRecovery(preview.outcome),
+    };
   }
 
   private async resolveMergeRef(source: GitMergeRef): Promise<{ fullRef: string; refHead: string }> {
-    if (!source || !["local-branch", "remote-branch", "tag"].includes(source.kind) || typeof source.name !== "string") throw new CoreError("INVALID_REQUEST", "Choose a local branch, remote-tracking branch, or local tag to merge.");
-    if (source.kind === "tag") validateTagName(source.name); else validateBranchName(source.name);
-    const fullRef = source.kind === "local-branch" ? `refs/heads/${source.name}` : source.kind === "remote-branch" ? `refs/remotes/${source.name}` : `refs/tags/${source.name}`;
+    if (!source || !["local-branch", "remote-branch", "tag"].includes(source.kind) || typeof source.name !== "string")
+      throw new CoreError("INVALID_REQUEST", "Choose a local branch, remote-tracking branch, or local tag to merge.");
+    if (source.kind === "tag") validateTagName(source.name);
+    else validateBranchName(source.name);
+    const fullRef =
+      source.kind === "local-branch"
+        ? `refs/heads/${source.name}`
+        : source.kind === "remote-branch"
+          ? `refs/remotes/${source.name}`
+          : `refs/tags/${source.name}`;
     try {
       await this.git(["show-ref", "--verify", fullRef]);
       const refHead = (await this.git(["rev-parse", `${fullRef}^{commit}`])).trim();
       validateFullHash(refHead);
       return { fullRef, refHead };
-    } catch { throw new CoreError("INVALID_REQUEST", `The exact ${source.kind.replace("-", " ")} '${source.name}' does not exist or does not point to a commit.`); }
+    } catch {
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `The exact ${source.kind.replace("-", " ")} '${source.name}' does not exist or does not point to a commit.`,
+      );
+    }
   }
 
   private async isAncestor(ancestor: string, descendant: string): Promise<boolean> {
-    try { await this.git(["merge-base", "--is-ancestor", ancestor, descendant]); return true; } catch { return false; }
+    try {
+      await this.git(["merge-base", "--is-ancestor", ancestor, descendant]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async activeOperation(): Promise<GitConflictOperationKind | undefined> {
-    const exists = async (name: string, directory = false) => { try { const target = (await this.git(["rev-parse", "--git-path", name])).trim(); const info = await stat(path.resolve(this.workspace, target)); return directory ? info.isDirectory() : true; } catch { return false; } };
-    if (await exists("rebase-merge", true) || await exists("rebase-apply", true)) return "rebase";
+    const exists = async (name: string, directory = false) => {
+      try {
+        const target = (await this.git(["rev-parse", "--git-path", name])).trim();
+        const info = await stat(path.resolve(this.workspace, target));
+        return directory ? info.isDirectory() : true;
+      } catch {
+        return false;
+      }
+    };
+    if ((await exists("rebase-merge", true)) || (await exists("rebase-apply", true))) return "rebase";
     if (await exists("CHERRY_PICK_HEAD")) return "cherry-pick";
     if (await exists("MERGE_HEAD")) return "merge";
     return undefined;
@@ -311,7 +681,9 @@ export class GitService {
 
   async commitFiles(hash: string): Promise<GitCommitFile[]> {
     validateHash(hash);
-    return parseCommitFiles(await this.git(["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", hash]));
+    return parseCommitFiles(
+      await this.git(["diff-tree", "--root", "--no-commit-id", "--name-status", "-r", "-z", hash]),
+    );
   }
 
   async commitMessage(hash: string): Promise<string> {
@@ -319,8 +691,14 @@ export class GitService {
     return (await this.git(["show", "-s", "--format=%B", hash])).replace(/\n$/, "");
   }
 
-  async commitDiff(hash: string, filePath: string, originalPath?: string): Promise<{ originalContent: string; modifiedContent: string }> {
-    validateHash(hash); validatePath(filePath); if (originalPath) validatePath(originalPath);
+  async commitDiff(
+    hash: string,
+    filePath: string,
+    originalPath?: string,
+  ): Promise<{ originalContent: string; modifiedContent: string }> {
+    validateHash(hash);
+    validatePath(filePath);
+    if (originalPath) validatePath(originalPath);
     const modifiedContent = await this.show(`${hash}:${filePath}`);
     // Root commits have no parent; their files are compared with nothing.
     const originalContent = await this.show(`${hash}^:${originalPath ?? filePath}`);
@@ -336,75 +714,184 @@ export class GitService {
   private async commitPatchData(hash: string) {
     validateHash(hash);
     const ancestry = (await this.git(["rev-list", "--parents", "-n", "1", hash])).trim().split(/\s+/);
-    if (ancestry.length > 2) throw new CoreError("INVALID_REQUEST", "Select a non-merge commit to apply individual changes. Merge commits require choosing a parent.");
+    if (ancestry.length > 2)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Select a non-merge commit to apply individual changes. Merge commits require choosing a parent.",
+      );
     const resolvedHash = ancestry[0]!;
     validateFullHash(resolvedHash);
-    const paths = (await this.git(["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", resolvedHash])).split("\0").filter(Boolean);
+    const paths = (
+      await this.git(["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", resolvedHash])
+    )
+      .split("\0")
+      .filter(Boolean);
     const files = [];
     for (const filePath of paths) {
-      const patch = await this.git(["diff-tree", "--root", "--no-commit-id", "-r", "-p", "--no-ext-diff", "--no-textconv", "--no-renames", "--no-color", "--unified=3", resolvedHash, "--", `:(literal)${filePath}`]);
+      const patch = await this.git([
+        "diff-tree",
+        "--root",
+        "--no-commit-id",
+        "-r",
+        "-p",
+        "--no-ext-diff",
+        "--no-textconv",
+        "--no-renames",
+        "--no-color",
+        "--unified=3",
+        resolvedHash,
+        "--",
+        `:(literal)${filePath}`,
+      ]);
       const hunks = parseDiffHunks(patch);
-      const reason = /^(?:old mode|new mode|(?:new file|deleted file) mode (?:120000|160000)|index .* (?:120000|160000)$)/m.test(patch) ? "File mode, symbolic link, or submodule changes cannot be selected as text blocks." : !hunks.length ? "This change has no selectable text blocks (binary, empty file, or metadata only)." : undefined;
-      files.push({ path: filePath, header: patch.slice(0, patch.indexOf("@@ ")), reason, hunks: reason ? [] : hunks.map((hunk) => ({ id: hunk.version, content: hunk.patch.slice(hunk.patch.indexOf("@@ ")) })) });
+      const reason =
+        /^(?:old mode|new mode|(?:new file|deleted file) mode (?:120000|160000)|index .* (?:120000|160000)$)/m.test(
+          patch,
+        )
+          ? "File mode, symbolic link, or submodule changes cannot be selected as text blocks."
+          : !hunks.length
+            ? "This change has no selectable text blocks (binary, empty file, or metadata only)."
+            : undefined;
+      files.push({
+        path: filePath,
+        header: patch.slice(0, patch.indexOf("@@ ")),
+        reason,
+        hunks: reason
+          ? []
+          : hunks.map((hunk) => ({ id: hunk.version, content: hunk.patch.slice(hunk.patch.indexOf("@@ ")) })),
+      });
     }
     return { hash: resolvedHash, files };
   }
 
   private async indexVersion(): Promise<string> {
-    return createHash("sha256").update(await this.git(["ls-files", "--stage", "-z"])).digest("hex");
+    return createHash("sha256")
+      .update(await this.git(["ls-files", "--stage", "-z"]))
+      .digest("hex");
   }
 
   async commitPatch(hash: string): Promise<GitCommitPatch> {
     const data = await this.commitPatchData(hash);
     const indexVersion = await this.indexVersion();
-    const files = await Promise.all(data.files.map(async ({ header: _header, ...file }) => {
-      const entries = await this.git(["ls-files", "--stage", "-z", "--", `:(literal)${file.path}`]);
-      const unsafe = entries && !/^(100644|100755) [0-9a-f]+ 0\t/.test(entries);
-      const indexContent = unsafe ? undefined : entries ? await this.git(["show", `:${file.path}`]) : "";
-      const reason = file.reason ?? (unsafe ? "Resolve conflicts or non-text index entries before editing." : indexContent?.includes("\0") ? "The index contains binary content." : undefined);
-      return { ...file, reason, indexContent: reason ? undefined : indexContent };
-    }));
-    if (indexVersion !== await this.indexVersion()) throw new CoreError("GIT_FAILED", "The index changed while loading. Refresh the patch.");
+    const files = await Promise.all(
+      data.files.map(async ({ header: _header, ...file }) => {
+        const entries = await this.git(["ls-files", "--stage", "-z", "--", `:(literal)${file.path}`]);
+        const unsafe = entries && !/^(100644|100755) [0-9a-f]+ 0\t/.test(entries);
+        const indexContent = unsafe ? undefined : entries ? await this.git(["show", `:${file.path}`]) : "";
+        const reason =
+          file.reason ??
+          (unsafe
+            ? "Resolve conflicts or non-text index entries before editing."
+            : indexContent?.includes("\0")
+              ? "The index contains binary content."
+              : undefined);
+        return { ...file, reason, indexContent: reason ? undefined : indexContent };
+      }),
+    );
+    if (indexVersion !== (await this.indexVersion()))
+      throw new CoreError("GIT_FAILED", "The index changed while loading. Refresh the patch.");
     return { hash: data.hash, indexVersion, files };
   }
 
-  async saveCommitResults(hash: string, indexVersion: string, files: { path: string; content: string | null }[]): Promise<{ applied: number }> {
-    if (!Array.isArray(files) || !files.length || files.length > 10000 || files.some((file) => !file || typeof file.path !== "string") || new Set(files.map((file) => file.path)).size !== files.length) throw new CoreError("INVALID_REQUEST", "Choose unique result files to save.");
+  async saveCommitResults(
+    hash: string,
+    indexVersion: string,
+    files: { path: string; content: string | null }[],
+  ): Promise<{ applied: number }> {
+    if (
+      !Array.isArray(files) ||
+      !files.length ||
+      files.length > 10000 ||
+      files.some((file) => !file || typeof file.path !== "string") ||
+      new Set(files.map((file) => file.path)).size !== files.length
+    )
+      throw new CoreError("INVALID_REQUEST", "Choose unique result files to save.");
     const preview = await this.commitPatch(hash);
-    if (preview.indexVersion !== indexVersion) throw new CoreError("GIT_FAILED", "The index changed after preview. Reopen the dialog and review your changes again.");
+    if (preview.indexVersion !== indexVersion)
+      throw new CoreError(
+        "GIT_FAILED",
+        "The index changed after preview. Reopen the dialog and review your changes again.",
+      );
     let patch = "";
-    const lines = (content: string, prefix: string) => content ? content.split("\n").map((line, i, all) => i === all.length - 1 ? line ? `${prefix}${line}\n\\ No newline at end of file\n` : "" : `${prefix}${line}\n`).join("") : "";
-    const count = (content: string) => content ? content.split("\n").length - (content.endsWith("\n") ? 1 : 0) : 0;
+    const lines = (content: string, prefix: string) =>
+      content
+        ? content
+            .split("\n")
+            .map((line, i, all) =>
+              i === all.length - 1
+                ? line
+                  ? `${prefix}${line}\n\\ No newline at end of file\n`
+                  : ""
+                : `${prefix}${line}\n`,
+            )
+            .join("")
+        : "";
+    const count = (content: string) => (content ? content.split("\n").length - (content.endsWith("\n") ? 1 : 0) : 0);
     for (const result of files) {
       const file = preview.files.find((item) => item.path === result.path);
-      if (!file || file.reason || file.indexContent === undefined || (result.content !== null && (typeof result.content !== "string" || result.content.includes("\0") || result.content.length > 4 * 1024 * 1024))) throw new CoreError("INVALID_REQUEST", "Invalid text result file.");
+      if (
+        !file ||
+        file.reason ||
+        file.indexContent === undefined ||
+        (result.content !== null &&
+          (typeof result.content !== "string" ||
+            result.content.includes("\0") ||
+            result.content.length > 4 * 1024 * 1024))
+      )
+        throw new CoreError("INVALID_REQUEST", "Invalid text result file.");
       const entry = await this.git(["ls-files", "--stage", "-z", "--", `:(literal)${file.path}`]);
-      const old = file.indexContent; const next = result.content ?? "";
+      const old = file.indexContent;
+      const next = result.content ?? "";
       if (old === next && (result.content !== null || !entry)) continue;
-      const a = JSON.stringify(`a/${file.path}`); const b = JSON.stringify(`b/${file.path}`);
+      const a = JSON.stringify(`a/${file.path}`);
+      const b = JSON.stringify(`b/${file.path}`);
       patch += `diff --git ${a} ${b}\n`;
       if (!entry) {
         const sourceEntry = await this.git(["ls-tree", hash, "--", `:(literal)${file.path}`]);
         patch += `new file mode ${sourceEntry.startsWith("100755 ") ? "100755" : "100644"}\n`;
-      }
-      else if (result.content === null) patch += `deleted file mode ${entry.slice(0, 6)}\n`;
+      } else if (result.content === null) patch += `deleted file mode ${entry.slice(0, 6)}\n`;
       patch += `--- ${entry ? a : "/dev/null"}\n+++ ${result.content === null ? "/dev/null" : b}\n`;
-      if (old || next) patch += `@@ -${old ? 1 : 0},${count(old)} +${next ? 1 : 0},${count(next)} @@\n${lines(old, "-")}${lines(next, "+")}`;
+      if (old || next)
+        patch += `@@ -${old ? 1 : 0},${count(old)} +${next ? 1 : 0},${count(next)} @@\n${lines(old, "-")}${lines(next, "+")}`;
     }
-    if (indexVersion !== await this.indexVersion()) throw new CoreError("GIT_FAILED", "The index changed after preview. Reopen the dialog.");
+    if (indexVersion !== (await this.indexVersion()))
+      throw new CoreError("GIT_FAILED", "The index changed after preview. Reopen the dialog.");
     if (patch) await applyGitPatch(this.workspace, patch, false);
     return { applied: files.length };
   }
 
-  async saveCommitWorktreeResults(hash: string, files: { path: string; content: string | null; expectedRevision?: FileRevision }[], filesystem: WorkspaceFileSystem): Promise<{ applied: number }> {
-    if (!Array.isArray(files) || !files.length || files.length > 10000 || files.some((file) => !file || typeof file.path !== "string") || new Set(files.map((file) => file.path)).size !== files.length) throw new CoreError("INVALID_REQUEST", "Choose unique result files to apply.");
+  async saveCommitWorktreeResults(
+    hash: string,
+    files: { path: string; content: string | null; expectedRevision?: FileRevision }[],
+    filesystem: WorkspaceFileSystem,
+  ): Promise<{ applied: number }> {
+    if (
+      !Array.isArray(files) ||
+      !files.length ||
+      files.length > 10000 ||
+      files.some((file) => !file || typeof file.path !== "string") ||
+      new Set(files.map((file) => file.path)).size !== files.length
+    )
+      throw new CoreError("INVALID_REQUEST", "Choose unique result files to apply.");
     const data = await this.commitPatchData(hash);
     const allowed = new Set(data.files.filter((file) => !file.reason).map((file) => file.path));
     for (const file of files) {
-      if (!allowed.has(file.path) || file.content !== null && (typeof file.content !== "string" || file.content.includes("\0") || Buffer.byteLength(file.content, "utf8") > 2 * 1024 * 1024)) throw new CoreError("INVALID_REQUEST", "Invalid text result file.");
+      if (
+        !allowed.has(file.path) ||
+        (file.content !== null &&
+          (typeof file.content !== "string" ||
+            file.content.includes("\0") ||
+            Buffer.byteLength(file.content, "utf8") > 2 * 1024 * 1024))
+      )
+        throw new CoreError("INVALID_REQUEST", "Invalid text result file.");
       try {
         const current = await filesystem.read(file.path);
-        if (!file.expectedRevision || current.revision.identity !== file.expectedRevision.identity || current.revision.version !== file.expectedRevision.version) throw new CoreError("FILE_CHANGED", `File changed after preview: ${file.path}`);
+        if (
+          !file.expectedRevision ||
+          current.revision.identity !== file.expectedRevision.identity ||
+          current.revision.version !== file.expectedRevision.version
+        )
+          throw new CoreError("FILE_CHANGED", `File changed after preview: ${file.path}`);
       } catch (error) {
         if (error instanceof CoreError && error.code === "FILE_NOT_FOUND" && !file.expectedRevision) continue;
         throw error;
@@ -420,15 +907,38 @@ export class GitService {
   }
 
   async applyCommitHunks(hash: string, indexVersion: string, hunkIds: string[]): Promise<{ applied: number }> {
-    if (!Array.isArray(hunkIds) || !hunkIds.length || hunkIds.length > 10000 || hunkIds.some((id) => typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id)) || new Set(hunkIds).size !== hunkIds.length) throw new CoreError("INVALID_REQUEST", "Select valid commit change blocks to apply.");
+    if (
+      !Array.isArray(hunkIds) ||
+      !hunkIds.length ||
+      hunkIds.length > 10000 ||
+      hunkIds.some((id) => typeof id !== "string" || !/^[0-9a-f]{64}$/.test(id)) ||
+      new Set(hunkIds).size !== hunkIds.length
+    )
+      throw new CoreError("INVALID_REQUEST", "Select valid commit change blocks to apply.");
     const data = await this.commitPatchData(hash);
     const selected = new Set(hunkIds);
     const known = new Set(data.files.flatMap((file) => file.hunks.map((hunk) => hunk.id)));
-    if (hunkIds.some((id) => !known.has(id))) throw new CoreError("INVALID_REQUEST", "Selected blocks do not belong to this commit. Refresh the patch.");
-    if (indexVersion !== await this.indexVersion()) throw new CoreError("GIT_FAILED", "The index changed after preview. Refresh the patch and review your selection again.");
-    const patch = data.files.map((file) => { const hunks = file.hunks.filter((hunk) => selected.has(hunk.id)); return hunks.length ? file.header + hunks.map((hunk) => hunk.content).join("") : ""; }).join("");
-    try { await applyGitPatch(this.workspace, patch, false, false); }
-    catch { throw new CoreError("GIT_FAILED", "The selected changes do not apply cleanly to the current index. No selected changes were applied. Refresh or choose different blocks."); }
+    if (hunkIds.some((id) => !known.has(id)))
+      throw new CoreError("INVALID_REQUEST", "Selected blocks do not belong to this commit. Refresh the patch.");
+    if (indexVersion !== (await this.indexVersion()))
+      throw new CoreError(
+        "GIT_FAILED",
+        "The index changed after preview. Refresh the patch and review your selection again.",
+      );
+    const patch = data.files
+      .map((file) => {
+        const hunks = file.hunks.filter((hunk) => selected.has(hunk.id));
+        return hunks.length ? file.header + hunks.map((hunk) => hunk.content).join("") : "";
+      })
+      .join("");
+    try {
+      await applyGitPatch(this.workspace, patch, false, false);
+    } catch {
+      throw new CoreError(
+        "GIT_FAILED",
+        "The selected changes do not apply cleanly to the current index. No selected changes were applied. Refresh or choose different blocks.",
+      );
+    }
     return { applied: hunkIds.length };
   }
 
@@ -438,26 +948,49 @@ export class GitService {
    * refers to `content` (the editor buffer) when given and is mapped onto HEAD,
    * because `git log -L` only understands committed line numbers.
    */
-  async fileHistory(filePath: string, startLine?: number, endLine?: number, content?: string): Promise<{ commits: GitCommit[]; range?: { startLine: number; endLine: number }; note?: string }> {
+  async fileHistory(
+    filePath: string,
+    startLine?: number,
+    endLine?: number,
+    content?: string,
+  ): Promise<{ commits: GitCommit[]; range?: { startLine: number; endLine: number }; note?: string }> {
     validatePath(filePath);
     const lineHistory = startLine !== undefined && endLine !== undefined;
     const format = "--format=%x1e%H%x1f%h%x1f%an%x1f%aI%x1f%s";
-    if (!lineHistory) return { commits: parseFollowLog(await this.git(["log", "--follow", "-z", "--name-status", format, "--", filePath])) };
-    if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine! < 1 || endLine! < startLine!) throw new CoreError("INVALID_REQUEST", "Invalid history line range");
+    if (!lineHistory)
+      return {
+        commits: parseFollowLog(await this.git(["log", "--follow", "-z", "--name-status", format, "--", filePath])),
+      };
+    if (!Number.isInteger(startLine) || !Number.isInteger(endLine) || startLine! < 1 || endLine! < startLine!)
+      throw new CoreError("INVALID_REQUEST", "Invalid history line range");
     let range = { startLine: startLine!, endLine: endLine! };
     let committed: string;
-    try { committed = await this.git(["show", `HEAD:${filePath}`]); }
-    catch { return { commits: [], note: "This file has no committed history yet." }; }
+    try {
+      committed = await this.git(["show", `HEAD:${filePath}`]);
+    } catch {
+      return { commits: [], note: "This file has no committed history yet." };
+    }
     if (content !== undefined && content !== committed) {
       const mapped = mapLineRange(await this.lineDiffHunks(committed, content), range.startLine, range.endLine);
       if (!mapped) return { commits: [], note: "The selected lines are not committed yet, so they have no history." };
       range = mapped;
     }
     const lines = committed.split("\n").length - (committed.endsWith("\n") ? 1 : 0);
-    range = { startLine: Math.min(range.startLine, Math.max(1, lines)), endLine: Math.min(range.endLine, Math.max(1, lines)) };
+    range = {
+      startLine: Math.min(range.startLine, Math.max(1, lines)),
+      endLine: Math.min(range.endLine, Math.max(1, lines)),
+    };
     const commits = parseLineLog(await this.git(["log", `-L${range.startLine},${range.endLine}:${filePath}`, format]));
     const moved = range.startLine !== startLine || range.endLine !== endLine;
-    return { commits, ...(moved ? { range, note: `Selected lines ${startLine}-${endLine} have uncommitted edits around them; showing the history of committed lines ${range.startLine}-${range.endLine}.` } : {}) };
+    return {
+      commits,
+      ...(moved
+        ? {
+            range,
+            note: `Selected lines ${startLine}-${endLine} have uncommitted edits around them; showing the history of committed lines ${range.startLine}-${range.endLine}.`,
+          }
+        : {}),
+    };
   }
 
   /** Adds an untracked path to the root .gitignore, anchored so it matches only that path. */
@@ -477,32 +1010,72 @@ export class GitService {
   private async lineDiffHunks(before: string, after: string): Promise<LineHunk[]> {
     const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-line-map-"));
     try {
-      await Promise.all([writeFile(path.join(directory, "before"), before), writeFile(path.join(directory, "after"), after)]);
-      const output = await new Promise<string>((resolve, reject) => execFile("git", ["diff", "--no-index", "--no-color", "-U0", "--", path.join(directory, "before"), path.join(directory, "after")], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => {
-        // `git diff --no-index` exits with 1 when the files differ.
-        if (error && (error as { code?: number }).code !== 1) reject(new CoreError("GIT_FAILED", error.message)); else resolve(stdout);
-      }));
+      await Promise.all([
+        writeFile(path.join(directory, "before"), before),
+        writeFile(path.join(directory, "after"), after),
+      ]);
+      const output = await new Promise<string>((resolve, reject) =>
+        execFile(
+          "git",
+          [
+            "diff",
+            "--no-index",
+            "--no-color",
+            "-U0",
+            "--",
+            path.join(directory, "before"),
+            path.join(directory, "after"),
+          ],
+          { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+          (error, stdout) => {
+            // `git diff --no-index` exits with 1 when the files differ.
+            if (error && (error as { code?: number }).code !== 1) reject(new CoreError("GIT_FAILED", error.message));
+            else resolve(stdout);
+          },
+        ),
+      );
       return parseLineHunks(output);
-    } finally { await rm(directory, { recursive: true, force: true }); }
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   }
 
   async compareFiles(ref: string, filePath?: string): Promise<GitCommitFile[]> {
-    validateRef(ref); if (filePath) validatePath(filePath);
-    const compared = parseCommitFiles(await this.git(["diff", "--name-status", "-z", ref, ...(filePath ? ["--", filePath] : [])]));
-    const untracked = (await this.status()).entries.filter((entry) => entry.indexStatus === "?" && entry.worktreeStatus === "?" && (!filePath || entry.path === filePath)).map((entry) => ({ path: entry.path, status: "?" }));
+    validateRef(ref);
+    if (filePath) validatePath(filePath);
+    const compared = parseCommitFiles(
+      await this.git(["diff", "--name-status", "-z", ref, ...(filePath ? ["--", filePath] : [])]),
+    );
+    const untracked = (await this.status()).entries
+      .filter(
+        (entry) => entry.indexStatus === "?" && entry.worktreeStatus === "?" && (!filePath || entry.path === filePath),
+      )
+      .map((entry) => ({ path: entry.path, status: "?" }));
     return [...compared, ...untracked.filter((entry) => !compared.some((item) => item.path === entry.path))];
   }
 
-  async compareDiff(ref: string, filePath: string, filesystem: WorkspaceFileSystem, originalPath?: string): Promise<{ originalContent: string; modifiedContent: string }> {
-    validateRef(ref); validatePath(filePath); if (originalPath) validatePath(originalPath);
+  async compareDiff(
+    ref: string,
+    filePath: string,
+    filesystem: WorkspaceFileSystem,
+    originalPath?: string,
+  ): Promise<{ originalContent: string; modifiedContent: string }> {
+    validateRef(ref);
+    validatePath(filePath);
+    if (originalPath) validatePath(originalPath);
     const originalContent = await this.show(`${ref}:${originalPath ?? filePath}`);
     let modifiedContent = "";
-    try { modifiedContent = (await filesystem.read(filePath)).content; } catch (error) { if (!(error instanceof CoreError) || error.code !== "FILE_NOT_FOUND") throw error; }
+    try {
+      modifiedContent = (await filesystem.read(filePath)).content;
+    } catch (error) {
+      if (!(error instanceof CoreError) || error.code !== "FILE_NOT_FOUND") throw error;
+    }
     return { originalContent, modifiedContent };
   }
 
   async rollbackCompared(ref: string, filePath: string): Promise<void> {
-    validateRef(ref); validatePath(filePath);
+    validateRef(ref);
+    validatePath(filePath);
     await serializedRootMutation(this.workspace, async () => {
       const source = (await this.git(["rev-parse", "--verify", "--end-of-options", `${ref}^{commit}`])).trim();
       const entry = (await this.compareFiles(source)).find((file) => file.path === filePath);
@@ -511,8 +1084,17 @@ export class GitService {
         await this.git(["--literal-pathspecs", "clean", "-f", "--", filePath]);
         return;
       }
-      const paths = entry.originalPath && entry.status.startsWith("R") ? [entry.originalPath, entry.path] : [entry.path];
-      await this.git(["--literal-pathspecs", "restore", `--source=${source}`, "--staged", "--worktree", "--", ...paths]);
+      const paths =
+        entry.originalPath && entry.status.startsWith("R") ? [entry.originalPath, entry.path] : [entry.path];
+      await this.git([
+        "--literal-pathspecs",
+        "restore",
+        `--source=${source}`,
+        "--staged",
+        "--worktree",
+        "--",
+        ...paths,
+      ]);
     });
   }
 
@@ -523,8 +1105,12 @@ export class GitService {
     await this.rollbackEntry(entry);
   }
 
-  async rollbackSelected(paths: string[], deleteUntracked: boolean): Promise<{ rolledBack: string[]; failures: GitRollbackFailure[] }> {
-    if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500) throw new CoreError("INVALID_REQUEST", "Select at least one file to rollback");
+  async rollbackSelected(
+    paths: string[],
+    deleteUntracked: boolean,
+  ): Promise<{ rolledBack: string[]; failures: GitRollbackFailure[] }> {
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500)
+      throw new CoreError("INVALID_REQUEST", "Select at least one file to rollback");
     const uniquePaths = [...new Set(paths)];
     for (const filePath of uniquePaths) validatePath(filePath);
     const entries = (await this.status()).entries;
@@ -532,24 +1118,39 @@ export class GitService {
     const failures: GitRollbackFailure[] = [];
     for (const filePath of uniquePaths) {
       const entry = entries.find((item) => item.path === filePath);
-      if (!entry) { failures.push({ path: filePath, message: "Path no longer has Git changes" }); continue; }
-      if (isUntracked(entry) && !deleteUntracked) { failures.push({ path: filePath, message: "Untracked file deletion was not confirmed" }); continue; }
-      try { await this.rollbackEntry(entry); rolledBack.push(filePath); }
-      catch (error) { failures.push({ path: filePath, message: error instanceof Error ? error.message : String(error) }); }
+      if (!entry) {
+        failures.push({ path: filePath, message: "Path no longer has Git changes" });
+        continue;
+      }
+      if (isUntracked(entry) && !deleteUntracked) {
+        failures.push({ path: filePath, message: "Untracked file deletion was not confirmed" });
+        continue;
+      }
+      try {
+        await this.rollbackEntry(entry);
+        rolledBack.push(filePath);
+      } catch (error) {
+        failures.push({ path: filePath, message: error instanceof Error ? error.message : String(error) });
+      }
     }
     return { rolledBack, failures };
   }
 
   async commit(paths: string[], message: string): Promise<string> {
-    if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500) throw new CoreError("INVALID_REQUEST", "Select at least one file to commit");
+    if (!Array.isArray(paths) || paths.length === 0 || paths.length > 500)
+      throw new CoreError("INVALID_REQUEST", "Select at least one file to commit");
     const uniquePaths = [...new Set(paths)];
     for (const filePath of uniquePaths) validatePath(filePath);
     const trimmedMessage = message.trim();
-    if (!trimmedMessage || trimmedMessage.length > 10_000) throw new CoreError("INVALID_REQUEST", "Commit message is required");
+    if (!trimmedMessage || trimmedMessage.length > 10_000)
+      throw new CoreError("INVALID_REQUEST", "Commit message is required");
     const status = await this.status();
     const selected = status.entries.filter((entry) => uniquePaths.includes(entry.path));
-    if (selected.length !== uniquePaths.length) throw new CoreError("GIT_FAILED", "One or more selected files no longer have changes");
-    const commitPaths = [...new Set(selected.flatMap((entry) => entry.originalPath ? [entry.originalPath, entry.path] : [entry.path]))];
+    if (selected.length !== uniquePaths.length)
+      throw new CoreError("GIT_FAILED", "One or more selected files no longer have changes");
+    const commitPaths = [
+      ...new Set(selected.flatMap((entry) => (entry.originalPath ? [entry.originalPath, entry.path] : [entry.path]))),
+    ];
     await this.git(["add", "-A", "--", ...commitPaths]);
     await this.git(["commit", "--only", "-m", trimmedMessage, "--", ...commitPaths]);
     return (await this.git(["rev-parse", "HEAD"])).trim();
@@ -557,24 +1158,32 @@ export class GitService {
 
   async historyRewritePreview(): Promise<GitHistoryRewritePreview> {
     const commit = await this.headCommit();
-    const [commitFiles, status, publication, hasParent] = await Promise.all([this.commitFiles(commit.hash), this.status(), this.headPublication(), this.hasHeadParent()]);
+    const [commitFiles, status, publication, hasParent] = await Promise.all([
+      this.commitFiles(commit.hash),
+      this.status(),
+      this.headPublication(),
+      this.hasHeadParent(),
+    ]);
     return {
       commit,
       commitFiles,
       indexEntries: status.entries.filter((entry) => entry.states.includes("index")),
-      worktreeEntries: status.entries.filter((entry) => entry.states.includes("worktree") || entry.states.includes("untracked")),
+      worktreeEntries: status.entries.filter(
+        (entry) => entry.states.includes("worktree") || entry.states.includes("untracked"),
+      ),
       publication,
       confirmationRequired: publication !== "unpublished",
       canUndo: hasParent,
       ...(hasParent ? {} : { undoUnavailableReason: "The root commit cannot be undone safely from this interface." }),
-      recovery: `If needed, recover ${commit.shortHash} with git reflog, then git reset --hard ${commit.hash}.`
+      recovery: `If needed, recover ${commit.shortHash} with git reflog, then git reset --hard ${commit.hash}.`,
     };
   }
 
   async amend(confirmHistoryRewrite: boolean): Promise<string> {
     const preview = await this.historyRewritePreview();
     this.requireRewriteConfirmation(preview, confirmHistoryRewrite);
-    if (preview.indexEntries.length === 0) throw new CoreError("INVALID_REQUEST", "Stage changes before amending; amend only uses the explicit Git index");
+    if (preview.indexEntries.length === 0)
+      throw new CoreError("INVALID_REQUEST", "Stage changes before amending; amend only uses the explicit Git index");
     await this.git(["commit", "--amend", "--no-edit"]);
     return (await this.git(["rev-parse", "HEAD"])).trim();
   }
@@ -592,17 +1201,29 @@ export class GitService {
   }
 
   async createStash(include: GitStashInclusion, message?: string, paths?: string[]): Promise<GitStash> {
-    if (!include || [include.staged, include.unstaged, include.untracked, include.ignored].some((value) => typeof value !== "boolean")) throw new CoreError("INVALID_REQUEST", "Explicit stash inclusion choices are required");
-    if (!include.staged && !include.unstaged && !include.untracked && !include.ignored) throw new CoreError("INVALID_REQUEST", "Choose at least one kind of change to stash");
-    if (include.ignored && !include.untracked) throw new CoreError("INVALID_REQUEST", "Ignored files require including untracked files");
-    if (include.staged && !include.unstaged && (include.untracked || include.ignored)) throw new CoreError("INVALID_REQUEST", "A staged-only stash cannot include untracked or ignored files; include unstaged changes too");
-    if (paths && (!Array.isArray(paths) || paths.length > 500)) throw new CoreError("INVALID_REQUEST", "Invalid stash path selection");
+    if (
+      !include ||
+      [include.staged, include.unstaged, include.untracked, include.ignored].some((value) => typeof value !== "boolean")
+    )
+      throw new CoreError("INVALID_REQUEST", "Explicit stash inclusion choices are required");
+    if (!include.staged && !include.unstaged && !include.untracked && !include.ignored)
+      throw new CoreError("INVALID_REQUEST", "Choose at least one kind of change to stash");
+    if (include.ignored && !include.untracked)
+      throw new CoreError("INVALID_REQUEST", "Ignored files require including untracked files");
+    if (include.staged && !include.unstaged && (include.untracked || include.ignored))
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "A staged-only stash cannot include untracked or ignored files; include unstaged changes too",
+      );
+    if (paths && (!Array.isArray(paths) || paths.length > 500))
+      throw new CoreError("INVALID_REQUEST", "Invalid stash path selection");
     for (const filePath of paths ?? []) validatePath(filePath);
-    const args = ["stash", "push", "--message", (message?.trim() || "HatoPad stash")];
+    const args = ["stash", "push", "--message", message?.trim() || "HatoPad stash"];
     if (include.staged && !include.unstaged) args.push("--staged");
     else if (!include.staged && include.unstaged) args.push("--keep-index");
     else if (!include.staged && !include.unstaged && (include.untracked || include.ignored)) args.push("--keep-index");
-    if (include.ignored) args.push("--all"); else if (include.untracked) args.push("--include-untracked");
+    if (include.ignored) args.push("--all");
+    else if (include.untracked) args.push("--include-untracked");
     if (paths?.length) args.push("--", ...paths);
     await this.git(args);
     const stash = (await this.stashes())[0];
@@ -612,21 +1233,58 @@ export class GitService {
 
   async stashPreview(reference: string): Promise<GitStashPreview> {
     const stash = await this.stash(reference);
-    const files = parseCommitFiles(await this.git(["diff-tree", "--no-commit-id", "--name-status", "-r", "-z", `${stash.reference}^1`, stash.reference]));
+    const files = parseCommitFiles(
+      await this.git([
+        "diff-tree",
+        "--no-commit-id",
+        "--name-status",
+        "-r",
+        "-z",
+        `${stash.reference}^1`,
+        stash.reference,
+      ]),
+    );
     const changed = new Set(files.map((file) => file.path));
     const current = await this.status();
-    const blockers = current.entries.filter((entry) => changed.has(entry.path) || (!!entry.originalPath && changed.has(entry.originalPath))).map((entry) => entry.path);
-    return { stash, files, conflictRisk: blockers.length ? "possible" : "none", blockers, recovery: `If application fails, ${stash.reference} is retained. Resolve Git conflicts in the working tree, then retry apply or drop it manually.` };
+    const blockers = current.entries
+      .filter((entry) => changed.has(entry.path) || (!!entry.originalPath && changed.has(entry.originalPath)))
+      .map((entry) => entry.path);
+    return {
+      stash,
+      files,
+      conflictRisk: blockers.length ? "possible" : "none",
+      blockers,
+      recovery: `If application fails, ${stash.reference} is retained. Resolve Git conflicts in the working tree, then retry apply or drop it manually.`,
+    };
   }
 
   async applyStash(reference: string): Promise<{ applied: boolean; stashRetained: boolean; outcome: string }> {
     const stash = await this.stash(reference);
-    try { await this.git(["stash", "apply", "--index", stash.reference]); return { applied: true, stashRetained: true, outcome: `Applied ${stash.reference}; it was retained for recovery.` }; }
-    catch (error) { return { applied: false, stashRetained: true, outcome: `Could not apply ${stash.reference}; it was retained. ${error instanceof Error ? error.message : String(error)}` }; }
+    try {
+      await this.git(["stash", "apply", "--index", stash.reference]);
+      return {
+        applied: true,
+        stashRetained: true,
+        outcome: `Applied ${stash.reference}; it was retained for recovery.`,
+      };
+    } catch (error) {
+      return {
+        applied: false,
+        stashRetained: true,
+        outcome: `Could not apply ${stash.reference}; it was retained. ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
   }
 
-  async popStash(reference: string, confirm: boolean): Promise<{ applied: boolean; stashRetained: boolean; outcome: string }> {
-    if (confirm !== true) throw new CoreError("INVALID_REQUEST", "Confirm popping a stash because successful application permanently drops it");
+  async popStash(
+    reference: string,
+    confirm: boolean,
+  ): Promise<{ applied: boolean; stashRetained: boolean; outcome: string }> {
+    if (confirm !== true)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Confirm popping a stash because successful application permanently drops it",
+      );
     const applied = await this.applyStash(reference);
     if (!applied.applied) return applied;
     await this.git(["stash", "drop", reference]);
@@ -635,17 +1293,35 @@ export class GitService {
 
   async dropStash(reference: string, confirm: boolean): Promise<void> {
     if (confirm !== true) throw new CoreError("INVALID_REQUEST", "Confirm permanently dropping a stash");
-    await this.stash(reference); await this.git(["stash", "drop", reference]);
+    await this.stash(reference);
+    await this.git(["stash", "drop", reference]);
   }
 
   /** Pushes; a branch without an upstream is published to its remote and starts tracking it, like `git push -u`. */
   async push(): Promise<void> {
     const branch = (await this.git(["branch", "--show-current"])).trim();
-    const configured = branch ? await this.git(["config", "--get", `branch.${branch}.remote`]).then((value) => value.trim(), () => "") : "";
-    if (!branch || configured) { await this.networkGit(["push"]); return; }
-    const remotes = (await this.git(["remote"])).split("\n").map((item) => item.trim()).filter(Boolean);
+    const configured = branch
+      ? await this.git(["config", "--get", `branch.${branch}.remote`]).then(
+          (value) => value.trim(),
+          () => "",
+        )
+      : "";
+    if (!branch || configured) {
+      await this.networkGit(["push"]);
+      return;
+    }
+    const remotes = (await this.git(["remote"]))
+      .split("\n")
+      .map((item) => item.trim())
+      .filter(Boolean);
     const remote = remotes.includes("origin") ? "origin" : remotes.length === 1 ? remotes[0] : undefined;
-    if (!remote) throw new CoreError("GIT_FAILED", remotes.length ? `Choose a remote for ${branch}: publish it from the branch menu.` : "This repository has no Git remote to push to.");
+    if (!remote)
+      throw new CoreError(
+        "GIT_FAILED",
+        remotes.length
+          ? `Choose a remote for ${branch}: publish it from the branch menu.`
+          : "This repository has no Git remote to push to.",
+      );
     await this.networkGit(["push", "--set-upstream", remote, `refs/heads/${branch}:refs/heads/${branch}`]);
   }
 
@@ -660,9 +1336,16 @@ export class GitService {
     const existing = GitService.fetches.get(this.workspace);
     if (existing?.controller) throw new CoreError("GIT_FAILED", "A Git fetch is already in progress");
     const controller = new AbortController();
-    GitService.fetches.set(this.workspace, { controller, ...(existing?.lastSuccessful ? { lastSuccessful: existing.lastSuccessful } : {}) });
+    GitService.fetches.set(this.workspace, {
+      controller,
+      ...(existing?.lastSuccessful ? { lastSuccessful: existing.lastSuccessful } : {}),
+    });
     try {
-      await execFileAsync("git", ["-C", this.workspace, "fetch", "--prune"], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, signal: controller.signal });
+      await execFileAsync("git", ["-C", this.workspace, "fetch", "--prune"], {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+        signal: controller.signal,
+      });
       const fetchedAt = new Date().toISOString();
       GitService.fetches.set(this.workspace, { controller, lastSuccessful: fetchedAt });
       return { fetchedAt };
@@ -671,7 +1354,10 @@ export class GitService {
       throw new CoreError("GIT_FAILED", gitNetworkError(error));
     } finally {
       const current = GitService.fetches.get(this.workspace);
-      if (current?.controller === controller) GitService.fetches.set(this.workspace, { ...(current.lastSuccessful ? { lastSuccessful: current.lastSuccessful } : {}) });
+      if (current?.controller === controller)
+        GitService.fetches.set(this.workspace, {
+          ...(current.lastSuccessful ? { lastSuccessful: current.lastSuccessful } : {}),
+        });
     }
   }
 
@@ -685,109 +1371,280 @@ export class GitService {
   async pullPreview(): Promise<GitPullPreview> {
     const { fetchedAt } = await this.fetch();
     const status = await this.status();
-    if (!status.upstream) throw new CoreError("GIT_FAILED", "This branch has no configured upstream. Publish it or configure an upstream before pulling.");
+    if (!status.upstream)
+      throw new CoreError(
+        "GIT_FAILED",
+        "This branch has no configured upstream. Publish it or configure an upstream before pulling.",
+      );
     const [head, upstreamHead, incomingOutput] = await Promise.all([
       this.git(["rev-parse", "HEAD"]),
       this.git(["rev-parse", status.upstream.upstream]),
-      this.git(["log", "--max-count=51", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00", `HEAD..${status.upstream.upstream}`])
+      this.git([
+        "log",
+        "--max-count=51",
+        "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00",
+        `HEAD..${status.upstream.upstream}`,
+      ]),
     ]);
     const incoming = parseGitLog(incomingOutput);
     return {
-      branch: status.branch, upstream: status.upstream.upstream, head: head.trim(), upstreamHead: upstreamHead.trim(), fetchedAt,
-      ahead: status.upstream.ahead, behind: status.upstream.behind, incoming: incoming.slice(0, 50), incomingTruncated: incoming.length > 50,
+      branch: status.branch,
+      upstream: status.upstream.upstream,
+      head: head.trim(),
+      upstreamHead: upstreamHead.trim(),
+      fetchedAt,
+      ahead: status.upstream.ahead,
+      behind: status.upstream.behind,
+      incoming: incoming.slice(0, 50),
+      incomingTruncated: incoming.length > 50,
       blockers: status.entries,
-      recovery: "No stash will be created. If conflicts occur, resolve them and continue, or abort with git merge --abort / git rebase --abort."
+      recovery:
+        "No stash will be created. If conflicts occur, resolve them and continue, or abort with git merge --abort / git rebase --abort.",
     };
   }
 
   async pull(strategy: GitPullStrategy, expectedHead: string, expectedUpstreamHead: string): Promise<GitPullResult> {
-    if (strategy !== "merge" && strategy !== "rebase") throw new CoreError("INVALID_REQUEST", "Pull strategy must be merge or rebase");
-    validateFullHash(expectedHead); validateFullHash(expectedUpstreamHead);
+    if (strategy !== "merge" && strategy !== "rebase")
+      throw new CoreError("INVALID_REQUEST", "Pull strategy must be merge or rebase");
+    validateFullHash(expectedHead);
+    validateFullHash(expectedUpstreamHead);
     await this.fetch();
     const status = await this.status();
-    if (!status.upstream) throw new CoreError("GIT_FAILED", "This branch no longer has a configured upstream. Preview the pull again.");
+    if (!status.upstream)
+      throw new CoreError("GIT_FAILED", "This branch no longer has a configured upstream. Preview the pull again.");
     const head = (await this.git(["rev-parse", "HEAD"])).trim();
     const upstreamHead = (await this.git(["rev-parse", status.upstream.upstream])).trim();
-    if (head !== expectedHead || upstreamHead !== expectedUpstreamHead) throw new CoreError("GIT_FAILED", "The local or upstream branch changed after the preview. Review incoming commits again before pulling.");
-    if (status.entries.length) throw new CoreError("GIT_FAILED", `Pull blocked by ${status.entries.length} dirty path${status.entries.length === 1 ? "" : "s"}. Commit or explicitly stash them, then preview again. No automatic stash was created.`);
-    if (status.upstream.behind === 0) return { strategy, branch: status.branch, head, outcome: "Already up to date.", recovery: "No recovery action is needed." };
+    if (head !== expectedHead || upstreamHead !== expectedUpstreamHead)
+      throw new CoreError(
+        "GIT_FAILED",
+        "The local or upstream branch changed after the preview. Review incoming commits again before pulling.",
+      );
+    if (status.entries.length)
+      throw new CoreError(
+        "GIT_FAILED",
+        `Pull blocked by ${status.entries.length} dirty path${status.entries.length === 1 ? "" : "s"}. Commit or explicitly stash them, then preview again. No automatic stash was created.`,
+      );
+    if (status.upstream.behind === 0)
+      return {
+        strategy,
+        branch: status.branch,
+        head,
+        outcome: "Already up to date.",
+        recovery: "No recovery action is needed.",
+      };
     try {
       if (strategy === "merge") await this.git(["merge", "--no-edit", status.upstream.upstream]);
       else await this.git(["rebase", status.upstream.upstream]);
     } catch (error) {
-      const guidance = strategy === "merge" ? "Resolve conflicts and commit the merge, or run git merge --abort to return to the pre-pull state." : "Resolve conflicts and run git rebase --continue, or run git rebase --abort to return to the pre-pull state.";
-      throw new CoreError("GIT_FAILED", `Pull with ${strategy} stopped. ${guidance} ${error instanceof Error ? error.message : String(error)}`);
+      const guidance =
+        strategy === "merge"
+          ? "Resolve conflicts and commit the merge, or run git merge --abort to return to the pre-pull state."
+          : "Resolve conflicts and run git rebase --continue, or run git rebase --abort to return to the pre-pull state.";
+      throw new CoreError(
+        "GIT_FAILED",
+        `Pull with ${strategy} stopped. ${guidance} ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     const resultHead = (await this.git(["rev-parse", "HEAD"])).trim();
-    return { strategy, branch: status.branch, head: resultHead, outcome: `Pulled ${status.upstream.upstream} with ${strategy}.`, recovery: strategy === "merge" ? "The merge can be inspected in Git history." : "The rebased local commits now have new commit IDs; use reflog if recovery is needed." };
+    return {
+      strategy,
+      branch: status.branch,
+      head: resultHead,
+      outcome: `Pulled ${status.upstream.upstream} with ${strategy}.`,
+      recovery:
+        strategy === "merge"
+          ? "The merge can be inspected in Git history."
+          : "The rebased local commits now have new commit IDs; use reflog if recovery is needed.",
+    };
   }
 
   async rebasePreview(): Promise<GitRebasePreview> {
     let status = await this.status();
-    if (status.upstream && (await this.git(["rev-parse", "--symbolic-full-name", status.upstream.upstream])).trim().startsWith("refs/remotes/")) { await this.fetch(); status = await this.status(); }
+    if (
+      status.upstream &&
+      (await this.git(["rev-parse", "--symbolic-full-name", status.upstream.upstream]))
+        .trim()
+        .startsWith("refs/remotes/")
+    ) {
+      await this.fetch();
+      status = await this.status();
+    }
     const blockers: string[] = [];
-    if (status.entries.length) blockers.push(`Working tree has ${status.entries.length} changed path${status.entries.length === 1 ? "" : "s"}; commit or explicitly stash them first.`);
+    if (status.entries.length)
+      blockers.push(
+        `Working tree has ${status.entries.length} changed path${status.entries.length === 1 ? "" : "s"}; commit or explicitly stash them first.`,
+      );
     if (!status.upstream) {
-      return { branch: status.branch, upstream: "", base: "", head: await this.git(["rev-parse", "HEAD"]).then((value) => value.trim()), upstreamHead: "", items: [], truncated: false, blockers: [...blockers, "This branch has no resolvable upstream, so publication safety cannot be established."], recovery: rebaseRecovery() };
+      return {
+        branch: status.branch,
+        upstream: "",
+        base: "",
+        head: await this.git(["rev-parse", "HEAD"]).then((value) => value.trim()),
+        upstreamHead: "",
+        items: [],
+        truncated: false,
+        blockers: [...blockers, "This branch has no resolvable upstream, so publication safety cannot be established."],
+        recovery: rebaseRecovery(),
+      };
     }
-    const [head, upstreamHead, base] = await Promise.all([this.git(["rev-parse", "HEAD"]), this.git(["rev-parse", status.upstream.upstream]), this.git(["merge-base", "HEAD", status.upstream.upstream])]);
-    if (status.upstream.behind > 0) blockers.push(`Upstream is ${status.upstream.behind} commit${status.upstream.behind === 1 ? "" : "s"} ahead; pull before rewriting local commits.`);
-    const commits = parseGitLog(await this.git(["log", "--reverse", "--max-count=51", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00", `${status.upstream.upstream}..HEAD`]));
+    const [head, upstreamHead, base] = await Promise.all([
+      this.git(["rev-parse", "HEAD"]),
+      this.git(["rev-parse", status.upstream.upstream]),
+      this.git(["merge-base", "HEAD", status.upstream.upstream]),
+    ]);
+    if (status.upstream.behind > 0)
+      blockers.push(
+        `Upstream is ${status.upstream.behind} commit${status.upstream.behind === 1 ? "" : "s"} ahead; pull before rewriting local commits.`,
+      );
+    const commits = parseGitLog(
+      await this.git([
+        "log",
+        "--reverse",
+        "--max-count=51",
+        "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00",
+        `${status.upstream.upstream}..HEAD`,
+      ]),
+    );
     if (!commits.length) blockers.push("There are no unpublished commits to rewrite.");
-    if (commits.length > 50) blockers.push("More than 50 unpublished commits are present; narrow the history before using the bounded planner.");
+    if (commits.length > 50)
+      blockers.push(
+        "More than 50 unpublished commits are present; narrow the history before using the bounded planner.",
+      );
     for (const commit of commits.slice(0, 50)) {
-      const publishedRefs = (await this.git(["for-each-ref", "--format=%(refname:short)", "--contains", commit.hash, "refs/remotes"])).split("\n").filter((ref) => ref && !ref.endsWith("/HEAD"));
-      if (publishedRefs.length) blockers.push(`Commit ${commit.shortHash} (${commit.subject}) is already published on ${publishedRefs.join(", ")}; rewriting published commits is not allowed.`);
+      const publishedRefs = (
+        await this.git(["for-each-ref", "--format=%(refname:short)", "--contains", commit.hash, "refs/remotes"])
+      )
+        .split("\n")
+        .filter((ref) => ref && !ref.endsWith("/HEAD"));
+      if (publishedRefs.length)
+        blockers.push(
+          `Commit ${commit.shortHash} (${commit.subject}) is already published on ${publishedRefs.join(", ")}; rewriting published commits is not allowed.`,
+        );
     }
-    return { branch: status.branch, upstream: status.upstream.upstream, base: base.trim(), head: head.trim(), upstreamHead: upstreamHead.trim(), items: commits.slice(0, 50).map((commit) => ({ action: "pick", commit })), truncated: commits.length > 50, blockers, recovery: rebaseRecovery() };
+    return {
+      branch: status.branch,
+      upstream: status.upstream.upstream,
+      base: base.trim(),
+      head: head.trim(),
+      upstreamHead: upstreamHead.trim(),
+      items: commits.slice(0, 50).map((commit) => ({ action: "pick", commit })),
+      truncated: commits.length > 50,
+      blockers,
+      recovery: rebaseRecovery(),
+    };
   }
 
-  async rebaseStart(expectedHead: string, expectedUpstreamHead: string, base: string, items: GitRebaseTodoItem[]): Promise<GitRebaseResult> {
-    validateFullHash(expectedHead); validateFullHash(expectedUpstreamHead); validateFullHash(base);
+  async rebaseStart(
+    expectedHead: string,
+    expectedUpstreamHead: string,
+    base: string,
+    items: GitRebaseTodoItem[],
+  ): Promise<GitRebaseResult> {
+    validateFullHash(expectedHead);
+    validateFullHash(expectedUpstreamHead);
+    validateFullHash(base);
     const preview = await this.rebasePreview();
     if (preview.blockers.length) throw new CoreError("GIT_FAILED", preview.blockers.join(" "));
-    if (preview.head !== expectedHead || preview.upstreamHead !== expectedUpstreamHead || preview.base !== base) throw new CoreError("GIT_FAILED", "The branch or upstream changed after the preview. Open a fresh rebase plan.");
+    if (preview.head !== expectedHead || preview.upstreamHead !== expectedUpstreamHead || preview.base !== base)
+      throw new CoreError("GIT_FAILED", "The branch or upstream changed after the preview. Open a fresh rebase plan.");
     const validated = validateRebaseItems(items, preview.items);
     const planDir = await this.rebasePlanDirectory();
-    await rm(planDir, { recursive: true, force: true }); await mkdir(planDir, { recursive: true });
+    await rm(planDir, { recursive: true, force: true });
+    await mkdir(planDir, { recursive: true });
     const lines: string[] = [];
     for (const [index, item] of validated.entries()) {
       if (item.action === "reword") {
         const messagePath = path.join(planDir, `message-${index}.txt`);
         await writeFile(messagePath, `${item.message!.trim()}\n`, "utf8");
-        lines.push(`pick ${item.commit.hash} ${item.commit.subject}`, `exec git commit --amend -F ${shellQuote(messagePath)}`);
+        lines.push(
+          `pick ${item.commit.hash} ${item.commit.subject}`,
+          `exec git commit --amend -F ${shellQuote(messagePath)}`,
+        );
       } else lines.push(`${item.action} ${item.commit.hash} ${item.commit.subject}`);
     }
-    const todoPath = path.join(planDir, "todo"); const editorPath = path.join(planDir, "sequence-editor.cjs");
+    const todoPath = path.join(planDir, "todo");
+    const editorPath = path.join(planDir, "sequence-editor.cjs");
     await writeFile(todoPath, `${lines.join("\n")}\n`, "utf8");
-    await writeFile(editorPath, `#!/usr/bin/env node\nrequire("node:fs").copyFileSync(${JSON.stringify(todoPath)}, process.argv[2]);\n`, "utf8"); await chmod(editorPath, 0o700);
+    await writeFile(
+      editorPath,
+      `#!/usr/bin/env node\nrequire("node:fs").copyFileSync(${JSON.stringify(todoPath)}, process.argv[2]);\n`,
+      "utf8",
+    );
+    await chmod(editorPath, 0o700);
     try {
-      await execFileAsync("git", ["-C", this.workspace, "rebase", "--interactive", base], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024, env: { ...process.env, GIT_SEQUENCE_EDITOR: editorPath, GIT_EDITOR: "true" } });
+      await execFileAsync("git", ["-C", this.workspace, "rebase", "--interactive", base], {
+        encoding: "utf8",
+        maxBuffer: 16 * 1024 * 1024,
+        env: { ...process.env, GIT_SEQUENCE_EDITOR: editorPath, GIT_EDITOR: "true" },
+      });
     } catch (error) {
-      if (await this.rebaseInProgress() && (await this.status()).entries.some((entry) => entry.states.includes("conflict"))) return { state: "conflicts", branch: preview.branch, head: (await this.git(["rev-parse", "HEAD"])).trim(), outcome: "Interactive rebase stopped for conflicts.", recovery: rebaseRecovery() };
-      await this.git(["rebase", "--abort"]).catch(() => undefined); await this.cleanupRebasePlan();
-      throw new CoreError("GIT_FAILED", `Interactive rebase failed and was aborted. ${error instanceof Error ? error.message : String(error)} ${rebaseRecovery()}`);
+      if (
+        (await this.rebaseInProgress()) &&
+        (await this.status()).entries.some((entry) => entry.states.includes("conflict"))
+      )
+        return {
+          state: "conflicts",
+          branch: preview.branch,
+          head: (await this.git(["rev-parse", "HEAD"])).trim(),
+          outcome: "Interactive rebase stopped for conflicts.",
+          recovery: rebaseRecovery(),
+        };
+      await this.git(["rebase", "--abort"]).catch(() => undefined);
+      await this.cleanupRebasePlan();
+      throw new CoreError(
+        "GIT_FAILED",
+        `Interactive rebase failed and was aborted. ${error instanceof Error ? error.message : String(error)} ${rebaseRecovery()}`,
+      );
     }
     await this.cleanupRebasePlan();
-    return { state: "completed", branch: preview.branch, head: (await this.git(["rev-parse", "HEAD"])).trim(), outcome: `Rebased ${items.length} unpublished commit${items.length === 1 ? "" : "s"}.`, recovery: rebaseRecovery() };
+    return {
+      state: "completed",
+      branch: preview.branch,
+      head: (await this.git(["rev-parse", "HEAD"])).trim(),
+      outcome: `Rebased ${items.length} unpublished commit${items.length === 1 ? "" : "s"}.`,
+      recovery: rebaseRecovery(),
+    };
   }
 
   async rebaseAbort(): Promise<{ outcome: string; recovery: string }> {
-    if (!await this.rebaseInProgress()) throw new CoreError("GIT_FAILED", "There is no interactive rebase to abort.");
-    await this.git(["rebase", "--abort"]); await this.cleanupRebasePlan();
-    return { outcome: "Interactive rebase aborted; the branch was restored to its pre-rebase state.", recovery: rebaseRecovery() };
+    if (!(await this.rebaseInProgress())) throw new CoreError("GIT_FAILED", "There is no interactive rebase to abort.");
+    await this.git(["rebase", "--abort"]);
+    await this.cleanupRebasePlan();
+    return {
+      outcome: "Interactive rebase aborted; the branch was restored to its pre-rebase state.",
+      recovery: rebaseRecovery(),
+    };
   }
 
   async diffStats(): Promise<{ additions: number; deletions: number }> {
-    let additions = 0; let deletions = 0;
+    let additions = 0;
+    let deletions = 0;
     try {
       const output = await this.git(["diff", "--numstat", "HEAD"]);
-      for (const line of output.split("\n")) { const [added, removed] = line.split("\t"); if (/^\d+$/.test(added ?? "")) additions += Number(added); if (/^\d+$/.test(removed ?? "")) deletions += Number(removed); }
-    } catch { /* Repositories without HEAD are represented by untracked files below. */ }
+      for (const line of output.split("\n")) {
+        const [added, removed] = line.split("\t");
+        if (/^\d+$/.test(added ?? "")) additions += Number(added);
+        if (/^\d+$/.test(removed ?? "")) deletions += Number(removed);
+      }
+    } catch {
+      /* Repositories without HEAD are represented by untracked files below. */
+    }
     try {
-      const untracked = (await this.git(["ls-files", "--others", "--exclude-standard", "-z"])).split("\0").filter(Boolean);
-      for (const file of untracked) { try { const content = await readFile(path.join(this.workspace, file), "utf8"); if (!content.includes("\0")) additions += content ? content.split("\n").length - (content.endsWith("\n") ? 1 : 0) : 0; } catch { /* Binary and unreadable files do not have line stats. */ } }
-    } catch { /* Ignore unavailable untracked stats. */ }
+      const untracked = (await this.git(["ls-files", "--others", "--exclude-standard", "-z"]))
+        .split("\0")
+        .filter(Boolean);
+      for (const file of untracked) {
+        try {
+          const content = await readFile(path.join(this.workspace, file), "utf8");
+          if (!content.includes("\0"))
+            additions += content ? content.split("\n").length - (content.endsWith("\n") ? 1 : 0) : 0;
+        } catch {
+          /* Binary and unreadable files do not have line stats. */
+        }
+      }
+    } catch {
+      /* Ignore unavailable untracked stats. */
+    }
     return { additions, deletions };
   }
 
@@ -796,207 +1653,470 @@ export class GitService {
     return path.isAbsolute(gitPath) ? gitPath : path.resolve(this.workspace, gitPath);
   }
 
-  private async cleanupRebasePlan(): Promise<void> { await rm(await this.rebasePlanDirectory(), { recursive: true, force: true }).catch(() => undefined); }
+  private async cleanupRebasePlan(): Promise<void> {
+    await rm(await this.rebasePlanDirectory(), { recursive: true, force: true }).catch(() => undefined);
+  }
 
   private async rebaseInProgress(): Promise<boolean> {
     for (const name of ["rebase-merge", "rebase-apply"]) {
-      try { const target = (await this.git(["rev-parse", "--git-path", name])).trim(); if ((await stat(path.isAbsolute(target) ? target : path.resolve(this.workspace, target))).isDirectory()) return true; } catch { /* Try the other native rebase directory. */ }
+      try {
+        const target = (await this.git(["rev-parse", "--git-path", name])).trim();
+        if ((await stat(path.isAbsolute(target) ? target : path.resolve(this.workspace, target))).isDirectory())
+          return true;
+      } catch {
+        /* Try the other native rebase directory. */
+      }
     }
     return false;
   }
 
   private async git(args: string[]): Promise<string> {
-    try { return (await execFileAsync("git", ["-C", this.workspace, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })).stdout; }
-    catch (error) { throw new CoreError("GIT_FAILED", error instanceof Error ? error.message : String(error)); }
+    try {
+      return (
+        await execFileAsync("git", ["-C", this.workspace, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })
+      ).stdout;
+    } catch (error) {
+      throw new CoreError("GIT_FAILED", error instanceof Error ? error.message : String(error));
+    }
   }
-  private async networkGit(args: string[]): Promise<string> { try { return (await execFileAsync("git", ["-C", this.workspace, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })).stdout; } catch (error) { throw new CoreError("GIT_FAILED", gitNetworkError(error)); } }
-  private async requireLocalBranch(branch: string): Promise<void> { try { await this.git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]); } catch { throw new CoreError("INVALID_REQUEST", `Local branch '${branch}' does not exist`); } }
-  private async requireRemote(remote: string): Promise<void> { if (!/^[A-Za-z0-9._-]+$/.test(remote)) throw new CoreError("INVALID_REQUEST", "Invalid Git remote"); const remotes = (await this.git(["remote"])).split("\n").filter(Boolean); if (!remotes.includes(remote)) throw new CoreError("INVALID_REQUEST", `Git remote '${remote}' does not exist`); }
-  private async branchReference(branch: string, remote: boolean): Promise<string> { if (!remote) { validateBranchName(branch); await this.requireLocalBranch(branch); return branch; } const { remoteName, branchName } = splitRemoteBranch(branch); await this.requireRemote(remoteName); try { await this.git(["show-ref", "--verify", "--quiet", `refs/remotes/${remoteName}/${branchName}`]); } catch { throw new CoreError("INVALID_REQUEST", `Remote branch '${branch}' does not exist`); } return branch; }
-  private async ensureBranchNotCheckedOut(branch: string): Promise<void> { const output = await this.git(["worktree", "list", "--porcelain"]); if (output.split("\n").some((line) => line === `branch refs/heads/${branch}`)) throw new CoreError("INVALID_REQUEST", "Cannot delete a branch checked out by a workspace or task worktree"); }
+  private async networkGit(args: string[]): Promise<string> {
+    try {
+      return (
+        await execFileAsync("git", ["-C", this.workspace, ...args], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 })
+      ).stdout;
+    } catch (error) {
+      throw new CoreError("GIT_FAILED", gitNetworkError(error));
+    }
+  }
+  private async requireLocalBranch(branch: string): Promise<void> {
+    try {
+      await this.git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`]);
+    } catch {
+      throw new CoreError("INVALID_REQUEST", `Local branch '${branch}' does not exist`);
+    }
+  }
+  private async requireRemote(remote: string): Promise<void> {
+    if (!/^[A-Za-z0-9._-]+$/.test(remote)) throw new CoreError("INVALID_REQUEST", "Invalid Git remote");
+    const remotes = (await this.git(["remote"])).split("\n").filter(Boolean);
+    if (!remotes.includes(remote)) throw new CoreError("INVALID_REQUEST", `Git remote '${remote}' does not exist`);
+  }
+  private async branchReference(branch: string, remote: boolean): Promise<string> {
+    if (!remote) {
+      validateBranchName(branch);
+      await this.requireLocalBranch(branch);
+      return branch;
+    }
+    const { remoteName, branchName } = splitRemoteBranch(branch);
+    await this.requireRemote(remoteName);
+    try {
+      await this.git(["show-ref", "--verify", "--quiet", `refs/remotes/${remoteName}/${branchName}`]);
+    } catch {
+      throw new CoreError("INVALID_REQUEST", `Remote branch '${branch}' does not exist`);
+    }
+    return branch;
+  }
+  private async ensureBranchNotCheckedOut(branch: string): Promise<void> {
+    const output = await this.git(["worktree", "list", "--porcelain"]);
+    if (output.split("\n").some((line) => line === `branch refs/heads/${branch}`))
+      throw new CoreError("INVALID_REQUEST", "Cannot delete a branch checked out by a workspace or task worktree");
+  }
 
   private async headCommit(): Promise<GitCommit> {
     try {
       const commit = parseGitLog(await this.git(["log", "-1", "--format=%H%x00%h%x00%an%x00%aI%x00%s%x00"]))[0];
       if (!commit) throw new Error("No HEAD");
       return commit;
+    } catch {
+      throw new CoreError("INVALID_REQUEST", "There is no local commit to amend or undo");
     }
-    catch { throw new CoreError("INVALID_REQUEST", "There is no local commit to amend or undo"); }
   }
 
   private async headPublication(): Promise<"unpublished" | "published" | "unknown"> {
     try {
       const upstream = (await this.git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"])).trim();
       if (!upstream) return "unknown";
-      const [head, base] = await Promise.all([this.git(["rev-parse", "HEAD"]), this.git(["merge-base", "HEAD", upstream])]);
+      const [head, base] = await Promise.all([
+        this.git(["rev-parse", "HEAD"]),
+        this.git(["merge-base", "HEAD", upstream]),
+      ]);
       return head.trim() === base.trim() ? "published" : "unpublished";
-    } catch { return "unknown"; }
+    } catch {
+      return "unknown";
+    }
   }
 
   private async hasHeadParent(): Promise<boolean> {
-    try { await this.git(["rev-parse", "--verify", "HEAD^"]); return true; }
-    catch { return false; }
+    try {
+      await this.git(["rev-parse", "--verify", "HEAD^"]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private requireRewriteConfirmation(preview: GitHistoryRewritePreview, confirmed: boolean): void {
-    if (typeof confirmed !== "boolean") throw new CoreError("INVALID_REQUEST", "History rewrite confirmation is required");
-    if (preview.confirmationRequired && !confirmed) throw new CoreError("INVALID_REQUEST", preview.publication === "published" ? "This commit is published; confirm rewriting shared history to continue" : "The publication state is unknown; confirm history rewrite to continue");
+    if (typeof confirmed !== "boolean")
+      throw new CoreError("INVALID_REQUEST", "History rewrite confirmation is required");
+    if (preview.confirmationRequired && !confirmed)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        preview.publication === "published"
+          ? "This commit is published; confirm rewriting shared history to continue"
+          : "The publication state is unknown; confirm history rewrite to continue",
+      );
   }
 
   private async updateIndex(action: "stage" | "unstage", filePath: string, hunk?: GitDiffHunk): Promise<void> {
     validatePath(filePath);
     const entry = (await this.status()).entries.find((item) => item.path === filePath);
     if (!entry) throw new CoreError("GIT_FAILED", `Path has no Git changes: ${filePath}`);
-    if (entry.states.includes("conflict")) throw new CoreError("GIT_FAILED", "Cannot stage or unstage a conflicted file");
+    if (entry.states.includes("conflict"))
+      throw new CoreError("GIT_FAILED", "Cannot stage or unstage a conflicted file");
     if (!hunk) {
       const paths = entry.originalPath ? [entry.originalPath, filePath] : [filePath];
-      if (action === "stage") { await this.git(["add", "-A", "--", ...paths]); return; }
-      if (!await this.hasHead()) { await this.git(["rm", "--cached", "--ignore-unmatch", "--", ...paths]); return; }
-      await this.git(["restore", "--staged", "--", ...paths]); return;
+      if (action === "stage") {
+        await this.git(["add", "-A", "--", ...paths]);
+        return;
+      }
+      if (!(await this.hasHead())) {
+        await this.git(["rm", "--cached", "--ignore-unmatch", "--", ...paths]);
+        return;
+      }
+      await this.git(["restore", "--staged", "--", ...paths]);
+      return;
     }
     if (!isGitHunk(hunk)) throw new CoreError("INVALID_REQUEST", "Invalid Git hunk");
-    if (hunk.source !== (action === "stage" ? "worktree" : "index")) throw new CoreError("INVALID_REQUEST", `A ${action} hunk must come from the ${action === "stage" ? "worktree" : "index"}`);
-    const currentPatch = hunk.source === "worktree" ? (isUntracked(entry) ? await this.untrackedPatch(filePath) : await this.git(["diff", "--unified=0", "--", filePath])) : await this.git(["diff", "--cached", "--unified=0", "--", filePath]);
-    const current = parseDiffHunks(currentPatch, hunk.source).find((item) => item.patch === hunk.patch && item.version === hunk.version);
-    if (!current) throw new CoreError("GIT_FAILED", "Git change no longer matches the reviewed hunk. Refresh the diff and try again.");
-    try { await applyGitPatch(this.workspace, hunk.patch, action === "unstage"); }
-    catch (error) { throw new CoreError("GIT_FAILED", `Git change no longer matches the ${hunk.source} version. Refresh the diff and try again.`); }
+    if (hunk.source !== (action === "stage" ? "worktree" : "index"))
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `A ${action} hunk must come from the ${action === "stage" ? "worktree" : "index"}`,
+      );
+    const currentPatch =
+      hunk.source === "worktree"
+        ? isUntracked(entry)
+          ? await this.untrackedPatch(filePath)
+          : await this.git(["diff", "--unified=0", "--", filePath])
+        : await this.git(["diff", "--cached", "--unified=0", "--", filePath]);
+    const current = parseDiffHunks(currentPatch, hunk.source).find(
+      (item) => item.patch === hunk.patch && item.version === hunk.version,
+    );
+    if (!current)
+      throw new CoreError(
+        "GIT_FAILED",
+        "Git change no longer matches the reviewed hunk. Refresh the diff and try again.",
+      );
+    try {
+      await applyGitPatch(this.workspace, hunk.patch, action === "unstage");
+    } catch (error) {
+      throw new CoreError(
+        "GIT_FAILED",
+        `Git change no longer matches the ${hunk.source} version. Refresh the diff and try again.`,
+      );
+    }
   }
 
   private async untrackedPatch(filePath: string): Promise<string> {
-    const result = await execFileAsync("git", ["-C", this.workspace, "diff", "--no-index", "--unified=0", "--", "/dev/null", filePath], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "" }));
+    const result = await execFileAsync(
+      "git",
+      ["-C", this.workspace, "diff", "--no-index", "--unified=0", "--", "/dev/null", filePath],
+      { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 },
+    ).catch((error: { stdout?: string }) => ({ stdout: error.stdout ?? "" }));
     return result.stdout;
   }
 
   private async rollbackEntry(entry: GitStatusEntry): Promise<void> {
-    if (isUntracked(entry)) { await this.git(["clean", "-f", "--", entry.path]); return; }
-    if (entry.indexStatus === "A" && !await this.hasHead()) { await this.git(["rm", "-f", "--", entry.path]); return; }
-    const paths = entry.originalPath && (entry.indexStatus === "R" || entry.worktreeStatus === "R") ? [entry.originalPath, entry.path] : [entry.path];
+    if (isUntracked(entry)) {
+      await this.git(["clean", "-f", "--", entry.path]);
+      return;
+    }
+    if (entry.indexStatus === "A" && !(await this.hasHead())) {
+      await this.git(["rm", "-f", "--", entry.path]);
+      return;
+    }
+    const paths =
+      entry.originalPath && (entry.indexStatus === "R" || entry.worktreeStatus === "R")
+        ? [entry.originalPath, entry.path]
+        : [entry.path];
     await this.git(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths]);
   }
 
   private async hasHead(): Promise<boolean> {
-    try { await this.git(["rev-parse", "--verify", "HEAD"]); return true; } catch { return false; }
+    try {
+      await this.git(["rev-parse", "--verify", "HEAD"]);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private async show(spec: string): Promise<string> {
-    try { return await this.git(["show", spec]); } catch { return ""; }
+    try {
+      return await this.git(["show", spec]);
+    } catch {
+      return "";
+    }
   }
 }
 
-export function detectConflictOperation(state: { rebase: boolean; cherryPick: boolean; merge: boolean }): GitConflictOperationKind {
+export function detectConflictOperation(state: {
+  rebase: boolean;
+  cherryPick: boolean;
+  merge: boolean;
+}): GitConflictOperationKind {
   return state.rebase ? "rebase" : state.cherryPick ? "cherry-pick" : state.merge ? "merge" : "stash";
 }
 
 function parseStashes(output: string): GitStash[] {
-  return output.split("\n").filter(Boolean).map((line) => {
-    const [reference, hash, message, date] = line.split("\0");
-    const branch = message?.match(/^On ([^:]+):/)?.[1];
-    return { reference: reference!, hash: hash!, message: message!, ...(branch ? { branch } : {}), ...(date ? { date } : {}) };
-  });
+  return output
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => {
+      const [reference, hash, message, date] = line.split("\0");
+      const branch = message?.match(/^On ([^:]+):/)?.[1];
+      return {
+        reference: reference!,
+        hash: hash!,
+        message: message!,
+        ...(branch ? { branch } : {}),
+        ...(date ? { date } : {}),
+      };
+    });
 }
 
 function gitNetworkError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
   const safe = message.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1***@");
-  if (/authentication failed|could not read username|terminal prompts disabled|permission denied \(publickey\)/i.test(safe)) return "Git authentication failed. Check your remote credentials and try again.";
+  if (
+    /authentication failed|could not read username|terminal prompts disabled|permission denied \(publickey\)/i.test(
+      safe,
+    )
+  )
+    return "Git authentication failed. Check your remote credentials and try again.";
   return `Could not fetch remote: ${safe}`;
 }
 
 function conflictRecovery(operation: GitConflictOperationKind): string {
-  if (operation === "stash") return "A stash application has no native continue or abort. Resolve and stage every path, then commit when ready; to discard it, restore the affected paths deliberately after preserving any work you need.";
+  if (operation === "stash")
+    return "A stash application has no native continue or abort. Resolve and stage every path, then commit when ready; to discard it, restore the affected paths deliberately after preserving any work you need.";
   return `Resolve and stage every path, then continue the ${operation}; abort returns Git to the pre-${operation} state.`;
 }
 
-function rebaseRecovery(): string { return "No stash or force push is performed. Abort restores the pre-rebase branch; after completion, use git reflog to find the previous HEAD if recovery is needed."; }
+function rebaseRecovery(): string {
+  return "No stash or force push is performed. Abort restores the pre-rebase branch; after completion, use git reflog to find the previous HEAD if recovery is needed.";
+}
 function mergeRecovery(outcome: "already-merged" | "fast-forward" | "merge-commit"): string {
   if (outcome === "already-merged") return "No repository state will change.";
   return "This changes the checked-out local branch only and never pushes. If conflicts occur, use the conflict workspace to resolve and continue, or abort to restore the pre-merge state.";
 }
 
 function validateRebaseItems(items: GitRebaseTodoItem[], original: GitRebaseTodoItem[]): GitRebaseTodoItem[] {
-  if (!Array.isArray(items) || items.length !== original.length || !items.length) throw new CoreError("INVALID_REQUEST", "The todo plan must contain every previewed commit exactly once.");
-  const expected = new Map(original.map((item) => [item.commit.hash, item.commit])); const seen = new Set<string>(); let retained = false;
+  if (!Array.isArray(items) || items.length !== original.length || !items.length)
+    throw new CoreError("INVALID_REQUEST", "The todo plan must contain every previewed commit exactly once.");
+  const expected = new Map(original.map((item) => [item.commit.hash, item.commit]));
+  const seen = new Set<string>();
+  let retained = false;
   const actions = new Set(["pick", "squash", "fixup", "reword", "drop"]);
   for (const item of items) {
-    if (!item || !actions.has(item.action) || !item.commit || typeof item.commit.hash !== "string") throw new CoreError("INVALID_REQUEST", "The todo plan contains an invalid action or commit.");
+    if (!item || !actions.has(item.action) || !item.commit || typeof item.commit.hash !== "string")
+      throw new CoreError("INVALID_REQUEST", "The todo plan contains an invalid action or commit.");
     const commit = expected.get(item.commit.hash);
-    if (!commit || seen.has(item.commit.hash) || commit.subject !== item.commit.subject || commit.author !== item.commit.author || commit.date !== item.commit.date) throw new CoreError("INVALID_REQUEST", "The todo plan contains a stale, duplicate, or unknown commit identity.");
+    if (
+      !commit ||
+      seen.has(item.commit.hash) ||
+      commit.subject !== item.commit.subject ||
+      commit.author !== item.commit.author ||
+      commit.date !== item.commit.date
+    )
+      throw new CoreError("INVALID_REQUEST", "The todo plan contains a stale, duplicate, or unknown commit identity.");
     seen.add(item.commit.hash);
-    if ((item.action === "squash" || item.action === "fixup") && !retained) throw new CoreError("INVALID_REQUEST", `${item.action} cannot be the first retained todo action.`);
-    if (item.action === "reword" && (typeof item.message !== "string" || !item.message.trim() || item.message.includes("\0"))) throw new CoreError("INVALID_REQUEST", "Every reword action requires a non-empty commit message.");
+    if ((item.action === "squash" || item.action === "fixup") && !retained)
+      throw new CoreError("INVALID_REQUEST", `${item.action} cannot be the first retained todo action.`);
+    if (
+      item.action === "reword" &&
+      (typeof item.message !== "string" || !item.message.trim() || item.message.includes("\0"))
+    )
+      throw new CoreError("INVALID_REQUEST", "Every reword action requires a non-empty commit message.");
     if (item.action !== "drop") retained = true;
   }
-  if (seen.size !== expected.size) throw new CoreError("INVALID_REQUEST", "The todo plan must contain every previewed commit exactly once.");
+  if (seen.size !== expected.size)
+    throw new CoreError("INVALID_REQUEST", "The todo plan must contain every previewed commit exactly once.");
   return items;
 }
 
-function shellQuote(value: string): string { return `'${value.replace(/'/g, `'"'"'`)}'`; }
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, `'"'"'`)}'`;
+}
 
-function isUntracked(entry: GitStatusEntry): boolean { return entry.indexStatus === "?" && entry.worktreeStatus === "?"; }
+function isUntracked(entry: GitStatusEntry): boolean {
+  return entry.indexStatus === "?" && entry.worktreeStatus === "?";
+}
 
 export function parseDiffHunks(output: string, source: "index" | "worktree" = "worktree"): GitDiffHunk[] {
   const matches = [...output.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@.*$/gm)];
   const header = output.slice(0, matches[0]?.index ?? 0);
   return matches.map((match, index) => {
     const patch = header + output.slice(match.index, matches[index + 1]?.index);
-    return { originalStart: Number(match[1]), originalLines: Number(match[2] ?? 1), modifiedStart: Number(match[3]), modifiedLines: Number(match[4] ?? 1), source, patch, version: createHash("sha256").update(patch).digest("hex") };
+    return {
+      originalStart: Number(match[1]),
+      originalLines: Number(match[2] ?? 1),
+      modifiedStart: Number(match[3]),
+      modifiedLines: Number(match[4] ?? 1),
+      source,
+      patch,
+      version: createHash("sha256").update(patch).digest("hex"),
+    };
   });
 }
 
-function validateHash(hash: string): void { if (!/^[0-9a-f]{7,64}$/i.test(hash)) throw new CoreError("INVALID_REQUEST", "Invalid commit hash"); }
-function validateFullHash(hash: string): void { if (!/^[0-9a-f]{40,64}$/i.test(hash)) throw new CoreError("INVALID_REQUEST", "Invalid preview commit hash"); }
-function validateRef(ref: string): void { if (!/^[\w./@{}~^:+-]+$/.test(ref)) throw new CoreError("INVALID_REQUEST", "Invalid Git reference"); }
-function validateBranchName(name: string): void { if (!name || !/^[\w./-]+$/.test(name) || name.startsWith("-") || name.includes("..") || name.includes("//") || name.endsWith("/")) throw new CoreError("INVALID_REQUEST", "Invalid Git branch name"); }
-function splitRemoteBranch(value: string): { remoteName: string; branchName: string } { const [remoteName, ...parts] = value.split("/"); const branchName = parts.join("/"); if (!remoteName || !branchName) throw new CoreError("INVALID_REQUEST", "Remote branch must include a remote and branch name"); validateBranchName(branchName); return { remoteName, branchName }; }
+function validateHash(hash: string): void {
+  if (!/^[0-9a-f]{7,64}$/i.test(hash)) throw new CoreError("INVALID_REQUEST", "Invalid commit hash");
+}
+function validateFullHash(hash: string): void {
+  if (!/^[0-9a-f]{40,64}$/i.test(hash)) throw new CoreError("INVALID_REQUEST", "Invalid preview commit hash");
+}
+function validateRef(ref: string): void {
+  if (!/^[\w./@{}~^:+-]+$/.test(ref)) throw new CoreError("INVALID_REQUEST", "Invalid Git reference");
+}
+function validateBranchName(name: string): void {
+  if (
+    !name ||
+    !/^[\w./-]+$/.test(name) ||
+    name.startsWith("-") ||
+    name.includes("..") ||
+    name.includes("//") ||
+    name.endsWith("/")
+  )
+    throw new CoreError("INVALID_REQUEST", "Invalid Git branch name");
+}
+function splitRemoteBranch(value: string): { remoteName: string; branchName: string } {
+  const [remoteName, ...parts] = value.split("/");
+  const branchName = parts.join("/");
+  if (!remoteName || !branchName)
+    throw new CoreError("INVALID_REQUEST", "Remote branch must include a remote and branch name");
+  validateBranchName(branchName);
+  return { remoteName, branchName };
+}
 /** Accept a short, unambiguous local tag name; refs/tags/* and revision syntax are deliberately refused. */
 export function validateTagName(name: string): void {
-  if (!name || name.length > 255 || name.startsWith("-") || name.startsWith("refs/") || name === "@" || name === "HEAD" || /[\s~^:?*\\[\x00-\x1f\x7f]/.test(name) || name.includes("@{") || name.includes("..") || name.includes("//") || name.startsWith("/") || name.endsWith("/") || name.endsWith(".") || name.endsWith(".lock") || name.split("/").some((part) => !part || part.startsWith(".") || part.endsWith(".lock"))) throw new CoreError("INVALID_REQUEST", "Invalid or ambiguous local tag name");
+  if (
+    !name ||
+    name.length > 255 ||
+    name.startsWith("-") ||
+    name.startsWith("refs/") ||
+    name === "@" ||
+    name === "HEAD" ||
+    /[\s~^:?*\\[\x00-\x1f\x7f]/.test(name) ||
+    name.includes("@{") ||
+    name.includes("..") ||
+    name.includes("//") ||
+    name.startsWith("/") ||
+    name.endsWith("/") ||
+    name.endsWith(".") ||
+    name.endsWith(".lock") ||
+    name.split("/").some((part) => !part || part.startsWith(".") || part.endsWith(".lock"))
+  )
+    throw new CoreError("INVALID_REQUEST", "Invalid or ambiguous local tag name");
 }
-function validatePath(filePath: string): void { if (!filePath || path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes("..")) throw new CoreError("INVALID_REQUEST", "Invalid Git path"); }
+function validatePath(filePath: string): void {
+  if (!filePath || path.isAbsolute(filePath) || filePath.split(/[\\/]/).includes(".."))
+    throw new CoreError("INVALID_REQUEST", "Invalid Git path");
+}
 
 type LineHunk = { oldStart: number; oldLines: number; newStart: number; newLines: number };
 export function parseLineHunks(output: string): LineHunk[] {
   const hunks: LineHunk[] = [];
-  for (const match of output.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm)) hunks.push({ oldStart: Number(match[1]), oldLines: match[2] === undefined ? 1 : Number(match[2]), newStart: Number(match[3]), newLines: match[4] === undefined ? 1 : Number(match[4]) });
+  for (const match of output.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/gm))
+    hunks.push({
+      oldStart: Number(match[1]),
+      oldLines: match[2] === undefined ? 1 : Number(match[2]),
+      newStart: Number(match[3]),
+      newLines: match[4] === undefined ? 1 : Number(match[4]),
+    });
   return hunks;
 }
 /**
  * Maps a 1-based line range in the new text onto the old text. Edited lines map
  * to the lines they replaced; purely added lines have no counterpart.
  */
-export function mapLineRange(hunks: LineHunk[], startLine: number, endLine: number): { startLine: number; endLine: number } | undefined {
-  let first: number | undefined; let last: number | undefined;
-  const include = (from: number, to: number) => { first = Math.min(first ?? from, from); last = Math.max(last ?? to, to); };
+export function mapLineRange(
+  hunks: LineHunk[],
+  startLine: number,
+  endLine: number,
+): { startLine: number; endLine: number } | undefined {
+  let first: number | undefined;
+  let last: number | undefined;
+  const include = (from: number, to: number) => {
+    first = Math.min(first ?? from, from);
+    last = Math.max(last ?? to, to);
+  };
   for (let line = startLine; line <= endLine; line += 1) {
-    const hunk = hunks.find((item) => item.newLines > 0 && line >= item.newStart && line < item.newStart + item.newLines);
-    if (hunk) { if (hunk.oldLines > 0) include(hunk.oldStart, hunk.oldStart + hunk.oldLines - 1); continue; }
+    const hunk = hunks.find(
+      (item) => item.newLines > 0 && line >= item.newStart && line < item.newStart + item.newLines,
+    );
+    if (hunk) {
+      if (hunk.oldLines > 0) include(hunk.oldStart, hunk.oldStart + hunk.oldLines - 1);
+      continue;
+    }
     // A hunk lies before this line when all of its new lines (or, for a pure deletion, its anchor line) precede it.
-    const offset = hunks.filter((item) => item.newLines > 0 ? item.newStart + item.newLines - 1 < line : item.newStart < line).reduce((total, item) => total + item.oldLines - item.newLines, 0);
+    const offset = hunks
+      .filter((item) => (item.newLines > 0 ? item.newStart + item.newLines - 1 < line : item.newStart < line))
+      .reduce((total, item) => total + item.oldLines - item.newLines, 0);
     include(line + offset, line + offset);
   }
   return first === undefined || last === undefined ? undefined : { startLine: first, endLine: last };
 }
 function unquoteGitPath(value: string): string {
   if (!value.startsWith('"')) return value;
-  const bytes: number[] = []; const body = value.slice(1, -1); const escapes: Record<string, number> = { n: 10, t: 9, '"': 34, "\\": 92, a: 7, b: 8, f: 12, r: 13, v: 11 };
+  const bytes: number[] = [];
+  const body = value.slice(1, -1);
+  const escapes: Record<string, number> = { n: 10, t: 9, '"': 34, "\\": 92, a: 7, b: 8, f: 12, r: 13, v: 11 };
   for (let index = 0; index < body.length; index += 1) {
     const character = body[index]!;
-    if (character !== "\\") { bytes.push(...Buffer.from(character)); continue; }
+    if (character !== "\\") {
+      bytes.push(...Buffer.from(character));
+      continue;
+    }
     const octal = /^[0-7]{3}/.exec(body.slice(index + 1));
-    if (octal) { bytes.push(parseInt(octal[0], 8)); index += 3; } else { bytes.push(escapes[body[index + 1]!] ?? body.charCodeAt(index + 1)); index += 1; }
+    if (octal) {
+      bytes.push(parseInt(octal[0], 8));
+      index += 3;
+    } else {
+      bytes.push(escapes[body[index + 1]!] ?? body.charCodeAt(index + 1));
+      index += 1;
+    }
   }
   return Buffer.from(bytes).toString("utf8");
 }
-const commitFields = (header: string) => { const fields = header.split("\x1f"); return /^[0-9a-f]{40,64}$/i.test(fields[0] ?? "") ? { hash: fields[0]!, shortHash: fields[1] ?? "", author: fields[2] ?? "", date: fields[3] ?? "", subject: fields[4] ?? "" } : undefined; };
+const commitFields = (header: string) => {
+  const fields = header.split("\x1f");
+  return /^[0-9a-f]{40,64}$/i.test(fields[0] ?? "")
+    ? {
+        hash: fields[0]!,
+        shortHash: fields[1] ?? "",
+        author: fields[2] ?? "",
+        date: fields[3] ?? "",
+        subject: fields[4] ?? "",
+      }
+    : undefined;
+};
 /** `git log --follow -z --name-status`: each commit carries the path it changed, and the old path of a rename. */
 export function parseFollowLog(output: string): GitCommit[] {
   const commits: GitCommit[] = [];
   for (const chunk of output.split("\x1e")) {
-    const end = chunk.indexOf("\0"); const commit = commitFields(end < 0 ? chunk : chunk.slice(0, end)); if (!commit) continue;
-    const [status, firstPath, secondPath] = chunk.slice(end + 1).replace(/^\n/, "").split("\0").filter(Boolean);
+    const end = chunk.indexOf("\0");
+    const commit = commitFields(end < 0 ? chunk : chunk.slice(0, end));
+    if (!commit) continue;
+    const [status, firstPath, secondPath] = chunk
+      .slice(end + 1)
+      .replace(/^\n/, "")
+      .split("\0")
+      .filter(Boolean);
     const renamed = /^[RC]/.test(status ?? "") && secondPath;
-    commits.push({ ...commit, ...(firstPath ? { path: renamed ? secondPath : firstPath } : {}), ...(renamed ? { originalPath: firstPath } : {}) });
+    commits.push({
+      ...commit,
+      ...(firstPath ? { path: renamed ? secondPath : firstPath } : {}),
+      ...(renamed ? { originalPath: firstPath } : {}),
+    });
   }
   return commits;
 }
@@ -1004,19 +2124,36 @@ export function parseFollowLog(output: string): GitCommit[] {
 export function parseLineLog(output: string): GitCommit[] {
   const commits: GitCommit[] = [];
   for (const chunk of output.split("\x1e")) {
-    const newline = chunk.indexOf("\n"); const commit = commitFields((newline < 0 ? chunk : chunk.slice(0, newline)).trim()); if (!commit) continue;
-    const before = /^--- (?:a\/(.+)|("(?:[^"\\]|\\.)*")|\/dev\/null)$/m.exec(chunk); const after = /^\+\+\+ (?:b\/(.+)|("(?:[^"\\]|\\.)*")|\/dev\/null)$/m.exec(chunk);
-    const unq = (match: RegExpExecArray | null, prefix: string) => match?.[1] ?? (match?.[2] ? unquoteGitPath(match[2]).replace(new RegExp(`^${prefix}/`), "") : undefined);
-    const newPath = unq(after, "b"); const oldPath = unq(before, "a");
-    commits.push({ ...commit, ...(newPath ?? oldPath ? { path: (newPath ?? oldPath)! } : {}), ...(oldPath && newPath && oldPath !== newPath ? { originalPath: oldPath } : {}) });
+    const newline = chunk.indexOf("\n");
+    const commit = commitFields((newline < 0 ? chunk : chunk.slice(0, newline)).trim());
+    if (!commit) continue;
+    const before = /^--- (?:a\/(.+)|("(?:[^"\\]|\\.)*")|\/dev\/null)$/m.exec(chunk);
+    const after = /^\+\+\+ (?:b\/(.+)|("(?:[^"\\]|\\.)*")|\/dev\/null)$/m.exec(chunk);
+    const unq = (match: RegExpExecArray | null, prefix: string) =>
+      match?.[1] ?? (match?.[2] ? unquoteGitPath(match[2]).replace(new RegExp(`^${prefix}/`), "") : undefined);
+    const newPath = unq(after, "b");
+    const oldPath = unq(before, "a");
+    commits.push({
+      ...commit,
+      ...((newPath ?? oldPath) ? { path: (newPath ?? oldPath)! } : {}),
+      ...(oldPath && newPath && oldPath !== newPath ? { originalPath: oldPath } : {}),
+    });
   }
   return commits;
 }
 export function parseGitLog(output: string): GitCommit[] {
-  const fields = output.split("\0"); const commits: GitCommit[] = [];
+  const fields = output.split("\0");
+  const commits: GitCommit[] = [];
   for (let index = 0; index + 4 < fields.length; index += 5) {
-    const hash = fields[index]!.trim(); if (!/^[0-9a-f]{40,64}$/i.test(hash)) continue;
-    commits.push({ hash, shortHash: fields[index + 1]!, author: fields[index + 2]!, date: fields[index + 3]!, subject: fields[index + 4]! });
+    const hash = fields[index]!.trim();
+    if (!/^[0-9a-f]{40,64}$/i.test(hash)) continue;
+    commits.push({
+      hash,
+      shortHash: fields[index + 1]!,
+      author: fields[index + 2]!,
+      date: fields[index + 3]!,
+      subject: fields[index + 4]!,
+    });
   }
   return commits;
 }
@@ -1026,24 +2163,49 @@ export function parseGitGraphLog(output: string): GitCommit[] {
   let connectors: string[] = [];
   for (const line of output.split("\n")) {
     const marker = line.indexOf("\x1e");
-    if (marker < 0) { if (line.trim()) connectors.push(line); continue; }
+    if (marker < 0) {
+      if (line.trim()) connectors.push(line);
+      continue;
+    }
     const graphLine = line.slice(0, marker).replace(/\s+$/, "");
     const fields = line.slice(marker + 1).split("\x1f");
-    if (!/^[0-9a-f]{40,64}$/i.test(fields[0] ?? "")) { connectors = []; continue; }
+    if (!/^[0-9a-f]{40,64}$/i.test(fields[0] ?? "")) {
+      connectors = [];
+      continue;
+    }
     const parents = (fields[5] ?? "").split(" ").filter(Boolean);
-    const refs = (fields[6] ?? "").split(", ").map((ref) => ref.replace(/^HEAD -> /, "").trim()).filter(Boolean);
-    commits.push({ hash: fields[0]!, shortHash: fields[1] ?? fields[0]!.slice(0, 7), author: fields[2] ?? "", date: fields[3] ?? "", subject: fields[4] ?? "", ...(parents.length ? { parents } : {}), ...(refs.length ? { refs } : {}), graph: [...connectors, graphLine].join("\n") || "*" });
+    const refs = (fields[6] ?? "")
+      .split(", ")
+      .map((ref) => ref.replace(/^HEAD -> /, "").trim())
+      .filter(Boolean);
+    commits.push({
+      hash: fields[0]!,
+      shortHash: fields[1] ?? fields[0]!.slice(0, 7),
+      author: fields[2] ?? "",
+      date: fields[3] ?? "",
+      subject: fields[4] ?? "",
+      ...(parents.length ? { parents } : {}),
+      ...(refs.length ? { refs } : {}),
+      graph: [...connectors, graphLine].join("\n") || "*",
+    });
     connectors = [];
   }
   return commits;
 }
 
 export function parseCommitFiles(output: string): GitCommitFile[] {
-  const fields = output.split("\0").filter(Boolean); const files: GitCommitFile[] = [];
+  const fields = output.split("\0").filter(Boolean);
+  const files: GitCommitFile[] = [];
   for (let index = 0; index < fields.length; index += 2) {
-    const status = fields[index]!; const firstPath = fields[index + 1]; if (!firstPath) break;
-    if (/^[RC]/.test(status)) { const nextPath = fields[index + 2]; if (!nextPath) break; files.push({ status, originalPath: firstPath, path: nextPath }); index += 1; }
-    else files.push({ status, path: firstPath });
+    const status = fields[index]!;
+    const firstPath = fields[index + 1];
+    if (!firstPath) break;
+    if (/^[RC]/.test(status)) {
+      const nextPath = fields[index + 2];
+      if (!nextPath) break;
+      files.push({ status, originalPath: firstPath, path: nextPath });
+      index += 1;
+    } else files.push({ status, path: firstPath });
   }
   return files;
 }
@@ -1060,7 +2222,12 @@ export function parseGitStatus(output: string): { branch: string; entries: GitSt
     }
     const indexStatus = record[0] ?? " ";
     const worktreeStatus = record[1] ?? " ";
-    const entry: GitStatusEntry = { path: record.slice(3), indexStatus, worktreeStatus, states: gitChangeStates(indexStatus, worktreeStatus) };
+    const entry: GitStatusEntry = {
+      path: record.slice(3),
+      indexStatus,
+      worktreeStatus,
+      states: gitChangeStates(indexStatus, worktreeStatus),
+    };
     if (indexStatus === "R" || indexStatus === "C" || worktreeStatus === "R" || worktreeStatus === "C") {
       entry.originalPath = records[index + 1];
       index += 1;
@@ -1072,19 +2239,51 @@ export function parseGitStatus(output: string): { branch: string; entries: GitSt
 
 function gitChangeStates(indexStatus: string, worktreeStatus: string): GitStatusEntry["states"] {
   if (indexStatus === "?" && worktreeStatus === "?") return ["untracked"];
-  if (indexStatus === "U" || worktreeStatus === "U" || ["AA", "DD"].includes(indexStatus + worktreeStatus)) return ["conflict"];
-  return [indexStatus !== " " ? "index" : undefined, worktreeStatus !== " " ? "worktree" : undefined].filter((state): state is "index" | "worktree" => Boolean(state));
+  if (indexStatus === "U" || worktreeStatus === "U" || ["AA", "DD"].includes(indexStatus + worktreeStatus))
+    return ["conflict"];
+  return [indexStatus !== " " ? "index" : undefined, worktreeStatus !== " " ? "worktree" : undefined].filter(
+    (state): state is "index" | "worktree" => Boolean(state),
+  );
 }
 
 function isGitHunk(value: GitDiffHunk): boolean {
-  return (value.source === "index" || value.source === "worktree") && Number.isInteger(value.originalStart) && Number.isInteger(value.originalLines) && Number.isInteger(value.modifiedStart) && Number.isInteger(value.modifiedLines) && value.originalStart >= 0 && value.originalLines >= 0 && value.modifiedStart >= 0 && value.modifiedLines >= 0 && typeof value.patch === "string" && value.patch.length > 0 && value.patch.length <= 4 * 1024 * 1024 && /^[0-9a-f]{64}$/.test(value.version);
+  return (
+    (value.source === "index" || value.source === "worktree") &&
+    Number.isInteger(value.originalStart) &&
+    Number.isInteger(value.originalLines) &&
+    Number.isInteger(value.modifiedStart) &&
+    Number.isInteger(value.modifiedLines) &&
+    value.originalStart >= 0 &&
+    value.originalLines >= 0 &&
+    value.modifiedStart >= 0 &&
+    value.modifiedLines >= 0 &&
+    typeof value.patch === "string" &&
+    value.patch.length > 0 &&
+    value.patch.length <= 4 * 1024 * 1024 &&
+    /^[0-9a-f]{64}$/.test(value.version)
+  );
 }
 
 async function applyGitPatch(workspace: string, patch: string, reverse: boolean, zeroContext = true): Promise<void> {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn("git", ["-C", workspace, "apply", "--cached", ...(zeroContext ? ["--unidiff-zero"] : []), ...(reverse ? ["--reverse"] : [])], { stdio: ["pipe", "ignore", "pipe"] });
-    let stderr = ""; child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-    child.on("error", reject); child.on("close", (code) => code === 0 ? resolve() : reject(new Error(stderr || "git apply failed")));
+    const child = spawn(
+      "git",
+      [
+        "-C",
+        workspace,
+        "apply",
+        "--cached",
+        ...(zeroContext ? ["--unidiff-zero"] : []),
+        ...(reverse ? ["--reverse"] : []),
+      ],
+      { stdio: ["pipe", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    child.stderr.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(stderr || "git apply failed"))));
     child.stdin.on("error", reject);
     child.stdin.end(patch);
   });

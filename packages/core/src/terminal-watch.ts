@@ -1,6 +1,12 @@
 import type { TerminalSessionSnapshot, TerminalWatchSnapshot, TerminalWatchSummary } from "@hatopad/protocol";
 
-export const watchSummary = (session: TerminalSessionSnapshot): TerminalWatchSummary => ({ terminalId: session.terminalId, status: session.status, ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}), ...(session.displayName ? { displayName: session.displayName } : {}), outputBytes: Buffer.byteLength(session.output) });
+export const watchSummary = (session: TerminalSessionSnapshot): TerminalWatchSummary => ({
+  terminalId: session.terminalId,
+  status: session.status,
+  ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+  ...(session.displayName ? { displayName: session.displayName } : {}),
+  outputBytes: Buffer.byteLength(session.output),
+});
 /** Newest `maxBytes` of scrollback, cut on a character boundary so replay never starts mid-sequence. */
 export function watchSnapshot(session: TerminalSessionSnapshot, maxBytes: number): TerminalWatchSnapshot {
   const bytes = Buffer.from(session.output);

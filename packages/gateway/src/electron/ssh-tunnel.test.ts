@@ -6,8 +6,13 @@ import { SshTunnel, type SshTunnelStatus } from "./ssh-tunnel.js";
 
 class FakeClient extends EventEmitter {
   ended = false;
-  end(): this { this.ended = true; return this; }
-  forwardOut(): void { /* No local connections are needed for lifecycle tests. */ }
+  end(): this {
+    this.ended = true;
+    return this;
+  }
+  forwardOut(): void {
+    /* No local connections are needed for lifecycle tests. */
+  }
 }
 
 async function until(check: () => boolean): Promise<void> {
@@ -65,7 +70,11 @@ test("catches transport errors and retries failed reconnects in the background",
 test("resume reconnect is immediate and preserves the bound port", async () => {
   const clients = [new FakeClient(), new FakeClient()];
   let connects = 0;
-  const tunnel = new SshTunnel({ localPort: 0, remotePort: 7331, connect: async () => clients[connects++] as unknown as Client });
+  const tunnel = new SshTunnel({
+    localPort: 0,
+    remotePort: 7331,
+    connect: async () => clients[connects++] as unknown as Client,
+  });
   const port = await tunnel.start();
 
   tunnel.reconnect();

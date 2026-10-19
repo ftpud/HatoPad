@@ -1,8 +1,14 @@
 import { useState } from "react";
-import type { AgentFile, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, RunConfig, UsefulFile } from "@hatopad/protocol";
+import type {
+  AgentFile,
+  HarnessDefinition,
+  HarnessRun,
+  HarnessStateDiagnostic,
+  RunConfig,
+  UsefulFile,
+} from "@hatopad/protocol";
 
 export function useConfigurationPanels() {
-
   const [usefulFiles, setUsefulFiles] = useState<UsefulFile[]>([]);
 
   const [runConfigs, setRunConfigs] = useState<RunConfig[]>([]);
@@ -38,6 +44,6 @@ export function useConfigurationPanels() {
     harnessesLoading,
     setHarnessesLoading,
     harnessRunsLoading,
-    setHarnessRunsLoading
+    setHarnessRunsLoading,
   };
 }

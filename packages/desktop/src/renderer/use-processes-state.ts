@@ -2,7 +2,6 @@ import { useState } from "react";
 import type { ManagedWorkflowApp } from "@hatopad/protocol";
 
 export function useProcessesState() {
-
   const [managedProcessList, setManagedProcessList] = useState<ManagedWorkflowApp[]>([]);
 
   const [processLoading, setProcessLoading] = useState(false);
@@ -14,6 +13,6 @@ export function useProcessesState() {
     processLoading,
     setProcessLoading,
     processError,
-    setProcessError
+    setProcessError,
   };
 }

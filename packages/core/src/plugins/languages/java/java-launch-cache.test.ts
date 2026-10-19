@@ -7,10 +7,22 @@ import { javaBuildFingerprint, javaOutputFingerprint } from "./java-launch-cache
 
 it("tracks custom resources, Maven wrapper configuration, source deletion, and output removal", async () => {
   const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-java-cache-"));
-  const options: JavaProjectOptions = { type: "maven", pomPath: "pom.xml", mavenExecutable: "mvn", sourceRoots: ["src/main/java"], outputPath: "target/classes", testOutputPath: "target/test-classes", runConfigurations: [] };
+  const options: JavaProjectOptions = {
+    type: "maven",
+    pomPath: "pom.xml",
+    mavenExecutable: "mvn",
+    sourceRoots: ["src/main/java"],
+    outputPath: "target/classes",
+    testOutputPath: "target/test-classes",
+    runConfigurations: [],
+  };
   try {
-    for (const directory of ["src/main/java", "assets", ".mvn", "target/classes"]) await mkdir(path.join(workspace, directory), { recursive: true });
-    await writeFile(path.join(workspace, "pom.xml"), "<project><properties><assets>assets</assets></properties><build><resources><resource><directory>${assets}</directory></resource></resources></build></project>");
+    for (const directory of ["src/main/java", "assets", ".mvn", "target/classes"])
+      await mkdir(path.join(workspace, directory), { recursive: true });
+    await writeFile(
+      path.join(workspace, "pom.xml"),
+      "<project><properties><assets>assets</assets></properties><build><resources><resource><directory>${assets}</directory></resource></resources></build></project>",
+    );
     await writeFile(path.join(workspace, "src/main/java/App.java"), "class App {}");
     const before = await javaBuildFingerprint(workspace, options);
     await writeFile(path.join(workspace, "run.log"), "Runtime output");
@@ -28,11 +40,16 @@ it("tracks custom resources, Maven wrapper configuration, source deletion, and o
     await rm(path.join(workspace, "target/classes"), { recursive: true });
     expect(await javaOutputFingerprint(workspace, options)).not.toBe(outputs);
     // An unresolved inherited resource property conservatively disables reuse.
-    await writeFile(path.join(workspace, "pom.xml"), "<project><build><resources><resource><directory>${inherited.assets}</directory></resource></resources></build></project>");
+    await writeFile(
+      path.join(workspace, "pom.xml"),
+      "<project><build><resources><resource><directory>${inherited.assets}</directory></resource></resources></build></project>",
+    );
     expect(await javaBuildFingerprint(workspace, options)).not.toBe(await javaBuildFingerprint(workspace, options));
     // Source symlink cycles must not hang the launch check.
     await symlink(path.join(workspace, "src"), path.join(workspace, "src/main/java/cycle"));
     await writeFile(path.join(workspace, "pom.xml"), "<project />");
     expect(await javaBuildFingerprint(workspace, options)).toBe(await javaBuildFingerprint(workspace, options));
-  } finally { await rm(workspace, { recursive: true, force: true }); }
+  } finally {
+    await rm(workspace, { recursive: true, force: true });
+  }
 });

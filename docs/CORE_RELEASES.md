@@ -185,12 +185,12 @@ release on every start (so a Hub-updated Core boots on its new release) and refu
 releases without the supervisor. The switch refuses to turn on for a Core that is not
 managed yet. How it is installed:
 
-| Host | Mechanism | Guarantee |
-| --- | --- | --- |
-| Linux with a systemd user session | `~/.config/systemd/user/hatopad-core-<id>.service`, enabled, plus `loginctl enable-linger` | Starts at boot. If lingering cannot be enabled it starts at login only, and Gateway says so |
-| Linux without systemd user services | `crontab` `@reboot` entry marked `hatopad-autostart-<id>` | Starts at boot |
-| macOS (local or SSH) | `~/Library/LaunchAgents/dev.hatopad.core.<id>.plist` with `RunAtLoad` | Starts when the user logs in, not at power-on |
-| Windows | Not supported | |
+| Host                                | Mechanism                                                                                  | Guarantee                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Linux with a systemd user session   | `~/.config/systemd/user/hatopad-core-<id>.service`, enabled, plus `loginctl enable-linger` | Starts at boot. If lingering cannot be enabled it starts at login only, and Gateway says so |
+| Linux without systemd user services | `crontab` `@reboot` entry marked `hatopad-autostart-<id>`                                  | Starts at boot                                                                              |
+| macOS (local or SSH)                | `~/Library/LaunchAgents/dev.hatopad.core.<id>.plist` with `RunAtLoad`                      | Starts when the user logs in, not at power-on                                               |
+| Windows                             | Not supported                                                                              |                                                                                             |
 
 Turning it off removes the unit, plist or cron line and the boot script; a running Core
 keeps running. Stopping a Core from Gateway does not disable start on boot. The switch

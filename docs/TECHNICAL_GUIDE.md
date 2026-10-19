@@ -10,9 +10,9 @@ Use Gateway for the normal remote-first workflow. It installs and runs Core next
 
 Before starting, make sure the two machines have the following:
 
-| Machine | Required for Gateway |
-| --- | --- |
-| **Local client** | Node.js 22.12+ and npm, Git (to clone this repository), `tar`, and the platform libraries required by Electron. A `node-pty` compiler toolchain is needed only if npm cannot use its prebuilt binary. |
+| Machine           | Required for Gateway                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Local client**  | Node.js 22.12+ and npm, Git (to clone this repository), `tar`, and the platform libraries required by Electron. A `node-pty` compiler toolchain is needed only if npm cannot use its prebuilt binary.                                                                                                                                                                                                                                                                                                         |
 | **Remote server** | A Unix-like SSH host reachable with a username and either a password or an already-authorized SSH private key, Node.js 22.12+ and npm for that SSH user, Git, `bash`, `tar`, standard process utilities (`nohup`, `kill`, `sleep`, and `tail`), and permission to create `~/.vibe`, run processes, and modify the selected project directory. It must be able to reach the Git repository selected in Gateway settings. A C/C++ compiler, `make`, and Python 3 are needed only if `node-pty` must be rebuilt. |
 
 On the **local client**, clone this repository, install dependencies, build, and launch Gateway:
@@ -238,8 +238,6 @@ Workflow errors appear as one-line disclosures with a scrollable full diagnostic
 - If private-key authentication fails, select the private key itself (such as `~/.ssh/id_ed25519`), not its `.pub` companion. Gateway validates RSA, ECDSA, Ed25519, and OpenSSH key files locally and reports missing or incorrect passphrases before connecting. If the server rejects a valid key, verify that its matching public key is present in the selected remote user's `~/.ssh/authorized_keys`.
 - Java support is Maven-specific. The Java runtime from Settings → Tools runs JDT LS only; builds, runs, and debugging still depend on suitable project Java/Maven tools on the Core host.
 - The editor opens existing UTF-8 text files only; binary and invalid UTF-8 files are rejected.
-
-
 
 ## Early Access bundles and provider installations
 

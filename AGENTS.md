@@ -6,15 +6,15 @@ processes, and durable state; Electron clients own interaction. Read and change
 
 ## Route by change
 
-| Change | Start here | Keep true |
-| --- | --- | --- |
-| AI provider behavior | `packages/acp/src/index.ts`, `packages/core/src/ai/`; read `docs/ACP.md` | ACP is provider-neutral; each built-in adapter lives in its own `core/src/plugins/ai/<id>/`. |
-| Built-in language (Java, Node) | `packages/core/src/plugins/languages/<id>/`, `plugins/builtin.ts`, `language/service.ts` | One directory per plugin with its tests; shared Core reaches plugins only via `plugins/builtin.ts` (guard: `plugins/isolation.test.ts`). |
-| Core/Desktop operation | `packages/protocol/src/operations/` -> `packages/core/src/routes/` -> `packages/desktop/src/renderer/client.ts` | Define protocol domain types/operations and registry first, then Core routing, then Desktop callers. |
-| Renderer feature | `packages/desktop/src/renderer/{main.tsx,App.tsx,client.ts}` | Request workspace state from Core; do not access it locally. |
-| Electron integration | package `src/electron/`, renderer `global.d.ts`, renderer callers | Search the IPC channel across all three. |
-| Gateway/remote launch | `packages/gateway/src/{renderer,electron}` | Gateway deploys Core and ships Desktop artifacts; it does not import other workspaces. |
-| Runtime/tooling | `scripts/`, then package-local `packages/{desktop,gateway}/scripts/` | Reuse existing launch/install helpers. |
+| Change                         | Start here                                                                                                      | Keep true                                                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| AI provider behavior           | `packages/acp/src/index.ts`, `packages/core/src/ai/`; read `docs/ACP.md`                                        | ACP is provider-neutral; each built-in adapter lives in its own `core/src/plugins/ai/<id>/`.                                             |
+| Built-in language (Java, Node) | `packages/core/src/plugins/languages/<id>/`, `plugins/builtin.ts`, `language/service.ts`                        | One directory per plugin with its tests; shared Core reaches plugins only via `plugins/builtin.ts` (guard: `plugins/isolation.test.ts`). |
+| Core/Desktop operation         | `packages/protocol/src/operations/` -> `packages/core/src/routes/` -> `packages/desktop/src/renderer/client.ts` | Define protocol domain types/operations and registry first, then Core routing, then Desktop callers.                                     |
+| Renderer feature               | `packages/desktop/src/renderer/{main.tsx,App.tsx,client.ts}`                                                    | Request workspace state from Core; do not access it locally.                                                                             |
+| Electron integration           | package `src/electron/`, renderer `global.d.ts`, renderer callers                                               | Search the IPC channel across all three.                                                                                                 |
+| Gateway/remote launch          | `packages/gateway/src/{renderer,electron}`                                                                      | Gateway deploys Core and ships Desktop artifacts; it does not import other workspaces.                                                   |
+| Runtime/tooling                | `scripts/`, then package-local `packages/{desktop,gateway}/scripts/`                                            | Reuse existing launch/install helpers.                                                                                                   |
 
 Dependency direction is `acp -> protocol -> client/core/desktop`; Desktop also
 uses the shared client and the standalone relay package owns connector contracts. Core and Desktop may also use ACP directly. Runtime traffic is Desktop -> typed WebSocket protocol ->

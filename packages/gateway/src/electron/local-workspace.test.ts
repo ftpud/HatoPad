@@ -18,7 +18,9 @@ test("creates missing local workspace parents and preserves existing project fil
     await writeFile(path.join(prepared, "keep.txt"), "existing content");
     assert.equal(await prepareLocalWorkspaceDirectory(directory), prepared);
     assert.equal(await readFile(path.join(prepared, "keep.txt"), "utf8"), "existing content");
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
 
 test("rejects files, invalid paths and file ancestors without modifying contents", async () => {
@@ -31,9 +33,10 @@ test("rejects files, invalid paths and file ancestors without modifying contents
     await assert.rejects(prepareLocalWorkspaceDirectory("relative/project"), /absolute path/);
     await assert.rejects(prepareLocalWorkspaceDirectory(`${temporary}/bad\npath`), /control characters/);
     assert.equal(await readFile(file, "utf8"), "keep");
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
-
 
 test("preserves nonempty folders and inherits the parent repository for empty children", async () => {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "gateway-local-git-"));
@@ -51,5 +54,7 @@ test("preserves nonempty folders and inherits the parent repository for empty ch
     await assert.rejects(access(path.join(child, ".git")), { code: "ENOENT" });
     const result = await promisify(execFile)("git", ["-C", child, "rev-parse", "--show-toplevel"]);
     assert.equal(result.stdout.trim(), await realpath(repository));
-  } finally { await rm(temporary, { recursive: true, force: true }); }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
 });
