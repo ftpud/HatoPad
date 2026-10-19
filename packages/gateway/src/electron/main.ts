@@ -1,3 +1,4 @@
+import { createCloudBridge, listCloudRoots, type CloudRelayTarget } from "./cloud-relay.js";
 import { CloudClient, cloudOrigin, cloudPairingScript, createCloudSettingsStore } from "./cloud.js";
 import { clientArtifactVersion, clientArchiveCommand, validateClientRuntime } from "./client-artifact.js";
 import { EDITOR_FLAG, loadBundle, coreTarget, verifiedCoreArchive, bundledEnvironment, installBundleCommand, prepareBundledCore } from "./bundled-runtime.js";
@@ -507,11 +508,29 @@ async function launchClient(workspaceId: string, workspace: Workspace, connectio
   child.unref(); runtime(workspaceId, "client", `Client connected through local port ${localPort}${clientBuilt ? " (artifacts reused)" : " (artifacts downloaded)"}`);
 }
 
+const cloudBridges = new Map<string, Awaited<ReturnType<typeof createCloudBridge>>>();
+function closeCloudBridges(): void { for (const bridge of cloudBridges.values()) bridge.close(); cloudBridges.clear(); }
+app.on("will-quit", closeCloudBridges);
+function cloudDesktopRoot(): string { return bundledDesktop ?? path.resolve(directory, "../../desktop"); }
+async function cloudTarget(coreId: string): Promise<CloudRelayTarget> {
+  const client = await cloudClient();
+  const account = await client.account();
+  const core = account.cores.find((item) => item.id === coreId);
+  if (!core) throw new Error("Cloud Core is unavailable.");
+  if (core.status !== "online") throw new Error("Cloud Core is offline. Refresh cloud status and try again.");
+  return { origin: client.origin, coreId, cookie: async () => (await cloudSession().cookies.get({ url: client.origin })).map(cookie => `${cookie.name}=${cookie.value}`).join("; ") };
+}
+async function cloudRoots(target: CloudRelayTarget) {
+  const compatibility = readCompatibility(JSON.parse(await readFile(path.join(cloudDesktopRoot(), "compatibility.json"), "utf8")));
+  if (!compatibility) throw new Error("Desktop compatibility metadata is unavailable. Rebuild or reinstall Gateway.");
+  return listCloudRoots(target, compatibility);
+}
 const cloudSettings = createCloudSettingsStore(path.join(app.getPath("userData"), "cloud.json"));
 async function saveCloudOrigin(input: string): Promise<string> {
   const origin = cloudOrigin(input.trim());
   const previous = (await cloudSettings.read()).origin;
   if (previous && previous !== origin) {
+    closeCloudBridges();
     for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
     await cloudSession().clearStorageData();
   }
@@ -564,14 +583,27 @@ handleIpc("gateway:cloudConnect", async (_event, input: string) => {
   } finally { cloudConnecting = false; }
 });
 handleIpc("gateway:cloudDisconnect", async () => {
+  closeCloudBridges();
   for (const window of BrowserWindow.getAllWindows()) if (window.webContents.session === cloudSession()) window.close();
   await cloudSession().clearStorageData();
 });
-handleIpc("gateway:cloudOpen", async (_event, coreId: string) => {
-  const client = await cloudClient();
-  const account = await client.account();
-  if (!account.cores.some((core) => core.id === coreId)) throw new Error("Cloud server is unavailable.");
-  cloudWindow(`${client.origin}/#c=${encodeURIComponent(coreId)}`);
+handleIpc("gateway:cloudListCores", async (_event, coreId: string) => cloudRoots(await cloudTarget(coreId)));
+handleIpc("gateway:cloudOpen", async (_event, coreId: string, rootId: string) => {
+  const target = await cloudTarget(coreId);
+  const roots = await cloudRoots(target);
+  if (!roots.some((root) => root.id === rootId)) throw new Error("Cloud workspace is unavailable. Refresh the Core list.");
+  const desktopRoot = cloudDesktopRoot();
+  const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
+  await access(desktopMain).catch(() => { throw new Error("Desktop is missing. Build or reinstall Gateway before connecting to cloud."); });
+  const key = `${target.origin}/${coreId}`;
+  let bridge = cloudBridges.get(key);
+  if (!bridge) { bridge = await createCloudBridge(target); cloudBridges.set(key, bridge); }
+  const desktop = desktopCommand(desktopMain);
+  const child = spawn(desktop.command, [...desktop.args, "--host", "127.0.0.1", "--port", String(bridge.port), "--root-id", rootId], {
+    cwd: desktopRoot, env: { ...process.env, VITE_DEV_SERVER_URL: "", HATOPAD_SESSION_TOKEN: bridge.token, HATOPAD_SESSION_TOKEN_FILE: "" }, detached: true, stdio: "ignore"
+  });
+  await new Promise<void>((resolve, reject) => { child.once("spawn", resolve); child.once("error", reject); });
+  child.unref();
 });
 handleIpc("gateway:cloudAddServer", async (_event, workspaceId: string) => workspaceOperations.run(workspaceId, "add-to-cloud", async () => {
   const cloud = await cloudClient();

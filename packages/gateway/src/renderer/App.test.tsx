@@ -225,7 +225,7 @@ describe("Gateway cloud", () => {
   function bridge(cloud?: GatewayCloudAccount) {
     window.gateway = {
       get: vi.fn().mockResolvedValue({ state: { connections: [{ id: "local", kind: "local", name: "This Mac" }], workspaces: [{ id: "w", connectionId: "local", name: "Project", directory: "/project", remotePort: 9000 }], portTunnels: [] }, runtimes: { w: { status: "server", message: "Ready" } }, tunnelRuntimes: {}, connectionRuntimes: {} }),
-      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudGet: vi.fn().mockResolvedValue(cloud), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
+      cloudSaveOrigin: vi.fn(async (origin: string) => origin), cloudGet: vi.fn().mockResolvedValue(cloud), cloudListCores: vi.fn().mockResolvedValue([{ id: "cloud-root", alias: "Cloud project", path: "/srv/project", primary: true }]), cloudConnect: vi.fn().mockResolvedValue(account), cloudOpen: vi.fn().mockResolvedValue(undefined), cloudDisconnect: vi.fn().mockResolvedValue(undefined), cloudAddServer: vi.fn().mockResolvedValue(account),
       onStatus: () => () => undefined, onTunnelStatus: () => () => undefined, onConnectionStatus: () => () => undefined
     } as unknown as Window["gateway"];
   }
@@ -237,11 +237,36 @@ describe("Gateway cloud", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
     expect(window.gateway.cloudConnect).toHaveBeenCalledWith("https://hub.example");
     expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open cloud server" }));
-    await waitFor(() => expect(window.gateway.cloudOpen).toHaveBeenCalledWith("remote-core"));
+    fireEvent.click(await screen.findByRole("button", { name: "Connect to Cloud project" }));
+    await waitFor(() => expect(window.gateway.cloudOpen).toHaveBeenCalledWith("remote-core", "cloud-root"));
+    expect(window.gateway.cloudListCores).toHaveBeenCalledWith("remote-core");
+    expect(screen.getByText("/srv/project")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
     await waitFor(() => expect(screen.queryByRole("button", { name: /Cloud machine/ })).toBeNull());
     expect(screen.getByRole("button", { name: "This Mac, local Mac" })).toBeTruthy();
+  });
+  it("keeps cloud actions icon-only and exposes tooltips and accessible names", async () => {
+    bridge(account); render(<App />);
+    for (const name of ["Cloud settings", "Refresh cloud", "Disconnect", "Add to cloud"]) {
+      const button = await screen.findByRole("button", { name });
+      expect(button.textContent).toBe("");
+      expect(button.getAttribute("title")).toBeTruthy();
+      expect(button.querySelector("svg")).toBeTruthy();
+    }
+  });
+  it("does not try to connect to an offline cloud server", async () => {
+    bridge({ ...account, cores: [{ ...account.cores[0]!, status: "offline" }] }); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    expect(await screen.findByText(/Server is offline/)).toBeTruthy();
+    expect(window.gateway.cloudListCores).not.toHaveBeenCalled();
+    expect(window.gateway.cloudOpen).not.toHaveBeenCalled();
+  });
+  it("shows Core discovery errors and can retry loading the list", async () => {
+    bridge(account); vi.mocked(window.gateway.cloudListCores).mockRejectedValueOnce(new Error("Relay disconnected")); render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Relay disconnected");
+    fireEvent.click(screen.getByRole("button", { name: "Refresh cloud Cores" }));
+    expect(await screen.findByRole("button", { name: "Connect to Cloud project" })).toBeTruthy();
   });
   it("loads a locally saved cloud URL while signed out and saves changes without signing in", async () => {
     bridge();

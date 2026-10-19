@@ -175,7 +175,7 @@ export function App() {
   }, []);
   const launchConfig = useMemo(() => {
     const params = new URLSearchParams(window.location.search);
-    return { host: params.get("host") ?? undefined, port: params.get("port") ?? undefined };
+    return { host: params.get("host") ?? undefined, port: params.get("port") ?? undefined, rootId: params.get("rootId") ?? undefined };
   }, []);
   const [host, setHost] = useState(launchConfig.host ?? saved.host ?? "127.0.0.1");
   const [port, setPort] = useState(launchConfig.port ?? saved.port ?? "7331");
@@ -856,6 +856,7 @@ export function App() {
     setAiStatuses({ root: emptyAiSummary, tasks: {} }); setActiveTimers([]); setSchedules([]); setTriggers([]);
     setStatus("connecting"); setStatusMessage(`Opening connection to ${host.trim()}:${port}…`);
     const client = new CoreClient();
+    if (launchConfig.rootId && host.trim() === launchConfig.host && port === launchConfig.port) client.setRoot(launchConfig.rootId);
     clientRef.current = client;
     client.onConnectionProgress = (message) => { if (clientRef.current === client) setStatusMessage(message); };
     let connectionReady = false;

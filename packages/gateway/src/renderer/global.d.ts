@@ -1,3 +1,4 @@
+type GatewayCloudRoot = { id: string; alias: string; path: string; primary: boolean };
 type GatewayCloudCore = { id: string; name: string; status: string; access: "owner" | "operator" };
 type GatewayCloudAccount = { origin: string; user: { id: string; name: string; email: string }; cores: GatewayCloudCore[] };
 type GatewayConnection = { id: string; kind: "ssh" | "local"; name: string; host: string; port: number; username: string; authenticationMethod: "password" | "privateKey" | "agent"; privateKeyPath?: string; hostKeyFingerprint?: string };
@@ -15,7 +16,8 @@ interface Window {
     cloudGet(): Promise<GatewayCloudAccount | undefined>;
     cloudConnect(origin: string): Promise<GatewayCloudAccount>;
     cloudDisconnect(): Promise<void>;
-    cloudOpen(id: string): Promise<void>;
+    cloudListCores(id: string): Promise<GatewayCloudRoot[]>;
+    cloudOpen(id: string, rootId: string): Promise<void>;
     cloudAddServer(workspaceId: string): Promise<GatewayCloudAccount>;
     platform?: string;
     onFullscreenChange?(listener: (fullscreen: boolean) => void): () => void;

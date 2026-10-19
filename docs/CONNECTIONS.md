@@ -125,8 +125,11 @@ Electron session and lists the account's cloud servers alongside local/SSH
 connections. Use **Save URL** to persist the domain without signing in, or
 **Cloud settings** to change it while signed in. The URL remains saved locally
 after disconnecting or restarting Gateway, even if sign-in is cancelled.
-**Refresh cloud** updates the list; **Open cloud server** opens the
-Hub workspace interface. **Disconnect** clears Gateway's cloud session without
+**Refresh cloud** updates the list. Selecting a cloud server loads its available
+workspace roots under **Cores**; each row has a **Connect** icon that opens Desktop
+on that root through the cloud relay. Cloud account controls use compact icons
+with tooltips. Gateway must remain running to maintain Desktop's relay bridge.
+Cloud cookies remain in Gateway; the local bridge requires a private launch token. **Disconnect** clears Gateway's cloud session without
 removing saved connections or unpairing servers.
 
 To register an existing server, start its workspace server, then choose **Add to
