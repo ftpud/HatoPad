@@ -1,3 +1,10 @@
+import { useShellDialogs } from "./use-shell-dialogs";
+import { useGitPanelState } from "./use-git-panel-state";
+import { useProjectPanelState } from "./use-project-panel-state";
+import { useEditorState } from "./use-editor-state";
+import { useConfigurationPanels } from "./use-configuration-panels";
+import { useLanguagePanelState } from "./use-language-panel-state";
+import { useProcessesState } from "./use-processes-state";
 import { useAiSessionState } from "./use-ai-session-state";
 import { useWorkspaceTasks } from "./use-workspace-tasks";
 import { usePanelLayout } from "./use-panel-layout";
@@ -15,7 +22,7 @@ import { ConnectionScreen, ConnectionStatus } from "./ConnectionScreen";
 import { keyboardResize, selectedLineRange, gitHunkDecorations, ParsedHttpRequest, parseHttpRequests } from "./editor-helpers";
 import { AuthenticationClientContext } from "./AiAuthentication";
 import { flushSync } from "react-dom";
-import { SidebarExtentButton, useSidebarExtent } from "./SidebarExtentButton";
+import { SidebarExtentButton } from "./SidebarExtentButton";
 import { FocusDock } from "./FocusDock";
 import { FocusModeButton } from "./FocusModeButton";
 import { openWorkflowEditor } from "./workflow-tabs";
@@ -27,9 +34,8 @@ import { javaConfigurationPath, resolveSkillIds, skillAllowedForAgent } from "@h
 import { DiffEditor, type Monaco } from "@monaco-editor/react";
 import { Bookmark, GraduationCap, Sparkles, History, Minus, RotateCcw, ArrowDown, ArrowUp, ArrowUpRight, Bot, Check, ChevronRight, CircleAlert, Clock, ClipboardCopy, Zap, Coffee, Columns2, Eye, EyeOff, File, FileDiff, FileText, Folder, GitBranch, GitCompareArrows, ListTodo, ListTree, LoaderCircle, Package, Palette, Pencil, Pin, PinOff, Play, Plus, RefreshCw, Save, Search, Settings, Square, SquareTerminal, Trash2, Workflow, X } from "lucide-react";
 import { isValidElement, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { ManagedWorkflowApp, SkillCatalog, AgentFile, AgentFileScope, AiContinuationTimer, AiConfiguration, AiModel, AiProvider, AiProviderDescriptor, AiSession, AiTaskSummary, AiUsage, FileColor, FileRevision, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitHistoryRewritePreview, GitStatusEntry, GitUpstreamStatus, HarnessDefinition, HarnessRun, HarnessStateDiagnostic, HttpResponse, JavaApplyChangesResult, LanguageDebugCommand, LanguageDescriptor, JavaBreakpoint, JavaDebugState, JavaProjectNode, JavaProjectOptions, JavaTypeSuggestion, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, UsefulFileScope, WorkspaceSchedule, WorkspaceTrigger, WorkspaceOptions, WorkspaceRoot, WorkspaceSearchQueries, WorkspaceTask } from "@hatopad/protocol";
+import type { AgentFile, AiConfiguration, AiProvider, AiSession, FileColor, FileTreeNode, GitBranch as GitBranchInfo, GitDiffHunk, GitStatusEntry, HarnessDefinition, HarnessRun, JavaApplyChangesResult, LanguageDebugCommand, JavaProjectOptions, JavaTypeSuggestion, RootedJavaDiagnostic, RootedJavaLspLocation, RootedWorkspaceSymbol, RunConfig, RunConfigScope, SearchResult, TaskCheckpoint, TaskCheckpointFile, UsefulFile, WorkspaceOptions, WorkspaceTask } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
-
 
 import { mergeWorkflowHistory, workflowRunsForContext } from "./workflow-context";
 import { InvalidationRefreshes } from "./invalidation-refreshes";
@@ -53,7 +59,7 @@ import { JavaConfigurationDialog } from "./plugins/languages/java";
 import { languageClient, loadJavaProjectTree } from "./language-client";
 import { attachDebugEditor } from "./debug-editor";
 import { RunConfigurationToolbar } from "./RunConfigurationToolbar";
-import { projectRegistration, runProject, type RunProject, type RunProjectProcess } from "./run-projects";
+import { projectRegistration, runProject, type RunProjectProcess } from "./run-projects";
 import { GenericProjectConfigurationDialog } from "./GenericProjectConfigurationDialog";
 import { projectConfigurationEditors } from "./plugins/languages/configuration-editors";
 import { JavaPanel } from "./plugins/languages/java";
@@ -86,7 +92,6 @@ import { MarkdownPreview } from "./MarkdownPreview";
 import { FindInFilesDialog } from "./FindInFilesDialog";
 import { restoredFocusedLeftPanels, initialTaskPanel, switchedTaskPanel, taskPanelPreferenceKey, type ClassicTaskPanel } from "./task-panel-state";
 import { ProjectTree } from "./ProjectTree";
-
 
 import { menuPosition } from "./menu-position";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
@@ -132,13 +137,112 @@ export function App() {
   const [uiFontWeight, setUiFontWeight] = useState(() => readSettingNumber("uiFontWeight", 450, 350, 600));
   const [uiFontSize, setUiFontSize] = useState(() => readSettingNumber("uiFontSize", 13, 10, 20));
   const [uiLineHeight, setUiLineHeight] = useState(() => readSettingNumber("uiLineHeight", 1.2, 1, 2));
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [storageOpen, setStorageOpen] = useState(false);
-  const [aiProvidersOpen, setAiProvidersOpen] = useState(false);
-  const [pluginsOpen, setPluginsOpen] = useState(false);
-  const [toolsOpen, setToolsOpen] = useState(false);
-  /** Bumped on every repository change, including commits/pushes made outside HatoPad. */
-  const [gitRevision, setGitRevision] = useState(0);
+  const {
+    settingsOpen,
+    setSettingsOpen,
+    storageOpen,
+    setStorageOpen,
+    aiProvidersOpen,
+    setAiProvidersOpen,
+    pluginsOpen,
+    setPluginsOpen,
+    toolsOpen,
+    setToolsOpen,
+    showCreateTaskDialog,
+    setShowCreateTaskDialog,
+    mergeDialog,
+    setMergeDialog,
+    runConfigDialog,
+    setRunConfigDialog,
+    runConfigMenu,
+    setRunConfigMenu,
+    usefulDialog,
+    setUsefulDialog,
+    agentDialog,
+    setAgentDialog,
+    workspaceRootDialogOpen,
+    setWorkspaceRootDialogOpen,
+    gitHunkDialog,
+    setGitHunkDialog,
+    branchMenu,
+    setBranchMenu,
+    gitRollbackDialog,
+    setGitRollbackDialog,
+    gitRewriteDialog,
+    setGitRewriteDialog,
+    gitStashDialog,
+    setGitStashDialog,
+    gitPullDialog,
+    setGitPullDialog,
+    gitRebaseDialog,
+    setGitRebaseDialog,
+    importChoices,
+    setImportChoices,
+    javaUsages,
+    setJavaUsages,
+    showRunConfigurationDialog,
+    setShowRunConfigurationDialog,
+    treeContextMenu,
+    setTreeContextMenu,
+    projectPathDialog,
+    setProjectPathDialog,
+    editorGitMenu,
+    setEditorGitMenu,
+    gitRollbackMenu,
+    setGitRollbackMenu,
+    tabContextMenu,
+    setTabContextMenu,
+    quickOpen,
+    setQuickOpen,
+    workspaceSymbolsOpen,
+    setWorkspaceSymbolsOpen,
+    commandPaletteOpen,
+    setCommandPaletteOpen,
+    externalConflict,
+    setExternalConflict
+  } = useShellDialogs();
+  const {
+    gitRevision,
+    setGitRevision,
+    activeGitHunks,
+    setActiveGitHunks,
+    gitBranch,
+    setGitBranch,
+    gitEntries,
+    setGitEntries,
+    gitUpstream,
+    setGitUpstream,
+    selectedGitPaths,
+    setSelectedGitPaths,
+    gitCommitMessage,
+    setGitCommitMessage,
+    gitCommitting,
+    setGitCommitting,
+    gitPushing,
+    setGitPushing,
+    gitFetching,
+    setGitFetching,
+    gitRollingBack,
+    setGitRollingBack,
+    gitConflictPath,
+    setGitConflictPath,
+    gitPulling,
+    setGitPulling,
+    gitRebasing,
+    setGitRebasing,
+    taskGitEntries,
+    setTaskGitEntries,
+    taskCheckpoints,
+    setTaskCheckpoints,
+    taskGitError,
+    setTaskGitError,
+    gitError,
+    setGitError,
+    gitLogHeight,
+    setGitLogHeight,
+    gitHistory,
+    setGitHistory
+  } = useGitPanelState();
   const platform = useMemo(desktopPlatform, []);
   const [shortcutBindings, setShortcutBindings] = useState(() => { const stored = readSetting(KEYBOARD_SHORTCUTS_SETTING); const migrated = migrateShortcutSetting(stored, desktopPlatform()); if (migrated) writeSetting(KEYBOARD_SHORTCUTS_SETTING, migrated); return parseShortcutSetting(stored, desktopPlatform()); });
   const changeShortcut = (id: CommandId, shortcut?: string) => setShortcutBindings((current) => { const next = updateShortcut(current, id, shortcut); writeSetting(KEYBOARD_SHORTCUTS_SETTING, serializeShortcutSetting(next)); return next; });
@@ -169,14 +273,53 @@ export function App() {
     setStatusKind("error"); setStatusMessageState(message);
   }, [cloudConnection]);
   const showStatus = useCallback((message: string, kind: StatusKind) => { setStatusKind(kind); setStatusMessageState(message); }, []);
-  const [tree, setTree] = useState<FileTreeNode[]>([]);
-  const [projectFilter, setProjectFilter] = useState("");
-  const [projectContentFilter, setProjectContentFilter] = useState(false);
-  const [projectContentPaths, setProjectContentPaths] = useState<Set<string>>();
-  const [projectContentFilterLoading, setProjectContentFilterLoading] = useState(false);
-  const [showIgnored, setShowIgnored] = useState(() => readSetting("showIgnoredFiles") === "true");
+  const {
+    tree,
+    setTree,
+    projectFilter,
+    setProjectFilter,
+    projectContentFilter,
+    setProjectContentFilter,
+    projectContentPaths,
+    setProjectContentPaths,
+    projectContentFilterLoading,
+    setProjectContentFilterLoading,
+    showIgnored,
+    setShowIgnored,
+    activeWorkspace,
+    setActiveWorkspace,
+    projectName,
+    setProjectName,
+    workspaceRoots,
+    setWorkspaceRoots,
+    selectedRootId,
+    setSelectedRootId,
+    projectSelection,
+    setProjectSelection,
+    projectTransfer,
+    setProjectTransfer
+  } = useProjectPanelState();
   const showIgnoredRef = useRef(showIgnored);
-  const [layout, setLayout] = useState<LayoutModel>(initialLayout);
+  const {
+    layout,
+    setLayout,
+    terminalHeight,
+    setTerminalHeight,
+    fileColors,
+    setFileColors,
+    httpResult,
+    setHttpResult,
+    workspaceOptionsReady,
+    setWorkspaceOptionsReady,
+    draggedTabId,
+    setDraggedTabId,
+    searchScope,
+    setSearchScope,
+    searchQueries,
+    setSearchQueries,
+    pendingNavigation,
+    setPendingNavigation
+  } = useEditorState();
   const [focusMode, setFocusMode] = useState(() => readSetting("focusMode") === "true");
   const changeFocusMode = (active: boolean) => {
     const update = () => { writeSetting("focusMode", String(active)); setFocusMode(active); setSettingsOpen(false); setBranchMenu(undefined); };
@@ -216,8 +359,6 @@ export function App() {
     classicSplit,
     setClassicSplit
   } = usePanelLayout(workspaceKeyRef);
-  const [showCreateTaskDialog, setShowCreateTaskDialog] = useState(false);
-  const [mergeDialog, setMergeDialog] = useState<WorkspaceTask>();
   const {
     tasks,
     setTasks,
@@ -236,29 +377,31 @@ export function App() {
     queuedTaskSwitch,
     switchTaskRef
   } = useWorkspaceTasks();
-  const [terminalHeight, setTerminalHeight] = useState(240);
-  const [usefulFiles, setUsefulFiles] = useState<UsefulFile[]>([]);
-  const [runConfigs, setRunConfigs] = useState<RunConfig[]>([]);
-  const [runConfigDialog, setRunConfigDialog] = useState<{ scope: RunConfigScope }>();
-  const [runConfigMenu, setRunConfigMenu] = useState<{ x: number; y: number; config: RunConfig }>();
+  const {
+    usefulFiles,
+    setUsefulFiles,
+    runConfigs,
+    setRunConfigs,
+    agents,
+    setAgents,
+    harnesses,
+    setHarnesses,
+    harnessRuns,
+    setHarnessRuns,
+    harnessDiagnostics,
+    setHarnessDiagnostics,
+    selectedAgentKey,
+    setSelectedAgentKey,
+    harnessesLoading,
+    setHarnessesLoading,
+    harnessRunsLoading,
+    setHarnessRunsLoading
+  } = useConfigurationPanels();
   useEffect(() => { const listener = (event: Event) => setRunConfigDialog({ scope: (event as CustomEvent<RunConfigScope>).detail }); window.addEventListener("hatopad:create-run-config", listener); return () => window.removeEventListener("hatopad:create-run-config", listener); }, []);
   useEffect(() => { window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); }, [runConfigs]);
   useEffect(() => { const listener = () => window.dispatchEvent(new CustomEvent("hatopad:run-configs", { detail: runConfigs })); window.addEventListener("hatopad:request-run-configs", listener); return () => window.removeEventListener("hatopad:request-run-configs", listener); }, [runConfigs]);
-  const [agents, setAgents] = useState<AgentFile[]>([]);
-  const [harnesses, setHarnesses] = useState<HarnessDefinition[]>([]);
-  const [harnessRuns, setHarnessRuns] = useState<HarnessRun[]>([]);
   const harnessRunsRef = useRef(harnessRuns);
   harnessRunsRef.current = harnessRuns;
-  const [harnessDiagnostics, setHarnessDiagnostics] = useState<HarnessStateDiagnostic[]>([]);
-  const [selectedAgentKey, setSelectedAgentKey] = useState("");
-  const [fileColors, setFileColors] = useState<Record<string, FileColor>>({});
-  const [usefulDialog, setUsefulDialog] = useState<{ mode: "create" | "rename"; scope: UsefulFileScope; file?: UsefulFile }>();
-  const [agentDialog, setAgentDialog] = useState<{ mode: "create" | "rename"; scope: Exclude<AgentFileScope, "workspace">; file?: AgentFile }>();
-  const [activeWorkspace, setActiveWorkspace] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [workspaceRoots, setWorkspaceRoots] = useState<WorkspaceRoot[]>([]);
-  const [selectedRootId, setSelectedRootId] = useState("");
-  const [workspaceRootDialogOpen, setWorkspaceRootDialogOpen] = useState(false);
   const selectedRootIdRef = useRef("");
   const selectWorkspaceRootRef = useRef<(rootId: string) => Promise<void>>(async () => undefined);
   const {
@@ -294,65 +437,48 @@ export function App() {
     aiSessionRequested,
     aiSessionApplied
   } = useAiSessionState();
-  const [activeGitHunks, setActiveGitHunks] = useState<GitDiffHunk[]>([]);
-  const [gitHunkDialog, setGitHunkDialog] = useState<{ x: number; y: number; path: string; hunk: GitDiffHunk; originalContent: string; modifiedContent: string; error?: string }>();
-  const [httpResult, setHttpResult] = useState<{ request: ParsedHttpRequest; response?: HttpResponse; error?: string; loading: boolean }>();
-  const [gitBranch, setGitBranch] = useState("HEAD");
-  const [branchMenu, setBranchMenu] = useState<{ branches: GitBranchInfo[]; selected?: string; loading: boolean }>();
-  const [gitEntries, setGitEntries] = useState<GitStatusEntry[]>([]);
-  const [gitUpstream, setGitUpstream] = useState<GitUpstreamStatus>();
   const gitStatusRequested = useRef(0);
-  const [selectedGitPaths, setSelectedGitPaths] = useState<Set<string>>(new Set());
-  const [gitCommitMessage, setGitCommitMessage] = useState("");
-  const [gitCommitting, setGitCommitting] = useState(false);
-  const [gitPushing, setGitPushing] = useState(false);
-  const [gitFetching, setGitFetching] = useState(false);
-  const [gitRollingBack, setGitRollingBack] = useState(false);
-  const [gitRollbackDialog, setGitRollbackDialog] = useState<GitStatusEntry[]>();
-  const [gitRewriteDialog, setGitRewriteDialog] = useState<{ action: "amend" | "undo"; preview: GitHistoryRewritePreview }>();
-  const [gitStashDialog, setGitStashDialog] = useState(false);
-  const [gitConflictPath, setGitConflictPath] = useState<string>();
-  const [gitPullDialog, setGitPullDialog] = useState<{ preview: import("@hatopad/protocol").GitPullPreview; error?: string }>();
-  const [gitPulling, setGitPulling] = useState(false);
-  const [gitRebaseDialog, setGitRebaseDialog] = useState<{ preview: import("@hatopad/protocol").GitRebasePreview; error?: string }>();
-  const [gitRebasing, setGitRebasing] = useState(false);
-  const [taskGitEntries, setTaskGitEntries] = useState<GitStatusEntry[]>([]);
-  const [taskCheckpoints, setTaskCheckpoints] = useState<TaskCheckpoint[]>([]);
-  const [taskGitError, setTaskGitError] = useState("");
-  const [gitError, setGitError] = useState("");
-  const [workspaceOptionsReady, setWorkspaceOptionsReady] = useState(false);
-  const [languages, setLanguages] = useState<LanguageDescriptor[]>([]);
-  const [runProjects, setRunProjects] = useState<RunProject[]>([]);
-  const [runProjectProcesses, setRunProjectProcesses] = useState<Record<string, RunProjectProcess>>({});
+  const {
+    languages,
+    setLanguages,
+    runProjects,
+    setRunProjects,
+    runProjectProcesses,
+    setRunProjectProcesses,
+    runProjectBusy,
+    setRunProjectBusy,
+    selectedLanguage,
+    setSelectedLanguage,
+    javaOptions,
+    setJavaOptions,
+    javaTree,
+    setJavaTree,
+    javaLog,
+    setJavaLog,
+    javaRunning,
+    setJavaRunning,
+    javaDebugState,
+    setJavaDebugState,
+    javaBreakpoints,
+    setJavaBreakpoints,
+    javaPanelHeight,
+    setJavaPanelHeight,
+    problemsHeight,
+    setProblemsHeight,
+    javaDiagnostics,
+    setJavaDiagnostics,
+    javaChecking,
+    setJavaChecking
+  } = useLanguagePanelState();
   const [runConfigurationEditor, setRunConfigurationEditor] = useState<string>();
-  const [runProjectBusy, setRunProjectBusy] = useState(false);
   const runProjectGeneration = useRef(0);
-  const [selectedLanguage, setSelectedLanguage] = useState<string>();
   const openRunConfigurations = (language?: string) => {
     const projectLanguage = language ?? selectedLanguage ?? runProjects[0]?.language;
     if (projectLanguage) { setSelectedLanguage(projectLanguage); setRunConfigurationEditor(projectLanguage); }
   };
-  const [javaOptions, setJavaOptions] = useState<JavaProjectOptions>();
-  const [javaTree, setJavaTree] = useState<JavaProjectNode[]>([]);
-  const [javaLog, setJavaLog] = useState("");
-  const [javaRunning, setJavaRunning] = useState(false);
-  const [javaDebugState, setJavaDebugState] = useState<JavaDebugState>({ status: "stopped", variables: [] });
-  const [javaBreakpoints, setJavaBreakpoints] = useState<JavaBreakpoint[]>([]);
   const debugEditorRef = useRef<ReturnType<typeof attachDebugEditor>>();
   const javaDebugStateRef = useRef(javaDebugState);
   javaDebugStateRef.current = javaDebugState;
-  const [javaPanelHeight, setJavaPanelHeight] = useState(240);
-  const [problemsHeight, setProblemsHeight] = useState(220);
-  const [gitLogHeight, setGitLogHeight] = useState(360);
-  const [javaDiagnostics, setJavaDiagnostics] = useState<RootedJavaDiagnostic[]>([]);
-  const [javaChecking, setJavaChecking] = useState(false);
-  const [importChoices, setImportChoices] = useState<{ suggestions: JavaTypeSuggestion[]; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number } }>();
-  const [javaUsages, setJavaUsages] = useState<RootedJavaLspLocation[]>();
-  const [showRunConfigurationDialog, setShowRunConfigurationDialog] = useState(false);
-  const [treeContextMenu, setTreeContextMenu] = useState<{ x: number; y: number; nodes: FileTreeNode[] }>();
-  const [projectSelection, setProjectSelection] = useState<Set<string>>(new Set());
-  const [projectTransfer, setProjectTransfer] = useState<{ operationId: string; token: string; label: string; bytes: number; total: number }>();
-  const [projectPathDialog, setProjectPathDialog] = useState<{ mode: "file" | "directory" | "rename"; node: FileTreeNode; parentPath: string }>();
   useEffect(() => window.desktop?.onProjectTransferProgress((progress) => setProjectTransfer((current) => {
     if (!current || current.operationId !== progress.operationId) return current;
     if (progress.error) { showStatus(progress.error, "error"); return undefined; }
@@ -369,25 +495,18 @@ export function App() {
     try { const ticket = await clientRef.current.request("filesystem.remoteTransferBegin", { direction: "download", path: node.path }); const local = await window.desktop.chooseDownload(ticket.name); if (!local) { await clientRef.current.request("filesystem.remoteTransferCancel", { token: ticket.token }); return; } const started = await window.desktop.startProjectTransfer({ localId: local.id, token: ticket.token, host, port: Number(port), direction: "download", size: ticket.size }); setProjectTransfer({ operationId: started.operationId, token: ticket.token, label: `Downloading ${ticket.name}`, bytes: 0, total: ticket.size }); showStatus(`Downloading ${ticket.name}: 0%`, "progress"); } catch (error) { showStatus(error instanceof Error ? error.message : "Could not download file", "error"); }
   };
   const cancelProjectTransfer = async () => { const current = projectTransfer; if (!current || !window.desktop || !clientRef.current) return; await Promise.allSettled([window.desktop.cancelProjectTransfer(current.operationId), clientRef.current.request("filesystem.remoteTransferCancel", { token: current.token })]); setProjectTransfer(undefined); setStatusMessage("Transfer cancelled"); };
-  const [editorGitMenu, setEditorGitMenu] = useState<{ x: number; y: number; path: string; startLine?: number; endLine?: number; content?: string }>();
-  const [gitRollbackMenu, setGitRollbackMenu] = useState<{ x: number; y: number; entry: GitStatusEntry; taskRef?: string }>();
-  const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tab: EditorTab }>();
-  const [draggedTabId, setDraggedTabId] = useState<string>();
-  const [gitHistory, setGitHistory] = useState<{ path: string; startLine?: number; endLine?: number; content?: string }>();
-  const [searchScope, setSearchScope] = useState<string>();
-  const [searchQueries, setSearchQueries] = useState<WorkspaceSearchQueries>({});
-  const [quickOpen, setQuickOpen] = useState(false);
-  const [workspaceSymbolsOpen, setWorkspaceSymbolsOpen] = useState(false);
-  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [externalConflict, setExternalConflict] = useState<{ tabId: string; path: string; externalContent: string; externalRevision: FileRevision; error?: string }>();
-  const [pendingNavigation, setPendingNavigation] = useState<{ result: SearchResult; matchLength: number }>();
   const clientRef = useRef<CoreClient>();
   useEffect(() => startPresenceReporting(() => clientRef.current), []);
   const recoveryRef = useRef<ConnectionRecovery>();
   const invalidationRefreshes = useRef<InvalidationRefreshes>();
-  const [managedProcessList, setManagedProcessList] = useState<ManagedWorkflowApp[]>([]);
-  const [processLoading, setProcessLoading] = useState(false);
-  const [processError, setProcessError] = useState("");
+  const {
+    managedProcessList,
+    setManagedProcessList,
+    processLoading,
+    setProcessLoading,
+    processError,
+    setProcessError
+  } = useProcessesState();
   const processSequence = useRef(0);
   const processLoadedRoot = useRef<string>();
   const refreshProcesses = useCallback(async (client = clientRef.current, canApply: () => boolean = () => true) => {
@@ -691,8 +810,6 @@ export function App() {
     const saved = workspaceKeyRef.current ? readSetting(workspaceSettingKey(workspaceKeyRef.current, aiAgentTaskKey(taskId))) ?? "" : "";
     setSelectedAgentKey(next.some((agent) => agentKey(agent) === saved) ? saved : "");
   }, [refreshSkills]);
-  const [harnessesLoading, setHarnessesLoading] = useState(false);
-  const [harnessRunsLoading, setHarnessRunsLoading] = useState(false);
   const refreshHarnesses = useCallback(async (client = clientRef.current, canApply: () => boolean = () => true) => {
     if (!client) return;
     const rootId = client.getRoot();
