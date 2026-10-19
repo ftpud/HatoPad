@@ -1,3 +1,4 @@
+import type { Compatibility } from "./client-compatibility.js";
 import { compatibleCoreTags, protocolCompatibility } from "./protocol-versions.js";
 export type RepositorySettings = { repository: string; branch: string; autoUpdate: boolean };
 
@@ -26,11 +27,14 @@ export function repositorySettingsOrDefault(value: Partial<RepositorySettings> |
   catch { return defaultRepositorySettings; }
 }
 
-export function provisionCommand(settings: RepositorySettings, remoteNodeEnvironment: string, repair = false, preferredRelease?: string, update?: { checkOnly?: boolean; expectedCommit?: string }): string {
+export function provisionCommand(settings: RepositorySettings, remoteNodeEnvironment: string, repair = false, preferredRelease?: string, update?: { checkOnly?: boolean; expectedCommit?: string; compatibility?: Compatibility }): string {
   const { repository, branch, autoUpdate } = normalizeRepositorySettings(settings);
   if (preferredRelease && !/^[0-9a-f]{40,64}-node[0-9]+(?:-repair-[a-zA-Z0-9]+|-bundle-[a-zA-Z0-9-]+)?$/.test(preferredRelease)) throw new Error("Invalid preferred release identity");
   if (update?.expectedCommit && !/^[a-f0-9]{40}$/.test(update.expectedCommit)) throw Error("Invalid expected Core commit");
-  const selectTag = `const compatibleCoreTags = ${compatibleCoreTags.toString()}; let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>{const tag=compatibleCoreTags(input.trim().split(/\\s+/),${JSON.stringify(protocolCompatibility)})[0]; if(!tag) process.exit(1); process.stdout.write(tag);});`;
+  const selectTag = `const compatibleCoreTags = ${compatibleCoreTags.toString()}; let input=""; process.stdin.on("data",chunk=>input+=chunk); process.stdin.on("end",()=>{const tag=compatibleCoreTags(input.trim().split(/\\s+/),${JSON.stringify(update?.compatibility ?? protocolCompatibility)})[0]; if(!tag) process.exit(1); process.stdout.write(tag);});`;
+  const compatibility = update?.compatibility ?? protocolCompatibility;
+  if (!Number.isSafeInteger(compatibility.minimum) || !Number.isSafeInteger(compatibility.maximum) || compatibility.minimum < 1 || compatibility.minimum > compatibility.maximum) throw Error("Invalid Core protocol requirements");
+  const verifyProtocol = `const p=await import('./packages/protocol/dist/index.js'); const wire=p.serverProtocolVersion; const range=p.protocolCompatibility; if(wire ? wire<${compatibility.minimum}||wire>${compatibility.maximum} : !range||range.minimum>${compatibility.maximum}||range.maximum<${compatibility.minimum}) throw Error('Incompatible built Core protocol');`;
   const lines = [
     "set -eu",
     "umask 077",
@@ -154,7 +158,7 @@ export function provisionCommand(settings: RepositorySettings, remoteNodeEnviron
     '  test -f packages/desktop/dist-electron/main.js',
     '  test -f packages/desktop/dist-renderer/index.html',
     '  echo \'HATOPAD_STAGE:smoke-check\'',
-    '  node --input-type=module -e "await import(\'./packages/protocol/dist/index.js\')"',
+    `  node --input-type=module -e ${shell(verifyProtocol)}`,
     '  node --input-type=module -e "await import(\'./packages/core/dist/server.js\')"',
     '  printf \'%s\\n\' "$BUILD_MARKER" > .hatopad-build',
     '  release_is_valid "$STAGING" || { echo "Staged release failed its smoke checks." >&2; exit 1; }',
@@ -163,6 +167,7 @@ export function provisionCommand(settings: RepositorySettings, remoteNodeEnviron
     '  STAGING=""',
     'fi',
     'release_is_valid "$RELEASE_PATH" || { echo "Final release failed validation." >&2; exit 1; }',
+    `(cd "$RELEASE_PATH" && node --input-type=module -e ${shell(verifyProtocol)})`,
     'if [ "$SELECTED_UPDATE" = 1 ]; then',
     '  selected_tmp="$SOURCE_CACHE/selected.tmp.$$.$LOCK_TOKEN"',
     '  printf \'%s\\n\' "$COMMIT" > "$selected_tmp"',

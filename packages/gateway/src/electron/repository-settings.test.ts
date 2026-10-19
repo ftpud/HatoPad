@@ -96,7 +96,7 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
     "  mkdir -p node_modules/node-pty packages/core/dist packages/desktop/dist-electron packages/desktop/dist-renderer packages/protocol/dist",
     "  printf '%s\\n' '{\"type\":\"commonjs\"}' > node_modules/node-pty/package.json",
     "  printf '%s\\n' 'module.exports = {};' > node_modules/node-pty/index.js",
-    "  printf '%s\\n' 'export const protocolCompatibility = { minimum: 1, maximum: 1 };' > packages/protocol/dist/index.js",
+    "  printf '%s\\n' 'export const protocolCompatibility = { minimum: 19, maximum: 19 };' > packages/protocol/dist/index.js",
     "  printf '%s\\n' 'export const ready = true;' > packages/core/dist/server.js",
     "  printf '%s\\n' 'export const ready = true;' > packages/core/dist/index.js",
     "  printf '%s\\n' 'export const ready = true;' > packages/desktop/dist-electron/main.js",
@@ -119,7 +119,7 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   await writeFile(path.join(portableToolchain,'bin','runtime-marker'),'portable-node');await writeFile(path.join(portableToolchain,'lib','npm-marker'),'portable-npm');
   const remoteEnvironment = `export HATOPAD_NODE_TOOLCHAIN=${testShell(portableToolchain)}; export PATH=${testShell(fakeBin)}:"$PATH"; export FAKE_NPM_LOG=${testShell(npmLog)}; export REAL_GIT=${testShell(realGit)}; export FAKE_REMOTE_URL=${testShell(fakeRemote)}; export FAKE_GIT_REPO=${testShell(repository)}`;
   const settings = { repository: fakeRemote, branch: "main", autoUpdate: false };
-  const runProvision = (autoUpdate: boolean, repair = false, fail = false, preferredRelease?: string) => spawnSync("bash", ["-c", provisionCommand({ ...settings, autoUpdate }, remoteEnvironment, repair, preferredRelease)], {
+  const runProvision = (autoUpdate: boolean, repair = false, fail = false, preferredRelease?: string, compatibility?: {minimum:number;maximum:number}) => spawnSync("bash", ["-c", provisionCommand({ ...settings, autoUpdate }, remoteEnvironment, repair, preferredRelease, compatibility ? { compatibility } : undefined)], {
     encoding: "utf8",
     env: { ...process.env, HOME: home, ...(fail ? { FAKE_NPM_FAIL: "1" } : {}) },
   });
@@ -181,6 +181,12 @@ test("failed repair leaves prior releases intact and successful repairs get uniq
   assert.equal(offlineReuse.status, 0, offlineReuse.stderr);
   assert.match(offlineReuse.stdout, new RegExp(`HATOPAD_RESULT:${commit}:0:${initialResult[1]}`));
   assert.equal(await readFile(selectedPath, "utf8"), selectedBeforeUpdate);
+
+  // A tag alone is insufficient: a falsely labelled build must not replace a working Core.
+  const wrongProtocol = runProvision(true, true, false, undefined, {minimum:20,maximum:20});
+  assert.notEqual(wrongProtocol.status,0); assert.match(wrongProtocol.stderr,/Incompatible built Core protocol/);
+  assert.equal(await readFile(selectedPath,"utf8"),selectedBeforeUpdate);
+  assert.deepEqual(await readdir(path.join(home,".hatopad-deploy","releases")),beforeFailure);
 
   const failedRepair = runProvision(false, true, true);
   assert.notEqual(failedRepair.status, 0);

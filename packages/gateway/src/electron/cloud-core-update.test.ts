@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { BundleManifest } from "./bundled-runtime.js";
-import { CloudCoreUpdates, type ManagedCloudCore } from "./cloud-core-update.js";
+import { CloudCoreUpdates, CoreUpdateCheckError, coreUpdateCheckReason, type ManagedCloudCore } from "./cloud-core-update.js";
 
 const release = "b".repeat(40) + "-node137-bundle-test";
 const bundle: BundleManifest = { schema: 1, channel: "early-access", version: "0.2.0", commit: "b".repeat(40), desktopApp: "desktop", cores: {
@@ -35,7 +35,7 @@ test("does not restart a Core already using the bundled release", async () => {
 test("source Gateways do not claim to have a deployable bundled Core", async () => {
   const service = new CloudCoreUpdates({ resolve: async () => { throw Error("Must not probe servers"); }, deploy: async () => { throw Error("Must not deploy"); }, run: async (_id, action) => action() });
   assert.equal((await service.info("https://hub.example", "core-1")).available, false);
-  await assert.rejects(service.update("https://hub.example", "core-1", release), /packaged Gateway/);
+  await assert.rejects(service.update("https://hub.example", "core-1", release), /compatible Core release/);
 });
 test("updates require a matching management connection and a bundle for that platform", async () => {
   for (const selected of [undefined, { workspaceId: "saved-server", target: "linux-arm64" }]) {
@@ -97,4 +97,47 @@ test('a failed Git deployment is never retried through the bundle fallback',asyn
   let gitCalls=0,bundleCalls=0;const commit='d'.repeat(40);
   const service=new CloudCoreUpdates({bundle,resolve:async()=>({workspaceId:'ssh',target:'linux-x64',release:'old'}),git:{check:async()=>({commit,tag:'core-protocol-19-v0.1.42',branch:'dev'}),deploy:async()=>{gitCalls++;throw Error('SSH channel interrupted');}},deploy:async()=>{bundleCalls++;},run:async(_id,action)=>action()});
   await assert.rejects(service.update('origin','core',commit),/SSH channel interrupted/);assert.equal(gitCalls,1);assert.equal(bundleCalls,0);
+});
+
+
+test('Git failures in a source Gateway never request a packaged bundle or leak SSH output', async () => {
+  const service = new CloudCoreUpdates({resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),git:{check:async()=>{throw Error('PRIVATE');},deploy:async()=>{}},deploy:async()=>{},run:async(_id,action)=>action()});
+  const info = await service.info('origin','core');
+  assert.equal(info.available,false); assert.doesNotMatch(info.reason!,/packaged|bundled|PRIVATE/);
+  assert.match(info.reason!,/GitHub/);
+});
+test('an unreadable SSH host is not reported as a missing pairing or an IPC stack',async()=>{
+  const service=new CloudCoreUpdates({resolve:async()=>{throw new CoreUpdateCheckError('Could not inspect a saved SSH host.');},git:{check:async()=>undefined,deploy:async()=>{}},deploy:async()=>{},run:async(_id,action)=>action()});
+  assert.equal((await service.info('origin','core')).reason,'Could not inspect a saved SSH host.');
+});
+test('Hub requirements control bundle fallback and are refreshed before any deployment', async()=>{
+  let minimum=20, calls=0;
+  const service=new CloudCoreUpdates({bundle,compatibility:async()=>({minimum,maximum:minimum}),resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),deploy:async()=>{calls++;},run:async(_id,action)=>action()});
+  assert.equal((await service.info('origin','core')).available,false);
+  minimum=19;assert.equal((await service.info('origin','core')).available,true);
+  minimum=20;await assert.rejects(service.update('origin','core',release),/protocol/);assert.equal(calls,0);
+});
+test('missing Hub protocol requirements do not silently select a Git release or bundle',async()=>{
+  let calls=0;
+  const service=new CloudCoreUpdates({bundle,compatibility:async()=>{throw Error('PRIVATE');},resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),git:{check:async()=>{calls++;return undefined;},deploy:async()=>{}},deploy:async()=>{},run:async(_id,action)=>action()});
+  const info=await service.info('origin','core');assert.equal(info.available,false);assert.match(info.reason!,/Hub protocol requirements/);assert.equal(calls,0);
+});
+
+
+test('a missing compatible tag is distinguished from failed GitHub access',()=>{
+  assert.match(coreUpdateCheckReason(Error('No protocol-compatible tagged Core is available on the selected branch.'),'main'),/No compatible Core release tag is available on main/);
+});
+test('a mismatched Git protocol tag cannot become a deployable update',async()=>{
+  for(const tag of ['core-protocol-20-v99.0.0','untrusted']) {
+    let calls=0;
+    const service=new CloudCoreUpdates({compatibility:async()=>({minimum:19,maximum:19}),resolve:async()=>({workspaceId:'ssh',target:'linux-x64'}),git:{check:async()=>({commit:'a'.repeat(40),tag,branch:'dev'}),deploy:async()=>{calls++;}},deploy:async()=>{},run:async(_id,action)=>action()});
+    assert.equal((await service.info('origin','core')).available,false);
+    await assert.rejects(service.update('origin','core','a'.repeat(40)),/Hub protocol requirements/);assert.equal(calls,0);
+  }
+});
+test('a stopped local Core retains its saved immutable Git selection',async()=>{
+  const commit='a'.repeat(40);
+  const service=new CloudCoreUpdates({resolve:async()=>({workspaceId:'local',target:'darwin-arm64',release:commit}),git:{check:async()=>({commit,tag:'core-protocol-19-v0.1.42',branch:'dev'}),deploy:async()=>{throw Error('must not deploy');}},deploy:async()=>{},run:async(_id,action)=>action()});
+  assert.equal((await service.info('origin','core')).updateNeeded,false);
+  assert.equal((await service.update('origin','core',commit)).currentRelease,commit);
 });

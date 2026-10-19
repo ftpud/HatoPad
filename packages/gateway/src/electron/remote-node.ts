@@ -1,6 +1,6 @@
 /** Shared by remote provisioning, Core launch, health checks and release reads.
  * Keep /usr/local/bin as a fallback so it cannot shadow an existing PATH runtime. */
-export const remoteNodeEnvironment = `export PATH="$HOME/.local/bin:$HOME/.volta/bin:$HOME/.fnm:$PATH:/usr/local/bin"
+export const remoteNodeEnvironment = `export PATH="$HOME/.local/bin:$HOME/.volta/bin:$HOME/.fnm:$PATH:/usr/local/bin:/opt/homebrew/bin"
 export NVM_DIR="\${NVM_DIR:-$HOME/.nvm}"
 if [ -s "$NVM_DIR/nvm.sh" ]; then
   . "$NVM_DIR/nvm.sh" --no-use

@@ -1,4 +1,5 @@
-import { protocolCompatibility } from "./protocol-versions.js";
+import type { Compatibility } from "./client-compatibility.js";
+import { compatibleCoreTags, protocolCompatibility } from "./protocol-versions.js";
 import type { BundleManifest } from "./bundled-runtime.js";
 
 export type ManagedCloudCore = { workspaceId: string; target: string; release?: string };
@@ -8,45 +9,52 @@ export class CoreUpdateCheckError extends Error {}
 export function coreUpdateCheckReason(error: unknown, branch?: string): string {
   const text = error instanceof Error ? error.message : "";
   const channel = branch ? ` on ${branch}` : "";
-  if (/No (?:protocol-compatible|compatible tagged) Core/.test(text)) return `No compatible Core release tag is available${channel}. A compatible release must be tagged before this Core can update.`;
+  if (/No (?:protocol-compatible(?: tagged)?|compatible tagged) Core/.test(text)) return `No compatible Core release tag is available${channel}. A compatible release must be tagged before this Core can update.`;
   if (/Node.js and npm were not found|No installed NVM Node|requires Node.js|Could not select the NVM Node/.test(text)) return "The SSH host has no usable Node/npm runtime. Reconnect its portable Core runtime or install Node 24 for this SSH user.";
+  if (/Git is not installed on this Gateway/.test(text)) return "Git is missing on this Gateway. Install Git, then retry the release check.";
   if (/git: (?:command )?not found|git: command not found/.test(text)) return "Git is missing on the SSH host. Install Git, then retry the update check.";
-  return `The compatible Git release check failed${channel}. Check the saved SSH connection and Git access, then retry.`;
+  return `The compatible Git release check failed${channel}. Check GitHub access and Git on this Gateway, then retry.`;
 }
 export class CloudCoreUpdates {
   constructor(private readonly options: {
     bundle?: BundleManifest;
+    compatibility?(origin: string): Promise<Compatibility>;
     git?: { check(core: ManagedCloudCore, origin: string): Promise<{ commit: string; tag: string; branch: string } | undefined>; deploy(workspaceId: string, commit: string, origin: string): Promise<unknown> };
     resolve(origin: string, coreId: string): Promise<ManagedCloudCore | undefined>;
     deploy(workspaceId: string): Promise<unknown>;
     run<T>(workspaceId: string, action: () => Promise<T>): Promise<T>;
   }) {}
-  private inspect(core?: ManagedCloudCore): CloudCoreUpdateInfo {
+  private inspect(core?: ManagedCloudCore, compatibility = protocolCompatibility): CloudCoreUpdateInfo {
     const bundle = this.options.bundle;
     if (!core && this.options.git) return { available: false, updateNeeded: false, reason: "No matching saved local/SSH workspace was found. Reconnect the management connection originally paired with this Core, then refresh." };
-    if (!bundle) return { available: false, updateNeeded: false, reason: "Core updates require a packaged Gateway with bundled Core releases." };
+    if (!bundle) return { available: false, updateNeeded: false, reason: "No compatible Core release is available. Check GitHub access and retry." };
     if (!core) return { available: false, updateNeeded: false, bundledVersion: bundle.version, reason: "No matching saved local/SSH server is reachable. Add or reconnect its management connection to update this Core." };
     const shipped = bundle.cores[core.target];
     if (!shipped) return { available: false, updateNeeded: false, bundledVersion: bundle.version, reason: `Gateway has no bundled Core for ${core.target}.` };
-    if (!Number.isSafeInteger(shipped.protocol) || shipped.protocol! < protocolCompatibility.minimum || shipped.protocol! > protocolCompatibility.maximum) return { available: false, updateNeeded: false, reason: "Bundled Core protocol is incompatible or unknown. Check for a compatible Git release." };
+    if (!Number.isSafeInteger(shipped.protocol) || shipped.protocol! < compatibility.minimum || shipped.protocol! > compatibility.maximum) return { available: false, updateNeeded: false, reason: "Bundled Core protocol is incompatible or unknown. Check for a compatible Git release." };
     const updateNeeded = core.release !== shipped.release;
     return { available: true, source: "bundle", updateNeeded, bundledVersion: bundle.version, bundledRelease: shipped.release, ...(core.release ? { currentRelease: core.release } : {}), ...(!updateNeeded ? { reason: `Already running Gateway bundle ${bundle.version} (${shipped.commit.slice(0, 12)}).` } : {}) };
   }
   private async inspectLatest(core: ManagedCloudCore | undefined, origin: string): Promise<CloudCoreUpdateInfo> {
+    let compatibility = protocolCompatibility;
+    try { compatibility = await this.options.compatibility?.(origin) ?? protocolCompatibility; }
+    catch (error) { return { available: false, updateNeeded: false, reason: error instanceof CoreUpdateCheckError ? error.message : "Could not read Hub protocol requirements. Reconnect to Hub and retry." }; }
     if (core && this.options.git) {
       let latest;
       try { latest = await this.options.git.check(core, origin); }
       catch (error) {
-        const fallback = this.inspect(core);
+        const fallback = this.inspect(core, compatibility);
         const reason = error instanceof CoreUpdateCheckError ? error.message : coreUpdateCheckReason(error);
-        return { ...fallback, reason: fallback.available ? `${reason} ${fallback.updateNeeded ? "A compatible bundled Core is available." : "The compatible bundled Core is already selected."}` : `${reason} ${fallback.reason ?? ""}`.trim() };
+        return { ...fallback, reason: fallback.available ? `${reason} ${fallback.updateNeeded ? "A compatible bundled Core is available." : "The compatible bundled Core is already selected."}` : reason };
       }
-      if (latest) return { available: true, source: "git", branch: latest.branch, tag: latest.tag, bundledRelease: latest.commit, currentRelease: core.release, updateNeeded: !core.release?.startsWith(`${latest.commit}-node`) };
+      if (latest && (!/^[a-f0-9]{40}$/.test(latest.commit) || compatibleCoreTags([latest.tag], compatibility).length !== 1)) return { available: false, updateNeeded: false, reason: "The selected Git release does not match Hub protocol requirements. Refresh before updating." };
+      if (latest) return { available: true, source: "git", branch: latest.branch, tag: latest.tag, bundledRelease: latest.commit, currentRelease: core.release, updateNeeded: core.release !== latest.commit && !core.release?.startsWith(`${latest.commit}-node`) };
     }
-    return this.inspect(core);
+    return this.inspect(core, compatibility);
   }
   async info(origin: string, coreId: string): Promise<CloudCoreUpdateInfo> {
-    return this.inspectLatest(this.options.bundle || this.options.git ? await this.options.resolve(origin, coreId) : undefined, origin);
+    try { return await this.inspectLatest(this.options.bundle || this.options.git ? await this.options.resolve(origin, coreId) : undefined, origin); }
+    catch (error) { return { available: false, updateNeeded: false, reason: error instanceof CoreUpdateCheckError ? error.message : "Could not inspect the saved management connection. Reconnect it and retry." }; }
   }
   async update(origin: string, coreId: string, expectedRelease: string): Promise<CloudCoreUpdateInfo> {
     const selected = this.options.bundle || this.options.git ? await this.options.resolve(origin, coreId) : undefined;
@@ -61,7 +69,7 @@ export class CloudCoreUpdates {
       if (before.source === "git") await this.options.git!.deploy(current.workspaceId, expectedRelease, origin);
       else await this.options.deploy(current.workspaceId);
       const after = await this.inspectLatest(await this.options.resolve(origin, coreId), origin);
-      if (!after.available || !(before.source === "git" ? after.currentRelease?.startsWith(`${expectedRelease}-node`) : after.currentRelease === expectedRelease)) throw new Error("Core update could not be verified. Check the provisioning log before retrying.");
+      if (!after.available || !(before.source === "git" ? (after.currentRelease === expectedRelease || after.currentRelease?.startsWith(`${expectedRelease}-node`)) : after.currentRelease === expectedRelease)) throw new Error("Core update could not be verified. Check the provisioning log before retrying.");
       return after;
     });
   }

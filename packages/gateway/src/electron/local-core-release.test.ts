@@ -21,6 +21,9 @@ test('local Git installer ignores incompatible HEAD, refuses stale approval, and
     process.env.GIT_CONFIG_COUNT='1';process.env.GIT_CONFIG_KEY_0=`url.${origin}.insteadOf`;process.env.GIT_CONFIG_VALUE_0='https://fixture.invalid/core';
     const releases=new LocalCoreReleases(path.join(root,'cache'));const settings={repository:'https://fixture.invalid/core',branch:'main',autoUpdate:true};
     assert.equal((await releases.check(settings)).commit,compatible);
+    assert.deepEqual(await Promise.all([releases.check(settings),releases.check(settings)]).then(results=>results.map(item=>item.commit)),[compatible,compatible]);
+    assert.equal((await releases.check(settings,{minimum:20,maximum:20})).tag,'core-protocol-20-v99.0.0');
+    await assert.rejects(releases.check(settings,{minimum:21,maximum:21}),/No protocol-compatible/);
     const npm=path.join(root,'npm.mjs');await writeFile(npm,'process.exit(process.env.FIXTURE_BUILD_FAIL ? 23 : 0);');
     const tools={node:process.execPath,npm,env:process.env};
     await assert.rejects(releases.prepare(settings,'a'.repeat(40),tools),/release changed/);

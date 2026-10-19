@@ -1,3 +1,5 @@
+import { protocolCompatibility } from "./protocol-versions.js";
+import type { Compatibility } from "./client-compatibility.js";
 import { JsonStateStore } from "./state-store.js";
 
 /** Hub HTTP contracts stay local to Gateway; Gateway does not import other workspaces. */
@@ -21,6 +23,15 @@ export class CloudClient {
     if (response.status === 401) throw new Error("Sign in to cloud to continue.");
     if (!response.ok) throw new Error(`Cloud request failed (HTTP ${response.status}).`);
     return response.json();
+  }
+  async environment(): Promise<{ releaseBranch: "dev" | "main"; protocolCompatibility: Compatibility }> {
+    const value = await this.call("/api/environment");
+    const range = value?.protocolCompatibility;
+    if (!["dev", "main"].includes(value?.releaseBranch) || !range || !Number.isSafeInteger(range.minimum) || !Number.isSafeInteger(range.maximum) || range.minimum < 1 || range.minimum > range.maximum) throw Error("Hub does not advertise a valid Core protocol range. Update Hub before selecting a Core release.");
+    // The installed Editor must also be able to use the selected Core.
+    const compatibility = { minimum: Math.max(range.minimum, protocolCompatibility.minimum), maximum: Math.min(range.maximum, protocolCompatibility.maximum) };
+    if (compatibility.minimum > compatibility.maximum) throw Error("Gateway and Hub support different Core protocols. Update Gateway before installing a Core.");
+    return { releaseBranch: value.releaseBranch, protocolCompatibility: compatibility };
   }
   async account(): Promise<CloudAccount> {
     const { user } = await this.call("/api/session");

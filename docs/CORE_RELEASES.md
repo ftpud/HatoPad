@@ -89,33 +89,44 @@ repeated incompatible handshakes, and disconnects immediately after successful
 handshakes without terminating Core. These do not diagnose a particular running
 Core crash: its launch location and actual error/exit information are still needed.
 
-## Gateway update discovery failures
+## Gateway cloud updates from GitHub
 
-Gateway shows the update check's blocking reason below the server heading, with
-an independent retry action. A stalled workspace discovery does not disable that
-retry or the available update action. Missing management access is distinguished
-from a compatible release already being selected. SSH command errors during Git
-lookup become bounded, locally classified status messages instead of rejecting
-`cloudCoreUpdateInfo`; raw remote output is not returned by this check. A compatible
-bundle can be offered when Git lookup fails. This fallback applies only to release
-selection: a failed or uncertain deployment is never replayed through another path.
+Gateway reads the authenticated Hub `/api/environment` endpoint for its release
+branch and supported client protocol range. `hub-dev` advertises `dev`; `hub-test`
+advertises `main`, unless the Hub operator explicitly overrides its release branch.
+Gateway intersects that range with its installed Editor's supported range and
+selects the newest immutable `core-protocol-*` tag reachable from that branch.
+Missing, malformed or disjoint protocol requirements fail closed with a specific
+status. No branch is promoted or incompatible HEAD installed to satisfy a check.
 
-SSH Git checks and builds prefer the installed portable Core's Node/npm instead
-of requiring a system/NVM runtime. Source releases built with this toolchain copy
-its bin/lib runtime into their own immutable staging directory before promotion,
-so later cleanup of an older bundle cannot break the new release. Local management
-lookup uses the saved pairing even when the child process has crashed or stopped.
-An explicit compatible-bundle update replaces a saved local Git selection only
-after successful startup and health verification.
+Release discovery runs through Git on the Gateway host, independently of the
+remote Core's workspace protocol, Node and Git setup. A source Gateway can use
+this path without a bundled Core. Local installs build the approved Git commit
+in Gateway's private release cache; SSH installs fetch and build the exact approved
+commit on their host. SSH deployment still requires Git access, Node/npm and native
+build prerequisites there; it can reuse a portable installed Node/npm runtime.
+Both paths recheck the selection before deployment and validate the actual built
+protocol, including reused cached releases. Tags alone do not establish compatibility.
+The previous installed release survives build failure. Uncertain deployment outcomes
+are never automatically replayed or retried through a bundled fallback.
 
-Gateway also preflights cloud workspace compatibility on a separate maintenance
-connection before opening workspace services. Updates remain accessible through
-the saved management connection when this preflight fails. Gateway build,
-typecheck, 35 renderer tests and 118 Electron tests pass, including portable-runtime
-selection with unusable NVM, staged runtime copying, stopped local management,
-Git-to-bundle selection fallback, independent retry and denied workspace discovery
-for incompatible/older Cores. These fixtures do not identify a live SSH failure
-from its stack-frame location alone; its actual error message is still needed.
+Saved local/SSH management access and an exact Hub/Core pairing identity are
+required to replace a Core. A cloud account alone does not give Gateway SSH access
+to an arbitrary machine. A Core installed manually or from another Gateway profile
+needs its original management connection; Gateway does not guess a workspace,
+adopt credentials or replace another server. Unreachable SSH hosts are distinguished
+from a successfully inspected host with no matching pairing. Apple Silicon Homebrew
+Node is available in remote command PATH. A stopped local Core retains its saved
+Git release identity across Gateway restarts.
+
+Update status uses an intrinsic-height row capped at two lines with full text in
+its tooltip and an independent retry button. The Core collection owns the remaining
+viewport. Browser checks at 1000×700 and 800×600 verify a 30–34px status row and a
+visible Core collection without page overflow. Gateway build/typecheck, 35 renderer
+and 126 Electron tests pass, including Hub metadata validation, protocol-tag rejection,
+actual-build protocol mismatch, immutable release preservation and independent retry.
+
 Restart a source Gateway from the updated checkout with `npm run gateway` to load
-Electron main-process changes. No live Core update, bundle publication or deployment
-was performed as part of this change.
+Electron changes. Hub must also serve the new protocol metadata. These checks use
+fixtures: the reported Mac/WSL hosts have not been updated or restarted, and no
+Gateway bundle was published as part of this change.

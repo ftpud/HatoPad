@@ -69,3 +69,21 @@ test("cloud domain settings survive a new store instance without an account sess
     assert.deepEqual(await createCloudSettingsStore(file).read(), { origin: "https://custom.example" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+
+test("release requirements come from the authenticated Hub and reject invalid or disjoint protocols", async () => {
+  for (const releaseBranch of ["main", "dev"]) {
+    const client = new CloudClient("https://hub.example", async (url, options) => {
+      assert.equal(String(url), "https://hub.example/api/environment");
+      assert.equal(options?.credentials, "include");
+      return Response.json({ releaseBranch, protocolCompatibility: { minimum: 18, maximum: 19 } });
+    });
+    assert.deepEqual(await client.environment(), { releaseBranch, protocolCompatibility: { minimum: 19, maximum: 19 } });
+  }
+  for (const protocolCompatibility of [undefined, { minimum: 20, maximum: 21 }, { minimum: 19, maximum: 18 }, { minimum: -1, maximum: 19 }, { minimum: 19.1, maximum: 20 }, { minimum: 19, maximum: Number.MAX_SAFE_INTEGER + 1 }]) {
+    const client = new CloudClient("https://hub.example", async () => Response.json({ releaseBranch: "dev", protocolCompatibility }));
+    await assert.rejects(client.environment(), /Hub|Gateway/);
+  }
+  const client = new CloudClient("https://hub.example", async () => Response.json({ releaseBranch: "arbitrary", protocolCompatibility: { minimum: 19, maximum: 19 } }));
+  await assert.rejects(client.environment(), /valid Core protocol/);
+});
