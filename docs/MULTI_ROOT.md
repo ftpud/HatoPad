@@ -13,7 +13,7 @@ saved state associated with the right project.
 
 Core assigns each registered canonical remote directory a stable `WorkspaceRootId`.
 Desktop never derives an identity from a local path. The compatibility range is defined by `protocolCompatibility` in
-`packages/protocol/src/index.ts`. Root ownership follows these rules:
+`packages/protocol/src/protocol-versions.ts` (generated from `protocol-versions.json`). Root ownership follows these rules:
 
 - Every root-owned request except handshake, root listing, and root registration carries `Request.rootId`.
   Core validates it against the connection's selected root before dispatch, and root

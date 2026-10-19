@@ -10,7 +10,7 @@ remote SSH user's Node version before provisioning. CI is configured for Node
 22 and 24 on Linux and macOS; see [CI](CI.md) for validation commands.
 
 The Core wire compatibility range is defined by `protocolCompatibility` in
-`packages/protocol/src/index.ts`. A client is accepted only when its declared
+`packages/protocol/src/protocol-versions.ts` (generated from `protocol-versions.json`). A client is accepted only when its declared
 range overlaps Core's range. Gateway reads the remote compatibility
 metadata and uses a compatible cached Desktop when possible; otherwise it
 downloads and verifies the Desktop artifacts from the selected release. If a

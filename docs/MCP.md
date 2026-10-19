@@ -17,7 +17,7 @@ Desktop **Agents** panel or committed under `.agents/*.md`.
 
 Arguments shown without `?` are required. `?` means optional. Tool names and schemas
 are defined in `packages/core/src/app-tools.ts`; workflow behavior is implemented in
-`packages/core/src/harness-runner.ts`.
+`packages/core/src/harness-runner.ts` and its `harness/` domain modules.
 
 ### Tasks and Git
 

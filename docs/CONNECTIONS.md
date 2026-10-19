@@ -112,7 +112,7 @@ reads can finish but cannot commit stale state. Manual refreshes and required
 stream events retain their own handling. Continuous invalidations can keep one
 batch running at a time; coalescing is not a time-based rate limit.
 
-Implementation and regression tests are colocated with `core/src/server.ts`,
+Implementation and regression tests are colocated with `core/src/server.ts`, its `routes/` domain modules,
 `request-admission.ts`, `websocket-output.ts`, `filesystem.ts`, and renderer
 `client.ts`, `connection-recovery.ts`, `workspace-recovery.ts`, and
 `invalidation-refreshes.ts`.
