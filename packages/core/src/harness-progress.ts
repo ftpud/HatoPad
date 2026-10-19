@@ -51,7 +51,14 @@ export function projectBlockDetail(run: HarnessRun, blockId: unknown, options: {
   if (options.chatBefore !== undefined) { end = chat.findIndex((message) => message.id === options.chatBefore); if (end < 0) throw new CoreError("INVALID_REQUEST", "chatBefore does not match a message in this block"); }
   const start = Math.max(0, end - chatLimit);
   const page = chat.slice(start, end).map((message) => ({ id: message.id, role: message.role, text: message.text.slice(0, harnessBlockDetailLimits.maxChatText), timestamp: message.timestamp, ...(message.text.length > harnessBlockDetailLimits.maxChatText ? { clipped: true as const } : {}) }));
+  const definition = run.definition?.blocks?.find(item => item.id === blockId);
+  const text = (value: unknown) => typeof value === "string" && value ? value.slice(0, 200) : undefined;
+  const provider = text(block.chatSettings?.provider ?? block.provider ?? definition?.provider);
+  const model = text(block.chatSettings?.model ?? definition?.model), reasoning = text(block.chatSettings?.options?.reasoning ?? definition?.reasoning);
   return {
+    execution: { attempts: block.attempts?.length ?? 0, recoveryAttempts: block.recoveryAttempts ?? 0, definitionVersion: run.harnessVersion,
+      ...(provider ? { provider } : {}), ...(model ? { model } : {}), ...(reasoning ? { reasoning } : {}),
+      ...(block.waitingUntil ? { waitingUntil: text(block.waitingUntil) } : {}), ...(block.retryAt ? { retryAt: text(block.retryAt) } : {}) },
     blockId, status: block.status, output: output.slice(-outputLimit), outputChars: output.length, outputTruncated: output.length > outputLimit,
     iterations: block.iterations?.length ?? 0, chatMessages: page, ...(start > 0 ? { chatNextBefore: chat[start]!.id } : {})
   };

@@ -42,7 +42,10 @@ changing one connection's selection does not change another connection.
   using `terminal.output`/`terminal.exit` events, and relays apply their own per-channel buffering limits.
 - `harnesses.blockDetail` {runId, blockId, outputChars 1–64000 (default 16000), chatLimit 1–50 (default 20),
   chatBefore} returns the newest output characters, counts, and a newest-first Chatbox page (text clipped to
-  4000 characters, `chatNextBefore` to continue). It excludes prompts, the definition and run input.
+  4000 characters, `chatNextBefore` to continue). Optional `execution` metadata reports attempt/recovery
+  counts, frozen definition version, exact-run provider/model/reasoning and timer/retry dates; all text is
+  clipped to 200 characters. Session overrides take precedence over frozen definition settings. Older
+  Cores omit this metadata. It excludes prompts, the definition, run input and host/workspace paths.
 - `automation.paging` adds `schedules.page` / `triggers.page` {limit 1–25 (default 25), cursor, query ≤100
   characters} returning root-owned, name-ordered summaries (id, revision, name, state, due/interval, target
   task id, clipped last error, action type/provider/ids only — never prompt or workflow input), `total`,

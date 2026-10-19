@@ -69,3 +69,21 @@ describe("projectBlockDetail", () => {
     expect(() => projectBlockDetail(detailRun, 5, {})).toThrow(/blockId/);
   });
 });
+
+
+describe("block execution metadata", () => {
+  it("uses the exact run's frozen model, attempts and wait times without exposing prompts or workspace paths", () => {
+    const record = { id: "r", harnessId: "h", harnessVersion: 7, input: "PRIVATE INPUT", status: "waiting", createdAt: "t",
+      definition: { blocks: [{ id: "b", provider: "agent", model: "frozen-model", reasoning: "high", prompt: "PRIVATE PROMPT" }] },
+      blocks: [{ blockId: "b", status: "waiting_timer", output: "", prompt: "PRIVATE PROMPT", workspace: "/PRIVATE/PATH", waitingUntil: "2026-10-19T02:00:00Z", retryAt: "2026-10-19T02:01:00Z", recoveryAttempts: 2, attempts: [{ workspace: "/PRIVATE/PATH", error: "PRIVATE ERROR" }, {}] }] } as never;
+    const execution = projectBlockDetail(record, "b", {}).execution;
+    expect(execution).toEqual({ attempts: 2, recoveryAttempts: 2, definitionVersion: 7, provider: "agent", model: "frozen-model", reasoning: "high", waitingUntil: "2026-10-19T02:00:00Z", retryAt: "2026-10-19T02:01:00Z" });
+    expect(JSON.stringify(execution)).not.toContain("PRIVATE");
+  });
+  it("bounds provider-reported model/reasoning and prefers per-session settings over the definition", () => {
+    const record = { harnessVersion: 1, definition: { blocks: [{ id: "b", model: "old" }] }, blocks: [{ blockId: "b", status: "running", chatSettings: { model: "m".repeat(1000), options: { reasoning: "r".repeat(1000) } } }] } as never;
+    const execution = projectBlockDetail(record, "b", {}).execution!;
+    expect(execution.model).toHaveLength(200); expect(execution.reasoning).toHaveLength(200);
+    expect(execution.attempts).toBe(0); expect(execution.recoveryAttempts).toBe(0);
+  });
+});
