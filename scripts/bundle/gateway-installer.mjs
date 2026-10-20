@@ -61,22 +61,35 @@ export async function packageGatewayInstaller(built, destination, version, smoke
     path.join(root, "scripts/bundle/gateway-installer.nsi"),
   ]);
   // Exercise the actual installer and installed embedded Editor on the Windows runner.
+  await smokeWindowsInstaller(installer, smokeApplication);
+  return installer;
+}
+
+export async function smokeWindowsInstaller(installer, smokeApplication, runCommand = run) {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "hatopad-installer-"));
   const installed = path.join(temporary, "Gateway");
+  const uninstaller = path.join(installed, "Uninstall.exe");
   try {
     // NSIS requires /D to be the final argument, without embedded quotes.
-    await run(installer, ["/S", `/D=${installed}`]);
+    await runCommand(installer, ["/S", `/D=${installed}`]);
     const executable = path.join(installed, "HatoPad Gateway.exe");
     await access(executable);
+    await access(uninstaller);
     await smokeApplication(executable, []);
     await smokeApplication(executable, ["--hatopad"]);
   } finally {
     try {
       // _?= keeps the uninstaller in place so the process waits for completion.
-      await run(path.join(installed, "Uninstall.exe"), ["/S", `_?=${installed}`]);
+      const exists = await access(uninstaller).then(
+        () => true,
+        (error) => {
+          if (error.code === "ENOENT") return false;
+          throw error;
+        },
+      );
+      if (exists) await runCommand(uninstaller, ["/S", `_?=${installed}`]);
     } finally {
       await rm(temporary, { recursive: true, force: true });
     }
   }
-  return installer;
 }
