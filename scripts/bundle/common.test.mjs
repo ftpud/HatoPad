@@ -83,48 +83,50 @@ test(
   },
 );
 
-test("Electron runtime retains built protocol helpers and ACP when copied outside the checkout", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-electron-runtime-"));
-  const staging = path.join(directory, "staging");
-  const source = path.join(directory, "source");
-  const app = path.join(directory, "app");
-  try {
-    for (const name of ["ws", "ssh2"]) {
-      await mkdir(path.join(staging, "node_modules", name), { recursive: true });
-      await writeFile(path.join(staging, "node_modules", name, "package.json"), JSON.stringify({ name }));
-    }
-    await mkdir(path.join(staging, "node_modules/@hatopad"), { recursive: true });
-    for (const name of ["acp", "protocol"]) {
-      await mkdir(path.join(staging, "packages", name), { recursive: true });
-      await writeFile(
-        path.join(staging, "packages", name, "package.json"),
-        JSON.stringify({
+for (const workspaceLinks of [true, false]) {
+  test(`Electron runtime retains protocol and ACP outside the checkout (workspace links: ${workspaceLinks})`, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-electron-runtime-"));
+    const staging = path.join(directory, "staging");
+    const source = path.join(directory, "source");
+    const app = path.join(directory, "app");
+    try {
+      for (const name of ["ws", "ssh2"]) {
+        await mkdir(path.join(staging, "node_modules", name), { recursive: true });
+        await writeFile(path.join(staging, "node_modules", name, "package.json"), JSON.stringify({ name }));
+      }
+      await mkdir(path.join(staging, "node_modules/@hatopad"), { recursive: true });
+      for (const name of ["acp", "protocol"]) {
+        await mkdir(path.join(staging, "packages", name), { recursive: true });
+        const metadata = JSON.stringify({
           name: `@hatopad/${name}`,
           type: "module",
           main: "dist/index.js",
           ...(name === "protocol" ? { dependencies: { "@hatopad/acp": "0.1.0" } } : {}),
-        }),
+        });
+        await writeFile(path.join(staging, "packages", name, "package.json"), metadata);
+        if (workspaceLinks)
+          await symlink(`../../packages/${name}`, path.join(staging, "node_modules/@hatopad", name), "junction");
+        await mkdir(path.join(source, "packages", name, "dist"), { recursive: true });
+        await writeFile(path.join(source, "packages", name, "package.json"), metadata);
+        await writeFile(
+          path.join(source, "packages", name, "dist/index.js"),
+          name === "protocol" ? 'export { ready } from "@hatopad/acp";' : "export const ready = true;",
+        );
+      }
+      await prepareElectronRuntime(staging, source);
+      const { cp } = await import("node:fs/promises");
+      await cp(path.join(staging, "node_modules"), path.join(app, "node_modules"), {
+        recursive: true,
+        dereference: true,
+      });
+      await rm(staging, { recursive: true, force: true });
+      execFileSync(
+        process.execPath,
+        ["--input-type=module", "-e", 'import { ready } from "@hatopad/protocol"; if (!ready) process.exit(1);'],
+        { cwd: app },
       );
-      await symlink(`../../packages/${name}`, path.join(staging, "node_modules/@hatopad", name), "junction");
-      await mkdir(path.join(source, "packages", name, "dist"), { recursive: true });
-      await writeFile(
-        path.join(source, "packages", name, "dist/index.js"),
-        name === "protocol" ? 'export { ready } from "@hatopad/acp";' : "export const ready = true;",
-      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
     }
-    await prepareElectronRuntime(staging, source);
-    const { cp } = await import("node:fs/promises");
-    await cp(path.join(staging, "node_modules"), path.join(app, "node_modules"), {
-      recursive: true,
-      dereference: true,
-    });
-    await rm(staging, { recursive: true, force: true });
-    execFileSync(
-      process.execPath,
-      ["--input-type=module", "-e", 'import { ready } from "@hatopad/protocol"; if (!ready) process.exit(1);'],
-      { cwd: app },
-    );
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  });
+}

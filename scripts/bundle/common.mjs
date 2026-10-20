@@ -121,9 +121,12 @@ export async function pruneRuntimeDependencies(destination, dependencies) {
 /** Electron main imports protocol helpers at startup, including in the embedded Desktop. */
 export async function prepareElectronRuntime(destination, source = root) {
   for (const name of ["acp", "protocol"]) {
-    await cp(path.join(source, "packages", name, "dist"), path.join(destination, "packages", name, "dist"), {
-      recursive: true,
-    });
+    // Gateway's own dependency closure doesn't install Desktop's workspaces.
+    // Materialize them explicitly, also supporting npm's existing workspace links.
+    const dependency = path.join(destination, "node_modules/@hatopad", name);
+    await mkdir(dependency, { recursive: true });
+    await cp(path.join(source, "packages", name, "package.json"), path.join(dependency, "package.json"));
+    await cp(path.join(source, "packages", name, "dist"), path.join(dependency, "dist"), { recursive: true });
   }
   await pruneRuntimeDependencies(destination, ["ws", "ssh2", "@hatopad/protocol"]);
 }
