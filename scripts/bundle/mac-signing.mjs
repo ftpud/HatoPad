@@ -136,7 +136,25 @@ export async function notarizeMacDirectory(directory, signing, report) {
   }
 }
 
-export async function stapleMacFile(file) {
-  await run("xcrun", ["stapler", "staple", file]);
-  await run("xcrun", ["stapler", "validate", file]);
+export async function stapleMacFile(
+  file,
+  { executor = execute, sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)) } = {},
+) {
+  for (const action of ["staple", "validate"]) {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const { stdout } = await executor("xcrun", ["stapler", action, file]);
+        if (stdout) console.log(stdout.trim());
+        break;
+      } catch (error) {
+        // Apple's ticket service can drop a connection even after notarization
+        // and stapling succeed. Retry that network failure, keeping validation
+        // mandatory and preserving immediate failures for other error codes.
+        if (error.code !== 68 || attempt === 3) throw error;
+        const delay = [5000, 15000, 30000][attempt];
+        console.warn(`Apple ticket service unavailable during ${action}; retrying in ${delay / 1000}s`);
+        await sleep(delay);
+      }
+    }
+  }
 }

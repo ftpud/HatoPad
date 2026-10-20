@@ -3,8 +3,50 @@ import { mkdtemp, mkdir, writeFile, readFile, symlink, rm } from "node:fs/promis
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { macSigningConfiguration, resolveMacSigning, macBinaries, notarizeMacFile } from "./mac-signing.mjs";
+import {
+  macSigningConfiguration,
+  resolveMacSigning,
+  macBinaries,
+  notarizeMacFile,
+  stapleMacFile,
+} from "./mac-signing.mjs";
 import { credentialCommand, validateCiSigningEnvironment } from "./ci-mac-signing.mjs";
+
+test("ticket validation retries Apple's network failures without repeating successful stapling", async () => {
+  const calls = [];
+  const delays = [];
+  let failures = 2;
+  await stapleMacFile("fixture.app", {
+    executor: async (_command, args) => {
+      calls.push(args[1]);
+      if (args[1] === "validate" && failures-- > 0)
+        throw Object.assign(new Error("network connection lost"), { code: 68 });
+      return { stdout: "" };
+    },
+    sleep: async (delay) => {
+      delays.push(delay);
+    },
+  });
+  assert.deepEqual(calls, ["staple", "validate", "validate", "validate"]);
+  assert.deepEqual(delays, [5000, 15000]);
+});
+
+test("ticket checks never bypass permanent errors or exhausted network failures", async () => {
+  for (const code of [65, 68]) {
+    let attempts = 0;
+    await assert.rejects(
+      stapleMacFile("fixture.app", {
+        executor: async () => {
+          attempts++;
+          throw Object.assign(new Error("fixture failure"), { code });
+        },
+        sleep: async () => {},
+      }),
+      (error) => error.code === code,
+    );
+    assert.equal(attempts, code === 68 ? 4 : 1);
+  }
+});
 
 test("credential command failures never expose passwords or subprocess output", async () => {
   const secret = "test-secret-that-must-not-appear";
