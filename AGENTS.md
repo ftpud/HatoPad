@@ -28,7 +28,10 @@ provider descriptor metadata can express the behavior.
   `routes/dispatch.ts`, domain handlers in `routes/`, and shared request context in `routes/context.ts`.
 - Workflow scheduling, block execution, flow tools, recovery, and persistence live in
   `packages/core/src/harness/`; `harness-runner.ts` owns runtime state and the public API.
-- Desktop panel state lives in `use-*.ts` domain hooks; `App.tsx` coordinates them.
+- Desktop panel state and actions live in `use-*.ts` domain hooks. `App.tsx` joins
+  `use-app-orchestration.tsx` (connection/recovery and workspace coordination) to
+  the toolbar, sidebars, editor, bottom panels, and dialogs in `app-view/`.
+  Workflow editor components live in `harness-panel/`, behind `HarnessPanel.tsx`.
   `styles.css` imports panel styles in cascade order from `styles/`.
 - Protocol `index.ts` re-exports domain models from `types/`, operation maps from
   `operations/index.ts`, and the exhaustive `request-registry.ts`.

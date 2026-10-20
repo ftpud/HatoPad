@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 const entry = readFileSync("src/renderer/styles.css", "utf8");
@@ -41,7 +41,10 @@ describe("horizontal editor layout containment", () => {
 });
 
 it("keeps Java output and configuration dialog keys distinct within a workspace", () => {
-  const app = readFileSync("src/renderer/App.tsx", "utf8");
+  const app = readdirSync("src/renderer/app-view")
+    .filter((name) => name.endsWith(".tsx"))
+    .map((name) => readFileSync(`src/renderer/app-view/${name}`, "utf8"))
+    .join("\n");
   const panelKey = app.match(/<JavaPanel\s+key=\{([^}]+)\}/)?.[1];
   const dialogKey = app.match(/<JavaConfigurationDialog\s+key=\{([^}]+)\}/)?.[1];
   expect(panelKey).toBeDefined();
