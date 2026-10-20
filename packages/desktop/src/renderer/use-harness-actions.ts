@@ -1,3 +1,4 @@
+import type { HarnessChatSettings } from "@hatopad/protocol";
 import { useCallback, useRef } from "react";
 import { mergeWorkflowHistory } from "./workflow-context";
 import { CoreClient } from "./client";
@@ -142,13 +143,7 @@ export function useHarnessActions(deps: HarnessActionsDeps) {
     [],
   );
   const chatHarness = useCallback(
-    async (
-      harnessId: string,
-      blockId: string,
-      input: string,
-      runId?: string,
-      settings?: import("@hatopad/protocol").HarnessChatSettings,
-    ) => {
+    async (harnessId: string, blockId: string, input: string, runId?: string, settings?: HarnessChatSettings) => {
       const result = await clientRef.current!.request("harnesses.chat", {
         harnessId,
         blockId,

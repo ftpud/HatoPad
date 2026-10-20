@@ -1,3 +1,4 @@
+import type { AiQuestionAction, AiQuestionAnswer } from "@hatopad/protocol";
 import { useCallback, useMemo } from "react";
 import {
   type AiProvider,
@@ -669,12 +670,7 @@ export function useAiActions(deps: AiActionsDeps) {
     [aiToken, applyAiSession, refreshAi, refreshAiStatuses, setStatusMessage],
   );
   const answerAiQuestion = useCallback(
-    async (
-      owner: PermissionRequestOwner,
-      requestId: string,
-      action: import("@hatopad/protocol").AiQuestionAction,
-      answer?: import("@hatopad/protocol").AiQuestionAnswer,
-    ) => {
+    async (owner: PermissionRequestOwner, requestId: string, action: AiQuestionAction, answer?: AiQuestionAnswer) => {
       if (!clientRef.current) return;
       const isActiveOwner = owner.taskId === selectedTaskIdRef.current && owner.provider === aiProviderRef.current;
       const token = isActiveOwner ? aiToken() : undefined;

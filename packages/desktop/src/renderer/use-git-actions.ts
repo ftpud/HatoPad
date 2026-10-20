@@ -1,3 +1,4 @@
+import type { GitPullPreview, GitPullStrategy, GitRebasePreview, GitRebaseTodoItem } from "@hatopad/protocol";
 import {
   type GitStatusEntry,
   type GitDiffHunk,
@@ -41,19 +42,13 @@ export interface GitActionsDeps {
   setGitPushing: React.Dispatch<React.SetStateAction<boolean>>;
   gitFetching: boolean;
   setGitFetching: React.Dispatch<React.SetStateAction<boolean>>;
-  setGitPullDialog: React.Dispatch<
-    React.SetStateAction<{ preview: import("../../../protocol/dist/index").GitPullPreview; error?: string } | undefined>
-  >;
-  gitPullDialog: { preview: import("../../../protocol/dist/index").GitPullPreview; error?: string } | undefined;
+  setGitPullDialog: React.Dispatch<React.SetStateAction<{ preview: GitPullPreview; error?: string } | undefined>>;
+  gitPullDialog: { preview: GitPullPreview; error?: string } | undefined;
   gitPulling: boolean;
   setGitPulling: React.Dispatch<React.SetStateAction<boolean>>;
   setGitRebasing: React.Dispatch<React.SetStateAction<boolean>>;
-  setGitRebaseDialog: React.Dispatch<
-    React.SetStateAction<
-      { preview: import("../../../protocol/dist/index").GitRebasePreview; error?: string } | undefined
-    >
-  >;
-  gitRebaseDialog: { preview: import("../../../protocol/dist/index").GitRebasePreview; error?: string } | undefined;
+  setGitRebaseDialog: React.Dispatch<React.SetStateAction<{ preview: GitRebasePreview; error?: string } | undefined>>;
+  gitRebaseDialog: { preview: GitRebasePreview; error?: string } | undefined;
   gitRebasing: boolean;
   setGitConflictPath: React.Dispatch<React.SetStateAction<string | undefined>>;
   setGitHunkDialog: React.Dispatch<
@@ -395,7 +390,7 @@ export function useGitActions(deps: GitActionsDeps) {
     }
   };
 
-  const executePull = async (strategy: import("@hatopad/protocol").GitPullStrategy) => {
+  const executePull = async (strategy: GitPullStrategy) => {
     if (!clientRef.current || !gitPullDialog || gitPulling) return;
     setGitPulling(true);
     setGitPullDialog((current) => (current ? { preview: current.preview } : current));
@@ -440,7 +435,7 @@ export function useGitActions(deps: GitActionsDeps) {
     }
   };
 
-  const executeInteractiveRebase = async (items: import("@hatopad/protocol").GitRebaseTodoItem[]) => {
+  const executeInteractiveRebase = async (items: GitRebaseTodoItem[]) => {
     if (!clientRef.current || !gitRebaseDialog || gitRebasing) return;
     setGitRebasing(true);
     setGitRebaseDialog((current) => (current ? { preview: current.preview } : current));

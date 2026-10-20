@@ -1,3 +1,4 @@
+import type { GitPullPreview, GitRebasePreview } from "@hatopad/protocol";
 import { useState } from "react";
 import type {
   AgentFile,
@@ -73,12 +74,12 @@ export function useShellDialogs() {
   const [gitStashDialog, setGitStashDialog] = useState(false);
 
   const [gitPullDialog, setGitPullDialog] = useState<{
-    preview: import("@hatopad/protocol").GitPullPreview;
+    preview: GitPullPreview;
     error?: string;
   }>();
 
   const [gitRebaseDialog, setGitRebaseDialog] = useState<{
-    preview: import("@hatopad/protocol").GitRebasePreview;
+    preview: GitRebasePreview;
     error?: string;
   }>();
 
