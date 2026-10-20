@@ -11,13 +11,49 @@ import {
   installBundleCommand,
   loadBundle,
   verifiedCoreArchive,
+  validateBundledDesktop,
   type CoreBundle,
 } from "./bundled-runtime.js";
 import { parseProvisionedRelease, workspaceReleaseDirectory } from "./deployment.js";
+import { protocolCompatibility } from "./protocol-versions.js";
 
 const execute = promisify(execFile);
 const commit = "a".repeat(40);
 const release = `${commit}-node137-bundle-123-1-linux-x64`;
+async function desktopFixture(desktop: string): Promise<void> {
+  for (const file of ["package.json", "dist-electron/main.js", "dist-renderer/index.html"]) {
+    await mkdir(path.dirname(path.join(desktop, file)), { recursive: true });
+    await writeFile(path.join(desktop, file), "{}");
+  }
+  await writeFile(
+    path.join(desktop, "compatibility.json"),
+    JSON.stringify({
+      compatibility: protocolCompatibility,
+      clientVersion: "0.1.0",
+      connectionHandoff: 1,
+    }),
+  );
+}
+
+test("bundled Desktop must include cloud compatibility and connection handoff metadata", async () => {
+  const desktop = await mkdtemp(path.join(os.tmpdir(), "hatopad-bundled-desktop-"));
+  try {
+    await desktopFixture(desktop);
+    await validateBundledDesktop(desktop);
+    for (const metadata of [
+      { compatibility: protocolCompatibility },
+      { connectionHandoff: 1 },
+      { compatibility: { minimum: -1, maximum: -1 }, connectionHandoff: 1 },
+    ]) {
+      await writeFile(path.join(desktop, "compatibility.json"), JSON.stringify(metadata));
+      await assert.rejects(validateBundledDesktop(desktop), /Invalid bundled Desktop/);
+    }
+    await rm(path.join(desktop, "compatibility.json"));
+    await assert.rejects(validateBundledDesktop(desktop), { code: "ENOENT" });
+  } finally {
+    await rm(desktop, { recursive: true, force: true });
+  }
+});
 test("selects portable Core for Linux, WSL and Apple Silicon and rejects unsupported hosts", () => {
   assert.equal(coreTarget("Linux", "x86_64"), "linux-x64");
   assert.equal(coreTarget("Linux", "aarch64"), "linux-arm64");
@@ -29,6 +65,7 @@ test("validates the complete packaged manifest and archive contents", async () =
   const resources = await mkdtemp(path.join(os.tmpdir(), "hatopad-bundle-manifest-"));
   try {
     await mkdir(path.join(resources, "bundle/cores"), { recursive: true });
+    await desktopFixture(path.join(resources, "bundle/desktop"));
     const content = "fixture archive";
     const cores = Object.fromEntries(
       ["linux-x64", "linux-arm64", "darwin-arm64"].map((target) => [
@@ -46,6 +83,9 @@ test("validates the complete packaged manifest and archive contents", async () =
     const file = path.join(resources, "bundle/manifest.json");
     await writeFile(file, JSON.stringify(manifest));
     assert.equal((await loadBundle(resources)).commit, commit);
+    await rm(path.join(resources, "bundle/desktop/compatibility.json"));
+    await assert.rejects(loadBundle(resources), { code: "ENOENT" });
+    await desktopFixture(path.join(resources, "bundle/desktop"));
     const core = cores["linux-x64"]!;
     await writeFile(path.join(resources, "bundle/cores", core.archive), content);
     await verifiedCoreArchive(resources, core);

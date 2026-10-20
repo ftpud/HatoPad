@@ -4,6 +4,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { access, readFile, mkdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { quoteWorkspaceShellArgument as shell } from "./workspace-path.js";
+import { compatibleClient, readCompatibility } from "./client-compatibility.js";
 
 export type CoreBundle = {
   target: string;
@@ -15,7 +16,7 @@ export type CoreBundle = {
 };
 /** Gateway argument that runs the bundled Editor on Gateway's own Electron runtime. */
 export const EDITOR_FLAG = "--hatopad";
-/** `desktopApp` is the Editor's Electron app directory (package.json, dist-electron, dist-renderer, node_modules), relative to `bundle/`. */
+/** `desktopApp` is the Editor's Electron app directory (package.json, compatibility.json, dist-electron, dist-renderer, node_modules), relative to `bundle/`. */
 export type BundleManifest = {
   schema: 1;
   channel: "early-access";
@@ -52,7 +53,18 @@ export async function loadBundle(resources: string): Promise<BundleManifest> {
     )
       throw new Error(`Invalid bundled Core: ${target}`);
   }
+  await validateBundledDesktop(path.join(resources, "bundle", manifest.desktopApp));
   return manifest;
+}
+
+/** Cloud discovery and managed launches both require this descriptor. */
+export async function validateBundledDesktop(desktop: string): Promise<void> {
+  const metadata = JSON.parse(await readFile(path.join(desktop, "compatibility.json"), "utf8"));
+  const compatibility = readCompatibility(metadata);
+  if (metadata.connectionHandoff !== 1 || !compatibility || !compatibleClient(compatibility, protocolCompatibility))
+    throw new Error("Invalid bundled Desktop compatibility or connection handoff metadata");
+  for (const file of ["package.json", "dist-electron/main.js", "dist-renderer/index.html"])
+    await access(path.join(desktop, file));
 }
 export function coreTarget(os: string, architecture: string): string {
   const platform = { Linux: "linux", Darwin: "darwin", linux: "linux", darwin: "darwin" }[os];

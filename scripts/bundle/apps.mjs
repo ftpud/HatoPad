@@ -66,6 +66,8 @@ for (const kind of ["desktop", "gateway"]) {
       recursive: true,
       filter: (source) => !source.endsWith(".test.js"),
     });
+  if (kind === "desktop")
+    await cp(path.join(root, "packages/desktop/compatibility.json"), path.join(appDirectory, "compatibility.json"));
   // Remove the workspace's self-link before dereferencing the dependency tree.
   // Otherwise copying it into the app recurses through its own node_modules.
 
