@@ -245,6 +245,7 @@ import { useHarnessActions } from "./use-harness-actions";
 import { useGitActions } from "./use-git-actions";
 import { useEditorTabActions } from "./use-editor-tab-actions";
 import { useAiActions } from "./use-ai-actions";
+import { useTaskActions } from "./use-task-actions";
 
 export function App() {
   const workspaceKeyRef = useRef("");
@@ -3060,149 +3061,24 @@ export function App() {
     refreshAiStatuses,
     showStatus,
   });
-
-  const createTask = useCallback(
-    async (branch: string, existing?: { remote: boolean }) => {
-      if (!clientRef.current || taskSwitching) return;
-      try {
-        setTaskSwitching(true);
-        const result = await clientRef.current.request("tasks.create", {
-          branch,
-          existing: Boolean(existing),
-          remote: existing?.remote,
-        });
-        setTasks((current) => [...current, result.task]);
-        setTaskSwitching(false);
-        await switchTask(result.task.id);
-      } catch (error) {
-        setTaskSwitching(false);
-        setStatusMessage(error instanceof Error ? error.message : "Could not create task");
-        throw error;
-      }
+  const { createTask, deleteTask, setTaskStatus, renameTask, setTaskArchived, timerAction, mergeTask } = useTaskActions(
+    {
+      clientRef,
+      taskSwitching,
+      setTaskSwitching,
+      setTasks,
+      switchTask,
+      setStatusMessage,
+      selectedTaskId,
+      setSelectedTaskId,
+      setAiAttachments,
+      setAiStatuses,
+      aiStatusesApplied,
+      aiStatusesRequested,
+      refreshAiStatuses,
+      setMergeDialog,
+      showStatus,
     },
-    [switchTask, taskSwitching],
-  );
-
-  const deleteTask = useCallback(
-    async (task: WorkspaceTask) => {
-      if (
-        !clientRef.current ||
-        taskSwitching ||
-        !window.confirm(
-          `Delete task "${task.name}"?\n\nIts copied workspace and any uncommitted files inside it will be permanently removed.`,
-        )
-      )
-        return;
-      try {
-        if (selectedTaskId === task.id) await switchTask();
-        setTaskSwitching(true);
-        const result = await clientRef.current.request("tasks.delete", { taskId: task.id });
-        setTasks(result.tasks);
-        setSelectedTaskId(result.selectedTaskId);
-        setAiAttachments((current) => {
-          const next = { ...current };
-          delete next[task.id];
-          return next;
-        });
-        setAiStatuses((current) => {
-          aiStatusesApplied.current = aiStatusesRequested.current;
-          const nextTasks = { ...current.tasks };
-          delete nextTasks[task.id];
-          return { ...current, tasks: nextTasks };
-        });
-      } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : "Could not delete task");
-      } finally {
-        setTaskSwitching(false);
-      }
-    },
-    [selectedTaskId, switchTask, taskSwitching],
-  );
-
-  const setTaskStatus = useCallback(
-    async (task: WorkspaceTask, status: WorkspaceTask["status"]) => {
-      if (!clientRef.current || taskSwitching) return;
-      try {
-        const result = await clientRef.current.request("tasks.status", { taskId: task.id, status });
-        setTasks((current) => current.map((item) => (item.id === task.id ? result.task : item)));
-      } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : `Could not mark task ${status}`);
-      }
-    },
-    [taskSwitching],
-  );
-
-  const renameTask = useCallback(
-    async (task: WorkspaceTask) => {
-      const name = await requestText({
-        title: "Rename task",
-        label: "Task name",
-        defaultValue: task.name,
-        confirmLabel: "Rename",
-      });
-      if (!clientRef.current || taskSwitching || !name || name === task.name) return;
-      try {
-        const result = await clientRef.current.request("tasks.rename", { taskId: task.id, name });
-        setTasks((current) => current.map((item) => (item.id === task.id ? result.task : item)));
-      } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : "Could not rename task");
-      }
-    },
-    [taskSwitching],
-  );
-
-  const setTaskArchived = useCallback(
-    async (task: WorkspaceTask, archived: boolean) => {
-      if (!clientRef.current || taskSwitching) return;
-      try {
-        const result = await clientRef.current.request("tasks.archive", { taskId: task.id, archived });
-        setTasks((current) => current.map((item) => (item.id === task.id ? result.task : item)));
-      } catch (error) {
-        setStatusMessage(
-          error instanceof Error ? error.message : `Could not ${archived ? "archive" : "unarchive"} task`,
-        );
-      }
-    },
-    [taskSwitching],
-  );
-
-  const timerAction = useCallback(
-    async (task: WorkspaceTask | undefined, action: "cancel" | "fire") => {
-      if (!clientRef.current || taskSwitching) return;
-      try {
-        const payload = task ? { taskId: task.id } : {};
-        const changed =
-          action === "cancel"
-            ? (await clientRef.current.request("tasks.timer.cancel", payload)).cancelled
-            : (await clientRef.current.request("tasks.timer.fire", payload)).fired;
-        if (!changed) setStatusMessage(`The ${task ? "task" : "root workspace"} timer is no longer active`);
-        await refreshAiStatuses();
-      } catch (error) {
-        setStatusMessage(
-          error instanceof Error ? error.message : `Could not ${action} ${task ? "task" : "root workspace"} timer`,
-        );
-      }
-    },
-    [refreshAiStatuses, taskSwitching],
-  );
-
-  const mergeTask = useCallback(
-    async (task: WorkspaceTask, strategy: "merge" | "smart") => {
-      if (!clientRef.current || taskSwitching) return;
-      setMergeDialog(undefined);
-      try {
-        setTaskSwitching(true);
-        const result = await clientRef.current.request("tasks.merge", { taskId: task.id, strategy });
-        setTaskSwitching(false);
-        await switchTask();
-        showStatus(`Merged ${task.name} into ${result.targetBranch}`, "success");
-      } catch (error) {
-        setStatusMessage(error instanceof Error ? error.message : "Could not merge task");
-      } finally {
-        setTaskSwitching(false);
-      }
-    },
-    [switchTask, taskSwitching],
   );
 
   const saveUsefulFileDialog = async (name: string) => {
