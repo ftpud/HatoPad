@@ -12,8 +12,11 @@ const execute = promisify(execFile);
 export async function credentialCommand(command, args, executor = execute) {
   try {
     return await executor(command, args);
-  } catch {
-    throw new Error(`${command} failed while configuring the CI signing Keychain (credential details suppressed)`);
+  } catch (error) {
+    const status = Number.isInteger(error.code) ? ` (exit ${error.code})` : "";
+    throw new Error(
+      `${command} failed while configuring the CI signing Keychain${status} (credential details suppressed)`,
+    );
   }
 }
 
@@ -74,6 +77,9 @@ async function setup(env) {
       "notarytool",
       "store-credentials",
       "hatopad-ci-notary",
+      // Authentication is required again by every notarization submission.
+      // Saving a local profile should not depend on Apple's network service.
+      "--no-validate",
       "--keychain",
       keychain,
       "--apple-id",
