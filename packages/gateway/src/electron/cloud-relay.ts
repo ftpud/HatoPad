@@ -34,6 +34,16 @@ export async function openCloudRelay(target: CloudRelayTarget): Promise<WebSocke
   });
 }
 
+export class CloudRequestError extends Error {
+  constructor(
+    readonly code: string,
+    readonly requestType: string,
+    readonly detail: string,
+  ) {
+    super(`${code}: ${detail} [${requestType}]`);
+  }
+}
+
 export function requestCloud(socket: WebSocket, type: string, payload: unknown, timeoutMs = 15_000): Promise<any> {
   return new Promise<any>((resolve, reject) => {
     const id = randomBytes(16).toString("hex");
@@ -47,15 +57,28 @@ export function requestCloud(socket: WebSocket, type: string, payload: unknown, 
     const closed = () => finish(new Error("Cloud Core disconnected."));
     const receive = (data: import("ws").RawData) => {
       try {
-        const reply = JSON.parse(data.toString());
-        if (reply.id !== id) return;
-        reply.ok
-          ? finish(undefined, reply.result)
-          : finish(
-              new Error(
-                `${reply.error?.code ?? "ERROR"}: ${reply.error?.message ?? "Cloud Core request failed."} [${type}]`,
-              ),
-            );
+        const reply: unknown = JSON.parse(data.toString());
+        if (!reply || typeof reply !== "object" || Array.isArray(reply)) throw new Error("Invalid response");
+        const envelope = reply as Record<string, unknown>;
+        if (envelope.id !== id) return;
+        if (typeof envelope.ok !== "boolean") throw new Error("Invalid response");
+        if (envelope.ok) {
+          if (!("result" in envelope)) throw new Error("Invalid response");
+          finish(undefined, envelope.result);
+          return;
+        }
+        const error = envelope.error;
+        if (
+          !error ||
+          typeof error !== "object" ||
+          Array.isArray(error) ||
+          !("code" in error) ||
+          typeof error.code !== "string" ||
+          !("message" in error) ||
+          typeof error.message !== "string"
+        )
+          throw new Error("Invalid response");
+        finish(new CloudRequestError(error.code, type, error.message));
       } catch {
         finish(new Error("Invalid cloud Core response."));
       }

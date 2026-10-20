@@ -1,6 +1,6 @@
 import { createServer, type Server, type Socket } from "node:net";
 import { WebSocket } from "ws";
-import { openCloudRelay, requestCloud, type CloudRelayTarget } from "./cloud-relay.js";
+import { CloudRequestError, openCloudRelay, requestCloud, type CloudRelayTarget } from "./cloud-relay.js";
 import type { Compatibility } from "./client-compatibility.js";
 
 type Options = {
@@ -101,7 +101,23 @@ export class CloudPortTunnel {
     };
     local.once("close", closeRemote);
     try {
-      const result = await requestCloud(remote, "portTunnel.open", { port: this.options.remotePort });
+      const result = await requestCloud(remote, "portTunnel.open", { port: this.options.remotePort }).catch(
+        (error: unknown) => {
+          if (
+            this.remote === remote &&
+            error instanceof CloudRequestError &&
+            error.code === "INVALID_REQUEST" &&
+            error.detail === "This operation is not available through HatoHub."
+          ) {
+            this.stop();
+            this.options.onStatus(
+              "error",
+              "Ask the Core owner to enable Machine for this Core in HatoHub, then run the tunnel again.",
+            );
+          }
+          throw error;
+        },
+      );
       if (typeof result?.streamId !== "string" || !/^[a-f0-9]{36}$/.test(result.streamId))
         throw Error("Invalid tunnel stream");
       streamId = result.streamId;

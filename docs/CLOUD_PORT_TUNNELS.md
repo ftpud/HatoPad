@@ -8,6 +8,10 @@ Gateway must stay open. Saved configurations persist across Gateway restarts;
 starting them remains explicit. **Stop** closes the listener and its active
 connections; **Delete** also removes the saved configuration.
 
+The Core owner must enable **Machine** for that Core in HatoHub. If the Hub
+rejects the first port open, Gateway closes the listener and shows owner opt-in
+guidance. Enable the group, then choose **Run** again; no TCP data is replayed.
+
 These are TCP forwards with traffic flowing in both directions, including HTTP,
 WebSockets and database protocols. The listening endpoint is always `127.0.0.1`
 on the Gateway machine; the destination is always `127.0.0.1` inside the Core's

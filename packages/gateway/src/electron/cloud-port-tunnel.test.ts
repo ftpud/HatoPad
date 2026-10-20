@@ -4,6 +4,7 @@ import { once } from "node:events";
 import { connect, createServer } from "node:net";
 import { WebSocketServer, type WebSocket } from "ws";
 import { CloudPortTunnel } from "./cloud-port-tunnel.js";
+import { CloudRequestError, openCloudRelay, requestCloud } from "./cloud-relay.js";
 
 async function port(): Promise<number> {
   const server = createServer();
@@ -13,12 +14,13 @@ async function port(): Promise<number> {
   await new Promise<void>((resolve) => server.close(() => resolve()));
   return value;
 }
-async function fixture(capability = true) {
+async function fixture(capability = true, denied?: { code: unknown; message: unknown }) {
   const hub = new WebSocketServer({ port: 0, host: "127.0.0.1" });
   await once(hub, "listening");
   const sockets = new Set<WebSocket>();
   let authorized = false;
   let opens = 0;
+  const requests: string[] = [];
   hub.on("connection", (ws, request) => {
     authorized = request.headers.cookie === "session=test" && request.url === "/relay/browser?coreId=core";
     sockets.add(ws);
@@ -26,6 +28,11 @@ async function fixture(capability = true) {
     const streams = new Map<string, { chunks: string[]; eof: boolean; waiting?: () => void }>();
     ws.on("message", async (raw) => {
       const request = JSON.parse(String(raw));
+      requests.push(request.type);
+      if (request.type === "portTunnel.open" && denied) {
+        ws.send(JSON.stringify({ id: request.id, ok: false, error: denied }));
+        return;
+      }
       let result: unknown = {};
       if (request.type === "protocol.maintenance")
         result = { maintenance: true, compatible: true, capabilities: capability ? ["ports.tunnel"] : [] };
@@ -66,21 +73,29 @@ async function fixture(capability = true) {
   });
   const localPort = await port();
   const statuses: string[] = [];
+  const messages: string[] = [];
+  const target = {
+    origin: `http://127.0.0.1:${(hub.address() as { port: number }).port}`,
+    coreId: "core",
+    cookie: async () => "session=test",
+  };
   const tunnel = new CloudPortTunnel({
-    target: {
-      origin: `http://127.0.0.1:${(hub.address() as { port: number }).port}`,
-      coreId: "core",
-      cookie: async () => "session=test",
-    },
+    target,
     compatibility: { minimum: 19, maximum: 19 },
     localPort,
     remotePort: 3000,
-    onStatus: (status) => statuses.push(status),
+    onStatus: (status, message) => {
+      statuses.push(status);
+      messages.push(message);
+    },
   });
   return {
     tunnel,
     localPort,
     statuses,
+    messages,
+    requests,
+    target,
     authorized: () => authorized,
     revoke: () => {
       for (const socket of sockets) socket.terminate();
@@ -110,6 +125,68 @@ test("cloud tunnel authenticates, carries bounded binary TCP data and preserves 
     assert.deepEqual(Buffer.concat(received), Buffer.concat([content, Buffer.from("after-fin")]));
     assert.deepEqual(f.statuses, ["running"]);
   } finally {
+    await f.close();
+  }
+});
+
+test("Hub policy denial stops the tunnel with Machine guidance and never retries the open", async () => {
+  const f = await fixture(true, {
+    code: "INVALID_REQUEST",
+    message: "This operation is not available through HatoHub.",
+  });
+  try {
+    await f.tunnel.start();
+    const client = connect(f.localPort, "127.0.0.1");
+    client.on("error", () => undefined);
+    await new Promise<void>((resolve) => client.once("close", () => resolve()));
+    assert.deepEqual(f.statuses, ["running", "error"]);
+    assert.match(f.messages.at(-1)!, /Core owner to enable Machine/);
+    assert.deepEqual(f.requests, ["protocol.maintenance", "portTunnel.open"]);
+    const refused = connect(f.localPort, "127.0.0.1");
+    await once(refused, "error");
+    refused.destroy();
+  } finally {
+    await f.close();
+  }
+});
+
+test("Core validation errors retain their detail and are not mistaken for a Hub policy denial", async () => {
+  const f = await fixture(true, { code: "INVALID_REQUEST", message: "Invalid destination port" });
+  let socket: WebSocket | undefined;
+  try {
+    await f.tunnel.start();
+    const local = connect(f.localPort, "127.0.0.1");
+    local.on("error", () => undefined);
+    await new Promise<void>((resolve) => local.once("close", () => resolve()));
+    assert.deepEqual(f.statuses, ["running"]);
+    socket = await openCloudRelay(f.target);
+    await assert.rejects(requestCloud(socket, "portTunnel.open", { port: 3000 }), (error: unknown) => {
+      assert.ok(error instanceof CloudRequestError);
+      assert.equal(error.code, "INVALID_REQUEST");
+      assert.equal(error.requestType, "portTunnel.open");
+      assert.equal(error.detail, "Invalid destination port");
+      return true;
+    });
+    assert.ok(!f.messages.some((message) => message.includes("Machine")));
+  } finally {
+    socket?.terminate();
+    await f.close();
+  }
+});
+
+test("malformed cloud error envelopes fail closed without becoming policy errors", async () => {
+  const f = await fixture(true, { code: 123, message: "This operation is not available through HatoHub." });
+  let socket: WebSocket | undefined;
+  try {
+    socket = await openCloudRelay(f.target);
+    await assert.rejects(requestCloud(socket, "portTunnel.open", { port: 3000 }), (error: unknown) => {
+      assert.ok(error instanceof Error);
+      assert.ok(!(error instanceof CloudRequestError));
+      assert.match(error.message, /Invalid cloud Core response/);
+      return true;
+    });
+  } finally {
+    socket?.terminate();
     await f.close();
   }
 });
