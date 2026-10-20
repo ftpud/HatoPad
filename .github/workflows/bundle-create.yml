@@ -41,6 +41,9 @@ jobs:
       - run: npm ci
       - run: npm run build -w @hatopad/acp
       - run: npm run build -w @hatopad/protocol
+      - run: npm run build -w @hatopad/relay
+      - run: npm run build -w @hatopad/connector
+      - run: npm run build -w @hatopad/test-fixtures
       - run: npm run build -w @hatopad/core
       - run: npm run typecheck -w @hatopad/core
       - run: npm run test -w @hatopad/core
