@@ -5,9 +5,14 @@ dist-renderer/
 coverage/
 *.log
 .DS_Store
-.env
-.env.local
-.env.*.local
+.env*
+# Signing credentials belong in Keychain / GitHub Actions secrets.
+*.p12
+*.pfx
+*.p8
+*.key
+*.keychain
+*.keychain-db
 .tools/jdtls/
 .tools/jre21/
 .tools/.jre21-extract/

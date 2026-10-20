@@ -2,9 +2,11 @@ import { chmod, cp, mkdir, mkdtemp, rm, symlink, realpath } from "node:fs/promis
 import { execFileSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
+import { macSigningConfiguration, resolveMacSigning, signMacCore, notarizeMacDirectory } from "./mac-signing.mjs";
 import { root, output, json, writeJson, run, stageWorkspace, sha256, pruneRuntimeDependencies } from "./common.mjs";
 
 const target = `${process.platform}-${process.arch}`;
+const signing = await resolveMacSigning(macSigningConfiguration());
 if (!["linux-x64", "linux-arm64", "darwin-arm64"].includes(target))
   throw new Error(`Unsupported Core target: ${target}`);
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
@@ -60,6 +62,7 @@ const npmRoot = path.resolve(
 await cp(npmRoot, path.join(staging, "lib/node_modules/npm"), { recursive: true });
 await symlink("../lib/node_modules/npm/bin/npm-cli.js", path.join(staging, "bin/npm"));
 await symlink("../lib/node_modules/npm/bin/npx-cli.js", path.join(staging, "bin/npx"));
+if (signing) await signMacCore(staging, signing);
 // The Java runtime and language server are downloaded on demand from Settings -> Tools.
 await run(path.join(staging, "bin/npm"), ["--version"], staging, {
   ...process.env,
@@ -74,6 +77,7 @@ const manifest = {
   protocol,
   nodeVersion: process.versions.node,
   version: (await json(path.join(root, "package.json"))).version,
+  ...(signing ? { signing: { identity: signing.identity, notarized: true } } : {}),
 };
 await writeJson(path.join(staging, "bundle.json"), manifest);
 await run(
@@ -88,6 +92,7 @@ await run(
 await mkdir(path.join(output, "cores"), { recursive: true });
 await run(process.execPath, [path.join(root, "scripts/bundle/smoke-core.mjs"), staging]);
 const archive = path.join(output, "cores", `core-${target}.tar.gz`);
+if (signing) await notarizeMacDirectory(staging, signing, `${archive}.notarization.json`);
 await run("tar", ["-czf", archive, "-C", staging, "."]);
 // Verify the actual extracted archive outside the checkout so parent node_modules
 // cannot hide an incomplete dependency closure.

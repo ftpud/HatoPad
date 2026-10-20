@@ -2,8 +2,9 @@ import { cp, mkdir, rm, symlink, mkdtemp, access } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { root, output, run } from "./common.mjs";
+import { notarizeMacFile, stapleMacFile } from "./mac-signing.mjs";
 
-export async function packageGatewayInstaller(built, destination, version, smokeApplication) {
+export async function packageGatewayInstaller(built, destination, version, smokeApplication, signing) {
   const basename = `hatopad-gateway-${version}-${process.platform}-${process.arch}`;
   if (process.platform === "darwin") {
     const staging = path.join(output, "staging", "gateway-dmg");
@@ -28,6 +29,21 @@ export async function packageGatewayInstaller(built, destination, version, smoke
         installer,
       ]);
       await run("hdiutil", ["verify", installer]);
+      if (signing) {
+        await run("codesign", ["--sign", signing.identityHash, "--timestamp", installer]);
+        await run("codesign", ["--verify", "--strict", installer]);
+        await notarizeMacFile(installer, signing);
+        await stapleMacFile(installer);
+        await run("spctl", [
+          "--assess",
+          "--type",
+          "open",
+          "--context",
+          "context:primary-signature",
+          "--verbose=2",
+          installer,
+        ]);
+      }
       return installer;
     } finally {
       await rm(staging, { recursive: true, force: true });

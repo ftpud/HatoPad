@@ -4,6 +4,7 @@ import { spawn, execFileSync } from "node:child_process";
 import path from "node:path";
 import { macApplicationIcon } from "./icon.mjs";
 import { packageGatewayInstaller } from "./gateway-installer.mjs";
+import { macSigningConfiguration, resolveMacSigning, notarizeMacDirectory, stapleMacFile } from "./mac-signing.mjs";
 import {
   root,
   output,
@@ -23,6 +24,7 @@ if (
 )
   throw new Error("Build apps on macOS ARM64 or Windows x64");
 const commit = execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+const signing = await resolveMacSigning(macSigningConfiguration());
 const coresDirectory = path.join(output, "cores");
 const cores = {};
 const targets = process.argv.includes("--local")
@@ -40,6 +42,12 @@ for (const target of targets) {
     metadata.sha256 !== digest
   )
     throw new Error(`Invalid or mismatched Core artifact: ${target}`);
+  if (
+    signing &&
+    target === "darwin-arm64" &&
+    (metadata.signing?.identity !== signing.identity || metadata.signing?.notarized !== true)
+  )
+    throw new Error("Rebuild macOS Core with --sign using the same Developer ID before signing applications");
   cores[target] = metadata;
 }
 const version = (await json(path.join(root, "package.json"))).version;
@@ -116,9 +124,10 @@ for (const kind of ["desktop", "gateway"]) {
     osxSign:
       process.platform === "darwin"
         ? {
-            identity: "-",
-            identityValidation: false,
+            identity: signing?.identityHash ?? "-",
+            identityValidation: Boolean(signing),
             optionsForFile: () => ({
+              hardenedRuntime: true,
               entitlements: ["com.apple.security.cs.allow-jit", "com.apple.security.cs.disable-library-validation"],
             }),
           }
@@ -147,6 +156,13 @@ for (const kind of ["desktop", "gateway"]) {
   await smokeApplication(executable, kind === "gateway" && localCore ? ["--bundle-core-smoke-test"] : []);
   // The embedded Editor must start on Gateway's runtime.
   if (kind === "gateway") await smokeApplication(executable, ["--hatopad"]);
+  if (signing) {
+    const app = path.join(built, `${name}.app`);
+    await run("codesign", ["--verify", "--deep", "--strict", app]);
+    await notarizeMacDirectory(app, signing, path.join(built, "notarization.json"));
+    await stapleMacFile(app);
+    await run("spctl", ["--assess", "--type", "execute", "--verbose=2", app]);
+  }
   if (kind === "desktop")
     desktopBundle =
       process.platform === "darwin"
@@ -155,7 +171,8 @@ for (const kind of ["desktop", "gateway"]) {
   const destination = path.join(output, "downloads");
   await mkdir(destination, { recursive: true });
   let archive;
-  if (kind === "gateway") archive = await packageGatewayInstaller(built, destination, version, smokeApplication);
+  if (kind === "gateway")
+    archive = await packageGatewayInstaller(built, destination, version, smokeApplication, signing);
   else {
     archive = path.join(destination, `hatopad-${kind}-${version}-${process.platform}-${process.arch}.zip`);
     if (process.platform === "darwin")
@@ -183,6 +200,7 @@ for (const kind of ["desktop", "gateway"]) {
     arch: process.arch,
     filename,
     sha256: digest,
+    ...(signing ? { signing: { identity: signing.identity, notarized: true } } : {}),
   });
 }
 
