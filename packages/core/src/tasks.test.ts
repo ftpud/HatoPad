@@ -365,6 +365,54 @@ describe("WorkspaceTaskStore", () => {
     await store.delete(task.id);
   });
 
+  it.each([
+    { kind: "single package", workspaces: false },
+    { kind: "npm workspaces", workspaces: true },
+  ])("merges $kind without running test scripts", async ({ workspaces }) => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-suite-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-suite-state-"));
+    try {
+      await execFileAsync("git", ["init", root]);
+      await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+      await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+      const scripts = { test: "node verify.cjs", pretest: "node verify.cjs" };
+      await writeFile(
+        path.join(root, "package.json"),
+        JSON.stringify(workspaces ? { private: true, workspaces: ["packages/*"] } : { scripts }),
+      );
+      const suiteRoot = workspaces ? path.join(root, "packages", "example") : root;
+      await mkdir(suiteRoot, { recursive: true });
+      if (workspaces)
+        await writeFile(path.join(suiteRoot, "package.json"), JSON.stringify({ name: "example", scripts }));
+      await writeFile(path.join(suiteRoot, "verify.cjs"), 'console.log("candidate suite ran");');
+      await execFileAsync("git", ["-C", root, "add", "."]);
+      await execFileAsync("git", ["-C", root, "commit", "-m", "initial"]);
+      const store = new WorkspaceTaskStore(root, state);
+      const task = await store.create("feature/suite");
+      const candidateSuite = path.join(store.taskPath(task.id), path.relative(root, suiteRoot));
+      await writeFile(
+        path.join(candidateSuite, "verify.cjs"),
+        'require("node:fs").writeFileSync("test-ran", "yes"); process.exit(1);',
+      );
+      await expect(store.merge(task.id)).resolves.toMatchObject({ targetBranch: expect.any(String) });
+      expect(await readFile(path.join(root, path.relative(root, suiteRoot), "verify.cjs"), "utf8")).toContain(
+        "process.exit(1)",
+      );
+      await expect(access(path.join(root, path.relative(root, suiteRoot), "test-ran"))).rejects.toMatchObject({
+        code: "ENOENT",
+      });
+      expect(await store.integrations()).toEqual([
+        expect.objectContaining({
+          status: "completed",
+        }),
+      ]);
+      expect((await store.integrations())[0]?.test).toBeUndefined();
+    } finally {
+      await rm(root, { recursive: true, force: true });
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
   it("creates a linked worktree and branch, merges it, and persists selection", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-root-"));
     const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-state-"));
@@ -435,7 +483,6 @@ describe("WorkspaceTaskStore", () => {
         status: "completed",
         expectedHead: expect.any(String),
         candidateRevision: expect.any(String),
-        test: expect.objectContaining({ exitCode: 0 }),
       }),
     ]);
     const integrations = await store.integrations();

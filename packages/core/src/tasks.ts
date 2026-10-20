@@ -541,10 +541,8 @@ export class WorkspaceTaskStore {
       integration.candidateRevision = (
         await execFileAsync("git", ["-C", integrationWorkspace, "rev-parse", "HEAD"], { encoding: "utf8" })
       ).stdout.trim();
-      integration.status = "testing";
       integration.updatedAt = new Date().toISOString();
       await this.saveIntegration(registry, integration);
-      await this.runIntegrationSuite(integrationWorkspace, integration);
 
       if (rootStatus.stdout.trim()) {
         await execFileAsync(
@@ -577,7 +575,7 @@ export class WorkspaceTaskStore {
       if (currentHead !== expectedHead)
         throw new CoreError(
           "GIT_FAILED",
-          "Root revision changed while the isolated integration suite ran. No candidate was applied; retry from the new root revision.",
+          "Root revision changed while the isolated merge was prepared. No candidate was applied; retry from the new root revision.",
         );
       integration.status = "applying";
       integration.updatedAt = new Date().toISOString();
@@ -635,48 +633,6 @@ export class WorkspaceTaskStore {
       if (error instanceof CoreError) throw error;
       throw new CoreError("GIT_FAILED", `Could not merge task ${task.name}: ${gitError(error)}`);
     }
-  }
-
-  private async runIntegrationSuite(workspace: string, integration: TaskIntegrationRecord): Promise<void> {
-    const command = "npm test --workspaces --if-present";
-    try {
-      await lstat(path.join(workspace, "package.json"));
-    } catch {
-      integration.test = {
-        command,
-        exitCode: 0,
-        output: "No package.json in this repository; no combined npm suite is configured.",
-      };
-      integration.updatedAt = new Date().toISOString();
-      const registry = await this.listUnlocked();
-      await this.saveIntegration(registry, integration);
-      return;
-    }
-    try {
-      const result = await execFileAsync("npm", ["test", "--workspaces", "--if-present"], {
-        cwd: workspace,
-        encoding: "utf8",
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      integration.test = { command, exitCode: 0, output: `${result.stdout}\n${result.stderr}`.slice(-200_000) };
-    } catch (error) {
-      const detail = error as { stdout?: string; stderr?: string; code?: number };
-      integration.test = {
-        command,
-        exitCode: typeof detail.code === "number" ? detail.code : 1,
-        output: `${detail.stdout ?? ""}\n${detail.stderr ?? ""}`.slice(-200_000),
-      };
-      integration.status = "failed";
-      integration.updatedAt = new Date().toISOString();
-      integration.error = "The isolated integration suite failed.";
-      integration.recovery = `Inspect test output and candidate worktree at ${workspace}; the root was not changed.`;
-      const registry = await this.listUnlocked();
-      await this.saveIntegration(registry, integration);
-      throw new CoreError("GIT_FAILED", `${integration.error} ${integration.recovery}`);
-    }
-    integration.updatedAt = new Date().toISOString();
-    const registry = await this.listUnlocked();
-    await this.saveIntegration(registry, integration);
   }
 
   private async saveIntegration(registry: Registry, integration: TaskIntegrationRecord): Promise<void> {
