@@ -10,14 +10,23 @@ async function publishJson(file: string, value: unknown): Promise<void> {
   try {
     await writeFile(temporary, `${JSON.stringify(value)}\n`, { encoding: "utf8", flag: "wx", mode: 0o600 });
     await rename(temporary, file);
-  } finally { await rm(temporary, { force: true }).catch(() => undefined); }
+  } finally {
+    await rm(temporary, { force: true }).catch(() => undefined);
+  }
 }
 
 export type AppEvent =
   | { type: "tasks.changed" }
   | { type: "ai.changed"; workspace: string }
   | { type: "commit-message.changed"; workspace: string; message: string };
-export type AppCommand = { name: string; args: Record<string, unknown>; currentWorkspace?: string; currentProvider?: string; workflowRunId?: string; workflowBlockId?: string };
+export type AppCommand = {
+  name: string;
+  args: Record<string, unknown>;
+  currentWorkspace?: string;
+  currentProvider?: string;
+  workflowRunId?: string;
+  workflowBlockId?: string;
+};
 
 // Live commands must reach the Core process that created their MCP server.
 export const appBridgeInstanceId = crypto.randomUUID();
@@ -27,18 +36,27 @@ export class AppEventBridge {
   readonly commandsDirectory: string;
   readonly responsesDirectory: string;
 
-  constructor(rootWorkspace: string, stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"), instanceId = process.env.HATOPAD_BRIDGE_INSTANCE_ID) {
-    const key = crypto.createHash("sha256").update(instanceId ? JSON.stringify([rootWorkspace, instanceId]) : rootWorkspace).digest("hex");
+  constructor(
+    rootWorkspace: string,
+    stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"),
+    instanceId = process.env.HATOPAD_BRIDGE_INSTANCE_ID,
+  ) {
+    const key = crypto
+      .createHash("sha256")
+      .update(instanceId ? JSON.stringify([rootWorkspace, instanceId]) : rootWorkspace)
+      .digest("hex");
     this.directory = path.join(stateDirectory, `${key}-events`);
     this.commandsDirectory = path.join(stateDirectory, `${key}-commands`);
     this.responsesDirectory = path.join(stateDirectory, `${key}-responses`);
   }
 
   async ready(): Promise<void> {
-    await Promise.all([this.directory, this.commandsDirectory, this.responsesDirectory].map(async (directory) => {
-      await mkdir(directory, { recursive: true, mode: 0o700 });
-      await chmod(directory, 0o700);
-    }));
+    await Promise.all(
+      [this.directory, this.commandsDirectory, this.responsesDirectory].map(async (directory) => {
+        await mkdir(directory, { recursive: true, mode: 0o700 });
+        await chmod(directory, 0o700);
+      }),
+    );
   }
 
   async emit(event: AppEvent): Promise<void> {
@@ -51,10 +69,18 @@ export class AppEventBridge {
     try {
       const value = JSON.parse(await readFile(file, "utf8")) as Partial<AppEvent>;
       if (value.type === "tasks.changed") return { type: value.type };
-      if (value.type === "ai.changed" && typeof value.workspace === "string") return { type: value.type, workspace: value.workspace };
-      if (value.type === "commit-message.changed" && typeof value.workspace === "string" && typeof value.message === "string") return { type: value.type, workspace: value.workspace, message: value.message };
+      if (value.type === "ai.changed" && typeof value.workspace === "string")
+        return { type: value.type, workspace: value.workspace };
+      if (
+        value.type === "commit-message.changed" &&
+        typeof value.workspace === "string" &&
+        typeof value.message === "string"
+      )
+        return { type: value.type, workspace: value.workspace, message: value.message };
       return undefined;
-    } finally { await rm(file, { force: true }).catch(() => undefined); }
+    } finally {
+      await rm(file, { force: true }).catch(() => undefined);
+    }
   }
 
   async call(command: AppCommand, timeoutMs = 30_000): Promise<unknown> {
@@ -65,7 +91,11 @@ export class AppEventBridge {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
       try {
-        const response = JSON.parse(await readFile(responseFile, "utf8")) as { ok: boolean; result?: unknown; error?: string };
+        const response = JSON.parse(await readFile(responseFile, "utf8")) as {
+          ok: boolean;
+          result?: unknown;
+          error?: string;
+        };
         await rm(responseFile, { force: true });
         if (!response.ok) throw new Error(response.error ?? "HatoPad command failed");
         return response.result;
@@ -82,11 +112,14 @@ export class AppEventBridge {
     let response: { ok: boolean; result?: unknown; error?: string };
     try {
       const command = JSON.parse(await readFile(file, "utf8")) as AppCommand;
-      if (!command || typeof command.name !== "string" || !command.args || typeof command.args !== "object") throw new Error("Invalid HatoPad command");
+      if (!command || typeof command.name !== "string" || !command.args || typeof command.args !== "object")
+        throw new Error("Invalid HatoPad command");
       response = { ok: true, result: await execute(command) };
     } catch (error) {
       response = { ok: false, error: error instanceof Error ? error.message : String(error) };
-    } finally { await rm(file, { force: true }).catch(() => undefined); }
+    } finally {
+      await rm(file, { force: true }).catch(() => undefined);
+    }
     await publishJson(path.join(this.responsesDirectory, `${id}.json`), response);
   }
 }

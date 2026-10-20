@@ -1,10 +1,29 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessBlock, HarnessDefinition, HarnessRun } from "@hatopad/protocol";
-import { alignBlocks, autoLayoutBlocks, BlockRunDetails, dragPosition, edgePath, fitCanvasViewport, HarnessPanel, minimapScrollPosition, minimapViewport, responsePreview, parseWorkflowDefinitionImport, workflowDefinitionExport, workflowRunExport } from "./HarnessPanel";
+import {
+  alignBlocks,
+  autoLayoutBlocks,
+  BlockRunDetails,
+  dragPosition,
+  edgePath,
+  fitCanvasViewport,
+  HarnessPanel,
+  minimapScrollPosition,
+  minimapViewport,
+  responsePreview,
+  parseWorkflowDefinitionImport,
+  workflowDefinitionExport,
+  workflowRunExport,
+} from "./HarnessPanel";
 
-beforeEach(() => { Object.defineProperty(window, "confirm", { configurable: true, writable: true, value: vi.fn() }); });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+beforeEach(() => {
+  Object.defineProperty(window, "confirm", { configurable: true, writable: true, value: vi.fn() });
+});
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 function renderEditor(ui: Parameters<typeof render>[0]) {
   const view = render(ui);
@@ -13,36 +32,89 @@ function renderEditor(ui: Parameters<typeof render>[0]) {
 }
 
 describe("HarnessPanel", () => {
-  it.each(["ai", "chatbox"] as const)("exposes reasoning in %s block configuration and saves explicit or default effort", async (type) => {
-    const harness: HarnessDefinition = { id: "reasoning", name: "Reasoning", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
-    const onSave = vi.fn(async (definition) => definition);
-    const onLoadModels = vi.fn().mockResolvedValue([
-      { id: "reasoning-model", name: "Reasoning model", defaultReasoning: "low", reasoningLevels: ["low", "high"] },
-      { id: "simple-model", name: "Simple model", defaultReasoning: "", reasoningLevels: [] }
-    ]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} defaultProvider="codex" onLoadModels={onLoadModels} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: type } });
-    expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", true);
-    expect(screen.getByText("Select a model to choose reasoning effort.")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "AI model" }));
-    fireEvent.click(await screen.findByRole("option", { name: /Reasoning model/ }));
-    expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", false);
-    fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
-    fireEvent.click(screen.getByTitle("Save workflow"));
-    await waitFor(() => expect(onSave.mock.calls.at(-1)?.[0].blocks[0]).toMatchObject({ type, model: "reasoning-model", reasoning: "high" }));
-    fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "" } });
-    fireEvent.click(screen.getByTitle("Save workflow"));
-    await waitFor(() => expect(onSave.mock.calls.at(-1)?.[0].blocks[0].reasoning).toBeUndefined());
-    fireEvent.click(screen.getByRole("button", { name: "AI model" }));
-    fireEvent.click(screen.getByRole("option", { name: /Simple model/ }));
-    expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", true);
-    expect(screen.getByText("This model does not advertise reasoning levels.")).toBeTruthy();
-  });
+  it.each(["ai", "chatbox"] as const)(
+    "exposes reasoning in %s block configuration and saves explicit or default effort",
+    async (type) => {
+      const harness: HarnessDefinition = {
+        id: "reasoning",
+        name: "Reasoning",
+        version: 1,
+        createdAt: "now",
+        updatedAt: "now",
+        blocks: [],
+        edges: [],
+      };
+      const onSave = vi.fn(async (definition) => definition);
+      const onLoadModels = vi.fn().mockResolvedValue([
+        { id: "reasoning-model", name: "Reasoning model", defaultReasoning: "low", reasoningLevels: ["low", "high"] },
+        { id: "simple-model", name: "Simple model", defaultReasoning: "", reasoningLevels: [] },
+      ]);
+      renderEditor(
+        <HarnessPanel
+          harnesses={[harness]}
+          runs={[]}
+          providers={[]}
+          agents={[]}
+          defaultProvider="codex"
+          onLoadModels={onLoadModels}
+          onCreate={vi.fn()}
+          onSave={onSave}
+          onDelete={vi.fn()}
+          onRun={vi.fn()}
+          onCancelRun={vi.fn()}
+          onError={vi.fn()}
+        />,
+      );
+      fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: type } });
+      expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", true);
+      expect(screen.getByText("Select a model to choose reasoning effort.")).toBeTruthy();
+      fireEvent.click(screen.getByRole("button", { name: "AI model" }));
+      fireEvent.click(await screen.findByRole("option", { name: /Reasoning model/ }));
+      expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", false);
+      fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
+      fireEvent.click(screen.getByTitle("Save workflow"));
+      await waitFor(() =>
+        expect(onSave.mock.calls.at(-1)?.[0].blocks[0]).toMatchObject({
+          type,
+          model: "reasoning-model",
+          reasoning: "high",
+        }),
+      );
+      fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "" } });
+      fireEvent.click(screen.getByTitle("Save workflow"));
+      await waitFor(() => expect(onSave.mock.calls.at(-1)?.[0].blocks[0].reasoning).toBeUndefined());
+      fireEvent.click(screen.getByRole("button", { name: "AI model" }));
+      fireEvent.click(screen.getByRole("option", { name: /Simple model/ }));
+      expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", true);
+      expect(screen.getByText("This model does not advertise reasoning levels.")).toBeTruthy();
+    },
+  );
 
   it("adds a Meeting and displays its attributed discussion", async () => {
-    const harness: HarnessDefinition = { id: "meeting", name: "Meeting", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "meeting",
+      name: "Meeting",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (definition) => definition);
-    const view = renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const view = renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "meeting" } });
     expect(screen.queryByLabelText("AI model")).toBeNull();
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
@@ -52,7 +124,30 @@ describe("HarnessPanel", () => {
     const block = onSave.mock.calls[0]![0].blocks[0] as HarnessBlock;
     expect(block).toMatchObject({ type: "meeting", prompt: "" });
     view.unmount();
-    render(<BlockRunDetails block={block} state={{ blockId: block.id, status: "succeeded", meeting: { sequence: 1, cursors: {}, messages: [{ sequence: 1, blockId: "sonnet", author: "Sonnet", model: "sonnet", timestamp: "2026-10-17T12:00:00Z", text: "Proposal for the team" }] } }} onClose={vi.fn()} />);
+    render(
+      <BlockRunDetails
+        block={block}
+        state={{
+          blockId: block.id,
+          status: "succeeded",
+          meeting: {
+            sequence: 1,
+            cursors: {},
+            messages: [
+              {
+                sequence: 1,
+                blockId: "sonnet",
+                author: "Sonnet",
+                model: "sonnet",
+                timestamp: "2026-10-17T12:00:00Z",
+                text: "Proposal for the team",
+              },
+            ],
+          },
+        }}
+        onClose={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("log", { name: `${block.label} conversation` })).toBeTruthy();
     expect(screen.getByText("Sonnet")).toBeTruthy();
     expect(screen.getByText("Proposal for the team")).toBeTruthy();
@@ -73,15 +168,44 @@ describe("HarnessPanel", () => {
     fireEvent.click(toggle);
     expect((await screen.findByRole("alert")).textContent).toBe("Session changed");
     expect((toggle as HTMLInputElement).checked).toBe(true);
-    view.rerender(<BlockRunDetails block={block} state={{ ...state, sessionId: "new", autopilot: false }} onClose={vi.fn()} onAutopilot={onAutopilot} />);
+    view.rerender(
+      <BlockRunDetails
+        block={block}
+        state={{ ...state, sessionId: "new", autopilot: false }}
+        onClose={vi.fn()}
+        onAutopilot={onAutopilot}
+      />,
+    );
     await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false));
   });
 
   it("sends provider and model overrides with the first Chatbox message", async () => {
-    const block: HarnessBlock = { id: "chat", type: "chatbox", label: "Chat", prompt: "", provider: "old", model: "old-model", position: { x: 0, y: 0 } };
+    const block: HarnessBlock = {
+      id: "chat",
+      type: "chatbox",
+      label: "Chat",
+      prompt: "",
+      provider: "old",
+      model: "old-model",
+      position: { x: 0, y: 0 },
+    };
     const onChat = vi.fn().mockResolvedValue(undefined);
-    const onLoadModels = vi.fn().mockResolvedValue([{ id: "new-model", name: "New model", defaultReasoning: "", reasoningLevels: [] }]);
-    render(<BlockRunDetails block={block} onClose={vi.fn()} onChat={onChat} providers={[{ id: "new", name: "New provider", options: [], capabilities: {} } as unknown as Parameters<typeof HarnessPanel>[0]["providers"][number]]} onLoadModels={onLoadModels} />);
+    const onLoadModels = vi
+      .fn()
+      .mockResolvedValue([{ id: "new-model", name: "New model", defaultReasoning: "", reasoningLevels: [] }]);
+    render(
+      <BlockRunDetails
+        block={block}
+        onClose={vi.fn()}
+        onChat={onChat}
+        providers={[
+          { id: "new", name: "New provider", options: [], capabilities: {} } as unknown as Parameters<
+            typeof HarnessPanel
+          >[0]["providers"][number],
+        ]}
+        onLoadModels={onLoadModels}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Chatbox settings" }));
     fireEvent.change(screen.getByLabelText("Chatbox provider override"), { target: { value: "new" } });
     await waitFor(() => expect(onLoadModels).toHaveBeenLastCalledWith("new"));
@@ -90,23 +214,87 @@ describe("HarnessPanel", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Autopilot" }));
     fireEvent.change(screen.getByLabelText("Message Chat"), { target: { value: "Hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Send chat message" }));
-    await waitFor(() => expect(onChat).toHaveBeenCalledWith("Hello", { provider: "new", model: "new-model", autopilot: false }));
+    await waitFor(() =>
+      expect(onChat).toHaveBeenCalledWith("Hello", { provider: "new", model: "new-model", autopilot: false }),
+    );
   });
 
   it("links an existing skill from the catalogue and can return to custom instructions", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "skill", type: "skill", label: "Skill", description: "Custom", prompt: "Custom instructions", position: { x: 0, y: 0 } }], edges: [] };
-    const skillCatalog = { skills: [{ id: "workspace/review", scope: "workspace" as const, name: "review", title: "Reviewer", description: "Review code changes", path: "/project/.agents/skills/review/SKILL.md" }, { id: "global/blocked", scope: "global" as const, name: "blocked", title: "Blocked", path: "/skills/blocked/SKILL.md" }], policy: { allowed: ["workspace/review"], defaults: [] } };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        {
+          id: "skill",
+          type: "skill",
+          label: "Skill",
+          description: "Custom",
+          prompt: "Custom instructions",
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    };
+    const skillCatalog = {
+      skills: [
+        {
+          id: "workspace/review",
+          scope: "workspace" as const,
+          name: "review",
+          title: "Reviewer",
+          description: "Review code changes",
+          path: "/project/.agents/skills/review/SKILL.md",
+        },
+        {
+          id: "global/blocked",
+          scope: "global" as const,
+          name: "blocked",
+          title: "Blocked",
+          path: "/skills/blocked/SKILL.md",
+        },
+      ],
+      policy: { allowed: ["workspace/review"], defaults: [] },
+    };
     const onSave = vi.fn(async (value) => value);
     const onRefreshSkills = vi.fn(async () => {});
-    render(<HarnessPanel designOnly harnesses={[harness]} runs={[]} providers={[]} agents={[]} skillCatalog={skillCatalog} onRefreshSkills={onRefreshSkills} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    render(
+      <HarnessPanel
+        designOnly
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        skillCatalog={skillCatalog}
+        onRefreshSkills={onRefreshSkills}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(await screen.findByText("Skill"));
     expect(screen.getByRole("option", { name: "Blocked (global)" })).toHaveProperty("disabled", true);
     fireEvent.change(screen.getByLabelText("Existing skill"), { target: { value: "workspace/review" } });
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
     expect(screen.getAllByText("Review code changes").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ blocks: [expect.objectContaining({ skillId: "workspace/review", description: "Review code changes", prompt: "" })] })));
-    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(onSave.mock.calls[0]![0])).blocks[0]?.skillId).toBe("workspace/review");
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: [
+            expect.objectContaining({ skillId: "workspace/review", description: "Review code changes", prompt: "" }),
+          ],
+        }),
+      ),
+    );
+    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(onSave.mock.calls[0]![0])).blocks[0]?.skillId).toBe(
+      "workspace/review",
+    );
     fireEvent.click(screen.getByTitle("Refresh workflow skills"));
     expect(onRefreshSkills).toHaveBeenCalledTimes(2);
     fireEvent.change(screen.getByLabelText("Existing skill"), { target: { value: "" } });
@@ -115,11 +303,41 @@ describe("HarnessPanel", () => {
   });
 
   it("adds Task controls and saves its provider, model, and reasoning", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (value) => value);
-    const onLoadModels = vi.fn().mockResolvedValue([{ id: "worker-model", name: "Worker Model", defaultReasoning: "low", reasoningLevels: ["low", "high"] }]);
-    const providers = [{ id: "worker", name: "Worker", options: [], capabilities: {} }] as unknown as Parameters<typeof HarnessPanel>[0]["providers"];
-    render(<HarnessPanel designOnly harnesses={[harness]} runs={[]} providers={providers} agents={[]} defaultProvider="worker" onLoadModels={onLoadModels} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const onLoadModels = vi
+      .fn()
+      .mockResolvedValue([
+        { id: "worker-model", name: "Worker Model", defaultReasoning: "low", reasoningLevels: ["low", "high"] },
+      ]);
+    const providers = [{ id: "worker", name: "Worker", options: [], capabilities: {} }] as unknown as Parameters<
+      typeof HarnessPanel
+    >[0]["providers"];
+    render(
+      <HarnessPanel
+        designOnly
+        harnesses={[harness]}
+        runs={[]}
+        providers={providers}
+        agents={[]}
+        defaultProvider="worker"
+        onLoadModels={onLoadModels}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "task_controls" } });
     fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "worker" } });
     expect(screen.queryByLabelText("Agent preset")).toBeNull();
@@ -129,13 +347,45 @@ describe("HarnessPanel", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Worker Model/ }));
     fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ blocks: [expect.objectContaining({ type: "task_controls", provider: "worker", model: "worker-model", reasoning: "high", prompt: "" })] })));
-    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(onSave.mock.calls[0]![0])).blocks[0]).toMatchObject({ type: "task_controls", provider: "worker", model: "worker-model", reasoning: "high" });
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: [
+            expect.objectContaining({
+              type: "task_controls",
+              provider: "worker",
+              model: "worker-model",
+              reasoning: "high",
+              prompt: "",
+            }),
+          ],
+        }),
+      ),
+    );
+    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(onSave.mock.calls[0]![0])).blocks[0]).toMatchObject({
+      type: "task_controls",
+      provider: "worker",
+      model: "worker-model",
+      reasoning: "high",
+    });
   });
 
   it("shows a skill’s description and loaded instructions in run details", () => {
-    const block: HarnessBlock = { id: "skill", type: "skill", label: "Code review", description: "Use when reviewing code", prompt: "Inspect the diff", position: { x: 0, y: 0 } };
-    render(<BlockRunDetails block={block} state={{ blockId: block.id, status: "succeeded", output: "Inspect the diff" }} onClose={vi.fn()} />);
+    const block: HarnessBlock = {
+      id: "skill",
+      type: "skill",
+      label: "Code review",
+      description: "Use when reviewing code",
+      prompt: "Inspect the diff",
+      position: { x: 0, y: 0 },
+    };
+    render(
+      <BlockRunDetails
+        block={block}
+        state={{ blockId: block.id, status: "succeeded", output: "Inspect the diff" }}
+        onClose={vi.fn()}
+      />,
+    );
     const details = screen.getByLabelText("Code review run details");
     expect(details.textContent).toContain("Use when reviewing code");
     expect(details.textContent).toContain("Inspect the diff");
@@ -143,38 +393,132 @@ describe("HarnessPanel", () => {
   });
 
   it("adds and saves a SKILL block with a description and instructions", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (value) => value);
-    render(<HarnessPanel designOnly harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    render(
+      <HarnessPanel
+        designOnly
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "skill" } });
     expect(screen.getByLabelText("Block type")).toHaveProperty("value", "skill");
     fireEvent.change(screen.getByLabelText("Skill description"), { target: { value: "Use when reviewing code" } });
     fireEvent.change(screen.getByLabelText("Block prompt"), { target: { value: "Inspect the diff and verify tests" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ blocks: [expect.objectContaining({ type: "skill", description: "Use when reviewing code", prompt: "Inspect the diff and verify tests" })] })));
+    await waitFor(() =>
+      expect(onSave).toHaveBeenCalledWith(
+        expect.objectContaining({
+          blocks: [
+            expect.objectContaining({
+              type: "skill",
+              description: "Use when reviewing code",
+              prompt: "Inspect the diff and verify tests",
+            }),
+          ],
+        }),
+      ),
+    );
     const saved = onSave.mock.calls[0]![0] as HarnessDefinition;
-    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(saved)).blocks[0]).toMatchObject({ type: "skill", description: "Use when reviewing code", prompt: "Inspect the diff and verify tests" });
+    expect(parseWorkflowDefinitionImport(workflowDefinitionExport(saved)).blocks[0]).toMatchObject({
+      type: "skill",
+      description: "Use when reviewing code",
+      prompt: "Inspect the diff and verify tests",
+    });
   });
 
   it("saves a configurable Use connection timeout in seconds", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "parent", type: "chatbox", label: "Parent", prompt: "", position: { x: 20, y: 20 } },
-      { id: "child", type: "chatbox", label: "Child", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [{ id: "use", from: "parent", to: "child", type: "use" }] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "parent", type: "chatbox", label: "Parent", prompt: "", position: { x: 20, y: 20 } },
+        { id: "child", type: "chatbox", label: "Child", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [{ id: "use", from: "parent", to: "child", type: "use" }],
+    };
     const onSave = vi.fn(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Select connection: Parent then Child" }));
     expect(screen.getByLabelText("Use timeout (seconds)")).toHaveProperty("placeholder", "300");
     fireEvent.change(screen.getByLabelText("Use timeout (seconds)"), { target: { value: "1800" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave.mock.calls[0]?.[0].edges[0]).toMatchObject({ type: "use", timeoutMs: 1_800_000 }));
+    await waitFor(() =>
+      expect(onSave.mock.calls[0]?.[0].edges[0]).toMatchObject({ type: "use", timeoutMs: 1_800_000 }),
+    );
   });
 
   it("tests an unsaved app draft without an App/Script switch", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "app", type: "run_app", label: "Server", prompt: "", command: "npm run dev", app: { name: "server", actions: ["start"] }, position: { x: 0, y: 0 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        {
+          id: "app",
+          type: "run_app",
+          label: "Server",
+          prompt: "",
+          command: "npm run dev",
+          app: { name: "server", actions: ["start"] },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    };
     const onTestBlock = vi.fn().mockResolvedValue({ id: "test", harnessId: "flow", status: "queued", blocks: [] });
     const onSave = vi.fn();
-    render(<HarnessPanel designOnly harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onTestBlock={onTestBlock} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    render(
+      <HarnessPanel
+        designOnly
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onTestBlock={onTestBlock}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit block Server" }));
     expect(screen.queryByRole("switch", { name: "Run as app" })).toBeNull();
@@ -182,15 +526,42 @@ describe("HarnessPanel", () => {
     fireEvent.change(screen.getByLabelText("Run App script"), { target: { value: "printf test" } });
     fireEvent.change(screen.getByLabelText("Block test input"), { target: { value: "hello" } });
     fireEvent.click(screen.getByRole("button", { name: "Test Server" }));
-    await waitFor(() => expect(onTestBlock).toHaveBeenCalledWith(expect.objectContaining({ blocks: [expect.objectContaining({ type: "run_app", command: "printf test" })] }), "app", "hello"));
+    await waitFor(() =>
+      expect(onTestBlock).toHaveBeenCalledWith(
+        expect.objectContaining({ blocks: [expect.objectContaining({ type: "run_app", command: "printf test" })] }),
+        "app",
+        "hello",
+      ),
+    );
     expect(onSave).not.toHaveBeenCalled();
     expect(screen.getByLabelText("Run App script")).toHaveProperty("value", "printf test");
   });
 
   it("adds a Chatbox with AI settings and optional instructions", async () => {
-    const harness: HarnessDefinition = { id: "chat-flow", name: "Chat flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "chat-flow",
+      name: "Chat flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (definition) => definition);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "chatbox" } });
     expect(screen.getByLabelText("AI model")).toBeTruthy();
     expect(screen.getByLabelText("Block prompt")).toHaveProperty("value", "");
@@ -202,9 +573,30 @@ describe("HarnessPanel", () => {
   });
 
   it("adds and saves Terminal Control without AI configuration", async () => {
-    const harness: HarnessDefinition = { id: "terminal", name: "Terminals", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "terminal",
+      name: "Terminals",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (definition) => definition);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "terminal_control" } });
     expect(screen.queryByLabelText("AI model")).toBeNull();
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
@@ -215,9 +607,30 @@ describe("HarnessPanel", () => {
   });
 
   it("configures and saves a long-lived app block", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Apps", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Apps",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn(async (definition) => definition);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "run_app" } });
     fireEvent.change(screen.getByLabelText("Run App name"), { target: { value: "dev-server" } });
     fireEvent.change(screen.getByLabelText("Run App script"), { target: { value: "npm run dev" } });
@@ -233,14 +646,48 @@ describe("HarnessPanel", () => {
     fireEvent.change(screen.getByLabelText("Run App tail lines"), { target: { value: "25" } });
     fireEvent.click(screen.getByTitle("Save workflow"));
     await waitFor(() => expect(onSave).toHaveBeenCalled());
-    expect(onSave.mock.calls[0]?.[0].blocks[0]).toMatchObject({ type: "run_app", command: "npm run dev", app: { name: "dev-server", actions: ["status", "kill", "tail", "start"], lines: 25 } });
+    expect(onSave.mock.calls[0]?.[0].blocks[0]).toMatchObject({
+      type: "run_app",
+      command: "npm run dev",
+      app: { name: "dev-server", actions: ["status", "kill", "tail", "start"], lines: 25 },
+    });
   });
 
   it("retries a selected failed block from its frozen snapshot", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "failed", type: "prompt", label: "Failed", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const run: HarnessRun = { id: "old-run", harnessId: "flow", harnessVersion: 1, definition: harness, input: "retry this", status: "failed", createdAt: "now", blocks: [{ blockId: "failed", status: "failed", error: "provider failed" }] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "failed", type: "prompt", label: "Failed", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const run: HarnessRun = {
+      id: "old-run",
+      harnessId: "flow",
+      harnessVersion: 1,
+      definition: harness,
+      input: "retry this",
+      status: "failed",
+      createdAt: "now",
+      blocks: [{ blockId: "failed", status: "failed", error: "provider failed" }],
+    };
     const onRun = vi.fn().mockResolvedValue({ ...run, id: "new-run", status: "queued" });
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[run]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={onRun} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[run]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={onRun}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit block Failed" }));
     fireEvent.click(screen.getByRole("button", { name: "View" }));
@@ -249,10 +696,40 @@ describe("HarnessPanel", () => {
   });
 
   it("reruns a completed workflow from its frozen snapshot", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 2, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
-    const run: HarnessRun = { id: "old-run", harnessId: "flow", harnessVersion: 1, definition: { ...harness, version: 1 }, input: "repeat this", status: "succeeded", createdAt: "now", blocks: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 2,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
+    const run: HarnessRun = {
+      id: "old-run",
+      harnessId: "flow",
+      harnessVersion: 1,
+      definition: { ...harness, version: 1 },
+      input: "repeat this",
+      status: "succeeded",
+      createdAt: "now",
+      blocks: [],
+    };
     const onRun = vi.fn().mockResolvedValue({ ...run, id: "new-run", status: "queued" });
-    render(<HarnessPanel harnesses={[harness]} runs={[run]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={onRun} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    render(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[run]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={onRun}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("button", { name: "View" }).className).toContain("active");
     expect(screen.getByRole("button", { name: "Edit" }).className).not.toContain("active");
     expect(screen.queryByLabelText("Workflow name")).toBeNull();
@@ -261,13 +738,45 @@ describe("HarnessPanel", () => {
   });
 
   it("keeps Run, snapshot Rerun and each active run cancellation available in the action group", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "work", type: "ai", label: "Work", prompt: "Check", position: { x: 0, y: 0 } }], edges: [] };
-    const completed: HarnessRun = { id: "completed", harnessId: "flow", harnessVersion: 1, definition: harness, input: "Saved prompt", status: "succeeded", createdAt: "now", blocks: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "work", type: "ai", label: "Work", prompt: "Check", position: { x: 0, y: 0 } }],
+      edges: [],
+    };
+    const completed: HarnessRun = {
+      id: "completed",
+      harnessId: "flow",
+      harnessVersion: 1,
+      definition: harness,
+      input: "Saved prompt",
+      status: "succeeded",
+      createdAt: "now",
+      blocks: [],
+    };
     const active = ["first", "second"].map((id) => ({ ...completed, id, status: "running" as const }));
     const onRun = vi.fn().mockResolvedValue({ ...completed, id: "rerun", status: "queued" });
     const onCancelRun = vi.fn().mockResolvedValue(undefined);
-    render(<HarnessPanel harnesses={[harness]} runs={[completed, ...active]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={onRun} onCancelRun={onCancelRun} onError={vi.fn()} />);
-    fireEvent.change(await screen.findByRole("combobox", { name: "Selected workflow run" }), { target: { value: "completed" } });
+    render(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[completed, ...active]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={onRun}
+        onCancelRun={onCancelRun}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.change(await screen.findByRole("combobox", { name: "Selected workflow run" }), {
+      target: { value: "completed" },
+    });
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Stop run second" }));
     await waitFor(() => expect(onCancelRun).toHaveBeenCalledWith("second"));
@@ -278,29 +787,75 @@ describe("HarnessPanel", () => {
   });
 
   it("exports redacted workflow definitions and imports current or legacy envelopes", () => {
-    const definition: HarnessDefinition = { id: "flow", name: "Secret flow", version: 2, createdAt: "now", updatedAt: "now", blocks: [{ id: "plan", type: "prompt", label: "Plan", prompt: "token=super-secret-value", position: { x: 20, y: 20 } }], edges: [], settings: { tokenBudget: 5000 } };
+    const definition: HarnessDefinition = {
+      id: "flow",
+      name: "Secret flow",
+      version: 2,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "plan", type: "prompt", label: "Plan", prompt: "token=super-secret-value", position: { x: 20, y: 20 } },
+      ],
+      edges: [],
+      settings: { tokenBudget: 5000 },
+    };
     const exported = workflowDefinitionExport(definition);
     expect(exported).toContain("token=[REDACTED]");
     expect(exported).toContain('"tokenBudget": 5000');
-    expect(parseWorkflowDefinitionImport(exported)).toMatchObject({ id: "flow", blocks: [{ prompt: "token=[REDACTED]" }] });
-    expect(parseWorkflowDefinitionImport(JSON.stringify({ format: "hatopad-workflow", version: 0, harness: definition }))).toEqual(definition);
+    expect(parseWorkflowDefinitionImport(exported)).toMatchObject({
+      id: "flow",
+      blocks: [{ prompt: "token=[REDACTED]" }],
+    });
+    expect(
+      parseWorkflowDefinitionImport(JSON.stringify({ format: "hatopad-workflow", version: 0, harness: definition })),
+    ).toEqual(definition);
   });
 
   it("serializes a selected workflow run for export", () => {
-    const run: HarnessRun = { id: "run-1", harnessId: "flow", harnessVersion: 1, input: "work", status: "succeeded", createdAt: "now", blocks: [] };
+    const run: HarnessRun = {
+      id: "run-1",
+      harnessId: "flow",
+      harnessVersion: 1,
+      input: "work",
+      status: "succeeded",
+      createdAt: "now",
+      blocks: [],
+    };
     expect(JSON.parse(workflowRunExport(run))).toEqual(run);
   });
-  const zoomHarness: HarnessDefinition = { id: "zoom", name: "Zoom flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-    { id: "a", type: "text", label: "First", prompt: "", position: { x: 200, y: 200 } },
-    { id: "b", type: "text", label: "Second", prompt: "", position: { x: 500, y: 200 } },
-  ], edges: [{ id: "edge", from: "a", to: "b" }] };
+  const zoomHarness: HarnessDefinition = {
+    id: "zoom",
+    name: "Zoom flow",
+    version: 1,
+    createdAt: "now",
+    updatedAt: "now",
+    blocks: [
+      { id: "a", type: "text", label: "First", prompt: "", position: { x: 200, y: 200 } },
+      { id: "b", type: "text", label: "Second", prompt: "", position: { x: 500, y: 200 } },
+    ],
+    edges: [{ id: "edge", from: "a", to: "b" }],
+  };
   function renderZoomHarness() {
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[zoomHarness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[zoomHarness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     const canvas = screen.getByLabelText("Workflow canvas");
     vi.spyOn(canvas, "getBoundingClientRect").mockReturnValue({ left: 100, top: 80 } as DOMRect);
     Object.defineProperties(canvas, { clientWidth: { value: 600 }, clientHeight: { value: 400 } });
-    canvas.scrollLeft = 300; canvas.scrollTop = 200;
+    canvas.scrollLeft = 300;
+    canvas.scrollTop = 200;
     return { canvas, onSave };
   }
 
@@ -355,27 +910,44 @@ describe("HarnessPanel", () => {
     expect(canvas.classList.contains("panning")).toBe(false);
   });
 
-  it.each([{ ctrlKey: true, deltaY: -80 }, { shiftKey: true, deltaY: -80 }, { shiftKey: true, deltaX: -80 }])("anchors modified wheel zoom and prevents page zoom: %j", (gesture) => {
+  it.each([
+    { ctrlKey: true, deltaY: -80 },
+    { shiftKey: true, deltaY: -80 },
+    { shiftKey: true, deltaX: -80 },
+  ])("anchors modified wheel zoom and prevents page zoom: %j", (gesture) => {
     const { canvas } = renderZoomHarness();
     const event = new WheelEvent("wheel", { ...gesture, clientX: 300, clientY: 180, bubbles: true, cancelable: true });
     // happy-dom's WheelEvent extends UIEvent and omits MouseEvent fields.
-    Object.defineProperties(event, { ctrlKey: { value: "ctrlKey" in gesture }, shiftKey: { value: "shiftKey" in gesture }, clientX: { value: 300 }, clientY: { value: 180 } });
-    act(() => { canvas.dispatchEvent(event); });
+    Object.defineProperties(event, {
+      ctrlKey: { value: "ctrlKey" in gesture },
+      shiftKey: { value: "shiftKey" in gesture },
+      clientX: { value: 300 },
+      clientY: { value: 180 },
+    });
+    act(() => {
+      canvas.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(true);
     const scale = Math.exp(0.16);
     expect(canvas.scrollLeft).toBeCloseTo(500 * scale - 200);
     expect(canvas.scrollTop).toBeCloseTo(300 * scale - 100);
     expect(canvas.querySelector<HTMLElement>(".harness-canvas-content")?.style.transform).toBe(`scale(${scale})`);
     // Connections and blocks share the same transformed coordinate space.
-    expect(screen.getByLabelText("Workflow connections").parentElement).toBe(canvas.querySelector(".harness-canvas-content"));
-    expect(screen.getByLabelText("First response preview").closest(".harness-block")?.parentElement).toBe(canvas.querySelector(".harness-canvas-content"));
+    expect(screen.getByLabelText("Workflow connections").parentElement).toBe(
+      canvas.querySelector(".harness-canvas-content"),
+    );
+    expect(screen.getByLabelText("First response preview").closest(".harness-block")?.parentElement).toBe(
+      canvas.querySelector(".harness-canvas-content"),
+    );
     expect(screen.getByRole("button", { name: "Save" }).hasAttribute("disabled")).toBe(true);
   });
 
   it("preserves ordinary scrolling and supports bounded controls/reset in both modes", () => {
     const { canvas } = renderZoomHarness();
     const event = new WheelEvent("wheel", { deltaY: 40, bubbles: true, cancelable: true });
-    act(() => { canvas.dispatchEvent(event); });
+    act(() => {
+      canvas.dispatchEvent(event);
+    });
     expect(event.defaultPrevented).toBe(false);
     expect(screen.getByRole("button", { name: "Reset workflow zoom" }).textContent).toBe("100%");
     for (let i = 0; i < 20; i++) fireEvent.click(screen.getByRole("button", { name: "Zoom in" }));
@@ -390,7 +962,10 @@ describe("HarnessPanel", () => {
   });
 
   it("fits a single canvas axis independently of the other viewport dimension", () => {
-    const blocks: HarnessBlock[] = [{ id: "one", type: "text", label: "One", prompt: "", position: { x: 0, y: 0 } }, { id: "two", type: "text", label: "Two", prompt: "", position: { x: 900, y: 700 } }];
+    const blocks: HarnessBlock[] = [
+      { id: "one", type: "text", label: "One", prompt: "", position: { x: 0, y: 0 } },
+      { id: "two", type: "text", label: "Two", prompt: "", position: { x: 900, y: 700 } },
+    ];
     const horizontal = fitCanvasViewport(blocks, 600, 100, 48, "horizontal");
     const vertical = fitCanvasViewport(blocks, 100, 600, 48, "vertical");
     expect(horizontal.zoom).toBeCloseTo(600 / (900 + 176 + 96));
@@ -401,7 +976,9 @@ describe("HarnessPanel", () => {
     const { canvas } = renderZoomHarness();
     fireEvent.click(screen.getByRole("button", { name: "Fit workflow to canvas" }));
     const fitted = fitCanvasViewport(zoomHarness.blocks, 600, 400);
-    expect(screen.getByRole("button", { name: "Reset workflow zoom" }).textContent).toBe(`${Math.round(fitted.zoom * 100)}%`);
+    expect(screen.getByRole("button", { name: "Reset workflow zoom" }).textContent).toBe(
+      `${Math.round(fitted.zoom * 100)}%`,
+    );
     expect(canvas.scrollLeft).toBeCloseTo(fitted.scrollLeft);
     expect(canvas.scrollTop).toBeCloseTo(fitted.scrollTop);
   });
@@ -423,15 +1000,36 @@ describe("HarnessPanel", () => {
     fireEvent.change(screen.getByLabelText("Workflow run duration"), { target: { value: "15" } });
     fireEvent.change(screen.getByLabelText("Workflow token budget"), { target: { value: "50000" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].settings).toEqual({ concurrency: 2, maxActiveRuns: 3, maxBlockAttempts: 20, maxStackSize: 10, maxLoopCount: 5, maxChildTasks: 8, promptLimitChars: 5000, retry: { maxAttempts: 5 }, outputLimitChars: 5000, logLimitEntries: 25, maxRunDurationMs: 900_000, tokenBudget: 50_000 }));
+    await waitFor(() =>
+      expect(onSave.mock.calls.at(0)?.[0].settings).toEqual({
+        concurrency: 2,
+        maxActiveRuns: 3,
+        maxBlockAttempts: 20,
+        maxStackSize: 10,
+        maxLoopCount: 5,
+        maxChildTasks: 8,
+        promptLimitChars: 5000,
+        retry: { maxAttempts: 5 },
+        outputLimitChars: 5000,
+        logLimitEntries: 25,
+        maxRunDurationMs: 900_000,
+        tokenBudget: 50_000,
+      }),
+    );
   });
 
   it("shows the current canvas viewport in a minimap and moves it on click", () => {
     const { canvas } = renderZoomHarness();
-    canvas.scrollLeft = 300; canvas.scrollTop = 200;
+    canvas.scrollLeft = 300;
+    canvas.scrollTop = 200;
     fireEvent.scroll(canvas);
     const minimap = screen.getByRole("button", { name: "Workflow minimap" });
-    vi.spyOn(minimap, "getBoundingClientRect").mockReturnValue({ left: 20, top: 30, width: 150, height: 100 } as DOMRect);
+    vi.spyOn(minimap, "getBoundingClientRect").mockReturnValue({
+      left: 20,
+      top: 30,
+      width: 150,
+      height: 100,
+    } as DOMRect);
     const viewport = minimapViewport(1200, 800, 1, { left: 300, top: 200, width: 600, height: 400 });
     const indicator = minimap.querySelector<HTMLElement>(".harness-minimap-viewport")!;
     expect(indicator.style.left).toBe(`${viewport.left}%`);
@@ -446,7 +1044,9 @@ describe("HarnessPanel", () => {
     const minimap = screen.getByRole("button", { name: "Workflow minimap" });
     expect(canvas.contains(minimap)).toBe(false);
     expect(canvas.parentElement!.contains(minimap)).toBe(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Workflow minimap corner" }), { target: { value: "top-left" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Workflow minimap corner" }), {
+      target: { value: "top-left" },
+    });
     const dock = minimap.closest(".harness-minimap-dock")!;
     expect(dock.classList.contains("top-left")).toBe(true);
     canvas.scrollLeft = 600;
@@ -456,7 +1056,12 @@ describe("HarnessPanel", () => {
     fireEvent.click(dock.querySelector("button[aria-label='Hide workflow minimap']")!);
     expect(screen.queryByRole("button", { name: "Workflow minimap" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Show workflow minimap" }));
-    expect(screen.getByRole("button", { name: "Workflow minimap" }).closest(".harness-minimap-dock")!.classList.contains("top-left")).toBe(true);
+    expect(
+      screen
+        .getByRole("button", { name: "Workflow minimap" })
+        .closest(".harness-minimap-dock")!
+        .classList.contains("top-left"),
+    ).toBe(true);
   });
 
   it("drags the minimap within the viewport and docks it at the nearest corner", () => {
@@ -464,8 +1069,18 @@ describe("HarnessPanel", () => {
     const frame = canvas.parentElement!;
     const handle = screen.getByRole("button", { name: "Move workflow minimap" });
     const dock = handle.closest<HTMLElement>(".harness-minimap-dock")!;
-    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({ left: 100, top: 80, width: 600, height: 400 } as DOMRect);
-    vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({ left: 522, top: 344, width: 168, height: 126 } as DOMRect);
+    vi.spyOn(frame, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      top: 80,
+      width: 600,
+      height: 400,
+    } as DOMRect);
+    vi.spyOn(dock, "getBoundingClientRect").mockReturnValue({
+      left: 522,
+      top: 344,
+      width: 168,
+      height: 126,
+    } as DOMRect);
     handle.setPointerCapture = vi.fn();
     fireEvent.pointerDown(handle, { button: 0, pointerId: 1, clientX: 540, clientY: 354 });
     fireEvent.pointerMove(handle, { pointerId: 1, clientX: 200, clientY: 140 });
@@ -502,7 +1117,11 @@ describe("HarnessPanel", () => {
       { id: "test", type: "text" as const, label: "Test", prompt: "", position: { x: 100, y: 200 } },
       { id: "notes", type: "text" as const, label: "Notes", prompt: "", position: { x: 20, y: 20 } },
     ];
-    const edges = [{ id: "plan-build", from: "plan", to: "build" }, { id: "build-test", from: "build", to: "test" }, { id: "tool", from: "test", to: "plan", type: "use" as const }];
+    const edges = [
+      { id: "plan-build", from: "plan", to: "build" },
+      { id: "build-test", from: "build", to: "test" },
+      { id: "tool", from: "test", to: "plan", type: "use" as const },
+    ];
     expect(autoLayoutBlocks(blocks, edges).map(({ id, position }) => ({ id, position }))).toEqual([
       { id: "build", position: { x: 292, y: 32 } },
       { id: "plan", position: { x: 32, y: 32 } },
@@ -526,7 +1145,8 @@ describe("HarnessPanel", () => {
     const { canvas } = renderZoomHarness();
     const first = screen.getByLabelText("First response preview").closest(".harness-block") as HTMLElement;
     const second = screen.getByLabelText("Second response preview").closest(".harness-block") as HTMLElement;
-    first.setPointerCapture = vi.fn(); second.setPointerCapture = vi.fn();
+    first.setPointerCapture = vi.fn();
+    second.setPointerCapture = vi.fn();
     vi.spyOn(first, "getBoundingClientRect").mockReturnValue({ left: 0, top: 80 } as DOMRect);
     vi.spyOn(second, "getBoundingClientRect").mockReturnValue({ left: 300, top: 80 } as DOMRect);
     fireEvent.pointerDown(first, { pointerId: 1, button: 0, clientX: 0, clientY: 80 });
@@ -552,8 +1172,16 @@ describe("HarnessPanel", () => {
       { id: "second", type: "text" as const, label: "Second", prompt: "", position: { x: 400, y: 300 } },
       { id: "other", type: "text" as const, label: "Other", prompt: "", position: { x: 800, y: 600 } },
     ];
-    expect(alignBlocks(blocks, ["first", "second"], "center").map((block) => block.position)).toEqual([{ x: 210, y: 40 }, { x: 210, y: 300 }, { x: 800, y: 600 }]);
-    expect(alignBlocks(blocks, ["first", "second"], "bottom").map((block) => block.position)).toEqual([{ x: 20, y: 300 }, { x: 400, y: 300 }, { x: 800, y: 600 }]);
+    expect(alignBlocks(blocks, ["first", "second"], "center").map((block) => block.position)).toEqual([
+      { x: 210, y: 40 },
+      { x: 210, y: 300 },
+      { x: 800, y: 600 },
+    ]);
+    expect(alignBlocks(blocks, ["first", "second"], "bottom").map((block) => block.position)).toEqual([
+      { x: 20, y: 300 },
+      { x: 400, y: 300 },
+      { x: 800, y: 600 },
+    ]);
   });
 
   it("drags and updates connection geometry after zoom, but leaves View mode fixed", () => {
@@ -566,7 +1194,11 @@ describe("HarnessPanel", () => {
     const originalPath = edge.getAttribute("d");
     // Grab 30/20 workflow pixels inside the node; the move uses scaled scroll coordinates.
     fireEvent.pointerDown(node, { pointerId: 1, button: 0, clientX: 156, clientY: 124 });
-    fireEvent.pointerMove(canvas, { pointerId: 1, clientX: 100 + 300 * 1.2 - canvas.scrollLeft, clientY: 80 + 280 * 1.2 - canvas.scrollTop });
+    fireEvent.pointerMove(canvas, {
+      pointerId: 1,
+      clientX: 100 + 300 * 1.2 - canvas.scrollLeft,
+      clientY: 80 + 280 * 1.2 - canvas.scrollTop,
+    });
     expect(parseFloat(node.style.left)).toBeCloseTo(270);
     expect(parseFloat(node.style.top)).toBeCloseTo(260);
     expect(edge.getAttribute("d")).not.toBe(originalPath);
@@ -583,15 +1215,40 @@ describe("HarnessPanel", () => {
 
   it.each([0.5, 2])("drags with workflow coordinates at %sx including scroll and grab offset", (zoom) => {
     // The grabbed workflow point is (230, 220); move by 60/40 screen pixels.
-    const scrollLeft = 100; const scrollTop = 50;
+    const scrollLeft = 100;
+    const scrollTop = 50;
     const clientX = 100 + 230 * zoom - scrollLeft + 60;
     const clientY = 80 + 220 * zoom - scrollTop + 40;
-    expect(dragPosition(clientX, clientY, 100, 80, scrollLeft, scrollTop, 30, 20, zoom)).toEqual({ x: 200 + 60 / zoom, y: 200 + 40 / zoom });
+    expect(dragPosition(clientX, clientY, 100, 80, scrollLeft, scrollTop, 30, 20, zoom)).toEqual({
+      x: 200 + 60 / zoom,
+      y: 200 + 40 / zoom,
+    });
   });
 
   it("creates a workflow from the in-panel name form", async () => {
-    const onCreate = vi.fn().mockResolvedValue({ id: "harness-1", name: "Review flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] });
-    renderEditor(<HarnessPanel harnesses={[]} runs={[]} providers={[]} agents={[]} onCreate={onCreate} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const onCreate = vi.fn().mockResolvedValue({
+      id: "harness-1",
+      name: "Review flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    });
+    renderEditor(
+      <HarnessPanel
+        harnesses={[]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={onCreate}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByText("Create workflow", { selector: "button" }));
     const name = screen.getByRole("textbox", { name: "Workflow name" });
@@ -602,9 +1259,33 @@ describe("HarnessPanel", () => {
     await waitFor(() => expect(screen.queryByRole("textbox", { name: "Workflow name" })).toBeNull());
   });
 
-  it.each([["five-minute-check-in", "Five-minute workspace check-in"], ["git-review-commit", "Review, commit & ask to push"]])("creates the %s template from the creation form", async (template, name) => {
-    const onCreate = vi.fn().mockResolvedValue({ id: "flow", name: "Check-ins", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] });
-    renderEditor(<HarnessPanel harnesses={[]} runs={[]} providers={[]} agents={[]} onCreate={onCreate} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+  it.each([
+    ["five-minute-check-in", "Five-minute workspace check-in"],
+    ["git-review-commit", "Review, commit & ask to push"],
+  ])("creates the %s template from the creation form", async (template, name) => {
+    const onCreate = vi.fn().mockResolvedValue({
+      id: "flow",
+      name: "Check-ins",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    });
+    renderEditor(
+      <HarnessPanel
+        harnesses={[]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={onCreate}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByText("Create workflow", { selector: "button" }));
     fireEvent.change(screen.getByLabelText("Workflow template"), { target: { value: template } });
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
@@ -612,7 +1293,21 @@ describe("HarnessPanel", () => {
   });
 
   it("shows persisted workflow-state recovery diagnostics", () => {
-    renderEditor(<HarnessPanel harnesses={[]} runs={[]} diagnostics={[{ source: "runs.json", reason: "Unexpected end of JSON input", detectedAt: "now" }]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[]}
+        runs={[]}
+        diagnostics={[{ source: "runs.json", reason: "Unexpected end of JSON input", detectedAt: "now" }]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("alert").textContent).toContain("Workflow state recovered from backup");
     expect(screen.getByRole("alert").textContent).toContain("runs.json: Unexpected end of JSON input");
     fireEvent.click(screen.getByRole("button", { name: "Dismiss workflow recovery notice" }));
@@ -621,23 +1316,76 @@ describe("HarnessPanel", () => {
 
   it("announces validation and selected run-state changes", async () => {
     const issue = { code: "missing-prompt", blockId: "a", message: "First needs instructions" };
-    const props = { harnesses: [zoomHarness], providers: [], agents: [], onCreate: vi.fn(), onSave: vi.fn(), onDelete: vi.fn(), onRun: vi.fn(), onCancelRun: vi.fn(), onError: vi.fn() };
-    const view = renderEditor(<HarnessPanel {...props} runs={[]} onValidate={vi.fn().mockResolvedValue({ valid: false, issues: [issue] })} />);
-    await waitFor(() => expect(screen.getByRole("status", { name: "Workflow validation status" }).textContent).toContain("1 workflow validation issue"));
-    const running: HarnessRun = { id: "run-1", harnessId: "zoom", harnessVersion: 1, input: "work", status: "running", createdAt: "now", blocks: [] };
+    const props = {
+      harnesses: [zoomHarness],
+      providers: [],
+      agents: [],
+      onCreate: vi.fn(),
+      onSave: vi.fn(),
+      onDelete: vi.fn(),
+      onRun: vi.fn(),
+      onCancelRun: vi.fn(),
+      onError: vi.fn(),
+    };
+    const view = renderEditor(
+      <HarnessPanel {...props} runs={[]} onValidate={vi.fn().mockResolvedValue({ valid: false, issues: [issue] })} />,
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Workflow validation status" }).textContent).toContain(
+        "1 workflow validation issue",
+      ),
+    );
+    const running: HarnessRun = {
+      id: "run-1",
+      harnessId: "zoom",
+      harnessVersion: 1,
+      input: "work",
+      status: "running",
+      createdAt: "now",
+      blocks: [],
+    };
     view.rerender(<HarnessPanel {...props} runs={[running]} />);
-    await waitFor(() => expect(screen.getByRole("status", { name: "Workflow run status" }).textContent).toContain("Workflow run run-1 is running"));
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Workflow run status" }).textContent).toContain(
+        "Workflow run run-1 is running",
+      ),
+    );
     view.rerender(<HarnessPanel {...props} runs={[{ ...running, status: "succeeded", completedAt: "later" }]} />);
-    await waitFor(() => expect(screen.getByRole("status", { name: "Workflow run status" }).textContent).toContain("Workflow run run-1 is succeeded"));
+    await waitFor(() =>
+      expect(screen.getByRole("status", { name: "Workflow run status" }).textContent).toContain(
+        "Workflow run run-1 is succeeded",
+      ),
+    );
   });
 
   it("connects output to input and renders a directional edge", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
-      { id: "b", type: "prompt", label: "Build", prompt: "", position: { x: 260, y: 150 } },
-    ], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
+        { id: "b", type: "prompt", label: "Build", prompt: "", position: { x: 260, y: 150 } },
+      ],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     await screen.findByRole("button", { name: "Connect from Plan" });
 
     fireEvent.click(screen.getByRole("button", { name: "Connect from Plan" }));
@@ -652,12 +1400,33 @@ describe("HarnessPanel", () => {
   });
 
   it("connects blocks with Enter and Space from focused ports", async () => {
-    const harness: HarnessDefinition = { id: "keyboard-flow", name: "Keyboard flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "source", type: "prompt", label: "Source", prompt: "", position: { x: 20, y: 20 } },
-      { id: "target", type: "prompt", label: "Target", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "keyboard-flow",
+      name: "Keyboard flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "source", type: "prompt", label: "Source", prompt: "", position: { x: 20, y: 20 } },
+        { id: "target", type: "prompt", label: "Target", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     const output = await screen.findByRole("button", { name: "Connect from Source" });
     const input = screen.getByRole("button", { name: "Connect into Target" });
     expect(output.getAttribute("aria-keyshortcuts")).toBe("Enter Space");
@@ -665,16 +1434,39 @@ describe("HarnessPanel", () => {
     expect(input.hasAttribute("disabled")).toBe(false);
     fireEvent.keyDown(input, { key: " " });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].edges).toMatchObject([{ from: "source", to: "target", type: "follow" }]));
+    await waitFor(() =>
+      expect(onSave.mock.calls.at(0)?.[0].edges).toMatchObject([{ from: "source", to: "target", type: "follow" }]),
+    );
   });
 
   it("edits blocks and connections from the ordered list without the canvas", async () => {
-    const harness: HarnessDefinition = { id: "list-flow", name: "List flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "source", type: "prompt", label: "Source", prompt: "", position: { x: 20, y: 20 } },
-      { id: "target", type: "prompt", label: "Target", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "list-flow",
+      name: "List flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "source", type: "prompt", label: "Source", prompt: "", position: { x: 20, y: 20 } },
+        { id: "target", type: "prompt", label: "Target", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     expect(screen.getByLabelText("Workflow list editor")).toBeTruthy();
     expect(screen.queryByLabelText("Workflow canvas")).toBeNull();
@@ -685,33 +1477,81 @@ describe("HarnessPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));
     expect(screen.getByRole("button", { name: "Edit connection Source then Target" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].edges).toMatchObject([{ from: "source", to: "target", type: "follow" }]));
+    await waitFor(() =>
+      expect(onSave.mock.calls.at(0)?.[0].edges).toMatchObject([{ from: "source", to: "target", type: "follow" }]),
+    );
   });
 
   it("connects an AI to another AI as a tool", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Cycle", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "a", type: "ai", label: "Build", prompt: "", position: { x: 20, y: 20 } },
-      { id: "b", type: "ai", label: "Review", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [{ id: "forward", from: "a", to: "b", label: "review" }] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Cycle",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "ai", label: "Build", prompt: "", position: { x: 20, y: 20 } },
+        { id: "b", type: "ai", label: "Review", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [{ id: "forward", from: "a", to: "b", label: "review" }],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(await screen.findByRole("button", { name: "Connect from Review" }));
     fireEvent.change(screen.getByLabelText("New connection type"), { target: { value: "use" } });
     fireEvent.click(screen.getByRole("button", { name: "Connect into Build" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
-    await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].edges[1]).toMatchObject({ from: "b", to: "a", type: "use" }));
-    expect(screen.getByLabelText("Workflow connections").querySelector(".harness-edge.use")?.textContent).toContain("Review then Build");
+    await waitFor(() =>
+      expect(onSave.mock.calls.at(0)?.[0].edges[1]).toMatchObject({ from: "b", to: "a", type: "use" }),
+    );
+    expect(screen.getByLabelText("Workflow connections").querySelector(".harness-edge.use")?.textContent).toContain(
+      "Review then Build",
+    );
   });
 
   it("selects and deletes an individual connection", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
-      { id: "b", type: "prompt", label: "Build", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [{ id: "edge", from: "a", to: "b" }] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
+        { id: "b", type: "prompt", label: "Build", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [{ id: "edge", from: "a", to: "b" }],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(await screen.findByRole("button", { name: "Select connection: Plan then Build" }));
     expect(screen.getByRole("region", { name: "Connection settings" }).textContent).toContain("Plan → Build");
@@ -722,12 +1562,33 @@ describe("HarnessPanel", () => {
   });
 
   it("changes a selected connection from follow to path", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "a", type: "ai", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
-      { id: "b", type: "task", label: "Build", prompt: "", position: { x: 260, y: 20 } },
-    ], edges: [{ id: "edge", from: "a", to: "b" }] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "ai", label: "Plan", prompt: "", position: { x: 20, y: 20 } },
+        { id: "b", type: "task", label: "Build", prompt: "", position: { x: 260, y: 20 } },
+      ],
+      edges: [{ id: "edge", from: "a", to: "b" }],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(await screen.findByRole("button", { name: "Select connection: Plan then Build" }));
     fireEvent.change(screen.getByRole("combobox", { name: "Connection type" }), { target: { value: "path" } });
@@ -737,26 +1598,76 @@ describe("HarnessPanel", () => {
   });
 
   it("starts both entry types from their canvas controls in View mode", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "button", type: "start_button", label: "Button start", prompt: "Configured prompt", position: { x: 20, y: 20 } },
-      { id: "input", type: "start_input", label: "Text start", prompt: "", position: { x: 250, y: 20 } }
-    ], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        {
+          id: "button",
+          type: "start_button",
+          label: "Button start",
+          prompt: "Configured prompt",
+          position: { x: 20, y: 20 },
+        },
+        { id: "input", type: "start_input", label: "Text start", prompt: "", position: { x: 250, y: 20 } },
+      ],
+      edges: [],
+    };
     const onRun = vi.fn().mockResolvedValue({ id: "run" });
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={onRun} onCancelRun={vi.fn()} onError={vi.fn()} />);
-    await screen.findByLabelText("Workflow name"); fireEvent.click(screen.getByRole("button", { name: "View" }));
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={onRun}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    await screen.findByLabelText("Workflow name");
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.queryByLabelText("Workflow input")).toBeNull();
     fireEvent.click(screen.getAllByRole("button", { name: "Start" })[0]!);
     await waitFor(() => expect(onRun).toHaveBeenCalledWith("flow", "Configured prompt", "button"));
     fireEvent.change(screen.getByLabelText("Input for Text start"), { target: { value: "Typed prompt" } });
     fireEvent.click(screen.getAllByRole("button", { name: "Start" })[1]!);
     await waitFor(() => expect(onRun).toHaveBeenCalledWith("flow", "Typed prompt", "input"));
-    fireEvent.click(screen.getByText("Button start")); expect(screen.queryByLabelText("Block type")).toBeNull();
+    fireEvent.click(screen.getByText("Button start"));
+    expect(screen.queryByLabelText("Block type")).toBeNull();
   });
 
   it("adds a timer with type-specific settings", async () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "timer" } });
     expect((screen.getByLabelText("Block type") as HTMLSelectElement).value).toBe("timer");
     expect(screen.queryByLabelText("Block role")).toBeNull();
@@ -768,44 +1679,136 @@ describe("HarnessPanel", () => {
   it("animates real forward and return transfers, pulses ports, and clears finished traces", async () => {
     vi.useFakeTimers();
     try {
-      const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-        { id: "agent", type: "ai", label: "Agent", prompt: "Work", position: { x: 20, y: 20 } },
-        { id: "tool", type: "text", label: "Tool", prompt: "Text", position: { x: 250, y: 20 } },
-        { id: "unused", type: "text", label: "Unused", prompt: "Text", position: { x: 500, y: 20 } }
-      ], edges: [{ id: "use", from: "agent", to: "tool", type: "use" }, { id: "unused-path", from: "agent", to: "unused", type: "path", label: "unused" }] };
-      const run: HarnessRun = { id: "run", harnessId: "flow", harnessVersion: 1, input: "work", status: "running", createdAt: "now", blocks: [{ blockId: "agent", status: "running" }], connectionTraces: [] };
-      const props = { harnesses: [harness], providers: [], agents: [], onCreate: vi.fn(), onSave: vi.fn(), onDelete: vi.fn(), onRun: vi.fn(), onCancelRun: vi.fn(), onError: vi.fn() };
+      const harness: HarnessDefinition = {
+        id: "flow",
+        name: "Flow",
+        version: 1,
+        createdAt: "now",
+        updatedAt: "now",
+        blocks: [
+          { id: "agent", type: "ai", label: "Agent", prompt: "Work", position: { x: 20, y: 20 } },
+          { id: "tool", type: "text", label: "Tool", prompt: "Text", position: { x: 250, y: 20 } },
+          { id: "unused", type: "text", label: "Unused", prompt: "Text", position: { x: 500, y: 20 } },
+        ],
+        edges: [
+          { id: "use", from: "agent", to: "tool", type: "use" },
+          { id: "unused-path", from: "agent", to: "unused", type: "path", label: "unused" },
+        ],
+      };
+      const run: HarnessRun = {
+        id: "run",
+        harnessId: "flow",
+        harnessVersion: 1,
+        input: "work",
+        status: "running",
+        createdAt: "now",
+        blocks: [{ blockId: "agent", status: "running" }],
+        connectionTraces: [],
+      };
+      const props = {
+        harnesses: [harness],
+        providers: [],
+        agents: [],
+        onCreate: vi.fn(),
+        onSave: vi.fn(),
+        onDelete: vi.fn(),
+        onRun: vi.fn(),
+        onCancelRun: vi.fn(),
+        onError: vi.fn(),
+      };
       const view = renderEditor(<HarnessPanel {...props} runs={[run]} />);
-      view.rerender(<HarnessPanel {...props} runs={[{ ...run, connectionTraces: [{ id: "request", edgeId: "use", direction: "forward", status: "succeeded", startedAt: "now" }, { id: "reply", edgeId: "use", direction: "return", status: "succeeded", startedAt: "now" }] }]} />);
+      view.rerender(
+        <HarnessPanel
+          {...props}
+          runs={[
+            {
+              ...run,
+              connectionTraces: [
+                { id: "request", edgeId: "use", direction: "forward", status: "succeeded", startedAt: "now" },
+                { id: "reply", edgeId: "use", direction: "return", status: "succeeded", startedAt: "now" },
+              ],
+            },
+          ]}
+        />,
+      );
       expect(screen.getByLabelText("Input: Agent → Tool").classList.contains("forward")).toBe(true);
       expect(screen.getByLabelText("Output: Tool → Agent").classList.contains("return")).toBe(true);
       expect(screen.queryByLabelText("Input: Agent → Unused")).toBeNull();
       expect(screen.getByLabelText("Connect into Tool").classList.contains("flowing")).toBe(true);
       expect(screen.getByLabelText("Connect from Agent").classList.contains("flowing")).toBe(true);
-      await act(async () => { vi.advanceTimersByTime(2500); });
+      await act(async () => {
+        vi.advanceTimersByTime(2500);
+      });
       expect(screen.queryByLabelText("Input: Agent → Tool")).toBeNull();
       expect(screen.queryByLabelText("Output: Tool → Agent")).toBeNull();
       expect(screen.getByLabelText("Connect into Tool").classList.contains("flowing")).toBe(false);
-    } finally { vi.useRealTimers(); }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("clears active traces when a run is cancelled and does not replay historical traces", () => {
-    const harness: HarnessDefinition = { id: "flow", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-      { id: "a", type: "ai", label: "Agent", prompt: "Work", position: { x: 20, y: 20 } },
-      { id: "b", type: "text", label: "Tool", prompt: "Text", position: { x: 250, y: 20 } }
-    ], edges: [{ id: "use", from: "a", to: "b", type: "use" }] };
-    const run: HarnessRun = { id: "run", harnessId: "flow", harnessVersion: 1, input: "work", status: "running", createdAt: "now", blocks: [], connectionTraces: [{ id: "request", edgeId: "use", direction: "forward", status: "active", startedAt: "now" }] };
-    const props = { harnesses: [harness], providers: [], agents: [], onCreate: vi.fn(), onSave: vi.fn(), onDelete: vi.fn(), onRun: vi.fn(), onCancelRun: vi.fn(), onError: vi.fn() };
+    const harness: HarnessDefinition = {
+      id: "flow",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "ai", label: "Agent", prompt: "Work", position: { x: 20, y: 20 } },
+        { id: "b", type: "text", label: "Tool", prompt: "Text", position: { x: 250, y: 20 } },
+      ],
+      edges: [{ id: "use", from: "a", to: "b", type: "use" }],
+    };
+    const run: HarnessRun = {
+      id: "run",
+      harnessId: "flow",
+      harnessVersion: 1,
+      input: "work",
+      status: "running",
+      createdAt: "now",
+      blocks: [],
+      connectionTraces: [{ id: "request", edgeId: "use", direction: "forward", status: "active", startedAt: "now" }],
+    };
+    const props = {
+      harnesses: [harness],
+      providers: [],
+      agents: [],
+      onCreate: vi.fn(),
+      onSave: vi.fn(),
+      onDelete: vi.fn(),
+      onRun: vi.fn(),
+      onCancelRun: vi.fn(),
+      onError: vi.fn(),
+    };
     const view = renderEditor(<HarnessPanel {...props} runs={[run]} />);
     expect(screen.getByLabelText("Input: Agent → Tool")).toBeTruthy();
     view.rerender(<HarnessPanel {...props} runs={[{ ...run, status: "cancelled" }]} />);
     expect(screen.queryByLabelText("Input: Agent → Tool")).toBeNull();
-    view.rerender(<HarnessPanel {...props} runs={[{ ...run, id: "historical", status: "succeeded", connectionTraces: [{ ...run.connectionTraces![0]!, status: "succeeded" }] }]} />);
+    view.rerender(
+      <HarnessPanel
+        {...props}
+        runs={[
+          {
+            ...run,
+            id: "historical",
+            status: "succeeded",
+            connectionTraces: [{ ...run.connectionTraces![0]!, status: "succeeded" }],
+          },
+        ]}
+      />,
+    );
     expect(screen.queryByLabelText("Input: Agent → Tool")).toBeNull();
   });
 
   it("routes vertical connections from the block edges", () => {
-    const block = (id: string, x: number, y: number) => ({ id, type: "prompt" as const, label: id, prompt: "", position: { x, y } });
+    const block = (id: string, x: number, y: number) => ({
+      id,
+      type: "prompt" as const,
+      label: id,
+      prompt: "",
+      position: { x, y },
+    });
     expect(edgePath(block("a", 20, 20), block("b", 30, 220))).toMatch(/^M 108 136 C /);
   });
 
@@ -814,19 +1817,77 @@ describe("HarnessPanel", () => {
   });
 
   it("shows a compact preview of each block response", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded" as const, createdAt: "now", blocks: [{ blockId: "a", status: "succeeded" as const, output: "First line\n\nSecond line" }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded" as const,
+        createdAt: "now",
+        blocks: [{ blockId: "a", status: "succeeded" as const, output: "First line\n\nSecond line" }],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     expect((await screen.findByLabelText("Plan response preview")).textContent).toBe("First line Second line");
     expect(responsePreview("x".repeat(150))).toHaveLength(140);
   });
 
   it("selects a block model from the provider catalogue", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    const onLoadModels = vi.fn().mockResolvedValue([{ id: "gpt-test", name: "GPT Test", defaultReasoning: "medium", reasoningLevels: ["low", "medium", "high"] }]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} defaultProvider="codex" onLoadModels={onLoadModels} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const onLoadModels = vi
+      .fn()
+      .mockResolvedValue([
+        { id: "gpt-test", name: "GPT Test", defaultReasoning: "medium", reasoningLevels: ["low", "medium", "high"] },
+      ]);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        defaultProvider="codex"
+        onLoadModels={onLoadModels}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(await screen.findByText("Plan"));
     fireEvent.click(await screen.findByRole("button", { name: "AI model" }));
@@ -839,16 +1900,75 @@ describe("HarnessPanel", () => {
   });
 
   it("saves declared JSON schemas and shows the validated run data", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, definition: { ...harness, settings: { tokenBudget: 20_000, maxActiveRuns: 2, maxBlockAttempts: 20, maxStackSize: 10, maxLoopCount: 5, maxChildTasks: 8 } }, input: '{"featureId":"F-1"}', status: "succeeded" as const, createdAt: "now", blocks: [{ blockId: "a", status: "succeeded" as const, tokens: { total: 12_345, input: 8_000, output: 4_345 }, structuredInput: { featureId: "F-1" }, structuredOutput: { commitSha: "abc123" } }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        definition: {
+          ...harness,
+          settings: {
+            tokenBudget: 20_000,
+            maxActiveRuns: 2,
+            maxBlockAttempts: 20,
+            maxStackSize: 10,
+            maxLoopCount: 5,
+            maxChildTasks: 8,
+          },
+        },
+        input: '{"featureId":"F-1"}',
+        status: "succeeded" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "succeeded" as const,
+            tokens: { total: 12_345, input: 8_000, output: 4_345 },
+            structuredInput: { featureId: "F-1" },
+            structuredOutput: { commitSha: "abc123" },
+          },
+        ],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(await screen.findByText("Plan"));
-    fireEvent.change(screen.getByRole("textbox", { name: "Input schema" }), { target: { value: '{"type":"object","required":["featureId"],"properties":{"featureId":{"type":"string"}}}' } });
-    fireEvent.change(screen.getByRole("textbox", { name: "Output schema" }), { target: { value: '{"type":"object","required":["commitSha"],"properties":{"commitSha":{"type":"string"}}}' } });
+    fireEvent.change(screen.getByRole("textbox", { name: "Input schema" }), {
+      target: { value: '{"type":"object","required":["featureId"],"properties":{"featureId":{"type":"string"}}}' },
+    });
+    fireEvent.change(screen.getByRole("textbox", { name: "Output schema" }), {
+      target: { value: '{"type":"object","required":["commitSha"],"properties":{"commitSha":{"type":"string"}}}' },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].blocks[0]).toMatchObject({ inputSchema: { required: ["featureId"] }, outputSchema: { required: ["commitSha"] } }));
+    await waitFor(() =>
+      expect(onSave.mock.calls.at(0)?.[0].blocks[0]).toMatchObject({
+        inputSchema: { required: ["featureId"] },
+        outputSchema: { required: ["commitSha"] },
+      }),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const details = await screen.findByLabelText("Plan run details");
@@ -859,13 +1979,70 @@ describe("HarnessPanel", () => {
     expect(details.textContent).toContain("Run run-1 · definition v1");
     expect(details.textContent).toContain("12,345 tokens");
     expect(details.textContent).toContain("/ 20,000 budget");
-    expect(details.textContent).toContain("Limits: 2 active runs · 20 block attempts · 10 stack inputs · 5 loop iterations · 8 child tasks");
+    expect(details.textContent).toContain(
+      "Limits: 2 active runs · 20 block attempts · 10 stack inputs · 5 loop iterations · 8 child tasks",
+    );
   });
 
   it("shows prompts, answers, and stack runs when a block is selected in view mode", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded" as const, createdAt: "now", blocks: [{ blockId: "a", status: "succeeded" as const, prompt: "Review task", output: "combined", plannedRuns: 2, iterations: [{ index: 1, status: "succeeded" as const, startedAt: "now", prompt: "Review task 1", output: "answer one" }, { index: 2, status: "succeeded" as const, startedAt: "now", prompt: "Review task 2", output: "answer two" }] }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "succeeded" as const,
+            prompt: "Review task",
+            output: "combined",
+            plannedRuns: 2,
+            iterations: [
+              {
+                index: 1,
+                status: "succeeded" as const,
+                startedAt: "now",
+                prompt: "Review task 1",
+                output: "answer one",
+              },
+              {
+                index: 2,
+                status: "succeeded" as const,
+                startedAt: "now",
+                prompt: "Review task 2",
+                output: "answer two",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     fireEvent.click(await screen.findByText("Review"));
@@ -878,19 +2055,109 @@ describe("HarnessPanel", () => {
   });
 
   it("explains why a selected block is waiting and its next action", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", join: "all", position: { x: 20, y: 20 } }], edges: [] };
-    const runs: HarnessRun[] = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "waiting", createdAt: "now", blocks: [{ blockId: "a", status: "waiting" }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "a", type: "prompt", label: "Review", prompt: "{{input}}", join: "all", position: { x: 20, y: 20 } },
+      ],
+      edges: [],
+    };
+    const runs: HarnessRun[] = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "waiting",
+        createdAt: "now",
+        blocks: [{ blockId: "a", status: "waiting" }],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     fireEvent.click(await screen.findByText("Review"));
-    expect((await screen.findByLabelText("Block waiting status")).textContent).toContain("Waiting for every incoming synchronous connection to finish.");
+    expect((await screen.findByLabelText("Block waiting status")).textContent).toContain(
+      "Waiting for every incoming synchronous connection to finish.",
+    );
   });
 
   it("shows the selected block's persisted attempt history", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs: HarnessRun[] = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded", createdAt: "now", blocks: [{ blockId: "a", status: "succeeded", attempts: [{ id: "first", index: 1, status: "failed", startedAt: "2026-09-18T00:00:00Z", completedAt: "2026-09-18T00:00:01Z", operationId: "first-operation", error: "Timed out" }, { id: "second", index: 2, status: "succeeded", startedAt: "2026-09-18T00:00:02Z", completedAt: "2026-09-18T00:00:03Z", operationId: "second-operation" }] }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs: HarnessRun[] = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded",
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "succeeded",
+            attempts: [
+              {
+                id: "first",
+                index: 1,
+                status: "failed",
+                startedAt: "2026-09-18T00:00:00Z",
+                completedAt: "2026-09-18T00:00:01Z",
+                operationId: "first-operation",
+                error: "Timed out",
+              },
+              {
+                id: "second",
+                index: 2,
+                status: "succeeded",
+                startedAt: "2026-09-18T00:00:02Z",
+                completedAt: "2026-09-18T00:00:03Z",
+                operationId: "second-operation",
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     fireEvent.click(await screen.findByText("Review"));
@@ -902,9 +2169,47 @@ describe("HarnessPanel", () => {
   });
 
   it("keeps the execution log collapsed until requested", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded" as const, createdAt: "now", blocks: [{ blockId: "a", status: "succeeded" as const, output: "answer", log: [{ timestamp: "2026-09-18T00:00:00Z", kind: "lifecycle" as const, message: "Started" }] }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "succeeded" as const,
+            output: "answer",
+            log: [{ timestamp: "2026-09-18T00:00:00Z", kind: "lifecycle" as const, message: "Started" }],
+          },
+        ],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     fireEvent.click(await screen.findByText("Review"));
@@ -915,9 +2220,60 @@ describe("HarnessPanel", () => {
   });
 
   it("shows persisted run operations and block logs in chronological order", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs: HarnessRun[] = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded", createdAt: "2026-09-18T00:00:00Z", operations: [{ id: "attempt", idempotencyKey: "attempt", kind: "block_attempt", status: "succeeded", blockId: "a", createdAt: "2026-09-18T00:00:02Z", updatedAt: "2026-09-18T00:00:03Z" }], blocks: [{ blockId: "a", status: "succeeded", log: [{ timestamp: "2026-09-18T00:00:01Z", kind: "prompt", message: "Sent prompt" }, { timestamp: "2026-09-18T00:00:04Z", kind: "response", message: "Received answer" }] }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs: HarnessRun[] = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded",
+        createdAt: "2026-09-18T00:00:00Z",
+        operations: [
+          {
+            id: "attempt",
+            idempotencyKey: "attempt",
+            kind: "block_attempt",
+            status: "succeeded",
+            blockId: "a",
+            createdAt: "2026-09-18T00:00:02Z",
+            updatedAt: "2026-09-18T00:00:03Z",
+          },
+        ],
+        blocks: [
+          {
+            blockId: "a",
+            status: "succeeded",
+            log: [
+              { timestamp: "2026-09-18T00:00:01Z", kind: "prompt", message: "Sent prompt" },
+              { timestamp: "2026-09-18T00:00:04Z", kind: "response", message: "Received answer" },
+            ],
+          },
+        ],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const timeline = await screen.findByLabelText("Workflow execution timeline");
@@ -928,10 +2284,51 @@ describe("HarnessPanel", () => {
   });
 
   it("paginates a long selected-run execution timeline", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const operations = Array.from({ length: 51 }, (_, index) => ({ id: `operation-${index}`, idempotencyKey: `operation-${index}`, kind: "dependency_decision" as const, status: "succeeded" as const, blockId: "a", createdAt: `2026-09-18T00:00:${String(index).padStart(2, "0")}Z`, updatedAt: `2026-09-18T00:00:${String(index).padStart(2, "0")}Z`, error: `Event number ${index + 1}.` }));
-    const runs: HarnessRun[] = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "task", status: "succeeded", createdAt: "2026-09-18T00:00:00Z", operations, blocks: [{ blockId: "a", status: "succeeded" }] }];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Review", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const operations = Array.from({ length: 51 }, (_, index) => ({
+      id: `operation-${index}`,
+      idempotencyKey: `operation-${index}`,
+      kind: "dependency_decision" as const,
+      status: "succeeded" as const,
+      blockId: "a",
+      createdAt: `2026-09-18T00:00:${String(index).padStart(2, "0")}Z`,
+      updatedAt: `2026-09-18T00:00:${String(index).padStart(2, "0")}Z`,
+      error: `Event number ${index + 1}.`,
+    }));
+    const runs: HarnessRun[] = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "task",
+        status: "succeeded",
+        createdAt: "2026-09-18T00:00:00Z",
+        operations,
+        blocks: [{ blockId: "a", status: "succeeded" }],
+      },
+    ];
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const timeline = await screen.findByLabelText("Workflow execution timeline");
@@ -944,20 +2341,70 @@ describe("HarnessPanel", () => {
   });
 
   it("shows validation issues and blocks an invalid save", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } }], edges: [] };
-    const onValidate = vi.fn().mockResolvedValue({ valid: false, issues: [{ code: "empty-prompt", blockId: "a", message: "Plan needs a prompt" }] });
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onValidate={onValidate} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const onValidate = vi.fn().mockResolvedValue({
+      valid: false,
+      issues: [{ code: "empty-prompt", blockId: "a", message: "Plan needs a prompt" }],
+    });
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onValidate={onValidate}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Changed" } });
     expect((await screen.findByRole("alert")).textContent).toContain("Plan needs a prompt");
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("validates again immediately before saving", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const invalid = { valid: false, issues: [{ code: "empty-prompt" as const, blockId: "a", message: "Plan needs a prompt" }] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const invalid = {
+      valid: false,
+      issues: [{ code: "empty-prompt" as const, blockId: "a", message: "Plan needs a prompt" }],
+    };
     const onValidate = vi.fn().mockResolvedValue(invalid);
     const onSave = vi.fn();
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onValidate={onValidate} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onValidate={onValidate}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Changed" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -967,11 +2414,32 @@ describe("HarnessPanel", () => {
 
   it("keeps an unsaved draft when switching workflows or modes is declined", async () => {
     const harnesses: HarnessDefinition[] = [
-      { id: "harness-1", name: "First", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] },
+      {
+        id: "harness-1",
+        name: "First",
+        version: 1,
+        createdAt: "now",
+        updatedAt: "now",
+        blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+        edges: [],
+      },
       { id: "harness-2", name: "Second", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] },
     ];
     const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    renderEditor(<HarnessPanel harnesses={harnesses} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={harnesses}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Changed" } });
     fireEvent.change(screen.getByRole("combobox", { name: "Selected workflow" }), { target: { value: "harness-2" } });
@@ -983,8 +2451,29 @@ describe("HarnessPanel", () => {
   });
 
   it("undoes and redoes workflow edits", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Changed" } });
     fireEvent.click(screen.getByRole("button", { name: "Undo workflow edit" }));
@@ -994,19 +2483,81 @@ describe("HarnessPanel", () => {
   });
 
   it("duplicates a workflow using a new workflow identity", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 2, createdAt: "old", updatedAt: "old", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const copy = { ...harness, id: "copy", name: "Flow copy", version: 1, createdAt: "new", updatedAt: "new", blocks: [] };
-    const onCreate = vi.fn().mockResolvedValue(copy); const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={onCreate} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 2,
+      createdAt: "old",
+      updatedAt: "old",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const copy = {
+      ...harness,
+      id: "copy",
+      name: "Flow copy",
+      version: 1,
+      createdAt: "new",
+      updatedAt: "new",
+      blocks: [],
+    };
+    const onCreate = vi.fn().mockResolvedValue(copy);
+    const onSave = vi.fn().mockImplementation(async (value) => value);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={onCreate}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Duplicate workflow" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith("Flow copy"));
-    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "copy", name: "Flow copy", version: 1, blocks: harness.blocks }));
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "copy", name: "Flow copy", version: 1, blocks: harness.blocks }),
+    );
   });
 
   it("duplicates the selected block with a new identity and offset", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "plan", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 30 }, inputSchema: { type: "object", required: ["featureId"] } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        {
+          id: "plan",
+          type: "prompt",
+          label: "Plan",
+          prompt: "{{input}}",
+          position: { x: 20, y: 30 },
+          inputSchema: { type: "object", required: ["featureId"] },
+        },
+      ],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit block Plan" }));
@@ -1015,21 +2566,52 @@ describe("HarnessPanel", () => {
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
     const copied = onSave.mock.calls.at(0)?.[0].blocks.find((item: HarnessBlock) => item.id !== "plan");
-    expect(copied).toMatchObject({ label: "Plan copy", type: "prompt", prompt: "{{input}}", inputSchema: { type: "object", required: ["featureId"] }, position: { x: 52, y: 62 } });
+    expect(copied).toMatchObject({
+      label: "Plan copy",
+      type: "prompt",
+      prompt: "{{input}}",
+      inputSchema: { type: "object", required: ["featureId"] },
+      position: { x: 52, y: 62 },
+    });
     expect(copied.id).not.toBe("plan");
   });
 
   it("copies and pastes a block with an independent identity", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "plan", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 30 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "plan", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 30 } }],
+      edges: [],
+    };
     const onSave = vi.fn().mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "List" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit block Plan" }));
     fireEvent.click(screen.getByRole("button", { name: "Copy selected block" }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Paste workflow block" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Paste workflow block" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Paste workflow block" }));
-    await waitFor(() => expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave).toHaveBeenCalled());
@@ -1039,11 +2621,37 @@ describe("HarnessPanel", () => {
   });
 
   it("offers reload, comparison, and save-as-copy when a concurrent save conflicts", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
     const remote = { ...harness, name: "Remote change", version: 2 };
     const onCreate = vi.fn().mockResolvedValue({ ...harness, id: "copy", name: "Local change copy" });
-    const onSave = vi.fn().mockRejectedValueOnce(new Error("CONFLICT: Workflow changed since it was opened")).mockRejectedValueOnce(new Error("CONFLICT: Workflow changed since it was opened")).mockImplementation(async (value) => value);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[]} agents={[]} onCreate={onCreate} onRead={vi.fn().mockResolvedValue(remote)} onSave={onSave} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const onSave = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("CONFLICT: Workflow changed since it was opened"))
+      .mockRejectedValueOnce(new Error("CONFLICT: Workflow changed since it was opened"))
+      .mockImplementation(async (value) => value);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        onCreate={onCreate}
+        onRead={vi.fn().mockResolvedValue(remote)}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Local change" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -1061,40 +2669,156 @@ describe("HarnessPanel", () => {
   });
 
   it("blocks unavailable provider settings and previews execution inputs", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "Plan {{input}} then use {{blocks.build.output}}", provider: "missing", position: { x: 20, y: 20 } }], edges: [] };
-    const provider = { id: "codex", name: "Codex", description: "", settings: { title: "", description: "", sections: [] }, options: [], capabilities: { models: true, usage: true, mcp: true, agents: true, contextWindow: true } };
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[]} providers={[provider]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        {
+          id: "a",
+          type: "prompt",
+          label: "Plan",
+          prompt: "Plan {{input}} then use {{blocks.build.output}}",
+          provider: "missing",
+          position: { x: 20, y: 20 },
+        },
+      ],
+      edges: [],
+    };
+    const provider = {
+      id: "codex",
+      name: "Codex",
+      description: "",
+      settings: { title: "", description: "", sections: [] },
+      options: [],
+      capabilities: { models: true, usage: true, mcp: true, agents: true, contextWindow: true },
+    };
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[provider]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     expect((await screen.findByRole("alert")).textContent).toContain("unavailable provider 'missing'");
     fireEvent.click(screen.getByText("Plan"));
-    expect(screen.getByLabelText("Rendered prompt preview").textContent).toBe("Plan [workflow input] then use [output from build]");
+    expect(screen.getByLabelText("Rendered prompt preview").textContent).toBe(
+      "Plan [workflow input] then use [output from build]",
+    );
     fireEvent.change(screen.getByLabelText("Workflow name"), { target: { value: "Changed" } });
     expect((screen.getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("selects historical runs and pins active runs first", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
     const runs = [
-      { id: "old", harnessId: harness.id, harnessVersion: 1, input: "old input", status: "succeeded" as const, createdAt: "2026-01-01T00:00:00Z", blocks: [{ blockId: "a", status: "succeeded" as const, output: "old answer" }] },
-      { id: "active", harnessId: harness.id, harnessVersion: 1, input: "new input", status: "running" as const, createdAt: "2026-01-02T00:00:00Z", blocks: [{ blockId: "a", status: "running" as const, output: "new answer" }] }
+      {
+        id: "old",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "old input",
+        status: "succeeded" as const,
+        createdAt: "2026-01-01T00:00:00Z",
+        blocks: [{ blockId: "a", status: "succeeded" as const, output: "old answer" }],
+      },
+      {
+        id: "active",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "new input",
+        status: "running" as const,
+        createdAt: "2026-01-02T00:00:00Z",
+        blocks: [{ blockId: "a", status: "running" as const, output: "new answer" }],
+      },
     ];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const selector = await screen.findByRole("combobox", { name: "Selected workflow run" });
     expect((selector.querySelector("option") as HTMLOptionElement).value).toBe("active");
-    fireEvent.change(selector, { target: { value: "old" } }); fireEvent.click(await screen.findByText("Plan"));
+    fireEvent.change(selector, { target: { value: "old" } });
+    fireEvent.click(await screen.findByText("Plan"));
     expect((await screen.findByLabelText("Plan run details")).textContent).toContain("old answer");
   });
 
   it("compares the selected run with another run's block outcomes", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Plan", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
     const runs: HarnessRun[] = [
-      { id: "old", harnessId: harness.id, harnessVersion: 1, input: "old input", status: "failed", createdAt: "2026-01-01T00:00:00Z", blocks: [{ blockId: "a", status: "failed", tokens: { total: 100, input: 60, output: 40 } }] },
-      { id: "current", harnessId: harness.id, harnessVersion: 1, input: "new input", status: "succeeded", createdAt: "2026-01-02T00:00:00Z", blocks: [{ blockId: "a", status: "succeeded", tokens: { total: 125, input: 75, output: 50 } }] },
+      {
+        id: "old",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "old input",
+        status: "failed",
+        createdAt: "2026-01-01T00:00:00Z",
+        blocks: [{ blockId: "a", status: "failed", tokens: { total: 100, input: 60, output: 40 } }],
+      },
+      {
+        id: "current",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "new input",
+        status: "succeeded",
+        createdAt: "2026-01-02T00:00:00Z",
+        blocks: [{ blockId: "a", status: "succeeded", tokens: { total: 125, input: 75, output: 50 } }],
+      },
     ];
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: "Compare workflow run" }), { target: { value: "old" } });
+    fireEvent.change(await screen.findByRole("combobox", { name: "Compare workflow run" }), {
+      target: { value: "old" },
+    });
     const comparison = await screen.findByLabelText("Workflow run comparison");
     expect(comparison.textContent).toContain("current (succeeded, 125 tokens) compared with old (failed, 100 tokens)");
     expect(comparison.textContent).toContain("current: succeeded · 125 tokens");
@@ -1102,56 +2826,289 @@ describe("HarnessPanel", () => {
   });
 
   it("confirms deletion of a completed selected run and disables it for active runs", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [], edges: [] };
-    const completed: HarnessRun = { id: "completed", harnessId: harness.id, harnessVersion: 1, input: "work", status: "succeeded", createdAt: "2026-01-01T00:00:00Z", blocks: [] };
-    const active: HarnessRun = { id: "active", harnessId: harness.id, harnessVersion: 1, input: "work", status: "running", createdAt: "2026-01-02T00:00:00Z", blocks: [] };
-    const onDeleteRun = vi.fn().mockResolvedValue(undefined); const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={[completed, active]} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onDeleteRun={onDeleteRun} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
+    const completed: HarnessRun = {
+      id: "completed",
+      harnessId: harness.id,
+      harnessVersion: 1,
+      input: "work",
+      status: "succeeded",
+      createdAt: "2026-01-01T00:00:00Z",
+      blocks: [],
+    };
+    const active: HarnessRun = {
+      id: "active",
+      harnessId: harness.id,
+      harnessVersion: 1,
+      input: "work",
+      status: "running",
+      createdAt: "2026-01-02T00:00:00Z",
+      blocks: [],
+    };
+    const onDeleteRun = vi.fn().mockResolvedValue(undefined);
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[completed, active]}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onDeleteRun={onDeleteRun}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    expect((await screen.findByRole("button", { name: "Delete selected workflow run" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Selected workflow run" }), { target: { value: "completed" } });
+    expect(
+      ((await screen.findByRole("button", { name: "Delete selected workflow run" })) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.change(screen.getByRole("combobox", { name: "Selected workflow run" }), {
+      target: { value: "completed" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Delete selected workflow run" }));
     await waitFor(() => expect(onDeleteRun).toHaveBeenCalledWith("completed"));
-    expect(confirm).toHaveBeenCalled(); confirm.mockRestore();
+    expect(confirm).toHaveBeenCalled();
+    confirm.mockRestore();
   });
 
   it("shows and resolves a workflow-owned permission request", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Deploy", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const permission = { id: "permission-1", title: "Run deployment", toolCallId: "tool-1", options: [{ optionId: "yes", name: "Allow once", kind: "allow_once" as const }] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "deploy", status: "awaiting_permission" as const, createdAt: "now", blocks: [{ blockId: "a", status: "awaiting_permission" as const, provider: "codex", workspace: "/workflow/a", sessionId: "session-1", pauseId: "pause-1", pendingPermission: permission }] }];
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Deploy", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const permission = {
+      id: "permission-1",
+      title: "Run deployment",
+      toolCallId: "tool-1",
+      options: [{ optionId: "yes", name: "Allow once", kind: "allow_once" as const }],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "deploy",
+        status: "awaiting_permission" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "awaiting_permission" as const,
+            provider: "codex",
+            workspace: "/workflow/a",
+            sessionId: "session-1",
+            pauseId: "pause-1",
+            pendingPermission: permission,
+          },
+        ],
+      },
+    ];
     const onResolvePermission = vi.fn().mockResolvedValue(runs[0]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onResolvePermission={onResolvePermission} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onResolvePermission={onResolvePermission}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Allow once" }));
-    await waitFor(() => expect(onResolvePermission).toHaveBeenCalledWith("run-1", "a", "session-1", "pause-1", "permission-1", "yes"));
+    await waitFor(() =>
+      expect(onResolvePermission).toHaveBeenCalledWith("run-1", "a", "session-1", "pause-1", "permission-1", "yes"),
+    );
   });
 
   it.each(["Yes", "No"])("submits %s from a Yes/No prompt without a text input", async (choice) => {
-    const harness: HarnessDefinition = { id: "confirm-flow", name: "Confirm", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "confirm", type: "yes_no_prompt", label: "Approve push", prompt: "Push?", position: { x: 20, y: 20 } }], edges: [] };
-    const runs: HarnessRun[] = [{ id: "confirm-run", harnessId: harness.id, harnessVersion: 1, input: "", status: "awaiting_user_input", createdAt: "now", blocks: [{ blockId: "confirm", status: "awaiting_user_input", sessionId: "flow:confirm", pauseId: "pause", question: "Push?" }] }];
+    const harness: HarnessDefinition = {
+      id: "confirm-flow",
+      name: "Confirm",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [
+        { id: "confirm", type: "yes_no_prompt", label: "Approve push", prompt: "Push?", position: { x: 20, y: 20 } },
+      ],
+      edges: [],
+    };
+    const runs: HarnessRun[] = [
+      {
+        id: "confirm-run",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "",
+        status: "awaiting_user_input",
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "confirm",
+            status: "awaiting_user_input",
+            sessionId: "flow:confirm",
+            pauseId: "pause",
+            question: "Push?",
+          },
+        ],
+      },
+    ];
     const onAnswerQuestion = vi.fn().mockResolvedValue(runs[0]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onCancelRun={vi.fn()} onAnswerQuestion={onAnswerQuestion} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onAnswerQuestion={onAnswerQuestion}
+        onError={vi.fn()}
+      />,
+    );
     expect(screen.getByText("Yes/No Prompt", { selector: "small" })).toBeTruthy();
     expect(screen.queryByText("Default model")).toBeNull();
     expect(screen.queryByLabelText("Answer Approve push")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: choice }));
-    await waitFor(() => expect(onAnswerQuestion).toHaveBeenCalledWith("confirm-run", "confirm", "flow:confirm", "pause", choice.toLowerCase()));
+    await waitFor(() =>
+      expect(onAnswerQuestion).toHaveBeenCalledWith(
+        "confirm-run",
+        "confirm",
+        "flow:confirm",
+        "pause",
+        choice.toLowerCase(),
+      ),
+    );
   });
 
   it("shows a provider question and submits the answer to its owning attempt", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Planner", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "plan", status: "awaiting_user_input" as const, createdAt: "now", blocks: [{ blockId: "a", status: "awaiting_user_input" as const, provider: "codex", workspace: "/workflow/a", sessionId: "session-2", pauseId: "pause-2", question: "Which branch?" }] }];
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Planner", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "plan",
+        status: "awaiting_user_input" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "awaiting_user_input" as const,
+            provider: "codex",
+            workspace: "/workflow/a",
+            sessionId: "session-2",
+            pauseId: "pause-2",
+            question: "Which branch?",
+          },
+        ],
+      },
+    ];
     const onAnswerQuestion = vi.fn().mockResolvedValue(runs[0]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onAnswerQuestion={onAnswerQuestion} onCancelRun={vi.fn()} onError={vi.fn()} />);
-    fireEvent.change(await screen.findByRole("textbox", { name: "Answer Planner" }), { target: { value: "feature/auth" } });
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onAnswerQuestion={onAnswerQuestion}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.change(await screen.findByRole("textbox", { name: "Answer Planner" }), {
+      target: { value: "feature/auth" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Answer and resume" }));
-    await waitFor(() => expect(onAnswerQuestion).toHaveBeenCalledWith("run-1", "a", "session-2", "pause-2", "feature/auth"));
+    await waitFor(() =>
+      expect(onAnswerQuestion).toHaveBeenCalledWith("run-1", "a", "session-2", "pause-2", "feature/auth"),
+    );
   });
 
   it("resumes a timer pause and can cancel its exact attempt", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "work", status: "waiting_timer" as const, createdAt: "now", blocks: [{ blockId: "a", status: "waiting_timer" as const, provider: "codex", workspace: "/workflow/a", sessionId: "session-3", pauseId: "pause-3", waitingUntil: "2099-01-01T00:00:00.000Z" }] }];
-    const onResumePause = vi.fn().mockResolvedValue(runs[0]); const onCancelPause = vi.fn().mockResolvedValue(runs[0]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onResumePause={onResumePause} onCancelPause={onCancelPause} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "work",
+        status: "waiting_timer" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "waiting_timer" as const,
+            provider: "codex",
+            workspace: "/workflow/a",
+            sessionId: "session-3",
+            pauseId: "pause-3",
+            waitingUntil: "2099-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    ];
+    const onResumePause = vi.fn().mockResolvedValue(runs[0]);
+    const onCancelPause = vi.fn().mockResolvedValue(runs[0]);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onResumePause={onResumePause}
+        onCancelPause={onCancelPause}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Resume now" }));
     await waitFor(() => expect(onResumePause).toHaveBeenCalledWith("run-1", "a", "pause-3"));
     fireEvent.click(screen.getByRole("button", { name: "Cancel run" }));
@@ -1159,24 +3116,78 @@ describe("HarnessPanel", () => {
   });
 
   it("retries a scheduled attempt immediately", async () => {
-    const harness: HarnessDefinition = { id: "harness-1", name: "Flow", version: 1, createdAt: "now", updatedAt: "now", blocks: [{ id: "a", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 20, y: 20 } }], edges: [] };
-    const runs = [{ id: "run-1", harnessId: harness.id, harnessVersion: 1, input: "work", status: "retry_scheduled" as const, createdAt: "now", blocks: [{ blockId: "a", status: "retry_scheduled" as const, provider: "codex", pauseId: "pause-4", error: "Transport failed", retryAt: "2099-01-01T00:00:00.000Z" }] }];
+    const harness: HarnessDefinition = {
+      id: "harness-1",
+      name: "Flow",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [{ id: "a", type: "prompt", label: "Worker", prompt: "{{input}}", position: { x: 20, y: 20 } }],
+      edges: [],
+    };
+    const runs = [
+      {
+        id: "run-1",
+        harnessId: harness.id,
+        harnessVersion: 1,
+        input: "work",
+        status: "retry_scheduled" as const,
+        createdAt: "now",
+        blocks: [
+          {
+            blockId: "a",
+            status: "retry_scheduled" as const,
+            provider: "codex",
+            pauseId: "pause-4",
+            error: "Transport failed",
+            retryAt: "2099-01-01T00:00:00.000Z",
+          },
+        ],
+      },
+    ];
     const onRetryPause = vi.fn().mockResolvedValue(runs[0]);
-    renderEditor(<HarnessPanel harnesses={[harness]} runs={runs} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} onRun={vi.fn()} onRetryPause={onRetryPause} onCancelRun={vi.fn()} onError={vi.fn()} />);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={runs}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onRetryPause={onRetryPause}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Retry now" }));
     await waitFor(() => expect(onRetryPause).toHaveBeenCalledWith("run-1", "a", "pause-4"));
   });
 });
 
-it.each(["success", "failure"])("keeps a Chatbox draft typed while its previous message completes with %s", async (outcome) => {
-  const block: HarnessBlock = { id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } };
-  let resolve!: () => void; let reject!: (error: Error) => void;
-  const onChat = vi.fn(() => new Promise<void>((done, failed) => { resolve = done; reject = failed; }));
-  render(<BlockRunDetails block={block} onClose={vi.fn()} onChat={onChat} />);
-  const input = screen.getByLabelText("Message Chat");
-  fireEvent.change(input, { target: { value: "First message" } });
-  fireEvent.click(screen.getByRole("button", { name: "Send chat message" }));
-  fireEvent.change(input, { target: { value: "Next message" } });
-  await act(async () => { if (outcome === "success") resolve(); else reject(new Error("SSH disconnected")); });
-  expect(input).toHaveProperty("value", "Next message");
-});
+it.each(["success", "failure"])(
+  "keeps a Chatbox draft typed while its previous message completes with %s",
+  async (outcome) => {
+    const block: HarnessBlock = { id: "chat", type: "chatbox", label: "Chat", prompt: "", position: { x: 0, y: 0 } };
+    let resolve!: () => void;
+    let reject!: (error: Error) => void;
+    const onChat = vi.fn(
+      () =>
+        new Promise<void>((done, failed) => {
+          resolve = done;
+          reject = failed;
+        }),
+    );
+    render(<BlockRunDetails block={block} onClose={vi.fn()} onChat={onChat} />);
+    const input = screen.getByLabelText("Message Chat");
+    fireEvent.change(input, { target: { value: "First message" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send chat message" }));
+    fireEvent.change(input, { target: { value: "Next message" } });
+    await act(async () => {
+      if (outcome === "success") resolve();
+      else reject(new Error("SSH disconnected"));
+    });
+    expect(input).toHaveProperty("value", "Next message");
+  },
+);

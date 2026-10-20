@@ -4,20 +4,40 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket, { WebSocketServer } from "ws";
 import { TestRelay } from "@hatopad/relay/testing";
-import { CoreConnector, PairingStore, pairDevice, parseHubUrl, parseLocalCoreUrl, type ConnectorStatus } from "./index.js";
+import {
+  CoreConnector,
+  PairingStore,
+  pairDevice,
+  parseHubUrl,
+  parseLocalCoreUrl,
+  type ConnectorStatus,
+} from "./index.js";
 
 const cleanups: Array<() => Promise<void> | void> = [];
-afterEach(async () => { for (const cleanup of cleanups.splice(0).reverse()) await cleanup(); });
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup();
+});
 
 function listen(): Promise<{ server: WebSocketServer; port: number }> {
   return new Promise((resolve) => {
-    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () => resolve({ server, port: (server.address() as { port: number }).port }));
-    cleanups.push(() => new Promise<void>((done) => { for (const client of server.clients) client.terminate(); server.close(() => done()); }));
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 }, () =>
+      resolve({ server, port: (server.address() as { port: number }).port }),
+    );
+    cleanups.push(
+      () =>
+        new Promise<void>((done) => {
+          for (const client of server.clients) client.terminate();
+          server.close(() => done());
+        }),
+    );
   });
 }
 
 const until = async (check: () => boolean, label: string) => {
-  for (let i = 0; i < 200; i += 1) { if (check()) return; await new Promise((r) => setTimeout(r, 10)); }
+  for (let i = 0; i < 200; i += 1) {
+    if (check()) return;
+    await new Promise((r) => setTimeout(r, 10));
+  }
   throw new Error(`timed out: ${label}`);
 };
 
@@ -41,7 +61,9 @@ describe("connector against test relay and fake Core", () => {
     let hubSocket: WebSocket | undefined;
     hubSide.server.on("connection", (socket) => {
       hubSocket = socket;
-      socket.on("message", (data) => { for (const reply of relay.receive(data.toString())) socket.send(reply); });
+      socket.on("message", (data) => {
+        for (const reply of relay.receive(data.toString())) socket.send(reply);
+      });
     });
     const core = await listen();
     const coreMessages: string[] = [];
@@ -60,7 +82,7 @@ describe("connector against test relay and fake Core", () => {
       localToken: "LOCAL-SECRET",
       onStatus: (status) => statuses.push(status),
       backoff: { initialMs: 20, maxMs: 40 },
-      random: () => 0
+      random: () => 0,
     });
     cleanups.push(() => connector.stop());
     return { relay, connector, statuses, coreMessages, core: core.server, hub: () => hubSocket };
@@ -75,7 +97,13 @@ describe("connector against test relay and fake Core", () => {
     // Hub sends data before the channel is ready: connector must refuse it.
     hub()!.send(JSON.stringify({ type: "channel.data", channel, generation: 1, payload: { id: "0", type: "x" } }));
     await until(() => relay.isChannelReady(channel), "ready");
-    hub()!.send(relay.sendData(channel, { id: "1", type: "protocol.handshake", payload: { compatibility: {}, token: "BROWSER-GUESS" } }));
+    hub()!.send(
+      relay.sendData(channel, {
+        id: "1",
+        type: "protocol.handshake",
+        payload: { compatibility: {}, token: "BROWSER-GUESS" },
+      }),
+    );
     await until(() => coreMessages.length === 1, "core received handshake");
     const forwarded = JSON.parse(coreMessages[0]!);
     expect(forwarded.payload.token).toBe("LOCAL-SECRET");
@@ -88,8 +116,9 @@ describe("connector against test relay and fake Core", () => {
   it("relays multi-megabyte project replies without dropping Hub", async () => {
     const { relay, connector, statuses, core, hub } = await setup();
     connector.start();
-    await until(() => statuses.some(s => s.state === "online"), "online");
-    const { channel, frame } = relay.openChannel(); hub()!.send(frame);
+    await until(() => statuses.some((s) => s.state === "online"), "online");
+    const { channel, frame } = relay.openChannel();
+    hub()!.send(frame);
     await until(() => relay.isChannelReady(channel), "ready");
     const payload = { id: "large-project", ok: true, result: { text: "x".repeat(12 * 1024 * 1024) } };
     [...core.clients][0]!.send(JSON.stringify(payload));
@@ -101,19 +130,24 @@ describe("connector against test relay and fake Core", () => {
   it("isolates an oversized Core reply without disconnecting Hub or another browser", async () => {
     const { relay, connector, statuses, core, hub } = await setup("good", 1024 * 1024);
     connector.start();
-    await until(() => statuses.some(s => s.state === "online"), "online");
-    const first = relay.openChannel(); hub()!.send(first.frame);
-    const second = relay.openChannel(); hub()!.send(second.frame);
-    await until(() => relay.isChannelReady(first.channel) && relay.isChannelReady(second.channel), "both channels ready");
+    await until(() => statuses.some((s) => s.state === "online"), "online");
+    const first = relay.openChannel();
+    hub()!.send(first.frame);
+    const second = relay.openChannel();
+    hub()!.send(second.frame);
+    await until(
+      () => relay.isChannelReady(first.channel) && relay.isChannelReady(second.channel),
+      "both channels ready",
+    );
     const sockets = [...core.clients];
     sockets[0]!.send(JSON.stringify({ id: "history", ok: true, result: { text: "x".repeat(4 * 1024 * 1024) } }));
     await until(() => !relay.isChannelReady(first.channel), "oversized channel closed");
     expect(hub()!.readyState).toBe(WebSocket.OPEN);
     expect(relay.isChannelReady(second.channel)).toBe(true);
     hub()!.send(relay.sendData(second.channel, { id: "still-alive", type: "protocol.keepAlive", payload: {} }));
-    await until(() => relay.received.some(reply => reply.channel === second.channel), "other channel still works");
-    expect(statuses.filter(s => s.state === "online")).toHaveLength(1);
-    expect(statuses.some(s => s.state === "offline")).toBe(false);
+    await until(() => relay.received.some((reply) => reply.channel === second.channel), "other channel still works");
+    expect(statuses.filter((s) => s.state === "online")).toHaveLength(1);
+    expect(statuses.some((s) => s.state === "offline")).toBe(false);
   });
 
   it("authenticates maintenance requests with the local token without exposing it to Hub", async () => {
@@ -125,7 +159,13 @@ describe("connector against test relay and fake Core", () => {
     // Hub sends data before the channel is ready: connector must refuse it.
     hub()!.send(JSON.stringify({ type: "channel.data", channel, generation: 1, payload: { id: "0", type: "x" } }));
     await until(() => relay.isChannelReady(channel), "ready");
-    hub()!.send(relay.sendData(channel, { id: "1", type: "protocol.maintenance", payload: { compatibility: {}, token: "BROWSER-GUESS" } }));
+    hub()!.send(
+      relay.sendData(channel, {
+        id: "1",
+        type: "protocol.maintenance",
+        payload: { compatibility: {}, token: "BROWSER-GUESS" },
+      }),
+    );
     await until(() => coreMessages.length === 1, "core received handshake");
     const forwarded = JSON.parse(coreMessages[0]!);
     expect(forwarded.payload.token).toBe("LOCAL-SECRET");
@@ -159,13 +199,32 @@ describe("pairing", () => {
     let polls = 0;
     const handler = (async (url: URL, init: { method: string; headers: Record<string, string>; body?: string }) => {
       const path = new URL(url).pathname;
-      calls.push({ method: init.method, path, auth: init.headers.authorization ?? null, body: init.body ? JSON.parse(init.body) : undefined });
-      if (path === "/api/pairing/start") return Response.json({ status: "pending", pairingId: "pairing-0001", expiresAt: new Date(Date.now() + 60_000).toISOString() });
+      calls.push({
+        method: init.method,
+        path,
+        auth: init.headers.authorization ?? null,
+        body: init.body ? JSON.parse(init.body) : undefined,
+      });
+      if (path === "/api/pairing/start")
+        return Response.json({
+          status: "pending",
+          pairingId: "pairing-0001",
+          expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        });
       if (path === "/api/pairing/pairing-0001") {
         polls += 1;
-        return Response.json(polls < 2 ? { status: "pending" } : { status: "pending", claimedBy: { name: "Ann", email: "ann@example.com" } });
+        return Response.json(
+          polls < 2
+            ? { status: "pending" }
+            : { status: "pending", claimedBy: { name: "Ann", email: "ann@example.com" } },
+        );
       }
-      if (path === "/api/pairing/pairing-0001/confirm") return Response.json(JSON.parse(init.body!).accept ? { status: "confirmed", coreId: "core-00001", credential: "DEVICE-CRED" } : { status: "rejected", reason: "denied" });
+      if (path === "/api/pairing/pairing-0001/confirm")
+        return Response.json(
+          JSON.parse(init.body!).accept
+            ? { status: "confirmed", coreId: "core-00001", credential: "DEVICE-CRED" }
+            : { status: "rejected", reason: "denied" },
+        );
       return new Response("nope", { status: 404 });
     }) as unknown as typeof fetch;
     return { calls, handler };
@@ -179,9 +238,19 @@ describe("pairing", () => {
     let shown = "";
     let prompted: unknown;
     const paired = await pairDevice({
-      hubOrigin: "https://hub.example", deviceName: "Laptop", store, fetch: handler, pollIntervalMs: 1,
-      showCode: (code) => { shown = code; },
-      confirmLocally: async (claimant) => { prompted = claimant; expect(calls.some((c) => c.path.endsWith("/confirm"))).toBe(false); return true; }
+      hubOrigin: "https://hub.example",
+      deviceName: "Laptop",
+      store,
+      fetch: handler,
+      pollIntervalMs: 1,
+      showCode: (code) => {
+        shown = code;
+      },
+      confirmLocally: async (claimant) => {
+        prompted = claimant;
+        expect(calls.some((c) => c.path.endsWith("/confirm"))).toBe(false);
+        return true;
+      },
     });
     expect(paired.status).toBe("paired");
     expect(prompted).toEqual({ name: "Ann", email: "ann@example.com" });
@@ -199,7 +268,15 @@ describe("pairing", () => {
     const dir = await mkdtemp(join(tmpdir(), "pair-"));
     const store = new PairingStore(join(dir, "pairing.json"));
     const { calls, handler } = hub();
-    const declined = await pairDevice({ hubOrigin: "https://hub.example", deviceName: "Laptop", store, fetch: handler, pollIntervalMs: 1, showCode: () => undefined, confirmLocally: async () => false });
+    const declined = await pairDevice({
+      hubOrigin: "https://hub.example",
+      deviceName: "Laptop",
+      store,
+      fetch: handler,
+      pollIntervalMs: 1,
+      showCode: () => undefined,
+      confirmLocally: async () => false,
+    });
     expect(declined).toEqual({ status: "failed", reason: "declined locally" });
     expect(calls.at(-1)).toMatchObject({ path: "/api/pairing/pairing-0001/confirm", body: { accept: false } });
     expect(await store.load()).toBeUndefined();
@@ -210,10 +287,21 @@ describe("pairing", () => {
     const store = new PairingStore(join(dir, "pairing.json"));
     const { calls, handler } = hub();
     const lossy = (async (url: URL, init: never) => {
-      if (new URL(url).pathname.endsWith("/confirm")) { await handler(url, init); throw new Error("connection reset"); }
+      if (new URL(url).pathname.endsWith("/confirm")) {
+        await handler(url, init);
+        throw new Error("connection reset");
+      }
       return handler(url, init);
     }) as unknown as typeof fetch;
-    const result = await pairDevice({ hubOrigin: "https://hub.example", deviceName: "x", store, fetch: lossy, pollIntervalMs: 1, showCode: () => undefined, confirmLocally: async () => true });
+    const result = await pairDevice({
+      hubOrigin: "https://hub.example",
+      deviceName: "x",
+      store,
+      fetch: lossy,
+      pollIntervalMs: 1,
+      showCode: () => undefined,
+      confirmLocally: async () => true,
+    });
     expect(result.status).toBe("failed");
     expect(calls.filter((c) => c.path.endsWith("/confirm"))).toHaveLength(1);
     expect(await store.load()).toBeUndefined();
@@ -221,11 +309,22 @@ describe("pairing", () => {
 
   it("rejects non-HTTPS hubs", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pair-"));
-    const result = await pairDevice({ hubOrigin: "http://hub.example", deviceName: "x", store: new PairingStore(join(dir, "p.json")), showCode: () => undefined, confirmLocally: async () => true });
+    const result = await pairDevice({
+      hubOrigin: "http://hub.example",
+      deviceName: "x",
+      store: new PairingStore(join(dir, "p.json")),
+      showCode: () => undefined,
+      confirmLocally: async () => true,
+    });
     expect(result.status).toBe("failed");
   });
 
-  const sample = { hubUrl: "https://hub.example", coreId: "core-00001", deviceId: "device-0001", credential: "DEVICE-CRED" };
+  const sample = {
+    hubUrl: "https://hub.example",
+    coreId: "core-00001",
+    deviceId: "device-0001",
+    credential: "DEVICE-CRED",
+  };
 
   it("refuses to load a credential file that is group/world readable, a symlink, or not a file", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pair-"));
@@ -280,16 +379,41 @@ describe("pairing", () => {
   it("times out silent hubs and stops promptly when aborted", async () => {
     const dir = await mkdtemp(join(tmpdir(), "pair-"));
     const store = new PairingStore(join(dir, "pairing.json"));
-    const hang = ((_url: URL, init: { signal: AbortSignal }) => new Promise((_resolve, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason)))) as unknown as typeof fetch;
-    const timedOut = await pairDevice({ hubOrigin: "https://hub.example", deviceName: "x", store, fetch: hang, requestTimeoutMs: 30, showCode: () => undefined, confirmLocally: async () => true });
+    const hang = ((_url: URL, init: { signal: AbortSignal }) =>
+      new Promise((_resolve, reject) =>
+        init.signal.addEventListener("abort", () => reject(init.signal.reason)),
+      )) as unknown as typeof fetch;
+    const timedOut = await pairDevice({
+      hubOrigin: "https://hub.example",
+      deviceName: "x",
+      store,
+      fetch: hang,
+      requestTimeoutMs: 30,
+      showCode: () => undefined,
+      confirmLocally: async () => true,
+    });
     expect(timedOut).toEqual({ status: "failed", reason: "hub did not respond in time" });
 
     const controller = new AbortController();
-    const pending = (async (url: URL) => new URL(url).pathname.endsWith("/start")
-      ? Response.json({ status: "pending", pairingId: "pairing-0001", expiresAt: new Date(Date.now() + 60_000).toISOString() })
-      : Response.json({ status: "pending" })) as unknown as typeof fetch;
+    const pending = (async (url: URL) =>
+      new URL(url).pathname.endsWith("/start")
+        ? Response.json({
+            status: "pending",
+            pairingId: "pairing-0001",
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          })
+        : Response.json({ status: "pending" })) as unknown as typeof fetch;
     const started = Date.now();
-    const result = pairDevice({ hubOrigin: "https://hub.example", deviceName: "x", store, fetch: pending, pollIntervalMs: 60_000, signal: controller.signal, showCode: () => setTimeout(() => controller.abort(), 20), confirmLocally: async () => true });
+    const result = pairDevice({
+      hubOrigin: "https://hub.example",
+      deviceName: "x",
+      store,
+      fetch: pending,
+      pollIntervalMs: 60_000,
+      signal: controller.signal,
+      showCode: () => setTimeout(() => controller.abort(), 20),
+      confirmLocally: async () => true,
+    });
     expect(await result).toEqual({ status: "failed", reason: "aborted" });
     expect(Date.now() - started).toBeLessThan(5000);
   });

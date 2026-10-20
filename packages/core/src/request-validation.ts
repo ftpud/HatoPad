@@ -16,7 +16,18 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       requireNonEmptyString(record.scanId, "Storage scan ID is required");
       optionalBoolean(record, "closeOtherSessions", "Session closing flag must be a boolean");
       optionalBoolean(record, "discardChanges", "Discard changes flag must be a boolean");
-      if (typeof record.category !== "string" || typeof record.age !== "string" || !["tasks", "sessions", "workflows", "checkpoints", "logs", "provider", "runtime", "other"].includes(record.category) || !["finished", "week", "older", "inactive", "versions"].includes(record.age)) invalid("Invalid storage cleanup selection");
+      if (
+        typeof record.category !== "string" ||
+        typeof record.age !== "string" ||
+        !["tasks", "sessions", "workflows", "checkpoints", "logs", "provider", "runtime", "other"].includes(
+          record.category,
+        ) ||
+        !["finished", "week", "older", "inactive", "versions"].includes(record.age)
+      )
+        invalid("Invalid storage cleanup selection");
+      return;
+    case "client.presence":
+      if (typeof record.visible !== "boolean") invalid("Presence visibility must be a boolean");
       return;
     case "protocol.maintenance":
     case "protocol.handshake": {
@@ -32,11 +43,18 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
     }
     case "ai.question.answer": {
       requireNonEmptyString(record.requestId, "Question ID must be a non-empty string");
-      if (record.action !== "accept" && record.action !== "decline" && record.action !== "cancel") invalid("Question action must be accept, decline, or cancel");
+      if (record.action !== "accept" && record.action !== "decline" && record.action !== "cancel")
+        invalid("Question action must be accept, decline, or cancel");
       if (record.answer !== undefined) {
         const answer = requireRecord(record.answer, "Question answer must be an object");
         for (const value of Object.values(answer)) {
-          if (typeof value !== "string" && typeof value !== "boolean" && (typeof value !== "number" || !Number.isFinite(value)) && (!Array.isArray(value) || !value.every((item) => typeof item === "string"))) invalid("Question answers must be strings, finite numbers, booleans, or string arrays");
+          if (
+            typeof value !== "string" &&
+            typeof value !== "boolean" &&
+            (typeof value !== "number" || !Number.isFinite(value)) &&
+            (!Array.isArray(value) || !value.every((item) => typeof item === "string"))
+          )
+            invalid("Question answers must be strings, finite numbers, booleans, or string arrays");
         }
       }
       return;
@@ -48,7 +66,8 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       return;
     case "tasks.delete": {
       const taskId = requireNonEmptyString(record.taskId, "Task ID must be a non-empty string");
-      if (taskId === "." || taskId === ".." || /[\\/\0]/.test(taskId)) invalid("Task ID must not contain path separators or NUL");
+      if (taskId === "." || taskId === ".." || /[\\/\0]/.test(taskId))
+        invalid("Task ID must not contain path separators or NUL");
       return;
     }
     case "tasks.createFromPrompt": {
@@ -56,7 +75,11 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       if (prompt.length > 100_000) invalid("Prompt must not exceed 100000 characters");
       const configuration = requireRecord(record.configuration, "Task configuration must be an object");
       for (const value of Object.values(configuration)) {
-        if (typeof value !== "string" && typeof value !== "boolean" && (typeof value !== "number" || !Number.isFinite(value))) {
+        if (
+          typeof value !== "string" &&
+          typeof value !== "boolean" &&
+          (typeof value !== "number" || !Number.isFinite(value))
+        ) {
           invalid("Task configuration values must be strings, finite numbers, or booleans");
         }
       }
@@ -104,11 +127,17 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       return;
     }
     case "filesystem.remoteTransferBegin":
-      if (record.direction !== "upload" && record.direction !== "download") invalid("Transfer direction must be upload or download");
+      if (record.direction !== "upload" && record.direction !== "download")
+        invalid("Transfer direction must be upload or download");
       requireNonEmptyString(record.path, "Transfer path must be a non-empty string");
       optionalBoolean(record, "overwrite", "Transfer overwrite flag must be a boolean");
-      if (record.size !== undefined && (!Number.isSafeInteger(record.size) || (record.size as number) < 0)) invalid("Transfer size must be a non-negative safe integer");
-      if (record.mode !== undefined && (!Number.isInteger(record.mode) || (record.mode as number) < 0 || (record.mode as number) > 0o777)) invalid("Transfer mode must be an integer from 0 to 0777");
+      if (record.size !== undefined && (!Number.isSafeInteger(record.size) || (record.size as number) < 0))
+        invalid("Transfer size must be a non-negative safe integer");
+      if (
+        record.mode !== undefined &&
+        (!Number.isInteger(record.mode) || (record.mode as number) < 0 || (record.mode as number) > 0o777)
+      )
+        invalid("Transfer mode must be an integer from 0 to 0777");
       return;
     default:
       return;
@@ -151,7 +180,8 @@ function optionalBoolean(record: JsonRecord, key: string, message: string): void
 
 function optionalStringArray(record: JsonRecord, key: string, message: string): void {
   const value = record[key];
-  if (value !== undefined && (!Array.isArray(value) || !value.every((item) => typeof item === "string"))) invalid(message);
+  if (value !== undefined && (!Array.isArray(value) || !value.every((item) => typeof item === "string")))
+    invalid(message);
 }
 
 function validateContentBlock(value: unknown): void {
@@ -175,7 +205,10 @@ function validateContentBlock(value: unknown): void {
       requireString(block.uri, "Resource link URI must be a string");
       requireString(block.name, "Resource link name must be a string");
       optionalString(block, "mimeType", "Resource link MIME type must be a string");
-      if (block.size !== undefined && (typeof block.size !== "number" || !Number.isFinite(block.size) || block.size < 0)) {
+      if (
+        block.size !== undefined &&
+        (typeof block.size !== "number" || !Number.isFinite(block.size) || block.size < 0)
+      ) {
         invalid("Resource link size must be a non-negative finite number");
       }
       return;

@@ -26,6 +26,8 @@ Section "Install"
   Delete "$SMPROGRAMS\Vibe Gateway.lnk"
   DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\VibeGateway"
   RMDir /r "$LOCALAPPDATA\Programs\Vibe Gateway"
+  ; Missing legacy files are expected on a fresh installation.
+  ClearErrors
   SetOutPath "$INSTDIR"
   File /r "${SOURCE}\*"
   IfErrors 0 +2

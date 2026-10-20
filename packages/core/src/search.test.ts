@@ -25,22 +25,31 @@ describe("WorkspaceSearch", () => {
       before: [],
       after: [{ line: 2, text: "", truncated: false }],
       truncatedBefore: false,
-      truncatedAfter: false
+      truncatedAfter: false,
     });
   });
 
   it("returns no matches when a scoped directory is absent", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target\n");
-    const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
 
-    await expect(new WorkspaceSearch(filesystem).search("target", "src/missing", false)).resolves.toEqual({ matches: [], truncated: false });
+    await expect(new WorkspaceSearch(filesystem).search("target", "src/missing", false)).resolves.toEqual({
+      matches: [],
+      truncated: false,
+    });
   });
 
   it("searches inside a directory Git reports as one embedded-repository entry", async () => {
-    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-")); const nested = path.join(root, "nested");
-    await execFileAsync("git", ["init", "-q", root]); await mkdir(nested); await execFileAsync("git", ["init", "-q", nested]); await writeFile(path.join(nested, "a.txt"), "target\n");
-    const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
+    const nested = path.join(root, "nested");
+    await execFileAsync("git", ["init", "-q", root]);
+    await mkdir(nested);
+    await execFileAsync("git", ["init", "-q", nested]);
+    await writeFile(path.join(nested, "a.txt"), "target\n");
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
     const result = await new WorkspaceSearch(filesystem).search("target", "nested", false);
     expect(result.matches.map((match) => match.path)).toEqual(["nested/a.txt"]);
   });
@@ -57,14 +66,14 @@ describe("WorkspaceSearch", () => {
     expect(result.matches[0]?.context).toEqual({
       before: [
         { line: 3, text: "three", truncated: false },
-        { line: 4, text: "a".repeat(200), truncated: true }
+        { line: 4, text: "a".repeat(200), truncated: true },
       ],
       after: [
         { line: 6, text: "six", truncated: false },
-        { line: 7, text: "seven", truncated: false }
+        { line: 7, text: "seven", truncated: false },
       ],
       truncatedBefore: true,
-      truncatedAfter: true
+      truncatedAfter: true,
     });
   });
 
@@ -92,7 +101,7 @@ describe("WorkspaceSearch", () => {
       { line: 1, column: 8 },
       { line: 1, column: 15 },
       { line: 2, column: 1 },
-      { line: 2, column: 7 }
+      { line: 2, column: 7 },
     ]);
   });
 
@@ -100,7 +109,8 @@ describe("WorkspaceSearch", () => {
     const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
     await writeFile(path.join(root, "a.txt"), "target target\ntarget\n");
     await writeFile(path.join(root, "b.txt"), "target\n");
-    const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
 
     const result = await new WorkspaceSearch(filesystem).search("target", "", false, { filesOnly: true });
 
@@ -113,21 +123,31 @@ describe("WorkspaceSearch", () => {
     await writeFile(path.join(root, "src", "kept.ts"), "target\n");
     await writeFile(path.join(root, "src", "skip.test.ts"), "target\n");
     await writeFile(path.join(root, "src", "binary.bin"), Buffer.from([0, 1, 2, 3]));
-    const filesystem = new WorkspaceFileSystem(); await filesystem.open(root);
-    const result = await new WorkspaceSearch(filesystem).search("target", "", false, { include: "src/**/*.ts", exclude: "**/*.test.ts" });
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
+    const result = await new WorkspaceSearch(filesystem).search("target", "", false, {
+      include: "src/**/*.ts",
+      exclude: "**/*.test.ts",
+    });
     expect(result.matches.map((match) => match.path)).toEqual(["src/kept.ts"]);
   });
 
   it("previews replacements and reports changed files without hiding partial success", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
-    await writeFile(path.join(root, "a.txt"), "target\n"); await writeFile(path.join(root, "b.txt"), "target\n");
-    const filesystem = new WorkspaceFileSystem(); await filesystem.open(root); const search = new WorkspaceSearch(filesystem);
+    await writeFile(path.join(root, "a.txt"), "target\n");
+    await writeFile(path.join(root, "b.txt"), "target\n");
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
+    const search = new WorkspaceSearch(filesystem);
     const preview = await search.previewReplace("target", "done", "", false);
-    expect(preview.files).toHaveLength(2); expect(preview.files[0]?.occurrences[0]).toMatchObject({ before: "target", after: "done" });
+    expect(preview.files).toHaveLength(2);
+    expect(preview.files[0]?.occurrences[0]).toMatchObject({ before: "target", after: "done" });
     await expect(search.applyReplace(preview.id, false)).rejects.toMatchObject({ code: "INVALID_REQUEST" });
     await writeFile(path.join(root, "b.txt"), "changed externally\n");
     const applied = await search.applyReplace(preview.id, true);
-    expect(applied.applied.map((file) => file.path)).toEqual(["a.txt"]); expect(applied.failures.map((failure) => failure.path)).toEqual(["b.txt"]);
-    expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("done\n"); expect(await readFile(path.join(root, "b.txt"), "utf8")).toBe("changed externally\n");
+    expect(applied.applied.map((file) => file.path)).toEqual(["a.txt"]);
+    expect(applied.failures.map((failure) => failure.path)).toEqual(["b.txt"]);
+    expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("done\n");
+    expect(await readFile(path.join(root, "b.txt"), "utf8")).toBe("changed externally\n");
   });
 });

@@ -3,13 +3,39 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { HarnessRun } from "@hatopad/protocol";
 import { useWorkflowTraces } from "./workflow-tracing";
 
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 function finishedRun(timestamp: string): HarnessRun {
-  return { id: "fast-run", harnessId: "flow", harnessVersion: 1, input: "start", status: "succeeded", createdAt: timestamp, blocks: [], connectionTraces: [
-    { id: "request", edgeId: "edge", direction: "forward", status: "succeeded", startedAt: timestamp, completedAt: timestamp },
-    { id: "reply", edgeId: "edge", direction: "return", status: "succeeded", startedAt: timestamp, completedAt: timestamp }
-  ] };
+  return {
+    id: "fast-run",
+    harnessId: "flow",
+    harnessVersion: 1,
+    input: "start",
+    status: "succeeded",
+    createdAt: timestamp,
+    blocks: [],
+    connectionTraces: [
+      {
+        id: "request",
+        edgeId: "edge",
+        direction: "forward",
+        status: "succeeded",
+        startedAt: timestamp,
+        completedAt: timestamp,
+      },
+      {
+        id: "reply",
+        edgeId: "edge",
+        direction: "return",
+        status: "succeeded",
+        startedAt: timestamp,
+        completedAt: timestamp,
+      },
+    ],
+  };
 }
 
 describe("workflow transfer animation", () => {
@@ -19,7 +45,9 @@ describe("workflow transfer animation", () => {
     const { result, rerender } = renderHook(({ run }) => useWorkflowTraces(run), { initialProps: { run } });
     expect(result.current.map((trace) => trace.id)).toEqual(["request", "reply"]);
     expect(result.current[1]?.delayMs).toBe(900);
-    act(() => { vi.advanceTimersByTime(2500); });
+    act(() => {
+      vi.advanceTimersByTime(2500);
+    });
     expect(result.current).toEqual([]);
     rerender({ run: structuredClone(run) });
     expect(result.current).toEqual([]);

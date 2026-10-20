@@ -3,21 +3,35 @@ import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, open, readFile, rename, unlink } from "node:fs/promises";
-import type { WorkspaceOptions, WorkspaceWorkflowDocument, WorkspaceSearchQuery, WorkspaceSearchQueries } from "@hatopad/protocol";
+import type {
+  WorkspaceOptions,
+  WorkspaceWorkflowDocument,
+  WorkspaceSearchQuery,
+  WorkspaceSearchQueries,
+} from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { isSafeRelativePath } from "./path-safety.js";
 import { serializedStateMutation } from "./root-mutation.js";
 
 const stateValidators = new Map<string, (value: unknown) => unknown>();
 /** The Java plugin validates the workspace-state fields it owns; fields without a registered validator are dropped. */
-export function registerWorkspaceStateValidator(key: "javaBreakpoints" | "javaProject", validate: (value: unknown) => unknown): void { stateValidators.set(key, validate); }
+export function registerWorkspaceStateValidator(
+  key: "javaBreakpoints" | "javaProject",
+  validate: (value: unknown) => unknown,
+): void {
+  stateValidators.set(key, validate);
+}
 
 const saveQueues = new Map<string, Promise<void>>();
 
 export async function flushWorkspaceStateWrites(): Promise<void> {
   const results = await Promise.allSettled([...saveQueues.values()]);
   const failures = results.filter((result): result is PromiseRejectedResult => result.status === "rejected");
-  if (failures.length) throw new AggregateError(failures.map((result) => result.reason), "Workspace writes could not be drained");
+  if (failures.length)
+    throw new AggregateError(
+      failures.map((result) => result.reason),
+      "Workspace writes could not be drained",
+    );
 }
 
 const EMPTY_OPTIONS: WorkspaceOptions = { openFiles: [] };
@@ -31,8 +45,9 @@ export class WorkspaceStateStore {
   }
 
   async load(): Promise<WorkspaceOptions> {
-    try { return validateWorkspaceOptions(JSON.parse(await readFile(this.stateFile, "utf8"))); }
-    catch (error) {
+    try {
+      return validateWorkspaceOptions(JSON.parse(await readFile(this.stateFile, "utf8")));
+    } catch (error) {
       const missing = (error as NodeJS.ErrnoException).code === "ENOENT";
       if (!missing && !(error instanceof SyntaxError) && !(error instanceof CoreError)) {
         throw new CoreError("READ_FAILED", `Could not read workspace options at ${this.stateFile}: ${String(error)}`);
@@ -43,16 +58,25 @@ export class WorkspaceStateStore {
         return backup;
       } catch (backupError) {
         if (missing && (backupError as NodeJS.ErrnoException).code === "ENOENT") return { ...EMPTY_OPTIONS };
-        throw new CoreError("READ_FAILED", `Workspace options at ${this.stateFile} are unreadable and no valid backup is available: ${String(error)}`);
+        throw new CoreError(
+          "READ_FAILED",
+          `Workspace options at ${this.stateFile} are unreadable and no valid backup is available: ${String(error)}`,
+        );
       }
     }
   }
 
   save(options: WorkspaceOptions): Promise<void> {
     const validated = validateWorkspaceOptions(options);
-    const pending = (saveQueues.get(this.stateFile) ?? Promise.resolve()).catch(() => undefined).then(() => serializedStateMutation(this.stateFile, () => this.write(validated)));
+    const pending = (saveQueues.get(this.stateFile) ?? Promise.resolve())
+      .catch(() => undefined)
+      .then(() => serializedStateMutation(this.stateFile, () => this.write(validated)));
     saveQueues.set(this.stateFile, pending);
-    void pending.finally(() => { if (saveQueues.get(this.stateFile) === pending) saveQueues.delete(this.stateFile); }).catch(() => undefined);
+    void pending
+      .finally(() => {
+        if (saveQueues.get(this.stateFile) === pending) saveQueues.delete(this.stateFile);
+      })
+      .catch(() => undefined);
     return pending;
   }
 
@@ -60,10 +84,16 @@ export class WorkspaceStateStore {
     const temporary = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
     try {
       const handle = await open(temporary, "wx", 0o600);
-      try { await handle.writeFile(`${JSON.stringify(options, null, 2)}\n`, "utf8"); await handle.sync(); }
-      finally { await handle.close(); }
+      try {
+        await handle.writeFile(`${JSON.stringify(options, null, 2)}\n`, "utf8");
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
       await rename(temporary, file);
-    } finally { await unlink(temporary).catch(() => undefined); }
+    } finally {
+      await unlink(temporary).catch(() => undefined);
+    }
   }
 
   private async write(options: WorkspaceOptions): Promise<void> {
@@ -74,93 +104,207 @@ export class WorkspaceStateStore {
       await this.promote(`${this.stateFile}.bak`, previous);
       await this.promote(this.stateFile, options);
     } catch (error) {
-      throw new CoreError("WRITE_FAILED", `Could not save workspace options: ${error instanceof Error ? error.message : String(error)}`);
+      throw new CoreError(
+        "WRITE_FAILED",
+        `Could not save workspace options: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
-
 }
 
 export function validateWorkspaceOptions(value: unknown): WorkspaceOptions {
-  if (!value || typeof value !== "object") throw new CoreError("INVALID_REQUEST", "Workspace options must be an object");
+  if (!value || typeof value !== "object")
+    throw new CoreError("INVALID_REQUEST", "Workspace options must be an object");
   const candidate = value as Record<string, unknown>;
-  if (!Array.isArray(candidate.openFiles) || candidate.openFiles.length > 100 || !candidate.openFiles.every(isSafeRelativePath)) {
+  if (
+    !Array.isArray(candidate.openFiles) ||
+    candidate.openFiles.length > 100 ||
+    !candidate.openFiles.every(isSafeRelativePath)
+  ) {
     throw new CoreError("INVALID_REQUEST", "openFiles must contain at most 100 safe relative paths");
   }
   if (candidate.activeFile !== undefined && !isSafeRelativePath(candidate.activeFile)) {
     throw new CoreError("INVALID_REQUEST", "activeFile must be a safe relative path");
   }
   const openFiles = [...new Set(candidate.openFiles as string[])];
-  if (candidate.pinnedFiles !== undefined && (!Array.isArray(candidate.pinnedFiles) || candidate.pinnedFiles.length > 100 || !candidate.pinnedFiles.every((filePath) => typeof filePath === "string" && openFiles.includes(filePath)))) {
+  if (
+    candidate.pinnedFiles !== undefined &&
+    (!Array.isArray(candidate.pinnedFiles) ||
+      candidate.pinnedFiles.length > 100 ||
+      !candidate.pinnedFiles.every((filePath) => typeof filePath === "string" && openFiles.includes(filePath)))
+  ) {
     throw new CoreError("INVALID_REQUEST", "pinnedFiles must contain open file paths");
   }
   const pinnedFiles = candidate.pinnedFiles === undefined ? undefined : [...new Set(candidate.pinnedFiles as string[])];
-  const activeFile = typeof candidate.activeFile === "string" && openFiles.includes(candidate.activeFile) ? candidate.activeFile : undefined;
-  const workflowDocuments = candidate.workflowDocuments === undefined ? undefined : validateWorkflowDocuments(candidate.workflowDocuments);
-  const javaBreakpoints = candidate.javaBreakpoints === undefined ? undefined : stateValidators.get("javaBreakpoints")?.(candidate.javaBreakpoints) as WorkspaceOptions["javaBreakpoints"];
-  const javaProject = candidate.javaProject === undefined ? undefined : stateValidators.get("javaProject")?.(candidate.javaProject) as WorkspaceOptions["javaProject"];
+  const activeFile =
+    typeof candidate.activeFile === "string" && openFiles.includes(candidate.activeFile)
+      ? candidate.activeFile
+      : undefined;
+  const workflowDocuments =
+    candidate.workflowDocuments === undefined ? undefined : validateWorkflowDocuments(candidate.workflowDocuments);
+  const javaBreakpoints =
+    candidate.javaBreakpoints === undefined
+      ? undefined
+      : (stateValidators.get("javaBreakpoints")?.(candidate.javaBreakpoints) as WorkspaceOptions["javaBreakpoints"]);
+  const javaProject =
+    candidate.javaProject === undefined
+      ? undefined
+      : (stateValidators.get("javaProject")?.(candidate.javaProject) as WorkspaceOptions["javaProject"]);
   const terminal = candidate.terminal === undefined ? undefined : validateTerminalOptions(candidate.terminal);
   const fileColors = candidate.fileColors === undefined ? undefined : validateFileColors(candidate.fileColors);
-  const searchQueries = candidate.searchQueries === undefined ? undefined : validateSearchQueries(candidate.searchQueries);
-  if (candidate.gitCommitMessage !== undefined && (typeof candidate.gitCommitMessage !== "string" || candidate.gitCommitMessage.length > 10_000)) throw new CoreError("INVALID_REQUEST", "Invalid Git commit message draft");
+  const searchQueries =
+    candidate.searchQueries === undefined ? undefined : validateSearchQueries(candidate.searchQueries);
+  if (
+    candidate.gitCommitMessage !== undefined &&
+    (typeof candidate.gitCommitMessage !== "string" || candidate.gitCommitMessage.length > 10_000)
+  )
+    throw new CoreError("INVALID_REQUEST", "Invalid Git commit message draft");
   const gitCommitMessage = typeof candidate.gitCommitMessage === "string" ? candidate.gitCommitMessage : undefined;
-  return { openFiles, ...(workflowDocuments ? { workflowDocuments } : {}), ...(javaBreakpoints ? { javaBreakpoints } : {}), ...(pinnedFiles?.length ? { pinnedFiles } : {}), ...(activeFile ? { activeFile } : {}), ...(javaProject ? { javaProject } : {}), ...(terminal ? { terminal } : {}), ...(fileColors && Object.keys(fileColors).length ? { fileColors } : {}), ...(gitCommitMessage ? { gitCommitMessage } : {}), ...(searchQueries ? { searchQueries } : {}) };
+  return {
+    openFiles,
+    ...(workflowDocuments ? { workflowDocuments } : {}),
+    ...(javaBreakpoints ? { javaBreakpoints } : {}),
+    ...(pinnedFiles?.length ? { pinnedFiles } : {}),
+    ...(activeFile ? { activeFile } : {}),
+    ...(javaProject ? { javaProject } : {}),
+    ...(terminal ? { terminal } : {}),
+    ...(fileColors && Object.keys(fileColors).length ? { fileColors } : {}),
+    ...(gitCommitMessage ? { gitCommitMessage } : {}),
+    ...(searchQueries ? { searchQueries } : {}),
+  };
 }
 
 function validateWorkflowDocuments(value: unknown): WorkspaceWorkflowDocument[] {
-  if (!Array.isArray(value) || value.length > 100) throw new CoreError("INVALID_REQUEST", "Invalid workflow document tabs");
+  if (!Array.isArray(value) || value.length > 100)
+    throw new CoreError("INVALID_REQUEST", "Invalid workflow document tabs");
   const seen = new Set<string>();
   return value.flatMap((item: unknown) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) throw new CoreError("INVALID_REQUEST", "Invalid workflow document tab");
+    if (!item || typeof item !== "object" || Array.isArray(item))
+      throw new CoreError("INVALID_REQUEST", "Invalid workflow document tab");
     const { runId, blockId, position, pinned, markdownMode, active } = item as Record<string, unknown>;
-    if ([runId, blockId].some((id) => typeof id !== "string" || !id.trim() || id.length > 200) || !Number.isInteger(position) || (position as number) < 0 || (position as number) > 1000 || (pinned !== undefined && typeof pinned !== "boolean") || (active !== undefined && typeof active !== "boolean") || (markdownMode !== undefined && markdownMode !== "edit" && markdownMode !== "preview")) throw new CoreError("INVALID_REQUEST", "Invalid workflow document tab");
+    if (
+      [runId, blockId].some((id) => typeof id !== "string" || !id.trim() || id.length > 200) ||
+      !Number.isInteger(position) ||
+      (position as number) < 0 ||
+      (position as number) > 1000 ||
+      (pinned !== undefined && typeof pinned !== "boolean") ||
+      (active !== undefined && typeof active !== "boolean") ||
+      (markdownMode !== undefined && markdownMode !== "edit" && markdownMode !== "preview")
+    )
+      throw new CoreError("INVALID_REQUEST", "Invalid workflow document tab");
     const key = JSON.stringify([runId, blockId]);
-    if (seen.has(key)) return []; seen.add(key);
-    return [{ runId: runId as string, blockId: blockId as string, position: position as number, ...(pinned ? { pinned: true } : {}), ...(active ? { active: true } : {}), ...(markdownMode ? { markdownMode: markdownMode as "edit" | "preview" } : {}) }];
+    if (seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        runId: runId as string,
+        blockId: blockId as string,
+        position: position as number,
+        ...(pinned ? { pinned: true } : {}),
+        ...(active ? { active: true } : {}),
+        ...(markdownMode ? { markdownMode: markdownMode as "edit" | "preview" } : {}),
+      },
+    ];
   });
 }
 
 function validateSearchQueries(value: unknown): WorkspaceSearchQueries {
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new CoreError("INVALID_REQUEST", "Invalid saved search metadata");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new CoreError("INVALID_REQUEST", "Invalid saved search metadata");
   const candidate = value as Record<string, unknown>;
   const validateList = (list: unknown, limit: number, label: string): WorkspaceSearchQuery[] | undefined => {
     if (list === undefined) return undefined;
-    if (!Array.isArray(list) || list.length > limit) throw new CoreError("INVALID_REQUEST", `Invalid ${label} searches`);
-    const seen = new Set<string>(); const result: WorkspaceSearchQuery[] = [];
+    if (!Array.isArray(list) || list.length > limit)
+      throw new CoreError("INVALID_REQUEST", `Invalid ${label} searches`);
+    const seen = new Set<string>();
+    const result: WorkspaceSearchQuery[] = [];
     for (const item of list) {
-      if (!item || typeof item !== "object" || Array.isArray(item)) throw new CoreError("INVALID_REQUEST", `Invalid ${label} search`);
-      const query = (item as Record<string, unknown>).query; const searchPath = (item as Record<string, unknown>).path; const matchCase = (item as Record<string, unknown>).matchCase; const include = (item as Record<string, unknown>).include; const exclude = (item as Record<string, unknown>).exclude;
-      if (typeof query !== "string" || !query.trim() || query.length > 200 || typeof searchPath !== "string" || (searchPath !== "" && !isSafeRelativePath(searchPath)) || (matchCase !== undefined && typeof matchCase !== "boolean") || (include !== undefined && (typeof include !== "string" || include.length > 200)) || (exclude !== undefined && (typeof exclude !== "string" || exclude.length > 200))) throw new CoreError("INVALID_REQUEST", `Invalid ${label} search`);
-      const normalized = { query: query.trim(), path: searchPath, ...(matchCase ? { matchCase: true } : {}), ...(include?.trim() ? { include: include.trim() } : {}), ...(exclude?.trim() ? { exclude: exclude.trim() } : {}) };
-      const key = JSON.stringify(normalized); if (!seen.has(key)) { seen.add(key); result.push(normalized); }
+      if (!item || typeof item !== "object" || Array.isArray(item))
+        throw new CoreError("INVALID_REQUEST", `Invalid ${label} search`);
+      const query = (item as Record<string, unknown>).query;
+      const searchPath = (item as Record<string, unknown>).path;
+      const matchCase = (item as Record<string, unknown>).matchCase;
+      const include = (item as Record<string, unknown>).include;
+      const exclude = (item as Record<string, unknown>).exclude;
+      if (
+        typeof query !== "string" ||
+        !query.trim() ||
+        query.length > 200 ||
+        typeof searchPath !== "string" ||
+        (searchPath !== "" && !isSafeRelativePath(searchPath)) ||
+        (matchCase !== undefined && typeof matchCase !== "boolean") ||
+        (include !== undefined && (typeof include !== "string" || include.length > 200)) ||
+        (exclude !== undefined && (typeof exclude !== "string" || exclude.length > 200))
+      )
+        throw new CoreError("INVALID_REQUEST", `Invalid ${label} search`);
+      const normalized = {
+        query: query.trim(),
+        path: searchPath,
+        ...(matchCase ? { matchCase: true } : {}),
+        ...(include?.trim() ? { include: include.trim() } : {}),
+        ...(exclude?.trim() ? { exclude: exclude.trim() } : {}),
+      };
+      const key = JSON.stringify(normalized);
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(normalized);
+      }
     }
     return result;
   };
-  const recent = validateList(candidate.recent, 10, "recent"); const saved = validateList(candidate.saved, 20, "saved");
+  const recent = validateList(candidate.recent, 10, "recent");
+  const saved = validateList(candidate.saved, 20, "saved");
   return { ...(recent?.length ? { recent } : {}), ...(saved?.length ? { saved } : {}) };
 }
 
 function validateFileColors(value: unknown): NonNullable<WorkspaceOptions["fileColors"]> {
-  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 500) throw new CoreError("INVALID_REQUEST", "Invalid file colors");
-  const colors = new Set(["red", "orange", "yellow", "green", "blue", "purple", "gray"]); const result: Record<string, "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray"> = {};
-  for (const [filePath, color] of Object.entries(value as Record<string, unknown>)) { if (!isSafeRelativePath(filePath) || typeof color !== "string" || !colors.has(color)) throw new CoreError("INVALID_REQUEST", "Invalid colored file entry"); result[filePath] = color as typeof result[string]; }
+  if (!value || typeof value !== "object" || Array.isArray(value) || Object.keys(value).length > 500)
+    throw new CoreError("INVALID_REQUEST", "Invalid file colors");
+  const colors = new Set(["red", "orange", "yellow", "green", "blue", "purple", "gray"]);
+  const result: Record<string, "red" | "orange" | "yellow" | "green" | "blue" | "purple" | "gray"> = {};
+  for (const [filePath, color] of Object.entries(value as Record<string, unknown>)) {
+    if (!isSafeRelativePath(filePath) || typeof color !== "string" || !colors.has(color))
+      throw new CoreError("INVALID_REQUEST", "Invalid colored file entry");
+    result[filePath] = color as (typeof result)[string];
+  }
   return result;
 }
 
 function validateTerminalOptions(value: unknown): NonNullable<WorkspaceOptions["terminal"]> {
   if (!value || typeof value !== "object") throw new CoreError("INVALID_REQUEST", "Invalid terminal workspace options");
   const candidate = value as Record<string, unknown>;
-  if (!Array.isArray(candidate.tabs) || candidate.tabs.length > 20 || !candidate.tabs.every((tab) => {
-    if (!tab || typeof tab !== "object") return false;
-    const item = tab as Record<string, unknown>;
-    const displayName = typeof item.displayName === "string" ? item.displayName : item.title;
-    return typeof displayName === "string" && displayName.length <= 100 && (item.terminalId === undefined || (typeof item.terminalId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.terminalId)));
-  })) throw new CoreError("INVALID_REQUEST", "Terminal tabs must contain at most 20 valid entries");
-  if (typeof candidate.panelOpen !== "boolean") throw new CoreError("INVALID_REQUEST", "Invalid terminal panel options");
+  if (
+    !Array.isArray(candidate.tabs) ||
+    candidate.tabs.length > 20 ||
+    !candidate.tabs.every((tab) => {
+      if (!tab || typeof tab !== "object") return false;
+      const item = tab as Record<string, unknown>;
+      const displayName = typeof item.displayName === "string" ? item.displayName : item.title;
+      return (
+        typeof displayName === "string" &&
+        displayName.length <= 100 &&
+        (item.terminalId === undefined ||
+          (typeof item.terminalId === "string" &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.terminalId)))
+      );
+    })
+  )
+    throw new CoreError("INVALID_REQUEST", "Terminal tabs must contain at most 20 valid entries");
+  if (typeof candidate.panelOpen !== "boolean")
+    throw new CoreError("INVALID_REQUEST", "Invalid terminal panel options");
   const tabs = candidate.tabs.map((tab) => {
     const item = tab as { displayName?: string; title?: string; terminalId?: string };
     const displayName = item.displayName ?? item.title!;
-    return { displayName: (displayName.trim() || "Terminal").slice(0, 100), ...(item.terminalId ? { terminalId: item.terminalId } : {}) };
+    return {
+      displayName: (displayName.trim() || "Terminal").slice(0, 100),
+      ...(item.terminalId ? { terminalId: item.terminalId } : {}),
+    };
   });
-  const activeTabIndex = Number.isInteger(candidate.activeTabIndex) && (candidate.activeTabIndex as number) >= 0 && (candidate.activeTabIndex as number) < tabs.length ? candidate.activeTabIndex as number : undefined;
+  const activeTabIndex =
+    Number.isInteger(candidate.activeTabIndex) &&
+    (candidate.activeTabIndex as number) >= 0 &&
+    (candidate.activeTabIndex as number) < tabs.length
+      ? (candidate.activeTabIndex as number)
+      : undefined;
   return { tabs, ...(activeTabIndex !== undefined ? { activeTabIndex } : {}), panelOpen: candidate.panelOpen };
 }

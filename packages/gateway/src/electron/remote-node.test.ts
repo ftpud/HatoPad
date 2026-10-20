@@ -18,17 +18,30 @@ async function setup(versions: string[], systemVersion = "20.19.0", customNvm = 
     await mkdir(bin, { recursive: true });
     const preload = path.join(bin, "version.cjs");
     await writeFile(preload, `Object.defineProperty(process.versions, 'node', { value: ${JSON.stringify(version)} });`);
-    await writeFile(path.join(bin, "node"), `#!/bin/sh\nexec ${quote(process.execPath)} --require ${quote(preload)} "$@"\n`, { mode: 0o755 });
-    await writeFile(path.join(bin, "npm"), `#!/bin/sh\nexec node -e 'process.stdout.write("npm:" + process.versions.node)'\n`, { mode: 0o755 });
+    await writeFile(
+      path.join(bin, "node"),
+      `#!/bin/sh\nexec ${quote(process.execPath)} --require ${quote(preload)} "$@"\n`,
+      { mode: 0o755 },
+    );
+    await writeFile(
+      path.join(bin, "npm"),
+      `#!/bin/sh\nexec node -e 'process.stdout.write("npm:" + process.versions.node)'\n`,
+      { mode: 0o755 },
+    );
   };
   await install(systemBin, systemVersion);
   if (versions.length) {
     for (const version of versions) await install(path.join(nvm, "versions", "node", `v${version}`, "bin"), version);
     const latest = [...versions].sort((left, right) => left.localeCompare(right, undefined, { numeric: true })).at(-1)!;
-    const preferred = versions.filter((version) => version.startsWith("24.")).sort((left, right) => left.localeCompare(right, undefined, { numeric: true })).at(-1);
+    const preferred = versions
+      .filter((version) => version.startsWith("24."))
+      .sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+      .at(-1);
     await mkdir(path.join(nvm, "alias"), { recursive: true });
     await writeFile(path.join(nvm, "alias", "default"), "20\n");
-    await writeFile(path.join(nvm, "nvm.sh"), `
+    await writeFile(
+      path.join(nvm, "nvm.sh"),
+      `
 [ "\${1-}" = --no-use ] || { echo 'NVM must be loaded without its default' >&2; return 99; }
 nvm() {
   case "$1" in
@@ -45,11 +58,22 @@ nvm() {
     *) echo 'Unexpected NVM command' >&2; return 99;;
   esac
 }
-`);
+`,
+    );
   }
   const env: NodeJS.ProcessEnv = { ...process.env, HOME: directory, PATH: `${systemBin}:/usr/bin:/bin` };
-  if (customNvm) env.NVM_DIR = nvm; else delete env.NVM_DIR;
-  const run = () => execute("/bin/bash", ["-eu", "-c", `${remoteNodeEnvironment}\nnode -e 'process.stdout.write(process.versions.node)'\nprintf '\\n'\nnpm --version`], { env });
+  if (customNvm) env.NVM_DIR = nvm;
+  else delete env.NVM_DIR;
+  const run = () =>
+    execute(
+      "/bin/bash",
+      [
+        "-eu",
+        "-c",
+        `${remoteNodeEnvironment}\nnode -e 'process.stdout.write(process.versions.node)'\nprintf '\\n'\nnpm --version`,
+      ],
+      { env },
+    );
   return { directory, nvm, run };
 }
 
@@ -59,40 +83,58 @@ for (const customNvm of [false, true]) {
     try {
       assert.equal((await fixture.run()).stdout, "24.5.0\nnpm:24.5.0");
       assert.equal(await readFile(path.join(fixture.nvm, "alias/default"), "utf8"), "20\n");
-    } finally { await rm(fixture.directory, { recursive: true, force: true }); }
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
   });
 }
 
 test("uses an installed supported NVM version when Node 24 is absent", async () => {
   const fixture = await setup(["20.19.0", "22.12.0"]);
-  try { assert.equal((await fixture.run()).stdout, "22.12.0\nnpm:22.12.0"); }
-  finally { await rm(fixture.directory, { recursive: true, force: true }); }
+  try {
+    assert.equal((await fixture.run()).stdout, "22.12.0\nnpm:22.12.0");
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
 });
 
 for (const version of ["20.19.0", "22.11.0"]) {
   test(`rejects unsupported NVM Node ${version} with installation guidance`, async () => {
     const fixture = await setup([version]);
-    try { await assert.rejects(fixture.run(), /requires Node.js 22.12\+.*nvm install 24/); }
-    finally { await rm(fixture.directory, { recursive: true, force: true }); }
+    try {
+      await assert.rejects(fixture.run(), /requires Node.js 22.12\+.*nvm install 24/);
+    } finally {
+      await rm(fixture.directory, { recursive: true, force: true });
+    }
   });
 }
 
 test("supports hosts without NVM when PATH already provides a supported Node", async () => {
   const fixture = await setup([], "24.5.0");
-  try { assert.equal((await fixture.run()).stdout, "24.5.0\nnpm:24.5.0"); }
-  finally { await rm(fixture.directory, { recursive: true, force: true }); }
+  try {
+    assert.equal((await fixture.run()).stdout, "24.5.0\nnpm:24.5.0");
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
 });
 
-test('portable Core runtime works without usable system Node or NVM',async()=>{
-  const {installedNodeEnvironment}=await import('./remote-node.js');
-  const fixture=await setup(['20.19.0']);
-  const release='a'.repeat(40)+'-node137-bundle-test';
+test("portable Core runtime works without usable system Node or NVM", async () => {
+  const { installedNodeEnvironment } = await import("./remote-node.js");
+  const fixture = await setup(["20.19.0"]);
+  const release = "a".repeat(40) + "-node137-bundle-test";
   try {
-    const bin=path.join(fixture.directory,'.hatopad-deploy/releases',release,'bin');await mkdir(bin,{recursive:true});
-    await writeFile(path.join(bin,'node'),`#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`,{mode:0o755});
-    await writeFile(path.join(bin,'npm'),'#!/bin/sh\nprintf portable-npm\n',{mode:0o755});
-    const {stdout}=await execute('/bin/bash',['-eu','-c',`${installedNodeEnvironment(release)}\nnode -p 'process.versions.node'\nnpm --version`],{env:{...process.env,HOME:fixture.directory,NVM_DIR:fixture.nvm}});
-    assert.equal(stdout,`${process.versions.node}\nportable-npm`);
-    assert.throws(()=>installedNodeEnvironment('../../other;command'),/Invalid/);
-  } finally {await rm(fixture.directory,{recursive:true,force:true});}
+    const bin = path.join(fixture.directory, ".hatopad-deploy/releases", release, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(path.join(bin, "node"), `#!/bin/sh\nexec ${quote(process.execPath)} "$@"\n`, { mode: 0o755 });
+    await writeFile(path.join(bin, "npm"), "#!/bin/sh\nprintf portable-npm\n", { mode: 0o755 });
+    const { stdout } = await execute(
+      "/bin/bash",
+      ["-eu", "-c", `${installedNodeEnvironment(release)}\nnode -p 'process.versions.node'\nnpm --version`],
+      { env: { ...process.env, HOME: fixture.directory, NVM_DIR: fixture.nvm } },
+    );
+    assert.equal(stdout, `${process.versions.node}\nportable-npm`);
+    assert.throws(() => installedNodeEnvironment("../../other;command"), /Invalid/);
+  } finally {
+    await rm(fixture.directory, { recursive: true, force: true });
+  }
 });

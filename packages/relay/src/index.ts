@@ -24,7 +24,7 @@ export const DEFAULT_RELAY_LIMITS: RelayLimits = {
   maxChannels: 16,
   maxQueuedBytesPerChannel: 128 * 1024 * 1024,
   maxFramesPerSecond: 200,
-  heartbeatIntervalMs: 20_000
+  heartbeatIntervalMs: 20_000,
 };
 
 export type RelayErrorCode =
@@ -126,12 +126,11 @@ export const relayFrameTypes = [
   "channel.close",
   "error",
   "ping",
-  "pong"
+  "pong",
 ] as const;
 
 export type RelayParseResult =
-  | { ok: true; frame: RelayFrame }
-  | { ok: false; code: "malformed" | "too-large"; reason: string };
+  { ok: true; frame: RelayFrame } | { ok: false; code: "malformed" | "too-large"; reason: string };
 
 const errorCodes: ReadonlySet<string> = new Set<RelayErrorCode>([
   "unauthenticated",
@@ -145,7 +144,7 @@ const errorCodes: ReadonlySet<string> = new Set<RelayErrorCode>([
   "channel-limit",
   "quota",
   "upstream-failed",
-  "revoked"
+  "revoked",
 ]);
 
 const channelIdPattern = /^[A-Za-z0-9_-]{1,64}$/;
@@ -167,10 +166,22 @@ function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]): b
 }
 
 export function isVersionRange(value: unknown): value is VersionRange {
-  return isRecord(value) && hasOnlyKeys(value, ["minimum", "maximum"]) && isPositive(value.minimum) && isPositive(value.maximum) && value.minimum <= value.maximum;
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ["minimum", "maximum"]) &&
+    isPositive(value.minimum) &&
+    isPositive(value.maximum) &&
+    value.minimum <= value.maximum
+  );
 }
 
-const limitKeys = ["maxFrameBytes", "maxChannels", "maxQueuedBytesPerChannel", "maxFramesPerSecond", "heartbeatIntervalMs"] as const;
+const limitKeys = [
+  "maxFrameBytes",
+  "maxChannels",
+  "maxQueuedBytesPerChannel",
+  "maxFramesPerSecond",
+  "heartbeatIntervalMs",
+] as const;
 
 export function isRelayLimits(value: unknown): value is RelayLimits {
   return isRecord(value) && hasOnlyKeys(value, limitKeys) && limitKeys.every((key) => isPositive(value[key]));
@@ -197,7 +208,8 @@ export function parseRelayFrame(text: string, maxFrameBytes = DEFAULT_RELAY_LIMI
   }
   if (!isRecord(value) || typeof value.type !== "string") return bad("missing frame type");
 
-  const allowed = (...keys: string[]) => Object.keys(value as object).every((key) => key === "type" || keys.includes(key));
+  const allowed = (...keys: string[]) =>
+    Object.keys(value as object).every((key) => key === "type" || keys.includes(key));
   const channel = value.channel;
   const channelOk = typeof channel === "string" && channelIdPattern.test(channel);
 
@@ -205,8 +217,10 @@ export function parseRelayFrame(text: string, maxFrameBytes = DEFAULT_RELAY_LIMI
     case "hello":
       if (!allowed("relay", "credential", "connectorVersion")) return bad("unknown field");
       if (!isVersionRange(value.relay)) return bad("invalid relay range");
-      if (typeof value.credential !== "string" || value.credential.length < 1 || value.credential.length > 512) return bad("invalid credential");
-      if (typeof value.connectorVersion !== "string" || value.connectorVersion.length > 64) return bad("invalid connector version");
+      if (typeof value.credential !== "string" || value.credential.length < 1 || value.credential.length > 512)
+        return bad("invalid credential");
+      if (typeof value.connectorVersion !== "string" || value.connectorVersion.length > 64)
+        return bad("invalid connector version");
       return { ok: true, frame: value as unknown as ConnectorHelloFrame };
     case "hello.ok":
       if (!allowed("relay", "limits")) return bad("unknown field");
@@ -225,7 +239,11 @@ export function parseRelayFrame(text: string, maxFrameBytes = DEFAULT_RELAY_LIMI
     case "channel.close":
       if (!allowed("channel", "generation", "reason")) return bad("unknown field");
       if (!channelOk || !isCount(value.generation)) return bad("invalid channel");
-      if (value.reason !== undefined && value.reason !== "normal" && !(typeof value.reason === "string" && errorCodes.has(value.reason))) {
+      if (
+        value.reason !== undefined &&
+        value.reason !== "normal" &&
+        !(typeof value.reason === "string" && errorCodes.has(value.reason))
+      ) {
         return bad("invalid close reason");
       }
       return { ok: true, frame: value as unknown as ChannelCloseFrame };
@@ -234,7 +252,8 @@ export function parseRelayFrame(text: string, maxFrameBytes = DEFAULT_RELAY_LIMI
       if (typeof value.code !== "string" || !errorCodes.has(value.code)) return bad("invalid error code");
       if (value.channel !== undefined && !channelOk) return bad("invalid channel");
       if (value.generation !== undefined && !isCount(value.generation)) return bad("invalid generation");
-      if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 200)) return bad("invalid message");
+      if (value.message !== undefined && (typeof value.message !== "string" || value.message.length > 200))
+        return bad("invalid message");
       return { ok: true, frame: value as unknown as RelayErrorFrame };
     case "ping":
     case "pong":
@@ -278,8 +297,7 @@ export interface PairingClaimant {
 
 /** Poll never carries a credential: it only reports whether a signed-in user has claimed the code. */
 export type PairingPollResponse =
-  | { status: "pending"; claimedBy?: PairingClaimant }
-  | { status: "rejected"; reason: "expired" | "denied" | "invalid" };
+  { status: "pending"; claimedBy?: PairingClaimant } | { status: "rejected"; reason: "expired" | "denied" | "invalid" };
 
 /** Sent by the connector after the local user reviewed the claimant. */
 export interface PairingConfirmRequest {
@@ -304,26 +322,45 @@ function isIsoTime(value: unknown): value is string {
   return typeof value === "string" && value.length <= 40 && !Number.isNaN(Date.parse(value));
 }
 
-function checked<T>(value: unknown, keys: readonly string[], valid: (record: Record<string, unknown>) => boolean): ContractResult<T> {
+function checked<T>(
+  value: unknown,
+  keys: readonly string[],
+  valid: (record: Record<string, unknown>) => boolean,
+): ContractResult<T> {
   if (!isRecord(value)) return { ok: false, reason: "not an object" };
   if (!Object.keys(value).every((key) => keys.includes(key))) return { ok: false, reason: "unknown field" };
   return valid(value) ? { ok: true, value: value as T } : { ok: false, reason: "invalid field" };
 }
 
 export function parsePairingStartRequest(value: unknown): ContractResult<PairingStartRequest> {
-  return checked(value, ["code", "deviceId", "deviceName", "connectorVersion", "relay"], (v) =>
-    typeof v.code === "string" && codePattern.test(v.code) &&
-    typeof v.deviceId === "string" && idPattern.test(v.deviceId) &&
-    text(v.deviceName, 80) && text(v.connectorVersion, 64) && isVersionRange(v.relay)
+  return checked(
+    value,
+    ["code", "deviceId", "deviceName", "connectorVersion", "relay"],
+    (v) =>
+      typeof v.code === "string" &&
+      codePattern.test(v.code) &&
+      typeof v.deviceId === "string" &&
+      idPattern.test(v.deviceId) &&
+      text(v.deviceName, 80) &&
+      text(v.connectorVersion, 64) &&
+      isVersionRange(v.relay),
   );
 }
 
 export function parsePairingStartResponse(value: unknown): ContractResult<PairingStartResponse> {
   if (isRecord(value) && value.status === "rejected") {
-    return checked(value, ["status", "reason"], (v) => ["expired", "used", "rate-limited", "invalid"].includes(v.reason as string));
+    return checked(value, ["status", "reason"], (v) =>
+      ["expired", "used", "rate-limited", "invalid"].includes(v.reason as string),
+    );
   }
-  return checked(value, ["status", "pairingId", "expiresAt"], (v) =>
-    v.status === "pending" && typeof v.pairingId === "string" && idPattern.test(v.pairingId) && isIsoTime(v.expiresAt)
+  return checked(
+    value,
+    ["status", "pairingId", "expiresAt"],
+    (v) =>
+      v.status === "pending" &&
+      typeof v.pairingId === "string" &&
+      idPattern.test(v.pairingId) &&
+      isIsoTime(v.expiresAt),
   );
 }
 
@@ -332,11 +369,20 @@ export function parsePairingPollResponse(value: unknown): ContractResult<Pairing
     const result = checked<PairingPollResponse>(value, ["status", "claimedBy"], (v) => {
       if (v.claimedBy === undefined) return true;
       const claimant = v.claimedBy;
-      return isRecord(claimant) && hasOnlyKeys(claimant, ["name", "email"]) && text(claimant.name, 120) && text(claimant.email, 254);
+      return (
+        isRecord(claimant) &&
+        hasOnlyKeys(claimant, ["name", "email"]) &&
+        text(claimant.name, 120) &&
+        text(claimant.email, 254)
+      );
     });
     return result;
   }
-  return checked(value, ["status", "reason"], (v) => v.status === "rejected" && ["expired", "denied", "invalid"].includes(v.reason as string));
+  return checked(
+    value,
+    ["status", "reason"],
+    (v) => v.status === "rejected" && ["expired", "denied", "invalid"].includes(v.reason as string),
+  );
 }
 
 export function parsePairingConfirmRequest(value: unknown): ContractResult<PairingConfirmRequest> {
@@ -347,8 +393,11 @@ export function parsePairingConfirmResponse(value: unknown): ContractResult<Pair
   if (isRecord(value) && value.status === "rejected") {
     return checked(value, ["status", "reason"], (v) => ["expired", "denied", "invalid"].includes(v.reason as string));
   }
-  return checked(value, ["status", "coreId", "credential"], (v) =>
-    v.status === "confirmed" && typeof v.coreId === "string" && idPattern.test(v.coreId) && text(v.credential, 512)
+  return checked(
+    value,
+    ["status", "coreId", "credential"],
+    (v) =>
+      v.status === "confirmed" && typeof v.coreId === "string" && idPattern.test(v.coreId) && text(v.credential, 512),
   );
 }
 

@@ -1,5 +1,6 @@
 export type AiStatus = "idle" | "in_progress" | "user_prompt" | "waiting" | "done" | "error";
-export type AiFailureKind = "quota_exhausted" | "transient_transport" | "permission_required" | "user_input_required" | "cancelled" | "permanent";
+export type AiFailureKind =
+  "quota_exhausted" | "transient_transport" | "permission_required" | "user_input_required" | "cancelled" | "permanent";
 /** Provider-normalized failure metadata. Consumers should branch on `kind`, never transcript text. */
 export type AiFailure = { kind: AiFailureKind; message: string; retryAfter?: string };
 export type AiProvider = string;
@@ -13,16 +14,52 @@ export type AiContextCategory = "instructions" | "conversation" | "files" | "too
 export type AiContextEntry = { id: string; label: string; characters: number; preview: string; timestamp: string };
 export type AiContextSection = { id: AiContextCategory; characters: number; count: number; entries: AiContextEntry[] };
 /** Captured history composition is separate from the provider's current token usage. */
-export type AiContextSnapshot = { sections: AiContextSection[]; history: { timestamp: string; used: number; limit?: number; characters: number }[]; compactions: number };
+export type AiContextSnapshot = {
+  sections: AiContextSection[];
+  history: { timestamp: string; used: number; limit?: number; characters: number }[];
+  compactions: number;
+};
 /** `terminalId` is an opaque candidate Core terminal identity. It resolves only in the current workspace and never restores a shell. */
-export type AiMessage = { id: string; role: "user" | "assistant" | "activity" | "error"; contextKind?: "tools" | "files" | "reasoning"; text: string; content?: AiContentBlock[]; timestamp: string; terminalId?: string; /** Effective model for a generated response. */ model?: string; reasoning?: string; /** Model that originated an automated prompt; absent for human prompts. */ senderModel?: string };
+export type AiMessage = {
+  id: string;
+  role: "user" | "assistant" | "activity" | "error";
+  contextKind?: "tools" | "files" | "reasoning";
+  text: string;
+  content?: AiContentBlock[];
+  timestamp: string;
+  terminalId?: string;
+  /** Effective model for a generated response. */ model?: string;
+  reasoning?: string;
+  /** Model that originated an automated prompt; absent for human prompts. */ senderModel?: string;
+};
 export type AiCommand = { name: string; description: string; inputHint?: string };
-export type AiPermissionOption = { optionId: string; name: string; kind: "allow_once" | "allow_always" | "reject_once" | "reject_always" };
+export type AiPermissionOption = {
+  optionId: string;
+  name: string;
+  kind: "allow_once" | "allow_always" | "reject_once" | "reject_always";
+};
 /** `truncated` is set when display text or options were clipped for a bounded client: do not offer approval from it. */
-export type AiPermissionRequest = { id: string; title: string; toolCallId: string; details?: string; options: AiPermissionOption[]; truncated?: true };
+export type AiPermissionRequest = {
+  id: string;
+  title: string;
+  toolCallId: string;
+  details?: string;
+  options: AiPermissionOption[];
+  truncated?: true;
+};
 /** A form the agent needs a person to fill in (ACP form elicitation), normalized for the UI. */
 export type AiQuestionChoice = { value: string; label: string; description?: string };
-export type AiQuestionField = { id: string; type: "text" | "number" | "integer" | "boolean" | "choice" | "multi"; title?: string; description?: string; required?: boolean; choices?: AiQuestionChoice[]; defaultValue?: string | number | boolean | string[]; minItems?: number; maxItems?: number };
+export type AiQuestionField = {
+  id: string;
+  type: "text" | "number" | "integer" | "boolean" | "choice" | "multi";
+  title?: string;
+  description?: string;
+  required?: boolean;
+  choices?: AiQuestionChoice[];
+  defaultValue?: string | number | boolean | string[];
+  minItems?: number;
+  maxItems?: number;
+};
 /** `truncated` is set when the message, fields or choices were clipped/omitted: the form is incomplete, so do not offer accept. */
 export type AiQuestionRequest = { id: string; message: string; fields: AiQuestionField[]; truncated?: true };
 export type AiQuestionAnswer = Record<string, string | number | boolean | string[]>;
@@ -31,17 +68,88 @@ export type AiSkillSummary = { id: string; name: string; description?: string; r
 export type AiSkillCatalogue = { threadId: string; entries: AiSkillSummary[] };
 /** Live ACP sign-in state. Never persist this alongside conversation transcripts. */
 export type AiAuthMethod = { id: string; name: string; description?: string; type: "agent" | "terminal" };
-export type AiAuthentication = { status: "unknown" | "required" | "authenticating" | "authenticated" | "error"; methods: AiAuthMethod[]; requestId?: string; methodId?: string; output?: string; url?: string; message?: string; error?: string; terminal?: boolean; awaitingConfirmation?: boolean };
-export type AiAuthInput = { requestId: string; data?: string; cols?: number; rows?: number; action?: "accept" | "cancel" };
+export type AiAuthentication = {
+  status: "unknown" | "required" | "authenticating" | "authenticated" | "error";
+  methods: AiAuthMethod[];
+  requestId?: string;
+  methodId?: string;
+  output?: string;
+  url?: string;
+  message?: string;
+  error?: string;
+  terminal?: boolean;
+  awaitingConfirmation?: boolean;
+};
+export type AiAuthInput = {
+  requestId: string;
+  data?: string;
+  cols?: number;
+  rows?: number;
+  action?: "accept" | "cancel";
+};
 /** Core-host installation of a provider's ACP agent. Only installed providers are usable. */
 export type AiProtocolVersion = "v1" | "v2";
 /** `environment` passes API-key variables from the Core host to the agent; `login` withholds them so the agent uses its own sign-in (for example a subscription). */
 export type AiCredentialSource = "environment" | "login";
 export type AiProviderOrigin = "built-in" | "definition" | "plugin";
-export type AiProviderInstallation = { provider: AiProvider; /** How Core obtained this provider; set by the registry. */ origin?: AiProviderOrigin; name: string; description: string; package?: string; status: "installed" | "not_installed" | "installing" | "removing"; /** ACP version used for new connections, and the versions this provider offers (v2 is the experimental draft). */ protocol?: AiProtocolVersion; protocols?: AiProtocolVersion[]; /** npm dist-tag that Install/Update use for the selected protocol, when not `latest`. */ channel?: string; /** Where the agent's credentials come from, for providers that read API keys from the environment. */ credentials?: AiCredentialSource; /** The credential variables this provider reads, and which of them are set on the Core host (names only). */ credentialVariables?: string[]; credentialVariablesSet?: string[]; /** `external` installations come from Core-host overrides and cannot be managed from the client. */ source?: "managed" | "external"; version?: string; latestVersion?: string; location?: string; error?: string };
+export type AiProviderInstallation = {
+  provider: AiProvider;
+  /** How Core obtained this provider; set by the registry. */ origin?: AiProviderOrigin;
+  name: string;
+  description: string;
+  package?: string;
+  status: "installed" | "not_installed" | "installing" | "removing";
+  /** ACP version used for new connections, and the versions this provider offers (v2 is the experimental draft). */ protocol?: AiProtocolVersion;
+  protocols?: AiProtocolVersion[];
+  /** npm dist-tag that Install/Update use for the selected protocol, when not `latest`. */ channel?: string;
+  /** Where the agent's credentials come from, for providers that read API keys from the environment. */ credentials?: AiCredentialSource;
+  /** The credential variables this provider reads, and which of them are set on the Core host (names only). */ credentialVariables?: string[];
+  credentialVariablesSet?: string[];
+  /** `external` installations come from Core-host overrides and cannot be managed from the client. */ source?:
+    "managed" | "external";
+  version?: string;
+  latestVersion?: string;
+  location?: string;
+  error?: string;
+};
 
-export type AiSession = { id?: string; /** Set when a response left out older messages (summary reads or a connection `sessionMessageLimit`). */ omittedMessages?: number; createdAt?: string; updatedAt?: string; threadId?: string; model: string; reasoning: string; configuration?: AiConfiguration; /** One-shot model/reasoning override consumed by the next new turn. */ nextConfiguration?: AiConfiguration; availableOptions?: AiOption[]; availableCommands?: AiCommand[]; pendingPermission?: AiPermissionRequest; pendingQuestion?: AiQuestionRequest; skillIds?: string[]; /** Whether prior turns received HatoPad skill instructions. */ skillContext?: boolean; /** Catalogue already delivered to this provider conversation. */ skillCatalogue?: AiSkillCatalogue; status: AiStatus; failure?: AiFailure; messages: AiMessage[]; context?: AiContextSnapshot; contextUsed?: number; contextLimit?: number; tokens?: AiTokenUsage; steering?: boolean; agent?: { name: string; fingerprint: string }; agentPreset?: AiAgentPreset; /** Agent preset text delivered as session system instructions; re-sent when the session is resumed. */ systemInstructions?: string };
-export type AiTokenUsage = { total: number; input: number; output: number; thought?: number; cachedRead?: number; cachedWrite?: number };
+export type AiSession = {
+  id?: string;
+  /** Set when a response left out older messages (summary reads or a connection `sessionMessageLimit`). */ omittedMessages?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  threadId?: string;
+  model: string;
+  reasoning: string;
+  configuration?: AiConfiguration;
+  /** One-shot model/reasoning override consumed by the next new turn. */ nextConfiguration?: AiConfiguration;
+  availableOptions?: AiOption[];
+  availableCommands?: AiCommand[];
+  pendingPermission?: AiPermissionRequest;
+  pendingQuestion?: AiQuestionRequest;
+  skillIds?: string[];
+  /** Whether prior turns received HatoPad skill instructions. */ skillContext?: boolean;
+  /** Catalogue already delivered to this provider conversation. */ skillCatalogue?: AiSkillCatalogue;
+  status: AiStatus;
+  failure?: AiFailure;
+  messages: AiMessage[];
+  context?: AiContextSnapshot;
+  contextUsed?: number;
+  contextLimit?: number;
+  tokens?: AiTokenUsage;
+  steering?: boolean;
+  agent?: { name: string; fingerprint: string };
+  agentPreset?: AiAgentPreset;
+  /** Agent preset text delivered as session system instructions; re-sent when the session is resumed. */ systemInstructions?: string;
+};
+export type AiTokenUsage = {
+  total: number;
+  input: number;
+  output: number;
+  thought?: number;
+  cachedRead?: number;
+  cachedWrite?: number;
+};
 /**
  * Optional catalogue metadata. Everything here is advertised by the agent (ACP
  * model `_meta`, option descriptions) or read from the CLI's own model cache, so
@@ -66,19 +174,57 @@ export type AiModelDetails = {
   /** Deprecation or migration notice published by the agent. */
   note?: string;
 };
-export type AiModel = { id: string; name: string; defaultReasoning: string; reasoningLevels: string[] } & AiModelDetails;
+export type AiModel = {
+  id: string;
+  name: string;
+  defaultReasoning: string;
+  reasoningLevels: string[];
+} & AiModelDetails;
 /**
  * permissionApproval marks a client-owned boolean that approves ACP tool permission requests.
  * client marks an option HatoPad applies itself: it is never sent to the agent and changes apply live.
  * interactive marks a feature that waits for a person; it is off by default and forced off in workflows.
  */
-export type AiOption = { permissionApproval?: boolean; client?: boolean; interactive?: boolean; id: string; name: string; description: string; section?: string; type: "select" | "number" | "boolean" | "text"; defaultValue: string | number | boolean; choices?: { value: string; name: string; description?: string }[]; min?: number; max?: number; modelDependent?: boolean };
+export type AiOption = {
+  permissionApproval?: boolean;
+  client?: boolean;
+  interactive?: boolean;
+  id: string;
+  name: string;
+  description: string;
+  section?: string;
+  type: "select" | "number" | "boolean" | "text";
+  defaultValue: string | number | boolean;
+  choices?: { value: string; name: string; description?: string }[];
+  min?: number;
+  max?: number;
+  modelDependent?: boolean;
+};
 export type AiAutopilotOption = { option: AiOption; on: string | boolean; off: string | boolean };
 export type AiSettingsSection = { id: string; name: string; description?: string };
 export type AiSettingsLayout = { title: string; description: string; sections: AiSettingsSection[] };
-export type AiProviderCapabilities = { models: boolean; usage: boolean; mcp: boolean; agents: boolean; contextWindow: boolean; skills?: boolean };
-export type AiProviderDescriptor = { id: AiProvider; name: string; description: string; settings: AiSettingsLayout; options: AiOption[]; capabilities: AiProviderCapabilities };
-export type AiQuotaWindow = { usedPercent: number; remainingPercent: number; windowMinutes?: number; resetsAt?: string };
+export type AiProviderCapabilities = {
+  models: boolean;
+  usage: boolean;
+  mcp: boolean;
+  agents: boolean;
+  contextWindow: boolean;
+  skills?: boolean;
+};
+export type AiProviderDescriptor = {
+  id: AiProvider;
+  name: string;
+  description: string;
+  settings: AiSettingsLayout;
+  options: AiOption[];
+  capabilities: AiProviderCapabilities;
+};
+export type AiQuotaWindow = {
+  usedPercent: number;
+  remainingPercent: number;
+  windowMinutes?: number;
+  resetsAt?: string;
+};
 export type AiAccountQuota = {
   plan?: string;
   limitId?: string;
@@ -87,15 +233,44 @@ export type AiAccountQuota = {
   secondary?: AiQuotaWindow;
   credits?: { hasCredits: boolean; unlimited: boolean; balance?: string };
 };
-export type AiUsage = { supported: boolean; label?: string; used?: number; limit?: number; unit?: string; resetsAt?: string; details?: Record<string, string | number>; accountQuota?: AiAccountQuota };
+export type AiUsage = {
+  supported: boolean;
+  label?: string;
+  used?: number;
+  limit?: number;
+  unit?: string;
+  resetsAt?: string;
+  details?: Record<string, string | number>;
+  accountQuota?: AiAccountQuota;
+};
 export type AiMcpServer =
-  | { transport?: "stdio"; name: string; command: string; args?: string[]; env?: Record<string, string>; enabled?: boolean }
+  | {
+      transport?: "stdio";
+      name: string;
+      command: string;
+      args?: string[];
+      env?: Record<string, string>;
+      enabled?: boolean;
+    }
   | { transport: "http" | "sse"; name: string; url: string; headers?: Record<string, string>; enabled?: boolean };
 export type AiAgent = { name: string; description?: string; instructions: string; mcpServers?: string[] };
 export type AiAgentPreset = { scope: "global" | "local" | "workspace"; name: string };
-export type AiTaskSummary = { status: AiStatus; preview: string; additions: number; deletions: number; pendingPermission: boolean; waitingUntil?: string };
+export type AiTaskSummary = {
+  status: AiStatus;
+  preview: string;
+  additions: number;
+  deletions: number;
+  pendingPermission: boolean;
+  waitingUntil?: string;
+};
 export type AcpSendRequest = {
-  prompt: string; content?: AiContentBlock[]; configuration: AiConfiguration; mcpServers?: AiMcpServer[]; agent?: AiAgent; agentPreset?: AiAgentPreset; skillIds?: string[];
+  prompt: string;
+  content?: AiContentBlock[];
+  configuration: AiConfiguration;
+  mcpServers?: AiMcpServer[];
+  agent?: AiAgent;
+  agentPreset?: AiAgentPreset;
+  skillIds?: string[];
   /** Core workspace snapshots. Inherits the live session's policy; new sessions default to true. */
   captureSnapshots?: boolean;
 };
@@ -104,35 +279,76 @@ export type AcpSendRequest = {
 export abstract class AcpProvider {
   abstract readonly descriptor: AiProviderDescriptor;
   abstract get(workspace: string): Promise<AiSession>;
-  async authentication(_workspace: string, _discover = false): Promise<AiAuthentication> { return { status: "unknown", methods: [] }; }
-  async authenticate(_workspace: string, _methodId: string): Promise<AiAuthentication> { throw new Error("ACP authentication is unavailable for this provider"); }
-  async authenticationInput(_workspace: string, _input: AiAuthInput): Promise<AiAuthentication> { throw new Error("No ACP authentication is active"); }
+  async authentication(_workspace: string, _discover = false): Promise<AiAuthentication> {
+    return { status: "unknown", methods: [] };
+  }
+  async authenticate(_workspace: string, _methodId: string): Promise<AiAuthentication> {
+    throw new Error("ACP authentication is unavailable for this provider");
+  }
+  async authenticationInput(_workspace: string, _input: AiAuthInput): Promise<AiAuthentication> {
+    throw new Error("No ACP authentication is active");
+  }
   /** Providers without an installable agent are always available. */
-  async installation(_checkLatest = false): Promise<AiProviderInstallation> { return { provider: this.descriptor.id, name: this.descriptor.name, description: this.descriptor.description, status: "installed", source: "external" }; }
-  async install(): Promise<AiProviderInstallation> { throw new Error(`${this.descriptor.name} cannot be installed from HatoPad`); }
-  async uninstall(): Promise<AiProviderInstallation> { throw new Error(`${this.descriptor.name} cannot be removed from HatoPad`); }
-  async setProtocol(_protocol: AiProtocolVersion): Promise<AiProviderInstallation> { throw new Error(`${this.descriptor.name} supports ACP v1 only`); }
-  async setCredentials(_credentials: AiCredentialSource): Promise<AiProviderInstallation> { throw new Error(`${this.descriptor.name} does not read credentials from the environment`); }
+  async installation(_checkLatest = false): Promise<AiProviderInstallation> {
+    return {
+      provider: this.descriptor.id,
+      name: this.descriptor.name,
+      description: this.descriptor.description,
+      status: "installed",
+      source: "external",
+    };
+  }
+  async install(): Promise<AiProviderInstallation> {
+    throw new Error(`${this.descriptor.name} cannot be installed from HatoPad`);
+  }
+  async uninstall(): Promise<AiProviderInstallation> {
+    throw new Error(`${this.descriptor.name} cannot be removed from HatoPad`);
+  }
+  async setProtocol(_protocol: AiProtocolVersion): Promise<AiProviderInstallation> {
+    throw new Error(`${this.descriptor.name} supports ACP v1 only`);
+  }
+  async setCredentials(_credentials: AiCredentialSource): Promise<AiProviderInstallation> {
+    throw new Error(`${this.descriptor.name} does not read credentials from the environment`);
+  }
 
   abstract models(): Promise<AiModel[]>;
   abstract configure(workspace: string, configuration: AiConfiguration): Promise<AiSession>;
   /** Queues a one-shot configuration override for the next new turn, including while a turn is running. */
   abstract configureNext(workspace: string, configuration: AiConfiguration): Promise<AiSession>;
-  async setSkills(_workspace: string, _ids: string[], _sessionId?: string, _agentPreset?: AiAgentPreset | null): Promise<AiSession> { throw new Error("This provider does not support skills"); }
+  async setSkills(
+    _workspace: string,
+    _ids: string[],
+    _sessionId?: string,
+    _agentPreset?: AiAgentPreset | null,
+  ): Promise<AiSession> {
+    throw new Error("This provider does not support skills");
+  }
   abstract send(workspace: string, request: AcpSendRequest): Promise<AiSession>;
   abstract interrupt(workspace: string): Promise<AiSession>;
   /** Stop owned processes and flush durable session state during Core shutdown. */
   async shutdown(): Promise<void> {}
   abstract resolvePermission(workspace: string, requestId: string, optionId?: string): Promise<AiSession>;
   /** Answers, declines or cancels a pending agent question. */
-  async answerQuestion(_workspace: string, _requestId: string, _action: AiQuestionAction, _answer?: AiQuestionAnswer): Promise<AiSession> { throw new AiProviderError({ kind: "permanent", message: `${this.descriptor.name} does not ask questions` }); }
+  async answerQuestion(
+    _workspace: string,
+    _requestId: string,
+    _action: AiQuestionAction,
+    _answer?: AiQuestionAnswer,
+  ): Promise<AiSession> {
+    throw new AiProviderError({ kind: "permanent", message: `${this.descriptor.name} does not ask questions` });
+  }
   /** Adds input to a turn that is already running, optionally forcing a distinct follow-up turn. */
-  abstract steer(workspace: string, prompt: string, options?: { senderModel?: string; queue?: boolean }): Promise<AiSession>;
+  abstract steer(
+    workspace: string,
+    prompt: string,
+    options?: { senderModel?: string; queue?: boolean },
+  ): Promise<AiSession>;
   abstract clear(workspace: string): Promise<AiSession>;
   /** Starts a context-empty session. Providers may queue this until a running turn finishes. */
   async startFreshSession(workspace: string, request: AcpSendRequest): Promise<AiSession> {
     const current = await this.get(workspace);
-    if (current.status === "in_progress" || current.status === "user_prompt") throw new Error(`${this.descriptor.name} is still working`);
+    if (current.status === "in_progress" || current.status === "user_prompt")
+      throw new Error(`${this.descriptor.name} is still working`);
     await this.clear(workspace);
     return this.send(workspace, request);
   }
@@ -142,7 +358,9 @@ export abstract class AcpProvider {
   abstract restore(workspace: string, sessionId: string): Promise<AiSession>;
   /** Forgets a recorded session. Removing the active one starts a fresh session. */
   abstract remove(workspace: string, sessionId: string): Promise<AiSession>;
-  async usage(_workspace?: string): Promise<AiUsage> { return { supported: false, label: "Usage is not exposed by this provider" }; }
+  async usage(_workspace?: string): Promise<AiUsage> {
+    return { supported: false, label: "Usage is not exposed by this provider" };
+  }
 }
 
 /** An operation-level provider failure carrying the same normalized metadata as a failed session. */
@@ -159,17 +377,39 @@ export function normalizeAiFailure(error: unknown): AiFailure {
   const candidate = error as { code?: unknown; status?: unknown; statusCode?: unknown; name?: unknown } | undefined;
   const message = error instanceof Error ? error.message : String(error);
   const code = typeof candidate?.code === "string" ? candidate.code : "";
-  const status = typeof candidate?.status === "number" ? candidate.status : typeof candidate?.statusCode === "number" ? candidate.statusCode : undefined;
-  if (status === 429 || /usage limit|rate.?limit|quota|HTTP 429/i.test(message)) return { kind: "quota_exhausted", message };
-  if (["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE"].includes(code) || (status !== undefined && [502, 503, 504].includes(status)) || /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EPIPE|socket hang up|temporarily unavailable|HTTP 50[234]/i.test(message)) return { kind: "transient_transport", message };
+  const status =
+    typeof candidate?.status === "number"
+      ? candidate.status
+      : typeof candidate?.statusCode === "number"
+        ? candidate.statusCode
+        : undefined;
+  if (status === 429 || /usage limit|rate.?limit|quota|HTTP 429/i.test(message))
+    return { kind: "quota_exhausted", message };
+  if (
+    ["ECONNRESET", "ECONNREFUSED", "ETIMEDOUT", "EAI_AGAIN", "EPIPE"].includes(code) ||
+    (status !== undefined && [502, 503, 504].includes(status)) ||
+    /ECONNRESET|ECONNREFUSED|ETIMEDOUT|EAI_AGAIN|EPIPE|socket hang up|temporarily unavailable|HTTP 50[234]/i.test(
+      message,
+    )
+  )
+    return { kind: "transient_transport", message };
   if (/permission|approval required|request_permission/i.test(message)) return { kind: "permission_required", message };
-  if (/requires user input|user_prompt|awaiting user input/i.test(message)) return { kind: "user_input_required", message };
-  if (candidate?.name === "AbortError" || code === "ABORT_ERR" || /cancelled|canceled|aborted/i.test(message)) return { kind: "cancelled", message };
+  if (/requires user input|user_prompt|awaiting user input/i.test(message))
+    return { kind: "user_input_required", message };
+  if (candidate?.name === "AbortError" || code === "ABORT_ERR" || /cancelled|canceled|aborted/i.test(message))
+    return { kind: "cancelled", message };
   return { kind: "permanent", message };
 }
 
-export function mergeConfiguration(session: AiSession, configuration: AiConfiguration): AiConfiguration { return { model: session.model, reasoning: session.reasoning, ...session.configuration, ...configuration }; }
-export function applyConfiguration(session: AiSession, configuration: AiConfiguration): void { const merged = mergeConfiguration(session, configuration); if (typeof merged.model === "string") session.model = merged.model; if (typeof merged.reasoning === "string") session.reasoning = merged.reasoning; session.configuration = merged; }
+export function mergeConfiguration(session: AiSession, configuration: AiConfiguration): AiConfiguration {
+  return { model: session.model, reasoning: session.reasoning, ...session.configuration, ...configuration };
+}
+export function applyConfiguration(session: AiSession, configuration: AiConfiguration): void {
+  const merged = mergeConfiguration(session, configuration);
+  if (typeof merged.model === "string") session.model = merged.model;
+  if (typeof merged.reasoning === "string") session.reasoning = merged.reasoning;
+  session.configuration = merged;
+}
 
 const AUTOPILOT = /autopilot|auto-?approve|yolo|full[- ]?access|bypass|danger|never ?ask/i;
 
@@ -181,7 +421,9 @@ export function findAutopilotOption(options: AiOption[]): AiAutopilotOption | un
     if (option.type !== "select" || !option.choices) continue;
     const match = option.choices.find((choice) => AUTOPILOT.test(`${choice.value} ${choice.name}`));
     if (!match) continue;
-    const fallback = option.choices.find((choice) => String(option.defaultValue) === choice.value && choice.value !== match.value) ?? option.choices.find((choice) => choice.value !== match.value);
+    const fallback =
+      option.choices.find((choice) => String(option.defaultValue) === choice.value && choice.value !== match.value) ??
+      option.choices.find((choice) => choice.value !== match.value);
     if (fallback) return { option, on: match.value, off: fallback.value };
   }
   return undefined;

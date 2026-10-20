@@ -12,6 +12,10 @@ export function installEditorFontMeasurements(monaco: Monaco, fonts = document.f
     fonts.load('normal 13px "JetBrains Mono"'),
     fonts.load('bold 13px "JetBrains Mono"'),
     fonts.load('italic 13px "JetBrains Mono"'),
-    fonts.load('bold italic 13px "JetBrains Mono"')
-  ]).then(remeasure).catch(() => { /* Later successful font loads still trigger remeasurement. */ });
+    fonts.load('bold italic 13px "JetBrains Mono"'),
+  ])
+    .then(remeasure)
+    .catch(() => {
+      /* Later successful font loads still trigger remeasurement. */
+    });
 }

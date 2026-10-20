@@ -7,7 +7,8 @@ export function websocketLivenessThresholds(options: WebSocketLivenessOptions) {
   const intervalMs = options.intervalMs ?? 30_000;
   const timeoutMs = options.timeoutMs ?? 10_000;
   for (const value of [intervalMs, timeoutMs]) {
-    if (!Number.isFinite(value) || value <= 0 || value > 2_147_483_647) throw new Error("Liveness thresholds must be positive timer milliseconds");
+    if (!Number.isFinite(value) || value <= 0 || value > 2_147_483_647)
+      throw new Error("Liveness thresholds must be positive timer milliseconds");
   }
   return { intervalMs, timeoutMs };
 }
@@ -24,8 +25,13 @@ export function monitorWebSocket(socket: WebSocket, options: WebSocketLivenessOp
     socket.off("pong", pong);
     socket.off("close", dispose);
   };
-  const lost = () => { dispose(); socket.terminate(); };
-  const schedule = () => { timer = setTimeout(probe, intervalMs); };
+  const lost = () => {
+    dispose();
+    socket.terminate();
+  };
+  const schedule = () => {
+    timer = setTimeout(probe, intervalMs);
+  };
   const pong = (data: Buffer) => {
     if (disposed || expected === undefined || data.toString() !== expected) return;
     expected = undefined;
@@ -34,11 +40,19 @@ export function monitorWebSocket(socket: WebSocket, options: WebSocketLivenessOp
   };
   const probe = () => {
     if (disposed) return;
-    if (socket.readyState !== WebSocket.OPEN) { dispose(); return; }
+    if (socket.readyState !== WebSocket.OPEN) {
+      dispose();
+      return;
+    }
     expected = randomUUID();
     timer = setTimeout(lost, timeoutMs);
-    try { socket.ping(expected, false, (error?: Error) => { if (error && !disposed) lost(); }); }
-    catch { lost(); }
+    try {
+      socket.ping(expected, false, (error?: Error) => {
+        if (error && !disposed) lost();
+      });
+    } catch {
+      lost();
+    }
   };
   socket.on("pong", pong);
   socket.once("close", dispose);

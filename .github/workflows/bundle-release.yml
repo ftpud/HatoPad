@@ -77,6 +77,7 @@ jobs:
               )
           versions = set()
           expected = set()
+          mac_signed = False
           for manifest in manifests:
               data = json.loads(manifest.read_text())
               assert data['schema'] == 1
@@ -87,6 +88,9 @@ jobs:
                   digest = hashlib.file_digest(stream, 'sha256').hexdigest()
               assert digest == data['sha256'], 'Archive checksum mismatch'
               versions.add(data['version'])
+              if data['platform'] == 'darwin':
+                  signing = data.get('signing', {})
+                  mac_signed = signing.get('notarized') is True and signing.get('identity', '').startswith('Developer ID Application:')
               expected.update((archive.name, manifest.name))
           assert len(versions) == 1, 'Bundle versions differ'
           version = versions.pop()
@@ -99,6 +103,11 @@ jobs:
           for filename in sorted(expected):
               shutil.copyfile(bundles / filename, assets / filename)
           assert {p.name for p in assets.iterdir()} == expected, 'Unexpected release files'
+          Path('signing-note.txt').write_text(
+              'Early Access release. macOS is Developer ID signed and notarized; Windows is unsigned.\n'
+              if mac_signed else
+              'Early Access release. Applications are unsigned; macOS uses ad-hoc signing.\n'
+          )
 
       - name: Publish release with existing bundles
         env:
@@ -108,7 +117,8 @@ jobs:
           set -euo pipefail
           printf 'Bundles promoted from [Bundle Create run %s](https://github.com/%s/actions/runs/%s).\n\nSource commit: `%s`.\n' \
             "$RUN_ID" "$GH_REPO" "$RUN_ID" "$SOURCE_SHA" > notes.md
-          printf '\nEarly Access release. Applications are unsigned; macOS uses ad-hoc signing.\n' >> notes.md
+          printf '\n' >> notes.md
+          cat signing-note.txt >> notes.md
           # Upload everything while still a draft, then make the complete release visible.
           gh release create "$TAG" assets/* --target "$SOURCE_SHA" \
             --title "HatoPad $TAG (Early Access)" --notes-file notes.md --draft

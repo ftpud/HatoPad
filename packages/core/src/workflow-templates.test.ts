@@ -14,13 +14,20 @@ const script = (id: string) => template.blocks.find((block) => block.id === id)!
 
 describe("Git review and commit template", () => {
   it("validates with a button start and a user prompt before the push script", () => {
-    expect(validateHarness({ ...template, id: "git", name: "Git", version: 1, createdAt: "now", updatedAt: "now" }).valid).toBe(true);
+    expect(
+      validateHarness({ ...template, id: "git", name: "Git", version: 1, createdAt: "now", updatedAt: "now" }).valid,
+    ).toBe(true);
     expect(template.blocks.filter((block) => block.type === "script")).toHaveLength(8);
     expect(template.edges.filter((edge) => edge.to === "git-push")).toEqual([
-      { id: "git-answer-push", from: "git-push-question", to: "git-push", type: "follow" }
+      { id: "git-answer-push", from: "git-push-question", to: "git-push", type: "follow" },
     ]);
     expect(script("git-report-document").type).toBe("markdown");
-    expect(template.edges).toContainEqual({ id: "git-open-report", from: "git-finished", to: "git-report-document", type: "follow" });
+    expect(template.edges).toContainEqual({
+      id: "git-open-report",
+      from: "git-finished",
+      to: "git-report-document",
+      type: "follow",
+    });
     expect(script("git-start").type).toBe("start_button");
   });
 
@@ -31,7 +38,8 @@ describe("Git review and commit template", () => {
     await git("config", "user.name", "Workflow Test");
     await git("config", "user.email", "workflow@example.invalid");
     await writeFile(path.join(directory, "file.txt"), "before\n");
-    await git("add", "."); await git("commit", "-m", "Initial commit");
+    await git("add", ".");
+    await git("commit", "-m", "Initial commit");
     await writeFile(path.join(directory, "file.txt"), "after\n");
     await writeFile(path.join(directory, "new.txt"), "new\n");
     const before = (await git("status", "--porcelain")).stdout;
@@ -39,7 +47,7 @@ describe("Git review and commit template", () => {
       await executeFlowScript(script(id), "", directory, () => {});
     }
     expect((await git("status", "--porcelain")).stdout).toBe(before);
-    const message = 'Update example files\n\nKeep literal $(touch injected) and `touch injected`.';
+    const message = "Update example files\n\nKeep literal $(touch injected) and `touch injected`.";
     await executeFlowScript(script("git-commit"), message, directory, () => {});
     expect((await git("log", "-1", "--format=%B")).stdout.trim()).toBe(message);
     expect((await git("status", "--porcelain")).stdout).toBe("");
@@ -56,8 +64,15 @@ describe("Git review and commit template", () => {
       await expect(exec("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"])).rejects.toThrow();
     }
     await executeFlowScript(script("git-push"), "yes", directory, () => {});
-    expect((await exec("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"])).stdout).toBe((await git("rev-parse", "HEAD")).stdout);
+    expect((await exec("git", ["--git-dir", remote, "rev-parse", "refs/heads/main"])).stdout).toBe(
+      (await git("rev-parse", "HEAD")).stdout,
+    );
   });
 });
 
-it("lists bounded template metadata without prompts or graph bodies", async () => { const { workflowTemplateCatalog } = await import("./workflow-templates.js"); const catalog = workflowTemplateCatalog(); expect(catalog).toHaveLength(2); expect(catalog.every(item => item.blocks > 0 && !Object.hasOwn(item, "prompt"))).toBe(true); });
+it("lists bounded template metadata without prompts or graph bodies", async () => {
+  const { workflowTemplateCatalog } = await import("./workflow-templates.js");
+  const catalog = workflowTemplateCatalog();
+  expect(catalog).toHaveLength(2);
+  expect(catalog.every((item) => item.blocks > 0 && !Object.hasOwn(item, "prompt"))).toBe(true);
+});

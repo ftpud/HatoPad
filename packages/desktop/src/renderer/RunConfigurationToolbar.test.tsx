@@ -3,15 +3,51 @@ import { afterEach, expect, it, vi } from "vitest";
 import { RunConfigurationToolbar } from "./RunConfigurationToolbar";
 import { runConfigurationKey, type RunProject } from "./run-projects";
 afterEach(cleanup);
-const capabilities = { run: true, build: true, projectTree: true, configuration: true, debug: false, lsp: false, workspaceSymbols: false, runConfigurations: true };
-const npm: RunProject = { language: "node", name: "Web app", path: "web/package.json", capabilities, configurations: [{ id: "dev", name: "Development" }, { id: "test", name: "Tests" }], selectedId: "dev" };
-const java: RunProject = { language: "java", name: "Maven app", path: "pom.xml", capabilities: { ...capabilities, debug: true }, configurations: [{ id: "app", name: "Application" }], selectedId: "app" };
-const actions = () => ({ projects: [npm, java], selectedLanguage: "node", processes: {}, onSelect: vi.fn(), onConfigure: vi.fn(), onRun: vi.fn(), onStop: vi.fn() });
+const capabilities = {
+  run: true,
+  build: true,
+  projectTree: true,
+  configuration: true,
+  debug: false,
+  lsp: false,
+  workspaceSymbols: false,
+  runConfigurations: true,
+};
+const npm: RunProject = {
+  language: "node",
+  name: "Web app",
+  path: "web/package.json",
+  capabilities,
+  configurations: [
+    { id: "dev", name: "Development" },
+    { id: "test", name: "Tests" },
+  ],
+  selectedId: "dev",
+};
+const java: RunProject = {
+  language: "java",
+  name: "Maven app",
+  path: "pom.xml",
+  capabilities: { ...capabilities, debug: true },
+  configurations: [{ id: "app", name: "Application" }],
+  selectedId: "app",
+};
+const actions = () => ({
+  projects: [npm, java],
+  selectedLanguage: "node",
+  processes: {},
+  onSelect: vi.fn(),
+  onConfigure: vi.fn(),
+  onRun: vi.fn(),
+  onStop: vi.fn(),
+});
 it("uses the title bar to select, edit and run project configurations", () => {
   const props = actions();
   const view = render(<RunConfigurationToolbar {...props} />);
   expect(screen.queryByRole("button", { name: "Debug selected configuration" })).toBeNull();
-  fireEvent.change(screen.getByLabelText("Run configuration"), { target: { value: runConfigurationKey("java", "app") } });
+  fireEvent.change(screen.getByLabelText("Run configuration"), {
+    target: { value: runConfigurationKey("java", "app") },
+  });
   expect(props.onSelect).toHaveBeenCalledWith("java", "app");
   view.rerender(<RunConfigurationToolbar {...props} selectedLanguage="java" />);
   fireEvent.click(screen.getByRole("button", { name: "Debug selected configuration" }));

@@ -5,14 +5,43 @@ import type { HarnessDefinition, HarnessRun } from "@hatopad/protocol";
 import { BlockRunDetails, HarnessPanel } from "./HarnessPanel";
 import { WorkflowRunPanel } from "./WorkflowRunPanel";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const workflow: HarnessDefinition = { id: "flow", name: "Workspace check", version: 1, createdAt: "now", updatedAt: "now", blocks: [
-  { id: "button", type: "start_button", label: "Quick check", prompt: "Check workspace", position: { x: 0, y: 0 } },
-  { id: "input", type: "start_input", label: "Custom goal", prompt: "", position: { x: 0, y: 100 } },
-  { id: "agent", type: "ai", label: "Inspect", prompt: "{{input}}", position: { x: 300, y: 0 } },
-], edges: [{ id: "edge", from: "button", to: "agent" }] };
-const run: HarnessRun = { id: "run", harnessId: workflow.id, harnessVersion: 1, definition: workflow, input: "Check workspace", status: "running", createdAt: "2026-10-07T12:00:00Z", blocks: [{ blockId: "button", status: "succeeded" }, { blockId: "agent", status: "running" }] };
-const props = () => ({ harnesses: [workflow], runs: [], onRun: vi.fn().mockResolvedValue(run), onCancelRun: vi.fn().mockResolvedValue(undefined), onError: vi.fn() });
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+const workflow: HarnessDefinition = {
+  id: "flow",
+  name: "Workspace check",
+  version: 1,
+  createdAt: "now",
+  updatedAt: "now",
+  blocks: [
+    { id: "button", type: "start_button", label: "Quick check", prompt: "Check workspace", position: { x: 0, y: 0 } },
+    { id: "input", type: "start_input", label: "Custom goal", prompt: "", position: { x: 0, y: 100 } },
+    { id: "agent", type: "ai", label: "Inspect", prompt: "{{input}}", position: { x: 300, y: 0 } },
+  ],
+  edges: [{ id: "edge", from: "button", to: "agent" }],
+};
+const run: HarnessRun = {
+  id: "run",
+  harnessId: workflow.id,
+  harnessVersion: 1,
+  definition: workflow,
+  input: "Check workspace",
+  status: "running",
+  createdAt: "2026-10-07T12:00:00Z",
+  blocks: [
+    { blockId: "button", status: "succeeded" },
+    { blockId: "agent", status: "running" },
+  ],
+};
+const props = () => ({
+  harnesses: [workflow],
+  runs: [],
+  onRun: vi.fn().mockResolvedValue(run),
+  onCancelRun: vi.fn().mockResolvedValue(undefined),
+  onError: vi.fn(),
+});
 
 describe("Workflow run library", () => {
   it("quick-runs button starts and opens a prompt for input starts while collapsed", async () => {
@@ -45,9 +74,20 @@ describe("Workflow run library", () => {
   });
 
   it("loads full run details only when the workflow is opened", async () => {
-    const summary: HarnessRun = { ...run, summary: true, definition: undefined, input: "", blocks: run.blocks.map(({ blockId, status }) => ({ blockId, status })) };
+    const summary: HarnessRun = {
+      ...run,
+      summary: true,
+      definition: undefined,
+      input: "",
+      blocks: run.blocks.map(({ blockId, status }) => ({ blockId, status })),
+    };
     let resolve!: (run: HarnessRun) => void;
-    const onReadRun = vi.fn(() => new Promise<HarnessRun>((done) => { resolve = done; }));
+    const onReadRun = vi.fn(
+      () =>
+        new Promise<HarnessRun>((done) => {
+          resolve = done;
+        }),
+    );
     const view = render(<WorkflowRunPanel {...props()} runs={[summary]} onReadRun={onReadRun} />);
     expect(onReadRun).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
@@ -60,8 +100,17 @@ describe("Workflow run library", () => {
   });
 
   it("changes Autopilot on the selected Chatbox session while it waits for permission", async () => {
-    const chatWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }], edges: [] };
-    const chatRun: HarnessRun = { ...run, definition: chatWorkflow, status: "awaiting_permission", blocks: [{ blockId: "chat", status: "awaiting_permission", sessionId: "owned-session", autopilot: false }] };
+    const chatWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }],
+      edges: [],
+    };
+    const chatRun: HarnessRun = {
+      ...run,
+      definition: chatWorkflow,
+      status: "awaiting_permission",
+      blocks: [{ blockId: "chat", status: "awaiting_permission", sessionId: "owned-session", autopilot: false }],
+    };
     const onAutopilot = vi.fn().mockResolvedValue({ ...chatRun, blocks: [{ ...chatRun.blocks[0], autopilot: true }] });
     render(<WorkflowRunPanel {...props()} harnesses={[chatWorkflow]} runs={[chatRun]} onAutopilot={onAutopilot} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
@@ -69,28 +118,69 @@ describe("Workflow run library", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chatbox settings" }));
     fireEvent.click(screen.getByRole("switch", { name: "Autopilot" }));
     await waitFor(() => expect(onAutopilot).toHaveBeenCalledWith("run", "chat", "owned-session", true));
-    await waitFor(() => expect((screen.getByRole("switch", { name: "Autopilot" }) as HTMLInputElement).checked).toBe(true));
+    await waitFor(() =>
+      expect((screen.getByRole("switch", { name: "Autopilot" }) as HTMLInputElement).checked).toBe(true),
+    );
   });
 
-  it.each(["running", "waiting_timer"] as const)("sends steering to a %s Chatbox session and retains stop", async (status) => {
-    const chatWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }], edges: [] };
-    const chatRun: HarnessRun = { ...run, definition: chatWorkflow, blocks: [{ blockId: "chat", status, sessionId: "session" }] };
-    const onSteerChat = vi.fn().mockResolvedValue(chatRun);
-    render(<WorkflowRunPanel {...props()} harnesses={[chatWorkflow]} runs={[chatRun]} onChat={vi.fn()} onSteerChat={onSteerChat} />);
-    fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    fireEvent.click(screen.getByRole("button", { name: `Assistant: ${status.replaceAll("_", " ")}` }));
-    fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Focus on tests" } });
-    fireEvent.click(screen.getByRole("button", { name: "Steer chat response" }));
-    await waitFor(() => expect(onSteerChat).toHaveBeenCalledWith("run", "chat", "session", "Focus on tests"));
-    expect(screen.getByRole("button", { name: "Stop chat response" })).toBeTruthy();
-    await waitFor(() => expect((screen.getByLabelText("Message Assistant") as HTMLTextAreaElement).value).toBe(""));
-  });
+  it.each(["running", "waiting_timer"] as const)(
+    "sends steering to a %s Chatbox session and retains stop",
+    async (status) => {
+      const chatWorkflow: HarnessDefinition = {
+        ...workflow,
+        blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }],
+        edges: [],
+      };
+      const chatRun: HarnessRun = {
+        ...run,
+        definition: chatWorkflow,
+        blocks: [{ blockId: "chat", status, sessionId: "session" }],
+      };
+      const onSteerChat = vi.fn().mockResolvedValue(chatRun);
+      render(
+        <WorkflowRunPanel
+          {...props()}
+          harnesses={[chatWorkflow]}
+          runs={[chatRun]}
+          onChat={vi.fn()}
+          onSteerChat={onSteerChat}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
+      fireEvent.click(screen.getByRole("button", { name: `Assistant: ${status.replaceAll("_", " ")}` }));
+      fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Focus on tests" } });
+      fireEvent.click(screen.getByRole("button", { name: "Steer chat response" }));
+      await waitFor(() => expect(onSteerChat).toHaveBeenCalledWith("run", "chat", "session", "Focus on tests"));
+      expect(screen.getByRole("button", { name: "Stop chat response" })).toBeTruthy();
+      await waitFor(() => expect((screen.getByLabelText("Message Assistant") as HTMLTextAreaElement).value).toBe(""));
+    },
+  );
 
   it("opens live app output from the selected saved run", async () => {
-    const appWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "app", type: "run_app", label: "Server", prompt: "", app: { name: "server", actions: ["start"] }, position: { x: 0, y: 0 } }], edges: [] };
-    const appRun: HarnessRun = { ...run, definition: appWorkflow, status: "succeeded", blocks: [{ blockId: "app", status: "succeeded" }] };
+    const appWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [
+        {
+          id: "app",
+          type: "run_app",
+          label: "Server",
+          prompt: "",
+          app: { name: "server", actions: ["start"] },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    };
+    const appRun: HarnessRun = {
+      ...run,
+      definition: appWorkflow,
+      status: "succeeded",
+      blocks: [{ blockId: "app", status: "succeeded" }],
+    };
     const onOpenAppTerminal = vi.fn().mockResolvedValue(undefined);
-    render(<WorkflowRunPanel {...props()} harnesses={[appWorkflow]} runs={[appRun]} onOpenAppTerminal={onOpenAppTerminal} />);
+    render(
+      <WorkflowRunPanel {...props()} harnesses={[appWorkflow]} runs={[appRun]} onOpenAppTerminal={onOpenAppTerminal} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     fireEvent.click(screen.getByRole("button", { name: "Server: succeeded" }));
     fireEvent.click(screen.getByRole("button", { name: "Open app output in terminal" }));
@@ -98,41 +188,98 @@ describe("Workflow run library", () => {
   });
 
   it("shows the immutable bound task and its Core-resolved worktree", () => {
-    render(<WorkflowRunPanel {...props()} runs={[{ ...run, binding: { rootWorkspace: "/root", workspace: "/task-a", taskId: "a", taskName: "Task A" } }]} />);
+    render(
+      <WorkflowRunPanel
+        {...props()}
+        runs={[{ ...run, binding: { rootWorkspace: "/root", workspace: "/task-a", taskId: "a", taskName: "Task A" } }]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     expect(screen.getByText(/Task A ·/).getAttribute("title")).toBe("/task-a");
   });
-  it.each(["running", "descendants-running"] as const)("fits each axis and kills a %s app from a completed run", async (appStatus) => {
-    const appWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "app", type: "run_app", label: "Server", prompt: "", command: "npm run dev", app: { name: "server", actions: ["start"] }, position: { x: 0, y: 0 } }] };
-    const appRun: HarnessRun = { ...run, status: "succeeded", definition: appWorkflow, blocks: [{ blockId: "app", status: "succeeded" }] };
-    const onReadApp = vi.fn().mockResolvedValue({ name: "server", status: appStatus, output: "Listening on port 3000\nerror stream", pid: 123 });
-    const onKillApp = vi.fn(async () => { onReadApp.mockResolvedValue({ name: "server", status: "exited", output: "Listening on port 3000\nerror stream", pid: 123, signal: "SIGKILL" }); });
-    render(<WorkflowRunPanel {...props()} harnesses={[appWorkflow]} runs={[appRun]} onKillApp={onKillApp} onReadApp={onReadApp} />);
-    fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    const preview = screen.getByLabelText("Live workflow tree");
-    preview.style.padding = "4px";
-    Object.defineProperties(preview, { clientWidth: { value: 400 }, clientHeight: { value: 220 } });
-    fireEvent.click(screen.getByRole("button", { name: "Fit workflow horizontally" }));
-    expect(Number(preview.querySelector("svg")!.getAttribute("width"))).toBe(392);
-    fireEvent.click(screen.getByRole("button", { name: "Fit workflow vertically" }));
-    expect(Number(preview.querySelector("svg")!.getAttribute("height"))).toBe(212);
-    const appBlock = await screen.findByRole("button", { name: appStatus === "descendants-running" ? "Server: succeeded · Children running in background" : "Server: succeeded · Running in background" });
-    expect(appBlock.classList.contains("background-running")).toBe(true);
-    fireEvent.click(appBlock);
-    expect(await screen.findByText(/Listening on port 3000/)).toBeTruthy();
-    expect(onReadApp).toHaveBeenCalledWith("flow", "app", "run");
-    if (appStatus === "descendants-running") expect(await screen.findByText("Children running")).toBeTruthy();
-    const kill = screen.getByRole("button", { name: "Kill process" });
-    expect(kill.closest("header")).toBeTruthy();
-    expect(kill.textContent).toBe("");
-    fireEvent.click(kill);
-    await waitFor(() => expect(onKillApp).toHaveBeenCalledWith("flow", "app", "run"));
-    expect(await screen.findByText("Exited · SIGKILL")).toBeTruthy();
-    await waitFor(() => expect(appBlock.classList.contains("background-running")).toBe(false), { timeout: 2500 });
-    expect(appBlock.getAttribute("aria-label")).toBe("Server: succeeded");
-  });
+  it.each(["running", "descendants-running"] as const)(
+    "fits each axis and kills a %s app from a completed run",
+    async (appStatus) => {
+      const appWorkflow: HarnessDefinition = {
+        ...workflow,
+        blocks: [
+          {
+            id: "app",
+            type: "run_app",
+            label: "Server",
+            prompt: "",
+            command: "npm run dev",
+            app: { name: "server", actions: ["start"] },
+            position: { x: 0, y: 0 },
+          },
+        ],
+      };
+      const appRun: HarnessRun = {
+        ...run,
+        status: "succeeded",
+        definition: appWorkflow,
+        blocks: [{ blockId: "app", status: "succeeded" }],
+      };
+      const onReadApp = vi.fn().mockResolvedValue({
+        name: "server",
+        status: appStatus,
+        output: "Listening on port 3000\nerror stream",
+        pid: 123,
+      });
+      const onKillApp = vi.fn(async () => {
+        onReadApp.mockResolvedValue({
+          name: "server",
+          status: "exited",
+          output: "Listening on port 3000\nerror stream",
+          pid: 123,
+          signal: "SIGKILL",
+        });
+      });
+      render(
+        <WorkflowRunPanel
+          {...props()}
+          harnesses={[appWorkflow]}
+          runs={[appRun]}
+          onKillApp={onKillApp}
+          onReadApp={onReadApp}
+        />,
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
+      const preview = screen.getByLabelText("Live workflow tree");
+      preview.style.padding = "4px";
+      Object.defineProperties(preview, { clientWidth: { value: 400 }, clientHeight: { value: 220 } });
+      fireEvent.click(screen.getByRole("button", { name: "Fit workflow horizontally" }));
+      expect(Number(preview.querySelector("svg")!.getAttribute("width"))).toBe(392);
+      fireEvent.click(screen.getByRole("button", { name: "Fit workflow vertically" }));
+      expect(Number(preview.querySelector("svg")!.getAttribute("height"))).toBe(212);
+      const appBlock = await screen.findByRole("button", {
+        name:
+          appStatus === "descendants-running"
+            ? "Server: succeeded · Children running in background"
+            : "Server: succeeded · Running in background",
+      });
+      expect(appBlock.classList.contains("background-running")).toBe(true);
+      fireEvent.click(appBlock);
+      expect(await screen.findByText(/Listening on port 3000/)).toBeTruthy();
+      expect(onReadApp).toHaveBeenCalledWith("flow", "app", "run");
+      if (appStatus === "descendants-running") expect(await screen.findByText("Children running")).toBeTruthy();
+      const kill = screen.getByRole("button", { name: "Kill process" });
+      expect(kill.closest("header")).toBeTruthy();
+      expect(kill.textContent).toBe("");
+      fireEvent.click(kill);
+      await waitFor(() => expect(onKillApp).toHaveBeenCalledWith("flow", "app", "run"));
+      expect(await screen.findByText("Exited · SIGKILL")).toBeTruthy();
+      await waitFor(() => expect(appBlock.classList.contains("background-running")).toBe(false), { timeout: 2500 });
+      expect(appBlock.getAttribute("aria-label")).toBe("Server: succeeded");
+    },
+  );
 
-  it.each([{ viewportWidth: 120, hasRun: false }, { viewportWidth: 800, hasRun: false }, { viewportWidth: 120, hasRun: true }, { viewportWidth: 800, hasRun: true }])("fits from the top toolbar at width $viewportWidth with run=$hasRun", async ({ viewportWidth, hasRun }) => {
+  it.each([
+    { viewportWidth: 120, hasRun: false },
+    { viewportWidth: 800, hasRun: false },
+    { viewportWidth: 120, hasRun: true },
+    { viewportWidth: 800, hasRun: true },
+  ])("fits from the top toolbar at width $viewportWidth with run=$hasRun", async ({ viewportWidth, hasRun }) => {
     const user = userEvent.setup();
     render(<WorkflowRunPanel {...props()} runs={hasRun ? [{ ...run, status: "succeeded" }] : []} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
@@ -169,13 +316,31 @@ describe("Workflow run library", () => {
   });
 
   it("refreshes app output while details are open", async () => {
-    const appWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "app", type: "run_app", label: "Server", prompt: "", app: { name: "server", actions: ["start"] }, position: { x: 0, y: 0 } }], edges: [] };
-    const onReadApp = vi.fn().mockResolvedValueOnce({ name: "server", status: "running", output: "first line" }).mockResolvedValue({ name: "server", status: "running", output: "first line\nsecond line" });
+    const appWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [
+        {
+          id: "app",
+          type: "run_app",
+          label: "Server",
+          prompt: "",
+          app: { name: "server", actions: ["start"] },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    };
+    const onReadApp = vi
+      .fn()
+      .mockResolvedValueOnce({ name: "server", status: "running", output: "first line" })
+      .mockResolvedValue({ name: "server", status: "running", output: "first line\nsecond line" });
     render(<WorkflowRunPanel {...props()} harnesses={[appWorkflow]} onReadApp={onReadApp} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     fireEvent.click(screen.getByRole("button", { name: "Server: idle" }));
     await waitFor(() => expect(screen.getByLabelText("App stdout and stderr").textContent).toContain("first line"));
-    await waitFor(() => expect(screen.getByLabelText("App stdout and stderr").textContent).toContain("second line"), { timeout: 2500 });
+    await waitFor(() => expect(screen.getByLabelText("App stdout and stderr").textContent).toContain("second line"), {
+      timeout: 2500,
+    });
   });
 
   it("collapses workflow list items by default and opens them on demand", () => {
@@ -189,8 +354,29 @@ describe("Workflow run library", () => {
   });
 
   it("opens a Chatbox before a run and sends follow-up messages to the same conversation", async () => {
-    const chatWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }, workflow.blocks[2]!], edges: [{ id: "tool", from: "chat", to: "agent", type: "use" }] };
-    const chatRun: HarnessRun = { ...run, definition: chatWorkflow, status: "succeeded", blocks: [{ blockId: "chat", status: "succeeded", chatMessages: [{ id: "user", role: "user", text: "Hello", timestamp: "now" }, { id: "reply", role: "assistant", text: "**Hello back**", timestamp: "now" }] }] };
+    const chatWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [
+        { id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } },
+        workflow.blocks[2]!,
+      ],
+      edges: [{ id: "tool", from: "chat", to: "agent", type: "use" }],
+    };
+    const chatRun: HarnessRun = {
+      ...run,
+      definition: chatWorkflow,
+      status: "succeeded",
+      blocks: [
+        {
+          blockId: "chat",
+          status: "succeeded",
+          chatMessages: [
+            { id: "user", role: "user", text: "Hello", timestamp: "now" },
+            { id: "reply", role: "assistant", text: "**Hello back**", timestamp: "now" },
+          ],
+        },
+      ],
+    };
     const onChat = vi.fn().mockResolvedValue(chatRun);
     const callbacks = { ...props(), harnesses: [chatWorkflow], onChat };
     const view = render(<WorkflowRunPanel {...callbacks} />);
@@ -202,18 +388,43 @@ describe("Workflow run library", () => {
     fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
     expect(onChat).not.toHaveBeenCalled();
     fireEvent.keyDown(input, { key: "Enter" });
-    await waitFor(() => expect(onChat).toHaveBeenCalledWith("flow", "chat", "Hello", undefined, expect.objectContaining({ autopilot: true })));
+    await waitFor(() =>
+      expect(onChat).toHaveBeenCalledWith(
+        "flow",
+        "chat",
+        "Hello",
+        undefined,
+        expect.objectContaining({ autopilot: true }),
+      ),
+    );
     expect(await screen.findByText("Hello back", { selector: "strong" })).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Next message" } });
     fireEvent.click(screen.getByRole("button", { name: "Send chat message" }));
-    await waitFor(() => expect(onChat).toHaveBeenLastCalledWith("flow", "chat", "Next message", "run", expect.objectContaining({ autopilot: true })));
-    view.rerender(<WorkflowRunPanel {...callbacks} runs={[{ ...chatRun, status: "running", blocks: [{ ...chatRun.blocks[0]!, status: "running" }] }]} />);
+    await waitFor(() =>
+      expect(onChat).toHaveBeenLastCalledWith(
+        "flow",
+        "chat",
+        "Next message",
+        "run",
+        expect.objectContaining({ autopilot: true }),
+      ),
+    );
+    view.rerender(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[{ ...chatRun, status: "running", blocks: [{ ...chatRun.blocks[0]!, status: "running" }] }]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Stop chat response" }));
     await waitFor(() => expect(callbacks.onCancelRun).toHaveBeenCalledWith("run"));
   });
 
   it("keeps a failed Chatbox message in the composer for retry", async () => {
-    const chatWorkflow: HarnessDefinition = { ...workflow, blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }], edges: [] };
+    const chatWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [{ id: "chat", type: "chatbox", label: "Assistant", prompt: "", position: { x: 0, y: 0 } }],
+      edges: [],
+    };
     const onChat = vi.fn().mockRejectedValue(new Error("Provider offline"));
     render(<WorkflowRunPanel {...props()} harnesses={[chatWorkflow]} onChat={onChat} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
@@ -235,7 +446,12 @@ describe("Workflow run library", () => {
     await screen.findByLabelText("Live workflow tree");
     expect(screen.queryByRole("button", { name: "Start Quick check" })).toBeNull();
     expect(screen.getByRole("button", { name: "Inspect: running" })).toBeTruthy();
-    view.rerender(<WorkflowRunPanel {...callbacks} runs={[{ ...run, status: "succeeded", blocks: [{ blockId: "agent", status: "succeeded" }] }]} />);
+    view.rerender(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[{ ...run, status: "succeeded", blocks: [{ blockId: "agent", status: "succeeded" }] }]}
+      />,
+    );
     expect(screen.getByRole("button", { name: "Inspect: succeeded" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Stop run run" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "New run" }));
@@ -244,14 +460,30 @@ describe("Workflow run library", () => {
 
   it("places icon controls beside the prompt and reruns the selected snapshot while pending", async () => {
     const user = userEvent.setup();
-    const historical: HarnessRun = { ...run, id: "historical", status: "succeeded", input: "Saved prompt", createdAt: "2026-10-01T12:00:00Z" };
+    const historical: HarnessRun = {
+      ...run,
+      id: "historical",
+      status: "succeeded",
+      input: "Saved prompt",
+      createdAt: "2026-10-01T12:00:00Z",
+    };
     const next: HarnessRun = { ...run, id: "next" };
     let resolveRun!: (value: HarnessRun) => void;
-    const callbacks = { ...props(), onRun: vi.fn(() => new Promise<HarnessRun>((resolve) => { resolveRun = resolve; })) };
+    const callbacks = {
+      ...props(),
+      onRun: vi.fn(
+        () =>
+          new Promise<HarnessRun>((resolve) => {
+            resolveRun = resolve;
+          }),
+      ),
+    };
     render(<WorkflowRunPanel {...callbacks} runs={[run, historical]} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     expect(screen.queryByRole("button", { name: "Rerun" })).toBeNull();
-    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), { target: { value: "historical" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), {
+      target: { value: "historical" },
+    });
     const newRun = screen.getByRole("button", { name: "New run" });
     const rerun = screen.getByRole("button", { name: "Rerun" });
     const promptRow = document.querySelector(".workflow-run-prompt-row")!;
@@ -278,13 +510,23 @@ describe("Workflow run library", () => {
     fireEvent.click(screen.getByRole("button", { name: "Stop run run" }));
     await waitFor(() => expect(callbacks.onCancelRun).toHaveBeenCalledWith("run"));
     resolveRun(next);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Run for Workspace check" })).toHaveProperty("value", "next"));
+    await waitFor(() =>
+      expect(screen.getByRole("combobox", { name: "Run for Workspace check" })).toHaveProperty("value", "next"),
+    );
     expect(screen.queryByRole("button", { name: "Rerun" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start Quick check" })).toBeNull();
     expect(newRun.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it.each(["queued", "running", "waiting", "awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"] as const)("keeps New run and Stop available for %s runs", async (status) => {
+  it.each([
+    "queued",
+    "running",
+    "waiting",
+    "awaiting_permission",
+    "awaiting_user_input",
+    "waiting_timer",
+    "retry_scheduled",
+  ] as const)("keeps New run and Stop available for %s runs", async (status) => {
     const callbacks = props();
     render(<WorkflowRunPanel {...callbacks} runs={[{ ...run, status }]} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
@@ -324,11 +566,18 @@ describe("Workflow run library", () => {
     const otherRun: HarnessRun = { ...run, id: "other", createdAt: "2026-10-06T12:00:00Z" };
     const completedRun: HarnessRun = { ...run, id: "completed", status: "succeeded" };
     let rejectCancel!: (error: Error) => void;
-    const onCancelRun = vi.fn(() => new Promise<void>((_resolve, reject) => { rejectCancel = reject; }));
+    const onCancelRun = vi.fn(
+      () =>
+        new Promise<void>((_resolve, reject) => {
+          rejectCancel = reject;
+        }),
+    );
     const callbacks = { ...props(), onCancelRun };
     const view = render(<WorkflowRunPanel {...callbacks} runs={[run, otherRun, completedRun]} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), { target: { value: "completed" } });
+    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), {
+      target: { value: "completed" },
+    });
     const controls = document.querySelector<HTMLElement>(".workflow-run-controls")!;
     const stop = within(controls).getByRole("button", { name: "Stop run run" });
     const otherStop = within(controls).getByRole("button", { name: "Stop run other" });
@@ -364,72 +613,145 @@ describe("Workflow run library", () => {
     expect(document.querySelector(".workflow-card-actions")).toBeNull();
   });
 
-  it.each(["stop", "run now"] as const)("handles compact timer %s with pending, error, and transition feedback", async (action) => {
-    const user = userEvent.setup();
-    const timerLabel = "A long armed workflow timer label";
-    const timerWorkflow: HarnessDefinition = { ...workflow, blocks: [{ ...workflow.blocks[2]!, label: timerLabel }] };
-    const timerRun: HarnessRun = { ...run, definition: timerWorkflow, status: "waiting_timer", blocks: [{ blockId: "agent", status: "waiting_timer", pauseId: "timer-pause", waitingUntil: "2099-01-01T12:30:00.000Z" }] };
-    let rejectAction!: (error: Error) => void;
-    const operation = vi.fn(() => new Promise<HarnessRun>((_resolve, reject) => { rejectAction = reject; }));
-    const callbacks = { ...props(), onResumePause: action === "run now" ? operation : vi.fn(), onCancelPause: action === "stop" ? operation : vi.fn() };
-    const view = render(<WorkflowRunPanel {...callbacks} harnesses={[timerWorkflow]} runs={[timerRun]} />);
-    fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    const strip = screen.getByRole("region", { name: `${timerLabel} timer pause` });
-    expect(strip.classList.contains("workflow-timer-strip")).toBe(true);
-    expect(strip.classList.contains("harness-pause")).toBe(false);
-    expect(strip.querySelector("strong")?.title).toContain(timerLabel);
-    const due = strip.querySelector("time")!;
-    expect(due.dateTime).toBe("2099-01-01T12:30:00.000Z");
-    expect(due.textContent).toContain("Due");
-    expect(due.title).toContain("Scheduled for");
-    const stop = within(strip).getByRole("button", { name: `Stop timer for ${timerLabel}` });
-    const resume = within(strip).getByRole("button", { name: `Run timer now for ${timerLabel}` });
-    expect(stop.title).toContain("cancel");
-    expect(resume.title).toContain("immediately");
-    const button = action === "stop" ? stop : resume;
-    button.focus();
-    await user.keyboard("{Enter}");
-    expect(operation).toHaveBeenCalledWith("run", "agent", "timer-pause");
-    expect(strip.getAttribute("aria-busy")).toBe("true");
-    expect(stop.hasAttribute("disabled")).toBe(true);
-    expect(resume.hasAttribute("disabled")).toBe(true);
-    await user.click(button);
-    expect(operation).toHaveBeenCalledTimes(1);
-    rejectAction(new Error("Timer operation failed"));
-    expect(await within(strip).findByRole("alert")).toHaveProperty("textContent", "Timer operation failed");
-    expect(callbacks.onError).toHaveBeenCalledWith("Timer operation failed");
-    expect(strip.classList.contains("failed")).toBe(true);
-    expect(strip.getAttribute("aria-busy")).toBe("false");
-    expect(button.hasAttribute("disabled")).toBe(false);
-    operation.mockImplementation(async () => timerRun);
-    await user.click(button);
-    await waitFor(() => expect(strip.getAttribute("aria-busy")).toBe("false"));
-    expect(within(strip).queryByRole("alert")).toBeNull();
-    expect(strip.querySelector("time")).toBeTruthy();
-    expect(strip.classList.contains("failed")).toBe(false);
-    view.rerender(<WorkflowRunPanel {...callbacks} harnesses={[timerWorkflow]} runs={[{ ...timerRun, status: action === "stop" ? "cancelled" : "running", blocks: [{ blockId: "agent", status: action === "stop" ? "cancelled" : "running" }] }]} />);
-    expect(screen.queryByRole("region", { name: `${timerLabel} timer pause` })).toBeNull();
-  });
+  it.each(["stop", "run now"] as const)(
+    "handles compact timer %s with pending, error, and transition feedback",
+    async (action) => {
+      const user = userEvent.setup();
+      const timerLabel = "A long armed workflow timer label";
+      const timerWorkflow: HarnessDefinition = { ...workflow, blocks: [{ ...workflow.blocks[2]!, label: timerLabel }] };
+      const timerRun: HarnessRun = {
+        ...run,
+        definition: timerWorkflow,
+        status: "waiting_timer",
+        blocks: [
+          {
+            blockId: "agent",
+            status: "waiting_timer",
+            pauseId: "timer-pause",
+            waitingUntil: "2099-01-01T12:30:00.000Z",
+          },
+        ],
+      };
+      let rejectAction!: (error: Error) => void;
+      const operation = vi.fn(
+        () =>
+          new Promise<HarnessRun>((_resolve, reject) => {
+            rejectAction = reject;
+          }),
+      );
+      const callbacks = {
+        ...props(),
+        onResumePause: action === "run now" ? operation : vi.fn(),
+        onCancelPause: action === "stop" ? operation : vi.fn(),
+      };
+      const view = render(<WorkflowRunPanel {...callbacks} harnesses={[timerWorkflow]} runs={[timerRun]} />);
+      fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
+      const strip = screen.getByRole("region", { name: `${timerLabel} timer pause` });
+      expect(strip.classList.contains("workflow-timer-strip")).toBe(true);
+      expect(strip.classList.contains("harness-pause")).toBe(false);
+      expect(strip.querySelector("strong")?.title).toContain(timerLabel);
+      const due = strip.querySelector("time")!;
+      expect(due.dateTime).toBe("2099-01-01T12:30:00.000Z");
+      expect(due.textContent).toContain("Due");
+      expect(due.title).toContain("Scheduled for");
+      const stop = within(strip).getByRole("button", { name: `Stop timer for ${timerLabel}` });
+      const resume = within(strip).getByRole("button", { name: `Run timer now for ${timerLabel}` });
+      expect(stop.title).toContain("cancel");
+      expect(resume.title).toContain("immediately");
+      const button = action === "stop" ? stop : resume;
+      button.focus();
+      await user.keyboard("{Enter}");
+      expect(operation).toHaveBeenCalledWith("run", "agent", "timer-pause");
+      expect(strip.getAttribute("aria-busy")).toBe("true");
+      expect(stop.hasAttribute("disabled")).toBe(true);
+      expect(resume.hasAttribute("disabled")).toBe(true);
+      await user.click(button);
+      expect(operation).toHaveBeenCalledTimes(1);
+      rejectAction(new Error("Timer operation failed"));
+      expect(await within(strip).findByRole("alert")).toHaveProperty("textContent", "Timer operation failed");
+      expect(callbacks.onError).toHaveBeenCalledWith("Timer operation failed");
+      expect(strip.classList.contains("failed")).toBe(true);
+      expect(strip.getAttribute("aria-busy")).toBe("false");
+      expect(button.hasAttribute("disabled")).toBe(false);
+      operation.mockImplementation(async () => timerRun);
+      await user.click(button);
+      await waitFor(() => expect(strip.getAttribute("aria-busy")).toBe("false"));
+      expect(within(strip).queryByRole("alert")).toBeNull();
+      expect(strip.querySelector("time")).toBeTruthy();
+      expect(strip.classList.contains("failed")).toBe(false);
+      view.rerender(
+        <WorkflowRunPanel
+          {...callbacks}
+          harnesses={[timerWorkflow]}
+          runs={[
+            {
+              ...timerRun,
+              status: action === "stop" ? "cancelled" : "running",
+              blocks: [{ blockId: "agent", status: action === "stop" ? "cancelled" : "running" }],
+            },
+          ]}
+        />,
+      );
+      expect(screen.queryByRole("region", { name: `${timerLabel} timer pause` })).toBeNull();
+    },
+  );
 
   it("keeps timer actions disabled without a pause identity or callbacks", () => {
-    const timerRun: HarnessRun = { ...run, status: "waiting_timer", blocks: [{ blockId: "agent", status: "waiting_timer" }] };
+    const timerRun: HarnessRun = {
+      ...run,
+      status: "waiting_timer",
+      blocks: [{ blockId: "agent", status: "waiting_timer" }],
+    };
     const callbacks = props();
-    const view = render(<WorkflowRunPanel {...callbacks} runs={[timerRun]} onResumePause={vi.fn()} onCancelPause={vi.fn()} />);
+    const view = render(
+      <WorkflowRunPanel {...callbacks} runs={[timerRun]} onResumePause={vi.fn()} onCancelPause={vi.fn()} />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     const strip = screen.getByRole("region", { name: "Inspect timer pause" });
     expect(strip.textContent).toContain("Waiting");
     for (const button of within(strip).getAllByRole("button")) expect(button.hasAttribute("disabled")).toBe(true);
-    view.rerender(<WorkflowRunPanel {...callbacks} runs={[{ ...timerRun, blocks: [{ ...timerRun.blocks[0]!, pauseId: "pause" }] }]} />);
+    view.rerender(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[{ ...timerRun, blocks: [{ ...timerRun.blocks[0]!, pauseId: "pause" }] }]}
+      />,
+    );
     for (const button of within(strip).getAllByRole("button")) expect(button.hasAttribute("disabled")).toBe(true);
   });
 
   it("preserves question and retry pause presentations in the Workflows panel", () => {
     const callbacks = props();
-    const view = render(<WorkflowRunPanel {...callbacks} runs={[{ ...run, status: "awaiting_user_input", blocks: [{ blockId: "agent", status: "awaiting_user_input", question: "Which branch?" }] }]} />);
+    const view = render(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[
+          {
+            ...run,
+            status: "awaiting_user_input",
+            blocks: [{ blockId: "agent", status: "awaiting_user_input", question: "Which branch?" }],
+          },
+        ]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    expect(screen.getByRole("region", { name: "Inspect question" }).classList.contains("workflow-user-request")).toBe(true);
+    expect(screen.getByRole("region", { name: "Inspect question" }).classList.contains("workflow-user-request")).toBe(
+      true,
+    );
     expect(screen.getByRole("textbox", { name: "Answer Inspect" })).toBeTruthy();
-    view.rerender(<WorkflowRunPanel {...callbacks} runs={[{ ...run, status: "retry_scheduled", blocks: [{ blockId: "agent", status: "retry_scheduled", error: "Try again", retryAt: "2099-01-01T12:30:00.000Z" }] }]} />);
+    view.rerender(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[
+          {
+            ...run,
+            status: "retry_scheduled",
+            blocks: [
+              { blockId: "agent", status: "retry_scheduled", error: "Try again", retryAt: "2099-01-01T12:30:00.000Z" },
+            ],
+          },
+        ]}
+      />,
+    );
     expect(screen.getByRole("region", { name: "Inspect retry pause" }).classList.contains("harness-pause")).toBe(true);
     expect(screen.getByRole("button", { name: "Retry now" })).toBeTruthy();
     expect(document.querySelector(".workflow-timer-strip")).toBeNull();
@@ -446,7 +768,14 @@ describe("Workflow run library", () => {
 
   it("keeps failed validation on the launch card", async () => {
     const callbacks = props();
-    render(<WorkflowRunPanel {...callbacks} onValidate={vi.fn().mockResolvedValue({ valid: false, issues: [{ code: "empty", message: "Fix the workflow" }] })} />);
+    render(
+      <WorkflowRunPanel
+        {...callbacks}
+        onValidate={vi
+          .fn()
+          .mockResolvedValue({ valid: false, issues: [{ code: "empty", message: "Fix the workflow" }] })}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     fireEvent.click(screen.getByRole("button", { name: "Start Quick check" }));
     expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Fix the workflow");
@@ -455,8 +784,24 @@ describe("Workflow run library", () => {
 
   it("shows frozen run blocks, live transfers, and stops the selected active run", async () => {
     const callbacks = props();
-    const snapshot = { ...workflow, blocks: workflow.blocks.map((block) => block.id === "agent" ? { ...block, label: "Original agent" } : block) };
-    render(<WorkflowRunPanel {...callbacks} runs={[{ ...run, definition: snapshot, connectionTraces: [{ id: "trace", edgeId: "edge", direction: "forward", status: "active", startedAt: "now" }] }]} />);
+    const snapshot = {
+      ...workflow,
+      blocks: workflow.blocks.map((block) => (block.id === "agent" ? { ...block, label: "Original agent" } : block)),
+    };
+    render(
+      <WorkflowRunPanel
+        {...callbacks}
+        runs={[
+          {
+            ...run,
+            definition: snapshot,
+            connectionTraces: [
+              { id: "trace", edgeId: "edge", direction: "forward", status: "active", startedAt: "now" },
+            ],
+          },
+        ]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     expect(screen.getByRole("button", { name: "Original agent: running" })).toBeTruthy();
     await waitFor(() => expect(document.querySelector(".harness-transfer.active")).not.toBeNull());
@@ -476,7 +821,12 @@ describe("Workflow run library", () => {
   it("formats block conversations and keeps runtime context and diagnostics expandable", () => {
     const prompt = "# Review plan\n\n- Check tests\n- Check `types`\n\nConnected tools: []";
     const answer = "## Result\n\n**All checks passed**\n\n```ts\nconst ready = true;\n```";
-    render(<WorkflowRunPanel {...props()} runs={[{ ...run, blocks: [{ blockId: "agent", status: "succeeded", prompt, output: answer }] }]} />);
+    render(
+      <WorkflowRunPanel
+        {...props()}
+        runs={[{ ...run, blocks: [{ blockId: "agent", status: "succeeded", prompt, output: answer }] }]}
+      />,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     fireEvent.click(screen.getByRole("button", { name: "Inspect: succeeded" }));
     const details = screen.getByLabelText("Inspect run details");
@@ -504,7 +854,18 @@ describe("Workflow run library", () => {
 
   it("opens saved designs in a tab and asks users to save edits first", () => {
     const onOpenWorkflow = vi.fn();
-    render(<HarnessPanel {...props()} designOnly onOpenWorkflow={onOpenWorkflow} providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} />);
+    render(
+      <HarnessPanel
+        {...props()}
+        designOnly
+        onOpenWorkflow={onOpenWorkflow}
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
     const open = screen.getByRole("button", { name: "Open workflow in editor tab" }) as HTMLButtonElement;
     fireEvent.click(open);
     expect(onOpenWorkflow).toHaveBeenCalledWith(workflow);
@@ -515,7 +876,17 @@ describe("Workflow run library", () => {
   });
 
   it("locks Workflow design to editing and hides launch controls", () => {
-    render(<HarnessPanel {...props()} designOnly providers={[]} agents={[]} onCreate={vi.fn()} onSave={vi.fn()} onDelete={vi.fn()} />);
+    render(
+      <HarnessPanel
+        {...props()}
+        designOnly
+        providers={[]}
+        agents={[]}
+        onCreate={vi.fn()}
+        onSave={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
     expect(screen.getByLabelText("Workflow name")).toBeTruthy();
     expect(screen.queryByRole("group", { name: "Workflow mode" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Start" })).toBeNull();
@@ -523,25 +894,60 @@ describe("Workflow run library", () => {
   });
 });
 
-
 describe("workflow chat links", () => {
   const chat = { id: "chat", type: "chatbox" as const, label: "Assistant", prompt: "", position: { x: 0, y: 0 } };
-  const renderChat = (text: string) => render(<BlockRunDetails block={chat} onClose={vi.fn()} state={{ blockId: "chat", status: "succeeded", chatMessages: [{ id: "reply", role: "assistant", text, timestamp: "now" }] }} />);
+  const renderChat = (text: string) =>
+    render(
+      <BlockRunDetails
+        block={chat}
+        onClose={vi.fn()}
+        state={{
+          blockId: "chat",
+          status: "succeeded",
+          chatMessages: [{ id: "reply", role: "assistant", text, timestamp: "now" }],
+        }}
+      />,
+    );
 
   it("sends to an idle Chatbox in a busy run and disables only its own active turn", async () => {
-    const idle = { blockId: "chat", status: "succeeded" as const, chatMessages: [{ id: "old", role: "assistant" as const, text: "Previous reply", timestamp: "now" }] };
-    const activeRun: HarnessRun = { ...run, status: "running", blocks: [{ blockId: "other", status: "running" }, idle] };
+    const idle = {
+      blockId: "chat",
+      status: "succeeded" as const,
+      chatMessages: [{ id: "old", role: "assistant" as const, text: "Previous reply", timestamp: "now" }],
+    };
+    const activeRun: HarnessRun = {
+      ...run,
+      status: "running",
+      blocks: [{ blockId: "other", status: "running" }, idle],
+    };
     let release!: () => void;
-    const onChat = vi.fn(() => new Promise<void>((resolve) => { release = resolve; }));
-    const view = render(<BlockRunDetails block={chat} run={activeRun} state={idle} onClose={vi.fn()} onChat={onChat} />);
+    const onChat = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    const view = render(
+      <BlockRunDetails block={chat} run={activeRun} state={idle} onClose={vi.fn()} onChat={onChat} />,
+    );
     expect(screen.getByText("Previous reply")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Independent input" } });
     expect((screen.getByRole("button", { name: "Send chat message" }) as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: "Send chat message" }));
     fireEvent.submit(screen.getByLabelText("Message Assistant").closest("form")!);
-    expect(onChat).toHaveBeenCalledTimes(1); expect(onChat).toHaveBeenCalledWith("Independent input", expect.objectContaining({ autopilot: true }));
-    release(); await waitFor(() => expect((screen.getByLabelText("Message Assistant") as HTMLTextAreaElement).value).toBe(""));
-    view.rerender(<BlockRunDetails block={chat} run={activeRun} state={{ ...idle, status: "running" }} onClose={vi.fn()} onChat={onChat} />);
+    expect(onChat).toHaveBeenCalledTimes(1);
+    expect(onChat).toHaveBeenCalledWith("Independent input", expect.objectContaining({ autopilot: true }));
+    release();
+    await waitFor(() => expect((screen.getByLabelText("Message Assistant") as HTMLTextAreaElement).value).toBe(""));
+    view.rerender(
+      <BlockRunDetails
+        block={chat}
+        run={activeRun}
+        state={{ ...idle, status: "running" }}
+        onClose={vi.fn()}
+        onChat={onChat}
+      />,
+    );
     fireEvent.change(screen.getByLabelText("Message Assistant"), { target: { value: "Duplicate" } });
     expect((screen.getByRole("button", { name: "Steer chat response" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.submit(screen.getByLabelText("Message Assistant").closest("form")!);
@@ -550,32 +956,115 @@ describe("workflow chat links", () => {
 
   it("shows the target and action for live reads and waits without journal entries", () => {
     const timestamp = "2026-10-08T12:00:00Z";
-    const state: HarnessRun["blocks"][number] = { blockId: "chat", status: "running", agentActivity: [{ id: "tool", timestamp, text: "workflow_use_block (in_progress)" }], activeToolCalls: [{ id: "wait", blockId: "room", action: "wait" }] };
-    const definition: HarnessDefinition = { ...workflow, blocks: [chat, { id: "room", type: "meeting", label: "Team meeting", prompt: "", position: { x: 0, y: 0 } }], edges: [] };
+    const state: HarnessRun["blocks"][number] = {
+      blockId: "chat",
+      status: "running",
+      agentActivity: [{ id: "tool", timestamp, text: "workflow_use_block (in_progress)" }],
+      activeToolCalls: [{ id: "wait", blockId: "room", action: "wait" }],
+    };
+    const definition: HarnessDefinition = {
+      ...workflow,
+      blocks: [chat, { id: "room", type: "meeting", label: "Team meeting", prompt: "", position: { x: 0, y: 0 } }],
+      edges: [],
+    };
     const activeRun: HarnessRun = { ...run, definition, blocks: [state], operations: [] };
     const view = render(<BlockRunDetails block={chat} run={activeRun} state={state} onClose={vi.fn()} />);
-    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Running Team meeting · wait");
-    view.rerender(<BlockRunDetails block={chat} run={activeRun} state={{ ...state, activeToolCalls: [{ id: "tail", blockId: "room", action: "tail", lines: 5 }] }} onClose={vi.fn()} />);
-    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Running Team meeting · tail · 5 lines");
-    view.rerender(<BlockRunDetails block={chat} run={activeRun} state={{ ...state, activeToolCalls: [{ id: "unknown", blockId: "removed-block", action: "status" }] }} onClose={vi.fn()} />);
-    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Running removed-block · status");
-    view.rerender(<BlockRunDetails block={chat} run={activeRun} state={{ ...state, activeToolCalls: undefined, agentActivity: [{ id: "next", timestamp, text: "Reviewing results" }] }} onClose={vi.fn()} />);
+    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe(
+      "Running Team meeting · wait",
+    );
+    view.rerender(
+      <BlockRunDetails
+        block={chat}
+        run={activeRun}
+        state={{ ...state, activeToolCalls: [{ id: "tail", blockId: "room", action: "tail", lines: 5 }] }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe(
+      "Running Team meeting · tail · 5 lines",
+    );
+    view.rerender(
+      <BlockRunDetails
+        block={chat}
+        run={activeRun}
+        state={{ ...state, activeToolCalls: [{ id: "unknown", blockId: "removed-block", action: "status" }] }}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe(
+      "Running removed-block · status",
+    );
+    view.rerender(
+      <BlockRunDetails
+        block={chat}
+        run={activeRun}
+        state={{
+          ...state,
+          activeToolCalls: undefined,
+          agentActivity: [{ id: "next", timestamp, text: "Reviewing results" }],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
     expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Reviewing results");
   });
 
   it("shows live provider activity, connected app calls and their results", () => {
     const timestamp = "2026-10-08T12:00:00Z";
-    const state: HarnessRun["blocks"][number] = { blockId: "chat", status: "running", startedAt: timestamp, agentActivity: [{ id: "tool", timestamp, text: "Running npm test\nTest output" }] };
-    const appWorkflow: HarnessDefinition = { ...workflow, blocks: [chat, { id: "app", type: "run_app", label: "Server", prompt: "", app: { name: "server", actions: ["status", "tail"] }, position: { x: 0, y: 0 } }], edges: [] };
+    const state: HarnessRun["blocks"][number] = {
+      blockId: "chat",
+      status: "running",
+      startedAt: timestamp,
+      agentActivity: [{ id: "tool", timestamp, text: "Running npm test\nTest output" }],
+    };
+    const appWorkflow: HarnessDefinition = {
+      ...workflow,
+      blocks: [
+        chat,
+        {
+          id: "app",
+          type: "run_app",
+          label: "Server",
+          prompt: "",
+          app: { name: "server", actions: ["status", "tail"] },
+          position: { x: 0, y: 0 },
+        },
+      ],
+      edges: [],
+    };
     const activeRun: HarnessRun = { ...run, definition: appWorkflow, blocks: [state] };
     const view = render(<BlockRunDetails block={chat} run={activeRun} state={state} onClose={vi.fn()} />);
     expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Running npm test");
-    const operation = { id: "call", idempotencyKey: "call", kind: "tool_command" as const, blockId: "chat", status: "intent" as const, createdAt: timestamp, updatedAt: timestamp, input: { name: "workflow_use_block", args: { block_id: "app", action: "tail", lines: 20 } } };
-    view.rerender(<BlockRunDetails block={chat} run={{ ...activeRun, operations: [operation] }} state={state} onClose={vi.fn()} />);
-    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe("Running Server · tail · 20 lines");
+    const operation = {
+      id: "call",
+      idempotencyKey: "call",
+      kind: "tool_command" as const,
+      blockId: "chat",
+      status: "intent" as const,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      input: { name: "workflow_use_block", args: { block_id: "app", action: "tail", lines: 20 } },
+    };
+    view.rerender(
+      <BlockRunDetails block={chat} run={{ ...activeRun, operations: [operation] }} state={state} onClose={vi.fn()} />,
+    );
+    expect(screen.getByRole("status", { name: "Agent current activity" }).textContent).toBe(
+      "Running Server · tail · 20 lines",
+    );
     fireEvent.click(screen.getByRole("status", { name: "Agent current activity" }));
     expect(screen.getByText("Server · tail · 20 lines")).toBeTruthy();
-    view.rerender(<BlockRunDetails block={chat} run={{ ...activeRun, status: "succeeded", operations: [{ ...operation, status: "succeeded", result: { app: { status: "running", output: "ready" } } }] }} state={{ ...state, status: "succeeded" }} onClose={vi.fn()} />);
+    view.rerender(
+      <BlockRunDetails
+        block={chat}
+        run={{
+          ...activeRun,
+          status: "succeeded",
+          operations: [{ ...operation, status: "succeeded", result: { app: { status: "running", output: "ready" } } }],
+        }}
+        state={{ ...state, status: "succeeded" }}
+        onClose={vi.fn()}
+      />,
+    );
     expect(screen.getByText("Completed")).toBeTruthy();
     fireEvent.click(screen.getByText("Server · tail · 20 lines"));
     expect(screen.getByText(/"output": "ready"/)).toBeTruthy();
@@ -601,7 +1090,9 @@ describe("workflow chat links", () => {
   it("keeps malformed, unsafe and relative links from replacing the UI", () => {
     const openExternal = vi.fn();
     vi.stubGlobal("desktop", { openExternal });
-    renderChat("[Bad](http://[broken) [Unsafe](javascript:alert) [Relative](docs/readme.md) [File](file:///tmp/test.md)");
+    renderChat(
+      "[Bad](http://[broken) [Unsafe](javascript:alert) [Relative](docs/readme.md) [File](file:///tmp/test.md)",
+    );
     expect(screen.queryAllByRole("link")).toHaveLength(0);
     expect(screen.getByText("Bad")).toBeTruthy();
     expect(screen.getByText("Unsafe")).toBeTruthy();

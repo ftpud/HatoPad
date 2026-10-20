@@ -6,8 +6,33 @@ afterEach(cleanup);
 
 describe("CommandPalette", () => {
   it("searches typed commands and keeps unavailable commands visible", () => {
-    const execute = vi.fn(); const close = vi.fn();
-    render(<CommandPalette context={{ connected: true, hasActiveEditor: false, activeEditorDirty: false, gitBusy: true, taskSwitching: false, aiBusy: false }} bindings={{ "terminal.new": "Ctrl+N" }} platform="windows" onClose={close} commands={[{ id: "git.refresh", label: "Refresh Git Changes", category: "Git", when: (context) => !context.gitBusy, execute }, { id: "terminal.new", label: "New Terminal", category: "Terminal", execute }]} />);
+    const execute = vi.fn();
+    const close = vi.fn();
+    render(
+      <CommandPalette
+        context={{
+          connected: true,
+          hasActiveEditor: false,
+          activeEditorDirty: false,
+          gitBusy: true,
+          taskSwitching: false,
+          aiBusy: false,
+        }}
+        bindings={{ "terminal.new": "Ctrl+N" }}
+        platform="windows"
+        onClose={close}
+        commands={[
+          {
+            id: "git.refresh",
+            label: "Refresh Git Changes",
+            category: "Git",
+            when: (context) => !context.gitBusy,
+            execute,
+          },
+          { id: "terminal.new", label: "New Terminal", category: "Terminal", execute },
+        ]}
+      />,
+    );
     const input = screen.getByRole("combobox", { name: "Search commands" });
     fireEvent.change(input, { target: { value: "git" } });
     const command = screen.getByRole("option", { name: /Refresh Git Changes/ });

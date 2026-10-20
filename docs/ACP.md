@@ -4,11 +4,11 @@
 
 Provider agents are not bundled with HatoPad. **Settings → AI providers** installs, updates and deletes Codex, Claude and Copilot on the Core host, and checks each provider's account. Only installed providers are returned by `ai.providers`, so pickers, chats and workflows offer only those; launching an uninstalled provider fails with a message pointing to the panel.
 
-| Provider | npm package | Agent entry |
-| --- | --- | --- |
-| Codex | `@agentclientprotocol/codex-acp` (depends on its compatible `@openai/codex` CLI) | `dist/index.js` |
-| Claude | `@agentclientprotocol/claude-agent-acp` (bundles the Claude Code CLI) | `dist/index.js` |
-| Copilot | `@github/copilot` | `npm-loader.js` |
+| Provider | npm package                                                                      | Agent entry     |
+| -------- | -------------------------------------------------------------------------------- | --------------- |
+| Codex    | `@agentclientprotocol/codex-acp` (depends on its compatible `@openai/codex` CLI) | `dist/index.js` |
+| Claude   | `@agentclientprotocol/claude-agent-acp` (bundles the Claude Code CLI)            | `dist/index.js` |
+| Copilot  | `@github/copilot`                                                                | `npm-loader.js` |
 
 Core installs the `latest` published version into a fresh directory under `~/.hatopad/provider-runtimes/<provider>/` (`HATOPAD_PROVIDER_RUNTIME_DIR` relocates it) and starts the agent with Core's own Node. A completed installation is selected atomically through `current.json`; a failed install or update keeps the previous one. Update replaces the selection and keeps the previous directory, because running agents may still use it. Delete unpublishes the provider before removing its files; provider sign-in and chat history stay. Installation runs in the background: `ai.installations.install` and `ai.installations.uninstall` return immediately, and Desktop polls `ai.installations.list` (`checkLatest: true` asks npm for the latest version, cached for ten minutes).
 
@@ -41,7 +41,7 @@ are filtered from displayed errors while actionable stderr is retained.
 
 The provider account control sits in **Settings → AI providers** and in the settings (cog) section of the AI panel and workflow Chatboxes. It discovers the agent's `initialize.authMethods`; the UI uses the advertised names and descriptions rather than provider-specific login commands. Account setup runs on the selected Core host, so local and remote workspaces use the credentials belonging to that host.
 
-Checking an account (`ai.auth.get` with `discover: true`) initializes the agent and opens a session: success reports *signed in*, an ACP `auth_required` error (or equivalent message) reports *sign in to continue*, and other failures are shown as errors. The AI providers panel checks every installed provider when it opens.
+Checking an account (`ai.auth.get` with `discover: true`) initializes the agent and opens a session: success reports _signed in_, an ACP `auth_required` error (or equivalent message) reports _sign in to continue_, and other failures are shown as errors. The AI providers panel checks every installed provider when it opens.
 
 For agent methods, Core calls ACP `authenticate`. URL elicitations appear as explicit browser links with a confirmation button. For terminal methods, Core starts the agent command with its advertised authentication arguments and environment in a dedicated interactive terminal. A successful terminal exit is checked by opening a fresh ACP session. Terminal methods do not call `authenticate`.
 
@@ -122,11 +122,11 @@ Claude runs through `@agentclientprotocol/claude-agent-acp`, installed from Sett
 
 Providers list shared feature switches from `stdio-provider.ts` in their option schema, so they appear in the AI chat settings:
 
-| Switch | Default | Providers | Behavior |
-| --- | --- | --- | --- |
-| Questions (`askQuestions`) | Off | Claude, Codex | Declares ACP form elicitation, so the agent may pause a turn and ask a multiple-choice or free-text question (Claude's AskUserQuestion, Codex's user-input requests, MCP elicitations). When off, nothing is declared and agents drop those tools rather than wait. Changing it restarts and resumes the session. |
-| Steer running turns (`liveSteering`) | On | Claude, Codex | Messages sent while the agent works join the running turn: through `_session/steering`, or by sending another `session/prompt` to agents that advertise prompt queueing (Claude). The turn settles after every steered prompt. When off, messages wait and run as the next turn. Applied live. |
-| Agent presets as system instructions (`agentSystemInstructions`) | On | Claude | The selected preset is sent as session `_meta.systemPrompt.append` on `session/new` and `session/load`, so it survives compaction and resumes. A send without an agent keeps it; another preset restarts and resumes the session with the new text. When off, or for agents without this extension, the preset is sent inside the first prompt. |
+| Switch                                                           | Default | Providers     | Behavior                                                                                                                                                                                                                                                                                                                                        |
+| ---------------------------------------------------------------- | ------- | ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Questions (`askQuestions`)                                       | Off     | Claude, Codex | Declares ACP form elicitation, so the agent may pause a turn and ask a multiple-choice or free-text question (Claude's AskUserQuestion, Codex's user-input requests, MCP elicitations). When off, nothing is declared and agents drop those tools rather than wait. Changing it restarts and resumes the session.                               |
+| Steer running turns (`liveSteering`)                             | On      | Claude, Codex | Messages sent while the agent works join the running turn: through `_session/steering`, or by sending another `session/prompt` to agents that advertise prompt queueing (Claude). The turn settles after every steered prompt. When off, messages wait and run as the next turn. Applied live.                                                  |
+| Agent presets as system instructions (`agentSystemInstructions`) | On      | Claude        | The selected preset is sent as session `_meta.systemPrompt.append` on `session/new` and `session/load`, so it survives compaction and resumes. A send without an agent keeps it; another preset restarts and resumes the session with the new text. When off, or for agents without this extension, the preset is sent inside the first prompt. |
 
 Options marked `interactive` wait for a person. They default to off and workflow sessions always force them off, so a Chatbox or AI block never blocks on a question. The workflow Chatbox settings show only non-interactive boolean switches next to Autopilot; their values are saved as the block run's `options` and applied on the next message. Options marked `client` are handled by Core and change without restarting the agent.
 
@@ -384,19 +384,19 @@ registry paths:
   this interface to the same document are serialized, including global edits from
   different projects. Workflow edits also retain native workflow version checks.
 
-| Resource | Format and scope |
-| --- | --- |
-| `agents/global/reviewer.md` | Shared Core agent preset, Markdown |
-| `agents/local/developer.md` | Root-project agent preset in Core state, Markdown |
-| `agents/workspace/reviewer.md` | Invoking checkout's `.agents/reviewer.md`, Markdown |
-| `skills/global/review/SKILL.md` | Shared Core skill instructions, Markdown |
-| `skills/local/testing/SKILL.md` | Core state for the root project, shared across its tasks |
-| `skills/workspace/testing/SKILL.md` | Invoking checkout's `.agents/skills/testing/SKILL.md` |
-| `skills/policy.json` | Core project-local availability/defaults/agent assignments, shared by all tasks |
-| `useful/global/reference.md` | Shared Core useful file, text |
-| `useful/local/notes.md` | Root-project useful file in Core state, text |
-| `workflows/<id>.json` | Root-project workflow definition, JSON |
-| `tasks/<id>.json` | Task metadata: `name`, `status` and `archived`, JSON |
+| Resource                            | Format and scope                                                                |
+| ----------------------------------- | ------------------------------------------------------------------------------- |
+| `agents/global/reviewer.md`         | Shared Core agent preset, Markdown                                              |
+| `agents/local/developer.md`         | Root-project agent preset in Core state, Markdown                               |
+| `agents/workspace/reviewer.md`      | Invoking checkout's `.agents/reviewer.md`, Markdown                             |
+| `skills/global/review/SKILL.md`     | Shared Core skill instructions, Markdown                                        |
+| `skills/local/testing/SKILL.md`     | Core state for the root project, shared across its tasks                        |
+| `skills/workspace/testing/SKILL.md` | Invoking checkout's `.agents/skills/testing/SKILL.md`                           |
+| `skills/policy.json`                | Core project-local availability/defaults/agent assignments, shared by all tasks |
+| `useful/global/reference.md`        | Shared Core useful file, text                                                   |
+| `useful/local/notes.md`             | Root-project useful file in Core state, text                                    |
+| `workflows/<id>.json`               | Root-project workflow definition, JSON                                          |
+| `tasks/<id>.json`                   | Task metadata: `name`, `status` and `archived`, JSON                            |
 
 Read `workflows/new.json` for a starter definition; write its edited content with
 `expected_revision: null` to create a workflow. The result contains the actual
@@ -429,7 +429,6 @@ Successful writes broadcast `configuration.changed`; Desktop refreshes its agent
 skills, useful files, workflows and tasks panels. Global changes refresh every
 connected project's panels. Global here means projects sharing the same Core
 state directory, rather than an installation across unrelated Core hosts.
-
 
 ## Built-in provider source layout
 

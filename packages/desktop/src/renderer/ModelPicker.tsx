@@ -8,7 +8,19 @@ import type { AiModel } from "@hatopad/protocol";
  * descriptions and context windows, so the list shows those instead of hiding
  * them behind a plain `<select>`.
  */
-export function ModelPicker({ models, value, label, disabled, onChange }: { models: AiModel[]; value: string; label: string; disabled?: boolean; onChange(model: string): void }) {
+export function ModelPicker({
+  models,
+  value,
+  label,
+  disabled,
+  onChange,
+}: {
+  models: AiModel[];
+  value: string;
+  label: string;
+  disabled?: boolean;
+  onChange(model: string): void;
+}) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
@@ -20,72 +32,152 @@ export function ModelPicker({ models, value, label, disabled, onChange }: { mode
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
     if (!needle) return models;
-    return models.filter((model) => `${model.name} ${model.id} ${model.description ?? ""}`.toLowerCase().includes(needle));
+    return models.filter((model) =>
+      `${model.name} ${model.id} ${model.description ?? ""}`.toLowerCase().includes(needle),
+    );
   }, [models, query]);
 
-  useEffect(() => { if (!open) { setQuery(""); return; } setActive(Math.max(0, models.findIndex((model) => model.id === value))); searchRef.current?.focus(); }, [models, open, value]);
-  useEffect(() => { setActive((index) => Math.min(index, Math.max(0, visible.length - 1))); }, [visible.length]);
-  useEffect(() => { if (open) listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: "nearest" }); }, [active, open]);
+  useEffect(() => {
+    if (!open) {
+      setQuery("");
+      return;
+    }
+    setActive(
+      Math.max(
+        0,
+        models.findIndex((model) => model.id === value),
+      ),
+    );
+    searchRef.current?.focus();
+  }, [models, open, value]);
+  useEffect(() => {
+    setActive((index) => Math.min(index, Math.max(0, visible.length - 1)));
+  }, [visible.length]);
+  useEffect(() => {
+    if (open) listRef.current?.querySelector<HTMLElement>('[data-active="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [active, open]);
   useEffect(() => {
     if (!open) return;
-    const dismiss = (event: MouseEvent) => { if (!rootRef.current?.contains(event.target as Node)) setOpen(false); };
+    const dismiss = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
     window.addEventListener("mousedown", dismiss);
     return () => window.removeEventListener("mousedown", dismiss);
   }, [open]);
-  useEffect(() => { if (disabled) setOpen(false); }, [disabled]);
+  useEffect(() => {
+    if (disabled) setOpen(false);
+  }, [disabled]);
 
-  const choose = (model: AiModel) => { setOpen(false); if (model.id !== value) onChange(model.id); };
+  const choose = (model: AiModel) => {
+    setOpen(false);
+    if (model.id !== value) onChange(model.id);
+  };
   const keyDown = (event: React.KeyboardEvent) => {
-    if (event.key === "Escape") { setOpen(false); return; }
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      event.preventDefault();
-      setActive((index) => (visible.length === 0 ? 0 : (index + (event.key === "ArrowDown" ? 1 : visible.length - 1)) % visible.length));
+    if (event.key === "Escape") {
+      setOpen(false);
       return;
     }
-    if (event.key === "Enter") { event.preventDefault(); const model = visible[active]; if (model) choose(model); }
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setActive((index) =>
+        visible.length === 0 ? 0 : (index + (event.key === "ArrowDown" ? 1 : visible.length - 1)) % visible.length,
+      );
+      return;
+    }
+    if (event.key === "Enter") {
+      event.preventDefault();
+      const model = visible[active];
+      if (model) choose(model);
+    }
   };
 
-  return <div className="ai-model-picker" ref={rootRef}>
-    <span>Model</span>
-    <button type="button" className="ai-model-trigger" aria-label={label} aria-haspopup="listbox" aria-expanded={open} disabled={disabled} onClick={() => setOpen((value) => !value)}>
-      <span className="ai-model-trigger-name">{selected?.name ?? (value || "Default model")}</span>
-      {selected?.price && <span className={`ai-model-price ${tierClass(selected)}`} title={priceTitle(selected)}>{costLabel(selected)}</span>}
-      <ChevronDown size={12} />
-    </button>
-    {open && <div className="ai-model-menu" role="listbox" onKeyDown={keyDown}>
-      <div className="ai-model-search"><Search size={13} /><input ref={searchRef} value={query} placeholder="Search models" onChange={(event) => { setQuery(event.target.value); setActive(0); }} /></div>
-      {hasCostMultipliers && <p className="ai-model-cost-help"><strong>Cost</strong> is the provider’s relative cost category. The × multiplier applies only to legacy request-based Copilot plans; current AI Credit usage depends on tokens and model pricing.</p>}
-      <div className="ai-model-list" ref={listRef}>
-        {visible.length === 0 && <div className="ai-model-empty">No model matches “{query}”.</div>}
-        {visible.map((model, index) => <div
-          key={model.id}
-          role="option"
-          aria-selected={model.id === value}
-          data-active={index === active}
-          className={`ai-model-item${model.id === value ? " selected" : ""}${model.available === false ? " unavailable" : ""}`}
-          onMouseEnter={() => setActive(index)}
-          onClick={() => choose(model)}
-        >
-          <div className="ai-model-item-head">
-            <span className="ai-model-item-name">{model.name}</span>
-            {model.price && <span className={`ai-model-price ${tierClass(model)}`} title={priceTitle(model)}>{costLabel(model)}</span>}
-            {model.contextWindow && <span className="ai-model-tag" title={contextTitle(model)}>{compact(model.contextWindow)} ctx</span>}
-            {model.available === false && <span className="ai-model-tag warn">unavailable</span>}
-            {model.id === value && <Check className="ai-model-check" size={13} />}
+  return (
+    <div className="ai-model-picker" ref={rootRef}>
+      <span>Model</span>
+      <button
+        type="button"
+        className="ai-model-trigger"
+        aria-label={label}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span className="ai-model-trigger-name">{selected?.name ?? (value || "Default model")}</span>
+        {selected?.price && (
+          <span className={`ai-model-price ${tierClass(selected)}`} title={priceTitle(selected)}>
+            {costLabel(selected)}
+          </span>
+        )}
+        <ChevronDown size={12} />
+      </button>
+      {open && (
+        <div className="ai-model-menu" role="listbox" onKeyDown={keyDown}>
+          <div className="ai-model-search">
+            <Search size={13} />
+            <input
+              ref={searchRef}
+              value={query}
+              placeholder="Search models"
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActive(0);
+              }}
+            />
           </div>
-          {model.description && <p className="ai-model-item-description">{model.description}</p>}
-          <div className="ai-model-item-meta">
-            {model.reasoningLevels.length > 0 && <span>effort: {model.reasoningLevels.join(", ")}</span>}
-            {model.inputModalities && model.inputModalities.length > 0 && <span>input: {model.inputModalities.join(", ")}</span>}
+          {hasCostMultipliers && (
+            <p className="ai-model-cost-help">
+              <strong>Cost</strong> is the provider’s relative cost category. The × multiplier applies only to legacy
+              request-based Copilot plans; current AI Credit usage depends on tokens and model pricing.
+            </p>
+          )}
+          <div className="ai-model-list" ref={listRef}>
+            {visible.length === 0 && <div className="ai-model-empty">No model matches “{query}”.</div>}
+            {visible.map((model, index) => (
+              <div
+                key={model.id}
+                role="option"
+                aria-selected={model.id === value}
+                data-active={index === active}
+                className={`ai-model-item${model.id === value ? " selected" : ""}${model.available === false ? " unavailable" : ""}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => choose(model)}
+              >
+                <div className="ai-model-item-head">
+                  <span className="ai-model-item-name">{model.name}</span>
+                  {model.price && (
+                    <span className={`ai-model-price ${tierClass(model)}`} title={priceTitle(model)}>
+                      {costLabel(model)}
+                    </span>
+                  )}
+                  {model.contextWindow && (
+                    <span className="ai-model-tag" title={contextTitle(model)}>
+                      {compact(model.contextWindow)} ctx
+                    </span>
+                  )}
+                  {model.available === false && <span className="ai-model-tag warn">unavailable</span>}
+                  {model.id === value && <Check className="ai-model-check" size={13} />}
+                </div>
+                {model.description && <p className="ai-model-item-description">{model.description}</p>}
+                <div className="ai-model-item-meta">
+                  {model.reasoningLevels.length > 0 && <span>effort: {model.reasoningLevels.join(", ")}</span>}
+                  {model.inputModalities && model.inputModalities.length > 0 && (
+                    <span>input: {model.inputModalities.join(", ")}</span>
+                  )}
+                </div>
+                {model.note && <p className="ai-model-item-note">{model.note}</p>}
+              </div>
+            ))}
           </div>
-          {model.note && <p className="ai-model-item-note">{model.note}</p>}
-        </div>)}
-      </div>
-    </div>}
-  </div>;
+        </div>
+      )}
+    </div>
+  );
 }
 
-function tierClass(model: AiModel): string { return model.priceTier ? `tier-${model.priceTier.replace(/[^a-z]+/gi, "-").toLowerCase()}` : ""; }
+function tierClass(model: AiModel): string {
+  return model.priceTier ? `tier-${model.priceTier.replace(/[^a-z]+/gi, "-").toLowerCase()}` : "";
+}
 function multiplierLabel(price?: string): string | undefined {
   const match = price?.match(/^([0-9]+(?:\.[0-9]+)?)x$/i);
   return match ? `${match[1]}×` : undefined;
@@ -99,7 +191,9 @@ function costTierLabel(tier?: string): string | undefined {
 }
 function costLabel(model: AiModel): string {
   const multiplier = multiplierLabel(model.price);
-  return [costTierLabel(model.priceTier), multiplier ? `${multiplier} legacy` : model.price].filter(Boolean).join(" · ");
+  return [costTierLabel(model.priceTier), multiplier ? `${multiplier} legacy` : model.price]
+    .filter(Boolean)
+    .join(" · ");
 }
 function priceTitle(model: AiModel): string {
   const multiplier = multiplierLabel(model.price);
@@ -107,7 +201,9 @@ function priceTitle(model: AiModel): string {
     ? `${costTierLabel(model.priceTier) ?? "Provider-reported relative cost"}. ${multiplier} applies only to legacy request-based Copilot plans. Current AI Credit usage depends on tokens and model pricing.`
     : `Provider-reported cost: ${model.price}${model.priceTier ? ` (${model.priceTier.replace(/_/g, " ")} relative cost)` : ""}`;
 }
-function contextTitle(model: AiModel): string { return `Context window: ${model.contextWindow?.toLocaleString()} tokens${model.maxContextWindow ? ` (up to ${model.maxContextWindow.toLocaleString()})` : ""}`; }
+function contextTitle(model: AiModel): string {
+  return `Context window: ${model.contextWindow?.toLocaleString()} tokens${model.maxContextWindow ? ` (up to ${model.maxContextWindow.toLocaleString()})` : ""}`;
+}
 
 /** 272000 -> "272K", 1000000 -> "1M". */
 function compact(tokens: number): string {

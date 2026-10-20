@@ -7,7 +7,7 @@ import {
   serializeRelayFrame,
   type RelayErrorCode,
   type RelayFrame,
-  type RelayLimits
+  type RelayLimits,
 } from "@hatopad/relay";
 import { parseHubUrl, parseLocalCoreUrl } from "./endpoint.js";
 
@@ -97,13 +97,24 @@ export class CoreConnector {
 
     hub.on("open", () => {
       this.lastHubActivity = Date.now();
-      this.sendHub({ type: "hello", relay: { ...RELAY_WIRE_RANGE }, credential: this.options.credential, connectorVersion: this.options.connectorVersion ?? "0.1.0" });
+      this.sendHub({
+        type: "hello",
+        relay: { ...RELAY_WIRE_RANGE },
+        credential: this.options.credential,
+        connectorVersion: this.options.connectorVersion ?? "0.1.0",
+      });
     });
     hub.on("message", (data, isBinary) => {
       this.lastHubActivity = Date.now();
-      if (isBinary) { this.hubError("malformed"); return; }
+      if (isBinary) {
+        this.hubError("malformed");
+        return;
+      }
       const parsed = parseRelayFrame(data.toString(), this.limits.maxFrameBytes);
-      if (!parsed.ok) { this.hubError(parsed.code); return; }
+      if (!parsed.ok) {
+        this.hubError(parsed.code);
+        return;
+      }
       const frame = parsed.frame;
       if (!this.ready) {
         if (frame.type === "hello.ok") {
@@ -115,7 +126,8 @@ export class CoreConnector {
           this.startHeartbeat(hub);
           this.options.onStatus?.({ state: "online", relay: frame.relay });
         } else if (frame.type === "error") {
-          if (frame.code === "unauthenticated" || frame.code === "revoked" || frame.code === "unauthorized") terminal = "revoked";
+          if (frame.code === "unauthenticated" || frame.code === "revoked" || frame.code === "unauthorized")
+            terminal = "revoked";
           else if (frame.code === "incompatible") terminal = "incompatible";
           hub.close();
         } else {
@@ -147,14 +159,21 @@ export class CoreConnector {
     const random = this.options.random ?? Math.random;
     const retryInMs = Math.round(window / 2 + random() * (window / 2));
     this.options.onStatus?.({ state: "offline", reason, retryInMs });
-    this.retryTimer = setTimeout(() => { this.retryTimer = undefined; if (!this.stopped) this.connect(); }, retryInMs);
+    this.retryTimer = setTimeout(() => {
+      this.retryTimer = undefined;
+      if (!this.stopped) this.connect();
+    }, retryInMs);
   }
 
   private startHeartbeat(hub: WebSocket): void {
     clearInterval(this.heartbeat);
     const interval = this.limits.heartbeatIntervalMs;
     this.heartbeat = setInterval(() => {
-      if (Date.now() - this.lastHubActivity > interval * 2.5) { this.diagnostic("hub heartbeat timeout"); hub.terminate(); return; }
+      if (Date.now() - this.lastHubActivity > interval * 2.5) {
+        this.diagnostic("hub heartbeat timeout");
+        hub.terminate();
+        return;
+      }
       this.sendHub({ type: "ping" });
     }, interval);
   }
@@ -177,18 +196,31 @@ export class CoreConnector {
   }
 
   private hubError(code: RelayErrorCode, channel?: string, generation?: number): void {
-    this.sendHub({ type: "error", code, ...(channel !== undefined ? { channel } : {}), ...(generation !== undefined ? { generation } : {}) });
+    this.sendHub({
+      type: "error",
+      code,
+      ...(channel !== undefined ? { channel } : {}),
+      ...(generation !== undefined ? { generation } : {}),
+    });
   }
 
   private handleFrame(frame: RelayFrame): void {
     const table = this.table!;
     switch (frame.type) {
-      case "ping": this.sendHub({ type: "pong" }); return;
-      case "pong": return;
-      case "error": this.diagnostic(`hub error ${frame.code}`); return;
+      case "ping":
+        this.sendHub({ type: "pong" });
+        return;
+      case "pong":
+        return;
+      case "error":
+        this.diagnostic(`hub error ${frame.code}`);
+        return;
       case "channel.open": {
         const check = table.open(frame.channel, frame.generation);
-        if (!check.ok) { this.hubError(check.code, frame.channel, frame.generation); return; }
+        if (!check.ok) {
+          this.hubError(check.code, frame.channel, frame.generation);
+          return;
+        }
         this.openLocal(frame.channel, frame.generation);
         return;
       }
@@ -211,7 +243,10 @@ export class CoreConnector {
       case "channel.close": {
         const channel = this.channels.get(frame.channel);
         const check = table.close(frame.channel, frame.generation);
-        if (!check.ok) { this.hubError(check.code, frame.channel, frame.generation); return; }
+        if (!check.ok) {
+          this.hubError(check.code, frame.channel, frame.generation);
+          return;
+        }
         this.channels.delete(frame.channel);
         channel?.socket.close(1000, "channel closed");
         return;
@@ -223,7 +258,11 @@ export class CoreConnector {
 
   /** The browser never holds the local token: overwrite whatever its handshake carried. */
   private injectCredential(payload: unknown): string {
-    if (typeof payload === "object" && payload !== null && ["protocol.handshake", "protocol.maintenance"].includes(String((payload as { type?: unknown }).type))) {
+    if (
+      typeof payload === "object" &&
+      payload !== null &&
+      ["protocol.handshake", "protocol.maintenance"].includes(String((payload as { type?: unknown }).type))
+    ) {
       const request = payload as { payload?: Record<string, unknown> };
       const inner = { ...(typeof request.payload === "object" && request.payload ? request.payload : {}) };
       delete inner.token;
@@ -238,14 +277,22 @@ export class CoreConnector {
     this.channels.set(channel, { socket, generation });
     socket.on("open", () => {
       const result = this.table?.ready(channel, generation);
-      if (!result?.ok) { socket.close(); return; }
+      if (!result?.ok) {
+        socket.close();
+        return;
+      }
       this.sendHub({ type: "channel.ready", channel, generation });
     });
     socket.on("message", (data, isBinary) => {
       if (isBinary || this.hub?.readyState !== WebSocket.OPEN) return;
       const text = data.toString();
       let payload: unknown;
-      try { payload = JSON.parse(text); } catch { this.diagnostic("local Core sent non-JSON"); return; }
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        this.diagnostic("local Core sent non-JSON");
+        return;
+      }
       const frame: RelayFrame = { type: "channel.data", channel, generation, payload };
       // Hub enforces this limit on its shared connector socket. One large history
       // reply must not disconnect every other browser channel for this Core.
@@ -265,7 +312,8 @@ export class CoreConnector {
     socket.on("close", () => {
       if (this.channels.get(channel)?.socket !== socket) return;
       this.channels.delete(channel);
-      if (this.table?.close(channel, generation).ok) this.sendHub({ type: "channel.close", channel, generation, reason: "normal" });
+      if (this.table?.close(channel, generation).ok)
+        this.sendHub({ type: "channel.close", channel, generation, reason: "normal" });
     });
     socket.on("error", () => {
       this.diagnostic("local Core socket error");

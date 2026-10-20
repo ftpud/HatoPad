@@ -9,9 +9,12 @@ export { JAVA_DESCRIPTOR, JavaLanguageService, type JavaLegacyEvents };
 export const javaLanguage: BuiltInLanguage = {
   descriptor: JAVA_DESCRIPTOR,
   tools: JAVA_TOOLS,
-  create: ({ filesystem, state, events, rootId, emit }) => new JavaLanguageService(filesystem as WorkspaceFileSystem, state, events, undefined, {
-    // Debug state is the only legacy java.* event Desktop still consumes: it needs Java's class and method fields.
-    process: (event) => { if (event.type === "debug") emit({ type: "java.debug.state", payload: { ...event.state, rootId } }); },
-    semanticChanged: () => undefined
-  })
+  create: ({ filesystem, state, events, rootId, emit }) =>
+    new JavaLanguageService(filesystem as WorkspaceFileSystem, state, events, undefined, {
+      // Debug state is the only legacy java.* event Desktop still consumes: it needs Java's class and method fields.
+      process: (event) => {
+        if (event.type === "debug") emit({ type: "java.debug.state", payload: { ...event.state, rootId } });
+      },
+      semanticChanged: () => undefined,
+    }),
 };

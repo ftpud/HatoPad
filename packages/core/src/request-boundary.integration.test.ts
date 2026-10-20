@@ -28,11 +28,16 @@ it("rejects malformed mutations and unknown providers before creating tasks, can
     const request = async (type: string, payload: unknown, rootId?: string) => {
       const id = String(++sequence);
       const reply = new Promise<Record<string, any>>((resolve, reject) => {
-        const timer = setTimeout(() => { socket!.off("message", message); reject(new Error(`No response to ${type}`)); }, 3_000);
+        const timer = setTimeout(() => {
+          socket!.off("message", message);
+          reject(new Error(`No response to ${type}`));
+        }, 3_000);
         const message = (data: WebSocket.RawData) => {
           const value = JSON.parse(data.toString());
           if (value.id !== id) return;
-          clearTimeout(timer); socket!.off("message", message); resolve(value);
+          clearTimeout(timer);
+          socket!.off("message", message);
+          resolve(value);
         };
         socket!.on("message", message);
       });
@@ -45,13 +50,20 @@ it("rejects malformed mutations and unknown providers before creating tasks, can
       ["tasks.delete", { taskId: "unknown-task" }],
       ["tasks.delete", { taskId: "../../outside" }],
       ["tasks.create", { branch: "unwanted", existing: "false" }],
-      ["tasks.createFromPrompt", { provider: "unregistered-provider", prompt: "Do not create a task", configuration: {} }],
+      [
+        "tasks.createFromPrompt",
+        { provider: "unregistered-provider", prompt: "Do not create a task", configuration: {} },
+      ],
       ["tasks.createFromPrompt", { prompt: 1, configuration: {} }],
-      ["filesystem.transferApply", { kind: "move", items: [{ source: "preserved.txt", destination: "moved.txt" }], confirmed: "false" }],
+      [
+        "filesystem.transferApply",
+        { kind: "move", items: [{ source: "preserved.txt", destination: "moved.txt" }], confirmed: "false" },
+      ],
       ["filesystem.remoteTransferBegin", { direction: "upload", path: "preserved.txt", size: 4, overwrite: "false" }],
       ["tasks.list", []],
     ];
-    for (const [type, payload] of cases) expect(await request(type, payload, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
+    for (const [type, payload] of cases)
+      expect(await request(type, payload, rootId)).toMatchObject({ ok: false, error: { code: "INVALID_REQUEST" } });
     expect(createTask).not.toHaveBeenCalled();
     expect(cancelTimers).not.toHaveBeenCalled();
     expect((await request("tasks.list", {}, rootId)).result.tasks).toEqual([]);
@@ -61,7 +73,8 @@ it("rejects malformed mutations and unknown providers before creating tasks, can
   } finally {
     socket?.terminate();
     if (server) await shutdownCore(server);
-    vi.restoreAllMocks(); vi.unstubAllEnvs();
+    vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     await rm(directory, { recursive: true, force: true });
   }
 }, 15_000);

@@ -7,17 +7,34 @@ import type { AiAgentPreset } from "@hatopad/protocol";
 import { SkillsStore } from "./skills.js";
 
 const roots: string[] = [];
-afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
 async function setup() {
-  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-skills-")); roots.push(root);
-  const workspace = path.join(root, "project"); await mkdir(workspace);
+  const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-skills-"));
+  roots.push(root);
+  const workspace = path.join(root, "project");
+  await mkdir(workspace);
   return { root, workspace, store: new SkillsStore(path.join(root, "state"), workspace) };
 }
 const review = "---\nname: Reviewer\ndescription: Review changes\n---\n\nCheck regressions and tests.\n";
 
-async function loadedInstructions(store: SkillsStore, workspace: string, ids: string[], agentPreset?: AiAgentPreset | null) {
+async function loadedInstructions(
+  store: SkillsStore,
+  workspace: string,
+  ids: string[],
+  agentPreset?: AiAgentPreset | null,
+) {
   const entries = await store.available(workspace, ids, agentPreset);
-  const session = { model: "test", reasoning: "", status: "in_progress" as const, messages: [], threadId: "thread", skillCatalogue: { threadId: "thread", entries }, ...(agentPreset ? { agentPreset } : {}) };
+  const session = {
+    model: "test",
+    reasoning: "",
+    status: "in_progress" as const,
+    messages: [],
+    threadId: "thread",
+    skillCatalogue: { threadId: "thread", entries },
+    ...(agentPreset ? { agentPreset } : {}),
+  };
   const loaded = await Promise.all(entries.map((entry) => store.load(workspace, entry.id, session)));
   return loaded.length ? loaded.map((skill) => skill.content).join("\n") : "No HatoPad skills are enabled";
 }
@@ -45,7 +62,11 @@ describe("project skills", () => {
 
   it("discovers separate global/local skills and persists a project allowlist with defaults", async () => {
     const { root, workspace, store } = await setup();
-    expect(await store.list(workspace)).toEqual({ skills: [], policy: { allowed: [], defaults: [] }, policyStorage: "local" });
+    expect(await store.list(workspace)).toEqual({
+      skills: [],
+      policy: { allowed: [], defaults: [] },
+      policyStorage: "local",
+    });
     await store.write("global/review", workspace, review);
     await store.write("local/review", workspace, "Local instructions");
     const catalog = await store.list(workspace);
@@ -55,7 +76,19 @@ describe("project skills", () => {
     expect(await store.defaults(workspace)).toEqual(["local/review"]);
     await expect(store.validateSelection(workspace, ["global/review"])).rejects.toThrow("not allowed");
     expect(await store.validateSelection(workspace, ["local/review", "local/review"])).toEqual(["local/review"]);
-    expect(JSON.parse(await readFile(path.join(root, "state/skills/local", crypto.createHash("sha256").update(workspace).digest("hex"), "skills.json"), "utf8"))).toEqual({ allowed: ["local/review"], defaults: ["local/review"], scopeVersion: 2 });
+    expect(
+      JSON.parse(
+        await readFile(
+          path.join(
+            root,
+            "state/skills/local",
+            crypto.createHash("sha256").update(workspace).digest("hex"),
+            "skills.json",
+          ),
+          "utf8",
+        ),
+      ),
+    ).toEqual({ allowed: ["local/review"], defaults: ["local/review"], scopeVersion: 2 });
   });
 
   it("resolves aliased ancestors when the state directory does not exist yet", async () => {
@@ -82,17 +115,21 @@ describe("project skills", () => {
 
   it("keeps global skills shared and project-local skills/defaults isolated", async () => {
     const { root, workspace, store } = await setup();
-    const other = path.join(root, "other"); await mkdir(other);
+    const other = path.join(root, "other");
+    await mkdir(other);
     await store.write("global/review", workspace, review);
     await store.write("local/custom", workspace, "Project-specific");
     await store.writePolicy(workspace, { allowed: ["local/custom"], defaults: ["local/custom"] });
-    expect((await new SkillsStore(path.join(root, "state"), other).list(other)).skills.map((skill) => skill.id)).toEqual(["global/review"]);
+    expect(
+      (await new SkillsStore(path.join(root, "state"), other).list(other)).skills.map((skill) => skill.id),
+    ).toEqual(["global/review"]);
     expect(await new SkillsStore(path.join(root, "state"), other).defaults(other)).toEqual([]);
   });
 
   it("shares local skills across task checkouts, isolates projects and preserves workspace skills", async () => {
     const { root, workspace, store } = await setup();
-    const task = path.join(root, "task"); const other = path.join(root, "other");
+    const task = path.join(root, "task");
+    const other = path.join(root, "other");
     await Promise.all([mkdir(task), mkdir(other)]);
     await store.write("local/review", workspace, "Shared project instructions");
     await store.write("workspace/review", workspace, "Checkout instructions");
@@ -104,16 +141,25 @@ describe("project skills", () => {
     expect(await store.read("local/review", workspace)).toBe("Edited from task");
     expect(await store.read("workspace/review", workspace)).toBe("Checkout instructions");
     expect((await new SkillsStore(path.join(root, "state"), other).list(other)).skills).toEqual([]);
-    expect((await taskStore.list(task)).skills[0]!.path).toContain(`${path.sep}state${path.sep}skills${path.sep}local${path.sep}`);
+    expect((await taskStore.list(task)).skills[0]!.path).toContain(
+      `${path.sep}state${path.sep}skills${path.sep}local${path.sep}`,
+    );
     await expect(readFile(path.join(task, ".agents/skills/review/SKILL.md"))).rejects.toThrow();
   });
 
   it("retains checkout policy, agent restrictions and old chat selections across the scope upgrade", async () => {
     const { workspace, store } = await setup();
     await store.write("workspace/review", workspace, review);
-    await writeFile(path.join(workspace, ".agents/skills.json"), JSON.stringify({ allowed: ["local/review"], defaults: ["local/review"], agents: { "local/review": [null] } }));
+    await writeFile(
+      path.join(workspace, ".agents/skills.json"),
+      JSON.stringify({ allowed: ["local/review"], defaults: ["local/review"], agents: { "local/review": [null] } }),
+    );
     const catalog = await store.list(workspace);
-    expect(catalog.policy).toEqual({ allowed: ["workspace/review"], defaults: ["workspace/review"], agents: { "workspace/review": [null] } });
+    expect(catalog.policy).toEqual({
+      allowed: ["workspace/review"],
+      defaults: ["workspace/review"],
+      agents: { "workspace/review": [null] },
+    });
     expect(await store.validateSelection(workspace, ["local/review"])).toEqual(["workspace/review"]);
     expect(await loadedInstructions(store, workspace, ["local/review"])).toContain("Check regressions");
     await store.writePolicy(workspace, catalog.policy);
@@ -127,9 +173,15 @@ describe("project skills", () => {
 
   it("moves legacy policy outside Git, shares it with tasks and gives local policy precedence", async () => {
     const { root, workspace, store } = await setup();
-    const task = path.join(root, "task"); await mkdir(task);
+    const task = path.join(root, "task");
+    await mkdir(task);
     await store.write("local/review", workspace, review);
-    const policy = { allowed: ["local/review"], defaults: ["local/review"], agents: { "local/review": [null] }, scopeVersion: 2 };
+    const policy = {
+      allowed: ["local/review"],
+      defaults: ["local/review"],
+      agents: { "local/review": [null] },
+      scopeVersion: 2,
+    };
     await mkdir(path.join(workspace, ".agents"));
     const legacy = path.join(workspace, ".agents/skills.json");
     await writeFile(legacy, JSON.stringify(policy));
@@ -139,7 +191,9 @@ describe("project skills", () => {
     expect((await store.list(workspace)).policyStorage).toBe("local");
     expect(await store.defaults(task)).toEqual(["local/review"]);
     expect((await store.list(task)).policy.agents).toEqual(policy.agents);
-    await expect(store.validateSelection(task, ["local/review"], { scope: "global", name: "review.md" })).rejects.toThrow("selected agent");
+    await expect(
+      store.validateSelection(task, ["local/review"], { scope: "global", name: "review.md" }),
+    ).rejects.toThrow("selected agent");
     await mkdir(path.join(task, ".agents"));
     await writeFile(path.join(task, ".agents/skills.json"), "{broken");
     expect(await store.defaults(task)).toEqual(["local/review"]);
@@ -153,17 +207,24 @@ describe("project skills", () => {
     const { root, workspace, store } = await setup();
     await store.writePolicy(workspace, { allowed: [], defaults: [] });
     await expect(readFile(path.join(workspace, ".agents/skills.json"))).rejects.toMatchObject({ code: "ENOENT" });
-    const other = path.join(root, "other"); await mkdir(other);
-    expect((await new SkillsStore(path.join(root, "state"), other).list(other)).policy).toEqual({ allowed: [], defaults: [] });
+    const other = path.join(root, "other");
+    await mkdir(other);
+    expect((await new SkillsStore(path.join(root, "state"), other).list(other)).policy).toEqual({
+      allowed: [],
+      defaults: [],
+    });
     expect((await store.list(workspace)).policyStorage).toBe("local");
   });
 
   it("rejects invalid policies, traversal, oversized instructions and symlink escapes", async () => {
     const { root, workspace, store } = await setup();
-    await expect(store.writePolicy(workspace, { allowed: [], defaults: ["local/review"] })).rejects.toThrow("defaults must be allowed");
+    await expect(store.writePolicy(workspace, { allowed: [], defaults: ["local/review"] })).rejects.toThrow(
+      "defaults must be allowed",
+    );
     await expect(store.write("local/../../escape", workspace, review)).rejects.toThrow("Skill ID");
     await expect(store.write("local/review", workspace, "x".repeat(256 * 1024 + 1))).rejects.toThrow("256 KB");
-    const outside = path.join(root, "outside"); await mkdir(outside);
+    const outside = path.join(root, "outside");
+    await mkdir(outside);
     await symlink(outside, path.join(workspace, ".agents"));
     await expect(store.write("workspace/review", workspace, review)).rejects.toThrow("escapes");
     await expect(store.writePolicy(workspace, { allowed: [], defaults: [] })).rejects.toThrow("escapes");
@@ -176,17 +237,37 @@ describe("project skills", () => {
     const entries = await store.available(workspace, ["local/review"]);
     expect(entries[0]).toMatchObject({ id: "local/review", name: "Reviewer", description: "Review changes" });
     expect(JSON.stringify(entries)).not.toContain("Check regressions");
-    const session = { model: "test", reasoning: "", status: "in_progress" as const, messages: [], threadId: "thread", skillCatalogue: { threadId: "thread", entries } };
-    expect(await store.load(workspace, "local/review", session)).toMatchObject({ content: review, revision: entries[0]!.revision });
-    expect(await new SkillsStore(path.join(root, "state"), workspace).load(workspace, "local/review", { ...session })).toMatchObject({ content: "", unchanged: true });
-    expect(await store.load(workspace, "local/review", { ...session, skillCatalogue: { threadId: "thread", entries } })).toMatchObject({ content: review });
+    const session = {
+      model: "test",
+      reasoning: "",
+      status: "in_progress" as const,
+      messages: [],
+      threadId: "thread",
+      skillCatalogue: { threadId: "thread", entries },
+    };
+    expect(await store.load(workspace, "local/review", session)).toMatchObject({
+      content: review,
+      revision: entries[0]!.revision,
+    });
+    expect(
+      await new SkillsStore(path.join(root, "state"), workspace).load(workspace, "local/review", { ...session }),
+    ).toMatchObject({ content: "", unchanged: true });
+    expect(
+      await store.load(workspace, "local/review", { ...session, skillCatalogue: { threadId: "thread", entries } }),
+    ).toMatchObject({ content: review });
     await expect(store.load(workspace, "local/other", session)).rejects.toThrow("not available");
-    await expect(store.load(workspace, "local/review", { ...session, threadId: "other" })).rejects.toThrow("not available");
+    await expect(store.load(workspace, "local/review", { ...session, threadId: "other" })).rejects.toThrow(
+      "not available",
+    );
     await store.write("local/review", workspace, "Updated instructions");
     const loaded = await store.load(workspace, "local/review", session);
     expect(loaded.content).toBe("Updated instructions");
     expect(loaded.revision).not.toBe(entries[0]!.revision);
-    await store.writePolicy(workspace, { allowed: ["local/review"], defaults: [], agents: { "local/review": [{ scope: "global", name: "reviewer.md" }] } });
+    await store.writePolicy(workspace, {
+      allowed: ["local/review"],
+      defaults: [],
+      agents: { "local/review": [{ scope: "global", name: "reviewer.md" }] },
+    });
     await expect(store.load(workspace, "local/review", session)).rejects.toThrow("no longer allowed");
     await store.writePolicy(workspace, { allowed: [], defaults: [] });
     await expect(store.load(workspace, "local/review", session)).rejects.toThrow("no longer allowed");
@@ -196,9 +277,15 @@ describe("project skills", () => {
     const { workspace, store } = await setup();
     await store.write("local/review", workspace, review);
     const reviewer = { scope: "workspace" as const, name: "reviewer.md" };
-    await store.writePolicy(workspace, { allowed: ["local/review"], defaults: [], agents: { "local/review": [reviewer] } });
+    await store.writePolicy(workspace, {
+      allowed: ["local/review"],
+      defaults: [],
+      agents: { "local/review": [reviewer] },
+    });
     await expect(store.validateSelection(workspace, ["local/review"])).rejects.toThrow("selected agent");
-    await expect(store.validateSelection(workspace, ["local/review"], { ...reviewer, scope: "global" })).rejects.toThrow("selected agent");
+    await expect(
+      store.validateSelection(workspace, ["local/review"], { ...reviewer, scope: "global" }),
+    ).rejects.toThrow("selected agent");
     expect(await store.validateSelection(workspace, ["local/review"], reviewer)).toEqual(["local/review"]);
     expect(await loadedInstructions(store, workspace, ["local/review"], reviewer)).toContain("Check regressions");
     expect(await loadedInstructions(store, workspace, ["local/review"], null)).not.toContain("Check regressions");
@@ -206,13 +293,20 @@ describe("project skills", () => {
     expect(await store.validateSelection(workspace, ["local/review"], null)).toEqual(["local/review"]);
     await expect(store.validateSelection(workspace, ["local/review"], reviewer)).rejects.toThrow("selected agent");
     expect((await store.list(workspace)).policy.agents).toEqual({ "local/review": [null] });
-    await expect(store.writePolicy(workspace, { allowed: [], defaults: [], agents: { "local/review": [{ scope: "workspace", name: "../escape.md" }] } })).rejects.toThrow("agent choices");
+    await expect(
+      store.writePolicy(workspace, {
+        allowed: [],
+        defaults: [],
+        agents: { "local/review": [{ scope: "workspace", name: "../escape.md" }] },
+      }),
+    ).rejects.toThrow("agent choices");
   });
 
   it("reports malformed project policy and retains supporting files when deleting", async () => {
     const { workspace, store } = await setup();
     await store.write("workspace/review", workspace, review);
-    const supporting = path.join(workspace, ".agents/skills/review/example.md"); await writeFile(supporting, "Keep me");
+    const supporting = path.join(workspace, ".agents/skills/review/example.md");
+    await writeFile(supporting, "Keep me");
     await store.delete("workspace/review", workspace);
     expect(await readFile(supporting, "utf8")).toBe("Keep me");
     expect((await store.list(workspace)).skills).toEqual([]);

@@ -16,22 +16,45 @@ export function stopLanguageTerminalRun(terminals: TerminalSessionHost, workspac
 }
 
 /** Plugins prepare launch arguments; Core owns the interactive PTY and replay. */
-export async function runLanguageInTerminal(service: LanguageService, terminals: TerminalSessionHost, workspace: string): Promise<{ terminal: TerminalSessionSnapshot }> {
-  if (!service.runInTerminal) throw new CoreError("INVALID_REQUEST", `${service.descriptor.name} does not support terminal run configurations`);
-  const runs = active.get(terminals) ?? new Map<string, LanguageService>(); active.set(terminals, runs);
+export async function runLanguageInTerminal(
+  service: LanguageService,
+  terminals: TerminalSessionHost,
+  workspace: string,
+): Promise<{ terminal: TerminalSessionSnapshot }> {
+  if (!service.runInTerminal)
+    throw new CoreError("INVALID_REQUEST", `${service.descriptor.name} does not support terminal run configurations`);
+  const runs = active.get(terminals) ?? new Map<string, LanguageService>();
+  active.set(terminals, runs);
   const runKey = key(workspace, service.descriptor.id);
-  if (runs.has(runKey)) throw new CoreError("INVALID_REQUEST", "A run configuration is already running for this language");
+  if (runs.has(runKey))
+    throw new CoreError("INVALID_REQUEST", "A run configuration is already running for this language");
   runs.set(runKey, service);
   let terminal: TerminalSessionSnapshot | undefined;
   try {
     await service.runInTerminal((spec) => {
       let finish!: (code: number) => void;
-      const completion = new Promise<number>((resolve) => { finish = resolve; }).then((code) => { runs.delete(runKey); return code; });
-      const created = terminals.create(workspace, 80, 24, spec.cwd ?? workspace, spec.name ?? `${service.descriptor.name} Run`, { command: spec.command, args: spec.args, env: spec.env, onExit: finish });
+      const completion = new Promise<number>((resolve) => {
+        finish = resolve;
+      }).then((code) => {
+        runs.delete(runKey);
+        return code;
+      });
+      const created = terminals.create(
+        workspace,
+        80,
+        24,
+        spec.cwd ?? workspace,
+        spec.name ?? `${service.descriptor.name} Run`,
+        { command: spec.command, args: spec.args, env: spec.env, onExit: finish },
+      );
       terminal = created;
-      return { completion, stop: () => {
-        if (terminals.attach(workspace, created.terminalId)?.status === "running") terminals.terminate(workspace, created.terminalId);
-      } };
+      return {
+        completion,
+        stop: () => {
+          if (terminals.attach(workspace, created.terminalId)?.status === "running")
+            terminals.terminate(workspace, created.terminalId);
+        },
+      };
     });
     if (!terminal) throw new CoreError("INVALID_REQUEST", "The language plugin did not create a run terminal");
     return { terminal };

@@ -7,7 +7,11 @@ it("keeps live cancellation and new runs when an older history response arrives"
   const cancelled = { ...running, status: "cancelled" } as HarnessRun;
   const started = { id: "new", status: "running" } as HarnessRun;
   const historical = { id: "old", status: "succeeded" } as HarnessRun;
-  expect(mergeWorkflowHistory([cancelled, started], [running, historical], [running])).toEqual([cancelled, started, historical]);
+  expect(mergeWorkflowHistory([cancelled, started], [running, historical], [running])).toEqual([
+    cancelled,
+    started,
+    historical,
+  ]);
   expect(mergeWorkflowHistory([running], [cancelled, historical], [running])).toEqual([cancelled, historical]);
 });
 
@@ -27,9 +31,17 @@ it("scopes controls by root, task and bound worktree even when an obsolete respo
 });
 
 it("retains hydrated details on a summary refresh and replaces them when lifecycle changes", () => {
-  const full = { id: "run", status: "running", blocks: [{ blockId: "chat", status: "running", output: "Live reply" }] } as HarnessRun;
+  const full = {
+    id: "run",
+    status: "running",
+    blocks: [{ blockId: "chat", status: "running", output: "Live reply" }],
+  } as HarnessRun;
   const summary = { ...full, summary: true, blocks: [{ blockId: "chat", status: "running" }] } as HarnessRun;
   expect(mergeWorkflowHistory([full], [summary], [full])).toEqual([full]);
-  const completed = { ...summary, status: "succeeded", blocks: [{ blockId: "chat", status: "succeeded" }] } as HarnessRun;
+  const completed = {
+    ...summary,
+    status: "succeeded",
+    blocks: [{ blockId: "chat", status: "succeeded" }],
+  } as HarnessRun;
   expect(mergeWorkflowHistory([full], [completed], [full])).toEqual([completed]);
 });

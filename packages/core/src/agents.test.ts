@@ -9,21 +9,36 @@ describe("AgentsStore", () => {
     const workspace = await mkdtemp(path.join(os.tmpdir(), "hatopad-agents-workspace-"));
     const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-agents-state-"));
     await mkdir(path.join(workspace, ".agents"));
-    await writeFile(path.join(workspace, ".agents", "reviewer.md"), "---\nname: Code Reviewer\ndescription: Reviews changes\n---\n\nReview carefully.\n");
+    await writeFile(
+      path.join(workspace, ".agents", "reviewer.md"),
+      "---\nname: Code Reviewer\ndescription: Reviews changes\n---\n\nReview carefully.\n",
+    );
     const store = new AgentsStore(workspace, state);
 
     await store.create("global", "planner", workspace);
     await store.create("local", "tester.md", workspace);
     const agents = await store.list(workspace);
 
-    expect(agents.map((agent) => `${agent.scope}:${agent.name}`)).toEqual(["global:planner.md", "local:tester.md", "workspace:reviewer.md"]);
-    expect(agents.find((agent) => agent.scope === "workspace")?.agent).toEqual({ name: "Code Reviewer", description: "Reviews changes", instructions: "Review carefully." });
+    expect(agents.map((agent) => `${agent.scope}:${agent.name}`)).toEqual([
+      "global:planner.md",
+      "local:tester.md",
+      "workspace:reviewer.md",
+    ]);
+    expect(agents.find((agent) => agent.scope === "workspace")?.agent).toEqual({
+      name: "Code Reviewer",
+      description: "Reviews changes",
+      instructions: "Review carefully.",
+    });
     expect(await store.read("global", "planner.md", workspace)).toBe(AGENT_TEMPLATE);
     expect(agents.find((agent) => agent.name === "planner.md")?.agent.mcpServers).toEqual(["hatopad"]);
   });
 
   it("parses MCP restrictions and falls back to the file name", () => {
-    expect(parseAgent("security-review.md", "---\nmcpServers:\n  - github\n  - 'docs'\n---\nCheck security.")).toEqual({ name: "Security Review", instructions: "Check security.", mcpServers: ["github", "docs"] });
+    expect(parseAgent("security-review.md", "---\nmcpServers:\n  - github\n  - 'docs'\n---\nCheck security.")).toEqual({
+      name: "Security Review",
+      instructions: "Check security.",
+      mcpServers: ["github", "docs"],
+    });
   });
 
   it("renames and updates managed agents", async () => {

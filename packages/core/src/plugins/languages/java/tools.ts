@@ -12,7 +12,11 @@ const temurinPlatform = () => {
 
 export const JAVA_TOOLS: readonly ToolSpec[] = [
   {
-    id: "java", name: "Java runtime", description: `Eclipse Temurin ${TEMURIN} JRE. Runs the Java language server only; builds, runs and debugging use the project's own JDK.`, version: TEMURIN, stripRoot: true,
+    id: "java",
+    name: "Java runtime",
+    description: `Eclipse Temurin ${TEMURIN} JRE. Runs the Java language server only; builds, runs and debugging use the project's own JDK.`,
+    version: TEMURIN,
+    stripRoot: true,
     async source() {
       const { osName, architecture } = temurinPlatform();
       const format = osName === "windows" ? "zip" : "tar.gz";
@@ -23,11 +27,26 @@ export const JAVA_TOOLS: readonly ToolSpec[] = [
       if (!response.ok) throw new Error(`Java runtime checksum download failed: HTTP ${response.status}`);
       return { url: `${base}/${file}`, sha256: (await response.text()).trim().split(/\s+/)[0]!, format };
     },
-    entry: () => process.platform === "darwin" ? "Contents/Home/bin/java" : process.platform === "win32" ? "bin/java.exe" : "bin/java"
+    entry: () =>
+      process.platform === "darwin"
+        ? "Contents/Home/bin/java"
+        : process.platform === "win32"
+          ? "bin/java.exe"
+          : "bin/java",
   },
   {
-    id: "jdtls", name: "Java language server", description: `Eclipse JDT LS ${JDTLS}. Java highlighting, completion, navigation and symbols.`, version: JDTLS, requires: ["java"],
-    async source() { return { url: `https://download.eclipse.org/jdtls/snapshots/jdt-language-server-${JDTLS}.tar.gz`, sha256: "02478201484f60a27fe5438899e98cc7bf56aaf380a856d1409eab14d228e153", format: "tar.gz" }; },
-    entry: () => "plugins"
-  }
+    id: "jdtls",
+    name: "Java language server",
+    description: `Eclipse JDT LS ${JDTLS}. Java highlighting, completion, navigation and symbols.`,
+    version: JDTLS,
+    requires: ["java"],
+    async source() {
+      return {
+        url: `https://download.eclipse.org/jdtls/snapshots/jdt-language-server-${JDTLS}.tar.gz`,
+        sha256: "02478201484f60a27fe5438899e98cc7bf56aaf380a856d1409eab14d228e153",
+        format: "tar.gz",
+      };
+    },
+    entry: () => "plugins",
+  },
 ];

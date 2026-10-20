@@ -17,28 +17,44 @@ export class SettingsStore {
     try {
       const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) if (typeof value === "string") this.values[key] = value;
+        for (const [key, value] of Object.entries(parsed as Record<string, unknown>))
+          if (typeof value === "string") this.values[key] = value;
       }
-    } catch { /* No settings stored yet, or the file is unreadable. */ }
+    } catch {
+      /* No settings stored yet, or the file is unreadable. */
+    }
   }
 
-  all(): Record<string, string> { return { ...this.values }; }
+  all(): Record<string, string> {
+    return { ...this.values };
+  }
 
   set(key: unknown, value: unknown): void {
     if (typeof key !== "string" || key.length === 0 || key.length > 1024) return;
-    if (typeof value === "string") { if (value.length > 1_000_000) return; this.values[key] = value; }
-    else if (value === null) delete this.values[key];
+    if (typeof value === "string") {
+      if (value.length > 1_000_000) return;
+      this.values[key] = value;
+    } else if (value === null) delete this.values[key];
     else return;
-    if (!this.writeTimer) this.writeTimer = setTimeout(() => { this.writeTimer = undefined; this.flush(); }, 250);
+    if (!this.writeTimer)
+      this.writeTimer = setTimeout(() => {
+        this.writeTimer = undefined;
+        this.flush();
+      }, 250);
   }
 
   flush(): void {
-    if (this.writeTimer) { clearTimeout(this.writeTimer); this.writeTimer = undefined; }
+    if (this.writeTimer) {
+      clearTimeout(this.writeTimer);
+      this.writeTimer = undefined;
+    }
     try {
       fs.mkdirSync(path.dirname(this.file), { recursive: true });
       const temporary = `${this.file}.tmp`;
       fs.writeFileSync(temporary, JSON.stringify(this.values), "utf8");
       fs.renameSync(temporary, this.file);
-    } catch (error) { console.error("[desktop] could not persist settings", error); }
+    } catch (error) {
+      console.error("[desktop] could not persist settings", error);
+    }
   }
 }

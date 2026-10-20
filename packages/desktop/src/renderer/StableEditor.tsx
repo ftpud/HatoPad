@@ -31,22 +31,27 @@ export function StableEditor({ value, onChange, onMount, ...props }: Props) {
     if (viewState) instance.restoreViewState(viewState);
   }, [value]);
 
-  const mount = useCallback<OnMount>((instance, monaco) => {
-    instanceRef.current = instance;
-    if (instance.getValue() !== value) instance.setValue(value);
-    localValueRef.current = value;
-    onMount?.(instance, monaco);
-  }, [onMount, value]);
+  const mount = useCallback<OnMount>(
+    (instance, monaco) => {
+      instanceRef.current = instance;
+      if (instance.getValue() !== value) instance.setValue(value);
+      localValueRef.current = value;
+      onMount?.(instance, monaco);
+    },
+    [onMount, value],
+  );
 
-  return <Editor
-    {...props}
-    defaultValue={value}
-    onMount={mount}
-    onChange={(next) => {
-      if (synchronizingRef.current) return;
-      const content = next ?? "";
-      localValueRef.current = content;
-      onChange(content);
-    }}
-  />;
+  return (
+    <Editor
+      {...props}
+      defaultValue={value}
+      onMount={mount}
+      onChange={(next) => {
+        if (synchronizingRef.current) return;
+        const content = next ?? "";
+        localValueRef.current = content;
+        onChange(content);
+      }}
+    />
+  );
 }

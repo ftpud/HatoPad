@@ -25,7 +25,8 @@ describe("UsefulFilesStore", () => {
     const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-useful-"));
     const store = new UsefulFilesStore("/workspace", state);
     await expect(store.create("local", "../escape")).rejects.toMatchObject({ code: "INVALID_REQUEST" });
-    await store.create("local", "one.txt"); await store.create("local", "two.txt");
+    await store.create("local", "one.txt");
+    await store.create("local", "two.txt");
     await expect(store.rename("local", "one.txt", "two.txt")).rejects.toMatchObject({ code: "WRITE_FAILED" });
   });
 });

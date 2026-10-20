@@ -19,6 +19,10 @@ export class EditorViewStateStore {
     return true;
   }
 
-  clearMounted(): void { this.mountedTabId = undefined; }
-  remove(tabId: string): void { this.states.delete(tabId); }
+  clearMounted(): void {
+    this.mountedTabId = undefined;
+  }
+  remove(tabId: string): void {
+    this.states.delete(tabId);
+  }
 }

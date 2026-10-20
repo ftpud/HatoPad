@@ -4,7 +4,9 @@ import { installEditorFontMeasurements } from "./editor-fonts";
 
 it("waits for real font faces and remeasures later font loads without duplicate listeners", async () => {
   let resolve!: (faces: FontFace[]) => void;
-  const pending = new Promise<FontFace[]>((done) => { resolve = done; });
+  const pending = new Promise<FontFace[]>((done) => {
+    resolve = done;
+  });
   const load = vi.fn(() => pending);
   const fonts = Object.assign(new EventTarget(), { load }) as unknown as FontFaceSet;
   const remeasureFonts = vi.fn();
@@ -12,8 +14,10 @@ it("waits for real font faces and remeasures later font loads without duplicate 
   installEditorFontMeasurements(monaco, fonts);
   installEditorFontMeasurements(monaco, fonts);
   expect(load.mock.calls).toEqual([
-    ['normal 13px "JetBrains Mono"'], ['bold 13px "JetBrains Mono"'],
-    ['italic 13px "JetBrains Mono"'], ['bold italic 13px "JetBrains Mono"']
+    ['normal 13px "JetBrains Mono"'],
+    ['bold 13px "JetBrains Mono"'],
+    ['italic 13px "JetBrains Mono"'],
+    ['bold italic 13px "JetBrains Mono"'],
   ]);
   expect(remeasureFonts).not.toHaveBeenCalled();
   resolve([]);

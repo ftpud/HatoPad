@@ -12,8 +12,10 @@ export class CoreClient extends SharedCoreClient {
       url: `ws://${host}:${port}`,
       connectionLabel: `${host}:${port}`,
       clientLabel: "Desktop",
-      getToken: () => typeof window !== "undefined" && window.desktop?.connectionToken
-        ? window.desktop.connectionToken(host, port!) : undefined,
+      getToken: () =>
+        typeof window !== "undefined" && window.desktop?.connectionToken
+          ? window.desktop.connectionToken(host, port!)
+          : undefined,
     });
   }
 }

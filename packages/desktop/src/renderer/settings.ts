@@ -11,11 +11,19 @@ const bridge = typeof window === "undefined" ? undefined : window.desktop;
 const cache = new Map<string, string>();
 
 function browserRead(key: string): string | null {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
 }
 
 function browserWrite(key: string, value: string): void {
-  try { localStorage.setItem(key, value); } catch { /* Storage may be unavailable or full. */ }
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    /* Storage may be unavailable or full. */
+  }
 }
 
 let loaded = false;
@@ -23,7 +31,11 @@ function load(): void {
   if (loaded) return;
   loaded = true;
   let stored: Record<string, string> = {};
-  try { stored = bridge?.loadSettings?.() ?? {}; } catch { stored = {}; }
+  try {
+    stored = bridge?.loadSettings?.() ?? {};
+  } catch {
+    stored = {};
+  }
   for (const [key, value] of Object.entries(stored)) if (typeof value === "string") cache.set(key, value);
   if (Object.keys(stored).length > 0) return;
   // First run after the durable store was introduced: adopt whatever the browser still remembers.
@@ -31,9 +43,14 @@ function load(): void {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index);
       const value = key === null ? null : localStorage.getItem(key);
-      if (key !== null && value !== null) { cache.set(key, value); bridge?.writeSetting?.(key, value); }
+      if (key !== null && value !== null) {
+        cache.set(key, value);
+        bridge?.writeSetting?.(key, value);
+      }
     }
-  } catch { /* Storage may be unavailable. */ }
+  } catch {
+    /* Storage may be unavailable. */
+  }
 }
 
 export function readSetting(key: string): string | null {
@@ -51,15 +68,27 @@ export function writeSetting(key: string, value: string): void {
   load();
   cache.set(key, value);
   browserWrite(key, value);
-  try { bridge?.writeSetting?.(key, value); } catch { /* Main process bridge is optional. */ }
+  try {
+    bridge?.writeSetting?.(key, value);
+  } catch {
+    /* Main process bridge is optional. */
+  }
 }
 
 /** Removes a persisted setting, allowing callers to fall back to its default. */
 export function removeSetting(key: string): void {
   load();
   cache.delete(key);
-  try { localStorage.removeItem(key); } catch { /* Storage may be unavailable. */ }
-  try { bridge?.writeSetting?.(key, null); } catch { /* Main process bridge is optional. */ }
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    /* Storage may be unavailable. */
+  }
+  try {
+    bridge?.writeSetting?.(key, null);
+  } catch {
+    /* Main process bridge is optional. */
+  }
 }
 
 /** Setting name scoped to a single remote workspace. */

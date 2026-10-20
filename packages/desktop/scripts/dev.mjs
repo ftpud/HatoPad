@@ -10,17 +10,21 @@ const executable = (name) => path.join(rootBin, process.platform === "win32" ? `
 
 const compile = spawnSync(executable("tsc"), ["-p", "tsconfig.electron.json"], {
   cwd: packageRoot,
-  stdio: "inherit"
+  stdio: "inherit",
 });
 if (compile.status !== 0) process.exit(compile.status ?? 1);
 
 const vite = spawn(executable("vite"), [], { cwd: packageRoot, stdio: "inherit" });
 await waitOn({ resources: ["tcp:5173"], timeout: 30_000 });
-const electronRuntime = await electronExecutable({ packageRoot, productName: "HatoPad", bundleId: "com.hatopad.desktop" });
+const electronRuntime = await electronExecutable({
+  packageRoot,
+  productName: "HatoPad",
+  bundleId: "com.hatopad.desktop",
+});
 const electron = spawn(electronRuntime, [packageRoot, ...process.argv.slice(2)], {
   cwd: packageRoot,
   env: { ...process.env, VITE_DEV_SERVER_URL: "http://localhost:5173" },
-  stdio: "inherit"
+  stdio: "inherit",
 });
 
 let stopping = false;

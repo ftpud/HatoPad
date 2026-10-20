@@ -22,10 +22,15 @@ describe("legacy home migration", () => {
 
   it("never overwrites an existing new directory and reports the conflict", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "legacy-home-"));
-    await mkdir(path.join(home, ".remote-ide")); await mkdir(path.join(home, ".hatopad"));
-    await writeFile(path.join(home, ".remote-ide", "old.txt"), "old"); await writeFile(path.join(home, ".hatopad", "new.txt"), "new");
+    await mkdir(path.join(home, ".remote-ide"));
+    await mkdir(path.join(home, ".hatopad"));
+    await writeFile(path.join(home, ".remote-ide", "old.txt"), "old");
+    await writeFile(path.join(home, ".hatopad", "new.txt"), "new");
     const messages: string[] = [];
-    expect(await migrateLegacyHome(home, (message) => messages.push(message))).toMatchObject({ moved: false, conflict: true });
+    expect(await migrateLegacyHome(home, (message) => messages.push(message))).toMatchObject({
+      moved: false,
+      conflict: true,
+    });
     expect(await readFile(path.join(home, ".remote-ide", "old.txt"), "utf8")).toBe("old");
     expect(await readFile(path.join(home, ".hatopad", "new.txt"), "utf8")).toBe("new");
     expect(messages[0]).toContain("Both");
@@ -33,6 +38,10 @@ describe("legacy home migration", () => {
 
   it("does nothing on a fresh machine", async () => {
     const home = await mkdtemp(path.join(os.tmpdir(), "legacy-home-"));
-    expect(await migrateLegacyHome(home, () => { throw new Error("should not log"); })).toMatchObject({ moved: false, conflict: false });
+    expect(
+      await migrateLegacyHome(home, () => {
+        throw new Error("should not log");
+      }),
+    ).toMatchObject({ moved: false, conflict: false });
   });
 });

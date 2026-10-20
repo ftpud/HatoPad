@@ -5,17 +5,30 @@ minimum/maximum independently. Run `node scripts/sync-protocol.mjs` after changi
 it. This generates Protocol and Gateway metadata; Gateway imports no sibling
 workspace runtime. CI checks that generated declarations are current.
 
-The dedicated `Protocol tags` workflow validates declarations, generated metadata
-and protocol tests for pushes to `main` or `dev`, then creates immutable Git tags.
-It operates independently of the manually disabled full CI workflow:
+The dedicated `Protocol tags` workflow runs for pushes to `main` or `dev`. It skips a
+commit that is no longer the branch tip, then validates declarations and generated
+metadata, builds, typechecks and runs the protocol tests before creating immutable
+Git tags. It operates independently of the manually disabled full CI workflow, and
+runs serially per branch:
 
-- `core-protocol-<server>-v0.<commit-count>.<commit-prefix-number>`
-- `client-protocol-<minimum>-<maximum>-v0.<commit-count>.<commit-prefix-number>`
+- `core-protocol-<server>-<channel>-v0.<commit-count>.<commit-prefix-number>`
+- `client-protocol-<minimum>-<maximum>-<channel>-v0.<commit-count>.<commit-prefix-number>`
 
-The final numeric component is the first twelve hexadecimal commit characters
-converted to a number. It avoids collisions between branches with equal commit
-counts. Re-running CI is idempotent; an existing tag is never replaced. Tags do
-not publish packages, create downloadable binary releases, or deploy machines.
+`<channel>` is the branch (`main` or `dev`). The final numeric component is the first
+twelve hexadecimal commit characters converted to a number. It avoids collisions
+between branches with equal commit counts. A tag is never moved or replaced, and
+re-running CI is idempotent.
+
+After the new tags are pushed, the workflow deletes superseded tags, so each channel
+keeps one newest tag per protocol declaration. Only tags of the same channel and
+declaration that are ancestors of the tagged commit are removed, so one branch never
+removes another's tag, and an older run never removes a newer tag. Older untagged-channel
+names (`core-protocol-<server>-v0...`) remain valid but are not pruned. Deleted tags
+linger in existing clones until `git fetch --prune-tags`; selection always takes the
+newest compatible tag, so this is harmless. A previously selected commit whose tag was
+pruned can no longer be re-pinned by tag; update approvals for a replaced tag fail as
+stale and must be re-requested. Tags do not publish packages, create downloadable
+binary releases, or deploy machines.
 
 Gateway source provisioning fetches tags and selects the newest compatible Core
 tag reachable from the configured branch. It never substitutes an incompatible
@@ -185,12 +198,12 @@ release on every start (so a Hub-updated Core boots on its new release) and refu
 releases without the supervisor. The switch refuses to turn on for a Core that is not
 managed yet. How it is installed:
 
-| Host | Mechanism | Guarantee |
-| --- | --- | --- |
-| Linux with a systemd user session | `~/.config/systemd/user/hatopad-core-<id>.service`, enabled, plus `loginctl enable-linger` | Starts at boot. If lingering cannot be enabled it starts at login only, and Gateway says so |
-| Linux without systemd user services | `crontab` `@reboot` entry marked `hatopad-autostart-<id>` | Starts at boot |
-| macOS (local or SSH) | `~/Library/LaunchAgents/dev.hatopad.core.<id>.plist` with `RunAtLoad` | Starts when the user logs in, not at power-on |
-| Windows | Not supported | |
+| Host                                | Mechanism                                                                                  | Guarantee                                                                                   |
+| ----------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| Linux with a systemd user session   | `~/.config/systemd/user/hatopad-core-<id>.service`, enabled, plus `loginctl enable-linger` | Starts at boot. If lingering cannot be enabled it starts at login only, and Gateway says so |
+| Linux without systemd user services | `crontab` `@reboot` entry marked `hatopad-autostart-<id>`                                  | Starts at boot                                                                              |
+| macOS (local or SSH)                | `~/Library/LaunchAgents/dev.hatopad.core.<id>.plist` with `RunAtLoad`                      | Starts when the user logs in, not at power-on                                               |
+| Windows                             | Not supported                                                                              |                                                                                             |
 
 Turning it off removes the unit, plist or cron line and the boot script; a running Core
 keeps running. Stopping a Core from Gateway does not disable start on boot. The switch

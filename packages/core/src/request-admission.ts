@@ -12,17 +12,29 @@ export function requestAdmissionLimit(options: RequestAdmissionOptions = {}): nu
 export class RequestAdmission {
   private readonly leases = new Set<() => void>();
   private closed = false;
-  constructor(private readonly limit: number, private readonly isOpen: () => boolean = () => true) {}
+  constructor(
+    private readonly limit: number,
+    private readonly isOpen: () => boolean = () => true,
+  ) {}
   assertOpen(): void {
-    if (this.closed || !this.isOpen()) throw new CoreError("INVALID_REQUEST", "Connection closed before operation started");
+    if (this.closed || !this.isOpen())
+      throw new CoreError("INVALID_REQUEST", "Connection closed before operation started");
   }
   acquire(): () => void {
     this.assertOpen();
-    if (this.leases.size >= this.limit) throw new CoreError("INVALID_REQUEST", "Core request concurrency limit reached; request was not started");
-    const release = () => { this.leases.delete(release); };
+    if (this.leases.size >= this.limit)
+      throw new CoreError("INVALID_REQUEST", "Core request concurrency limit reached; request was not started");
+    const release = () => {
+      this.leases.delete(release);
+    };
     this.leases.add(release);
     return release;
   }
-  close(): void { this.closed = true; this.leases.clear(); }
-  get inFlight(): number { return this.leases.size; }
+  close(): void {
+    this.closed = true;
+    this.leases.clear();
+  }
+  get inFlight(): number {
+    return this.leases.size;
+  }
 }

@@ -6,15 +6,15 @@ processes, and durable state; Electron clients own interaction. Read and change
 
 ## Route by change
 
-| Change | Start here | Keep true |
-| --- | --- | --- |
-| AI provider behavior | `packages/acp/src/index.ts`, `packages/core/src/ai/`; read `docs/ACP.md` | ACP is provider-neutral; each built-in adapter lives in its own `core/src/plugins/ai/<id>/`. |
-| Built-in language (Java, Node) | `packages/core/src/plugins/languages/<id>/`, `plugins/builtin.ts`, `language/service.ts` | One directory per plugin with its tests; shared Core reaches plugins only via `plugins/builtin.ts` (guard: `plugins/isolation.test.ts`). |
-| Core/Desktop operation | `packages/protocol/src/index.ts` -> `packages/core/src/server.ts` -> `packages/desktop/src/renderer/client.ts` | Define protocol types/registry first, then Core routing, then Desktop callers. |
-| Renderer feature | `packages/desktop/src/renderer/{main.tsx,App.tsx,client.ts}` | Request workspace state from Core; do not access it locally. |
-| Electron integration | package `src/electron/`, renderer `global.d.ts`, renderer callers | Search the IPC channel across all three. |
-| Gateway/remote launch | `packages/gateway/src/{renderer,electron}` | Gateway deploys Core and ships Desktop artifacts; it does not import other workspaces. |
-| Runtime/tooling | `scripts/`, then package-local `packages/{desktop,gateway}/scripts/` | Reuse existing launch/install helpers. |
+| Change                         | Start here                                                                                                      | Keep true                                                                                                                                |
+| ------------------------------ | --------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| AI provider behavior           | `packages/acp/src/index.ts`, `packages/core/src/ai/`; read `docs/ACP.md`                                        | ACP is provider-neutral; each built-in adapter lives in its own `core/src/plugins/ai/<id>/`.                                             |
+| Built-in language (Java, Node) | `packages/core/src/plugins/languages/<id>/`, `plugins/builtin.ts`, `language/service.ts`                        | One directory per plugin with its tests; shared Core reaches plugins only via `plugins/builtin.ts` (guard: `plugins/isolation.test.ts`). |
+| Core/Desktop operation         | `packages/protocol/src/operations/` -> `packages/core/src/routes/` -> `packages/desktop/src/renderer/client.ts` | Define protocol domain types/operations and registry first, then Core routing, then Desktop callers.                                     |
+| Renderer feature               | `packages/desktop/src/renderer/{main.tsx,App.tsx,client.ts}`                                                    | Request workspace state from Core; do not access it locally.                                                                             |
+| Electron integration           | package `src/electron/`, renderer `global.d.ts`, renderer callers                                               | Search the IPC channel across all three.                                                                                                 |
+| Gateway/remote launch          | `packages/gateway/src/{renderer,electron}`                                                                      | Gateway deploys Core and ships Desktop artifacts; it does not import other workspaces.                                                   |
+| Runtime/tooling                | `scripts/`, then package-local `packages/{desktop,gateway}/scripts/`                                            | Reuse existing launch/install helpers.                                                                                                   |
 
 Dependency direction is `acp -> protocol -> client/core/desktop`; Desktop also
 uses the shared client and the standalone relay package owns connector contracts. Core and Desktop may also use ACP directly. Runtime traffic is Desktop -> typed WebSocket protocol ->
@@ -23,7 +23,18 @@ provider descriptor metadata can express the behavior.
 
 ## Fast navigation
 
-- Trace an operation: `rg '<request-or-event-name>' packages/protocol/src/index.ts packages/core/src/server.ts packages/desktop/src/renderer`.
+- Trace an operation: `rg '<request-or-event-name>' packages/protocol/src packages/core/src/routes packages/desktop/src/renderer`.
+- Core connection/admission lifecycle stays in `packages/core/src/server.ts`; request dispatch is in
+  `routes/dispatch.ts`, domain handlers in `routes/`, and shared request context in `routes/context.ts`.
+- Workflow scheduling, block execution, flow tools, recovery, and persistence live in
+  `packages/core/src/harness/`; `harness-runner.ts` owns runtime state and the public API.
+- Desktop panel state and actions live in `use-*.ts` domain hooks. `App.tsx` joins
+  `use-app-orchestration.tsx` (connection/recovery and workspace coordination) to
+  the toolbar, sidebars, editor, bottom panels, and dialogs in `app-view/`.
+  Workflow editor components live in `harness-panel/`, behind `HarnessPanel.tsx`.
+  `styles.css` imports panel styles in cascade order from `styles/`.
+- Protocol `index.ts` re-exports domain models from `types/`, operation maps from
+  `operations/index.ts`, and the exhaustive `request-registry.ts`.
 - Core services are sibling modules of `packages/core/src/server.ts` (filesystem,
   search, Git, terminals, tasks/state, HTTP, Java/JDT LS).
 - Colocated tests use `*.test.ts`/`*.test.tsx`; ACP fixture agents live at

@@ -30,7 +30,8 @@ describe("takeUnfetchedText", () => {
     let total = 0;
     let page = takeUnfetchedText(cursors, "k", text);
     expect(page.hasMore).toBe(true);
-    for (total = page.text.length; page.hasMore; total += page.text.length) page = takeUnfetchedText(cursors, "k", text);
+    for (total = page.text.length; page.hasMore; total += page.text.length)
+      page = takeUnfetchedText(cursors, "k", text);
     expect(total).toBe(20_000);
     expect(takeUnfetchedText(cursors, "k", text).text).toBe("");
   });

@@ -1,0 +1,59 @@
+import type { PortTunnelOperations } from "./portTunnel.js";
+import type { CoreOperations } from "./core.js";
+import type { StorageOperations } from "./storage.js";
+import type { ProtocolSessionOperations } from "./protocol.js";
+import type { ClientOperations } from "./client.js";
+import type { WorkspaceOperations } from "./workspace.js";
+import type { InventoryOperations } from "./inventory.js";
+import type { TasksOperations } from "./tasks.js";
+import type { SchedulesOperations } from "./schedules.js";
+import type { TriggersOperations } from "./triggers.js";
+import type { ProcessesOperations } from "./processes.js";
+import type { TimersOperations } from "./timers.js";
+import type { AiOperations } from "./ai.js";
+import type { ToolsOperations } from "./tools.js";
+import type { SkillsOperations } from "./skills.js";
+import type { AttentionOperations } from "./attention.js";
+import type { OverviewOperations } from "./overview.js";
+import type { UsefulOperations } from "./useful.js";
+import type { RunConfigOperations } from "./runConfig.js";
+import type { AgentsOperations } from "./agents.js";
+import type { HarnessesOperations } from "./harnesses.js";
+import type { HttpOperations } from "./http.js";
+import type { FilesystemOperations } from "./filesystem.js";
+import type { TerminalOperations } from "./terminal.js";
+import type { GitOperations } from "./git.js";
+import type { TaskGitOperations } from "./taskGit.js";
+import type { PluginsOperations } from "./plugins.js";
+import type { LanguageOperations } from "./language.js";
+import type { JavaOperations } from "./java.js";
+
+export type ProtocolOperations = PortTunnelOperations &
+  CoreOperations &
+  StorageOperations &
+  ProtocolSessionOperations &
+  ClientOperations &
+  WorkspaceOperations &
+  InventoryOperations &
+  TasksOperations &
+  SchedulesOperations &
+  TriggersOperations &
+  ProcessesOperations &
+  TimersOperations &
+  AiOperations &
+  ToolsOperations &
+  SkillsOperations &
+  AttentionOperations &
+  OverviewOperations &
+  UsefulOperations &
+  RunConfigOperations &
+  AgentsOperations &
+  HarnessesOperations &
+  HttpOperations &
+  FilesystemOperations &
+  TerminalOperations &
+  GitOperations &
+  TaskGitOperations &
+  PluginsOperations &
+  LanguageOperations &
+  JavaOperations;

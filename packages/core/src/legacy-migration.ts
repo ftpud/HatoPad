@@ -2,7 +2,11 @@ import { access, rename } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-const exists = (target: string) => access(target).then(() => true, () => false);
+const exists = (target: string) =>
+  access(target).then(
+    () => true,
+    () => false,
+  );
 
 export type LegacyMigrationResult = { moved: boolean; conflict: boolean; from: string; to: string };
 
@@ -12,8 +16,12 @@ export type LegacyMigrationResult = { moved: boolean; conflict: boolean; from: s
  * so they move together and keep their private permissions. Nothing is ever deleted: when both directories
  * exist nothing moves and the conflict is reported so the operator can merge by hand.
  */
-export async function migrateLegacyHome(home = os.homedir(), log: (message: string) => void = console.log): Promise<LegacyMigrationResult> {
-  const from = path.join(home, ".remote-ide"), to = path.join(home, ".hatopad");
+export async function migrateLegacyHome(
+  home = os.homedir(),
+  log: (message: string) => void = console.log,
+): Promise<LegacyMigrationResult> {
+  const from = path.join(home, ".remote-ide"),
+    to = path.join(home, ".hatopad");
   if (!(await exists(from))) return { moved: false, conflict: false, from, to };
   if (await exists(to)) {
     log(`[core] Both ${from} and ${to} exist; no state was moved. Reconcile the directories before migrating.`);

@@ -1,30 +1,107 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertWorkflowModelAvailable, settleWorkflowSession, steerWorkflowSession, workflowCapturesSnapshots, workflowConfiguration, workflowTurnInstructions } from "./server.js";
+import {
+  assertWorkflowModelAvailable,
+  settleWorkflowSession,
+  steerWorkflowSession,
+  workflowCapturesSnapshots,
+  workflowConfiguration,
+  workflowTurnInstructions,
+} from "./server.js";
 import { ClaudeSessionManager } from "./plugins/builtin.js";
 import { WebSocket } from "ws";
-import { assertRequestRoot, assertRootRemovalAllowed, assertSessionChangeAllowed, LiveRootSelections, permissionTargetWorkspace, protocolHandshake, renameWorkspacePaths, rootRemovalBlocker, selectRootWorkspace, sendWebSocketData, transactionalRootSelection, WorkspaceWatchBatcher } from "./server.js";
+import {
+  assertRequestRoot,
+  assertRootRemovalAllowed,
+  assertSessionChangeAllowed,
+  LiveRootSelections,
+  permissionTargetWorkspace,
+  protocolHandshake,
+  renameWorkspacePaths,
+  rootRemovalBlocker,
+  selectRootWorkspace,
+  sendWebSocketData,
+  transactionalRootSelection,
+  WorkspaceWatchBatcher,
+} from "./server.js";
 
 describe("steering timer-paused workflow sessions", () => {
-  const timer = { id: "timer", workspace: "/workflow/chat", provider: "codex", dueAt: "2099-01-01T00:00:00.000Z", workflowRunId: "run", workflowBlockId: "chat", workflowFlow: true };
-  const session = { id: "owned", status: "done", model: "model", reasoning: "high", configuration: { model: "model", reasoning: "high", autopilot: true }, messages: [] };
+  const timer = {
+    id: "timer",
+    workspace: "/workflow/chat",
+    provider: "codex",
+    dueAt: "2099-01-01T00:00:00.000Z",
+    workflowRunId: "run",
+    workflowBlockId: "chat",
+    workflowFlow: true,
+  };
+  const session = {
+    id: "owned",
+    status: "done",
+    model: "model",
+    reasoning: "high",
+    configuration: { model: "model", reasoning: "high", autopilot: true },
+    messages: [],
+  };
 
   it("starts another turn in the idle session and restores its workflow tools", async () => {
-    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => session), steer: vi.fn(async () => { throw new Error("not currently working"); }), send: vi.fn(async () => ({ ...session, status: "in_progress" })) };
+    const provider = {
+      descriptor: { id: "codex" },
+      get: vi.fn(async () => session),
+      steer: vi.fn(async () => {
+        throw new Error("not currently working");
+      }),
+      send: vi.fn(async () => ({ ...session, status: "in_progress" })),
+    };
     const timers = { next: vi.fn(async () => timer) };
-    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    await steerWorkflowSession(
+      provider as never,
+      "/workflow/chat",
+      "Check now",
+      timers as never,
+      "/workspace",
+      "/workspace",
+    );
     expect(provider.steer).not.toHaveBeenCalled();
-    expect(provider.send).toHaveBeenCalledWith("/workflow/chat", expect.objectContaining({ prompt: "Check now", configuration: session.configuration, mcpServers: [expect.objectContaining({ name: expect.any(String) })] }));
+    expect(provider.send).toHaveBeenCalledWith(
+      "/workflow/chat",
+      expect.objectContaining({
+        prompt: "Check now",
+        configuration: session.configuration,
+        mcpServers: [expect.objectContaining({ name: expect.any(String) })],
+      }),
+    );
     expect(JSON.stringify(provider.send.mock.calls)).toContain("chat");
   });
 
   it("uses live steering for an active turn and rejects an idle session without a workflow timer", async () => {
-    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => ({ ...session, status: "in_progress" })), steer: vi.fn(async () => session), send: vi.fn() };
+    const provider = {
+      descriptor: { id: "codex" },
+      get: vi.fn(async () => ({ ...session, status: "in_progress" })),
+      steer: vi.fn(async () => session),
+      send: vi.fn(),
+    };
     const timers = { next: vi.fn(async () => undefined) };
-    await steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace");
+    await steerWorkflowSession(
+      provider as never,
+      "/workflow/chat",
+      "Check now",
+      timers as never,
+      "/workspace",
+      "/workspace",
+    );
     expect(provider.steer).toHaveBeenCalledWith("/workflow/chat", "Check now");
     expect(provider.send).not.toHaveBeenCalled();
     provider.get.mockResolvedValue(session);
-    await expect(steerWorkflowSession(provider as never, "/workflow/chat", "Check now", timers as never, "/workspace", "/workspace")).rejects.toThrow("no longer working");
+    await expect(
+      steerWorkflowSession(
+        provider as never,
+        "/workflow/chat",
+        "Check now",
+        timers as never,
+        "/workspace",
+        "/workspace",
+      ),
+    ).rejects.toThrow("no longer working");
   });
 
   it("refreshes a short response even if the turn finishes between timer polls", async () => {
@@ -32,14 +109,28 @@ describe("steering timer-paused workflow sessions", () => {
     try {
       let active = true;
       const reply = { ...session, messages: [{ id: "reply", role: "assistant", text: "Checked", timestamp: "now" }] };
-      const provider = { descriptor: { id: "codex" }, get: vi.fn().mockResolvedValueOnce(session).mockResolvedValue(reply) };
+      const provider = {
+        descriptor: { id: "codex" },
+        get: vi.fn().mockResolvedValueOnce(session).mockResolvedValue(reply),
+      };
       const timers = { next: vi.fn(async () => timer) };
-      const activity = vi.fn(async (current) => { if (current === reply) active = false; });
-      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      const activity = vi.fn(async (current) => {
+        if (current === reply) active = false;
+      });
+      const settled = settleWorkflowSession(
+        provider as never,
+        "/workflow/chat",
+        timers as never,
+        undefined,
+        () => active,
+        activity,
+      );
       await vi.advanceTimersByTimeAsync(1000);
       await settled;
       expect(activity).toHaveBeenCalledWith(reply, timer.dueAt);
-    } finally { vi.useRealTimers(); }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("observes a steered turn before the existing timer fires", async () => {
@@ -49,8 +140,17 @@ describe("steering timer-paused workflow sessions", () => {
       let active = true;
       const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => current) };
       const timers = { next: vi.fn(async () => timer) };
-      const activity = vi.fn(async (_session, waitingUntil) => { if (!waitingUntil) active = false; });
-      const settled = settleWorkflowSession(provider as never, "/workflow/chat", timers as never, undefined, () => active, activity);
+      const activity = vi.fn(async (_session, waitingUntil) => {
+        if (!waitingUntil) active = false;
+      });
+      const settled = settleWorkflowSession(
+        provider as never,
+        "/workflow/chat",
+        timers as never,
+        undefined,
+        () => active,
+        activity,
+      );
       await vi.advanceTimersByTimeAsync(0);
       expect(activity).toHaveBeenCalledWith(session, timer.dueAt);
       current = { ...session, status: "in_progress" };
@@ -58,16 +158,22 @@ describe("steering timer-paused workflow sessions", () => {
       await settled;
       expect(activity).toHaveBeenCalledWith(current);
       expect(timers.next).toHaveBeenCalled();
-    } finally { vi.useRealTimers(); }
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
 describe("workflow snapshot policy", () => {
   it("skips use-connected helpers while retaining lead and follow-block snapshots", () => {
-    const run = { definition: { edges: [
-      { from: "lead", to: "helper", type: "use" },
-      { from: "lead", to: "review", type: "follow" }
-    ] } } as unknown as import("@hatopad/protocol").HarnessRun;
+    const run = {
+      definition: {
+        edges: [
+          { from: "lead", to: "helper", type: "use" },
+          { from: "lead", to: "review", type: "follow" },
+        ],
+      },
+    } as unknown as import("@hatopad/protocol").HarnessRun;
     expect(workflowCapturesSnapshots(run, "helper")).toBe(false);
     expect(workflowCapturesSnapshots(run, "lead")).toBe(true);
     expect(workflowCapturesSnapshots(run, "review")).toBe(true);
@@ -78,7 +184,12 @@ describe("workflow snapshot policy", () => {
 describe("workflow provider configuration", () => {
   it("forces interactive features off and keeps only non-blocking switches from the block", () => {
     const options = new ClaudeSessionManager({ onChanged: () => undefined }).descriptor.options;
-    expect(workflowConfiguration(options, { model: "opus", options: { askQuestions: true, liveSteering: false, autopilot: false, unknown: true } })).toEqual({ model: "opus", liveSteering: false, askQuestions: false, autopilot: true });
+    expect(
+      workflowConfiguration(options, {
+        model: "opus",
+        options: { askQuestions: true, liveSteering: false, autopilot: false, unknown: true },
+      }),
+    ).toEqual({ model: "opus", liveSteering: false, askQuestions: false, autopilot: true });
     expect(workflowConfiguration(options, { autopilot: false })).toEqual({ askQuestions: false, autopilot: false });
     // Only ACP v2 agents can end a turn and resume on their own, so only they are told to wait inside the turn.
     expect(workflowTurnInstructions("v2")).toContain("Do not end your turn or go idle while you are waiting");
@@ -89,22 +200,73 @@ describe("workflow provider configuration", () => {
 
 describe("protocol handshake", () => {
   it("rejects workflow models that are no longer available", async () => {
-    await expect(assertWorkflowModelAvailable({ models: async () => [{ id: "available", available: true, reasoningLevels: ["low"] }, { id: "retired", available: false, reasoningLevels: [] }] }, "retired")).rejects.toThrow("unavailable");
-    await expect(assertWorkflowModelAvailable({ models: async () => [{ id: "available", available: true, reasoningLevels: ["low"] }] }, "available", "high")).rejects.toThrow("reasoning effort");
-    await expect(assertWorkflowModelAvailable({ models: async () => [{ id: "available", available: true, reasoningLevels: ["low"] }] }, "available", "low")).resolves.toBeUndefined();
+    await expect(
+      assertWorkflowModelAvailable(
+        {
+          models: async () => [
+            { id: "available", available: true, reasoningLevels: ["low"] },
+            { id: "retired", available: false, reasoningLevels: [] },
+          ],
+        },
+        "retired",
+      ),
+    ).rejects.toThrow("unavailable");
+    await expect(
+      assertWorkflowModelAvailable(
+        { models: async () => [{ id: "available", available: true, reasoningLevels: ["low"] }] },
+        "available",
+        "high",
+      ),
+    ).rejects.toThrow("reasoning effort");
+    await expect(
+      assertWorkflowModelAvailable(
+        { models: async () => [{ id: "available", available: true, reasoningLevels: ["low"] }] },
+        "available",
+        "low",
+      ),
+    ).resolves.toBeUndefined();
   });
   it("arms watchdog recovery at the provider reset even when its AI turn has failed", async () => {
     let active = true;
     const dueAt = new Date(Date.now() + 60_000).toISOString();
     const session = { status: "error", messages: [] };
-    const provider = { descriptor: { id: "codex" }, get: vi.fn(async () => session), usage: vi.fn(async () => ({ accountQuota: { primary: { resetsAt: dueAt } } })) };
-    const timers = { next: vi.fn(async () => undefined), scheduleAt: vi.fn(async () => { active = false; return { dueAt }; }) };
-    await settleWorkflowSession(provider as never, "/watchdog", timers as never, { runId: "run", blockId: "watchdog" }, () => active);
-    expect(timers.scheduleAt).toHaveBeenCalledWith("/watchdog", "codex", expect.stringContaining("workflow_resume_failed"), dueAt, { runId: "run", blockId: "watchdog" });
+    const provider = {
+      descriptor: { id: "codex" },
+      get: vi.fn(async () => session),
+      usage: vi.fn(async () => ({ accountQuota: { primary: { resetsAt: dueAt } } })),
+    };
+    const timers = {
+      next: vi.fn(async () => undefined),
+      scheduleAt: vi.fn(async () => {
+        active = false;
+        return { dueAt };
+      }),
+    };
+    await settleWorkflowSession(
+      provider as never,
+      "/watchdog",
+      timers as never,
+      { runId: "run", blockId: "watchdog" },
+      () => active,
+    );
+    expect(timers.scheduleAt).toHaveBeenCalledWith(
+      "/watchdog",
+      "codex",
+      expect.stringContaining("workflow_resume_failed"),
+      dueAt,
+      { runId: "run", blockId: "watchdog" },
+    );
   });
   it("accepts overlapping ranges and describes incompatible Desktops", () => {
-    expect(protocolHandshake({ minimum: 19, maximum: 19 })).toMatchObject({ compatible: true, compatibility: { minimum: 19, maximum: 19 } });
-    expect(protocolHandshake({ minimum: 8, maximum: 8 })).toEqual({ compatible: false, compatibility: { minimum: 19, maximum: 19 }, message: "Core supports protocol 19-19; this Desktop supports 8-8" });
+    expect(protocolHandshake({ minimum: 19, maximum: 19 })).toMatchObject({
+      compatible: true,
+      compatibility: { minimum: 19, maximum: 19 },
+    });
+    expect(protocolHandshake({ minimum: 8, maximum: 8 })).toEqual({
+      compatible: false,
+      compatibility: { minimum: 19, maximum: 19 },
+      message: "Core supports protocol 19-19; this Desktop supports 8-8",
+    });
     expect(protocolHandshake({ minimum: 11, maximum: 11 }).compatible).toBe(false);
     expect(protocolHandshake({ minimum: 4, maximum: 1 }).compatible).toBe(false);
   });
@@ -114,22 +276,40 @@ describe("workspace watcher batching", () => {
   it("requests a healthy refresh after the initial scan without an error message", () => {
     const events: unknown[] = [];
     const batcher = new WorkspaceWatchBatcher((event) => events.push(event), 60_000, 2);
-    batcher.refresh(); batcher.flush(); batcher.flush();
-    expect(events).toEqual([{ type: "filesystem.changed", payload: { rootId: "legacy", paths: [], overflow: true, health: "healthy" } }]);
+    batcher.refresh();
+    batcher.flush();
+    batcher.flush();
+    expect(events).toEqual([
+      { type: "filesystem.changed", payload: { rootId: "legacy", paths: [], overflow: true, health: "healthy" } },
+    ]);
   });
 
   it("coalesces bursts and marks bounded batches as overflowed", () => {
     const events: unknown[] = [];
     const batcher = new WorkspaceWatchBatcher((event) => events.push(event), 60_000, 2);
-    batcher.change("a.ts"); batcher.change("b.ts"); batcher.change("c.ts"); batcher.degrade("overflow"); batcher.flush();
-    expect(events).toEqual([{ type: "filesystem.changed", payload: { rootId: "legacy", paths: ["a.ts", "b.ts"], overflow: true, health: "degraded", message: "overflow" } }]);
+    batcher.change("a.ts");
+    batcher.change("b.ts");
+    batcher.change("c.ts");
+    batcher.degrade("overflow");
+    batcher.flush();
+    expect(events).toEqual([
+      {
+        type: "filesystem.changed",
+        payload: { rootId: "legacy", paths: ["a.ts", "b.ts"], overflow: true, health: "degraded", message: "overflow" },
+      },
+    ]);
   });
 });
 
 describe("workspace root request boundary", () => {
   it("clears the persisted task selection when activating a project root", async () => {
     let selectedTaskId: string | undefined = "task-a";
-    const tasks = { select: async (taskId?: string) => { selectedTaskId = taskId; return { workspace: "/root", registry: { tasks: [] } }; } };
+    const tasks = {
+      select: async (taskId?: string) => {
+        selectedTaskId = taskId;
+        return { workspace: "/root", registry: { tasks: [] } };
+      },
+    };
 
     await selectRootWorkspace(tasks);
 
@@ -137,26 +317,55 @@ describe("workspace root request boundary", () => {
   });
 
   it("accepts the selected identity and rejects missing or cross-root identities", () => {
-    expect(() => assertRequestRoot({ id: "1", type: "filesystem.readFile", rootId: "root-a", payload: { path: "README.md" } }, "root-a")).not.toThrow();
-    expect(() => assertRequestRoot({ id: "2", type: "filesystem.readFile", rootId: "root-b", payload: { path: "README.md" } }, "root-a")).toThrow("not the selected root");
-    expect(() => assertRequestRoot({ id: "3", type: "filesystem.readFile", payload: { path: "README.md" } } as never, "root-a")).toThrow("requires an explicit rootId");
+    expect(() =>
+      assertRequestRoot(
+        { id: "1", type: "filesystem.readFile", rootId: "root-a", payload: { path: "README.md" } },
+        "root-a",
+      ),
+    ).not.toThrow();
+    expect(() =>
+      assertRequestRoot(
+        { id: "2", type: "filesystem.readFile", rootId: "root-b", payload: { path: "README.md" } },
+        "root-a",
+      ),
+    ).toThrow("not the selected root");
+    expect(() =>
+      assertRequestRoot({ id: "3", type: "filesystem.readFile", payload: { path: "README.md" } } as never, "root-a"),
+    ).toThrow("requires an explicit rootId");
   });
 
   it("keeps the previous root authoritative when preparing a switch fails", async () => {
-    let selectedRootId = "root-a"; let disposed = false;
-    await expect(transactionalRootSelection<{ rootId: string }>(
-      async () => { throw new Error("watcher setup failed"); },
-      ({ rootId }: { rootId: string }) => { selectedRootId = rootId; },
-      () => { disposed = true; }
-    )).rejects.toThrow("watcher setup failed");
+    let selectedRootId = "root-a";
+    let disposed = false;
+    await expect(
+      transactionalRootSelection<{ rootId: string }>(
+        async () => {
+          throw new Error("watcher setup failed");
+        },
+        ({ rootId }: { rootId: string }) => {
+          selectedRootId = rootId;
+        },
+        () => {
+          disposed = true;
+        },
+      ),
+    ).rejects.toThrow("watcher setup failed");
     expect(selectedRootId).toBe("root-a");
     expect(disposed).toBe(false);
-    expect(() => assertRequestRoot({ id: "after-failure", type: "filesystem.readFile", rootId: "root-a", payload: { path: "README.md" } }, selectedRootId)).not.toThrow();
+    expect(() =>
+      assertRequestRoot(
+        { id: "after-failure", type: "filesystem.readFile", rootId: "root-a", payload: { path: "README.md" } },
+        selectedRootId,
+      ),
+    ).not.toThrow();
   });
 
   it("blocks removal while either client selects a root and releases it on disconnect", () => {
-    const selections = new LiveRootSelections<object>(); const first = {}; const second = {};
-    selections.connect(first, "root-a"); selections.connect(second, "root-b");
+    const selections = new LiveRootSelections<object>();
+    const first = {};
+    const second = {};
+    selections.connect(first, "root-a");
+    selections.connect(second, "root-b");
     expect(selections.isSelected("root-b")).toBe(true);
     expect(() => assertRootRemovalAllowed(selections, "root-b")).toThrow("Every connected client");
     selections.beginSelection(first, "root-c");
@@ -174,9 +383,13 @@ describe("workspace root request boundary", () => {
   });
 
   it("reports every material removal blocker without touching the directory", () => {
-    expect(rootRemovalBlocker({ tasks: 1, openFiles: 0, terminals: false, transfers: false })).toContain("task worktrees");
+    expect(rootRemovalBlocker({ tasks: 1, openFiles: 0, terminals: false, transfers: false })).toContain(
+      "task worktrees",
+    );
     expect(rootRemovalBlocker({ tasks: 0, openFiles: 1, terminals: false, transfers: false })).toContain("open files");
-    expect(rootRemovalBlocker({ tasks: 0, openFiles: 0, terminals: true, transfers: false })).toContain("terminal sessions");
+    expect(rootRemovalBlocker({ tasks: 0, openFiles: 0, terminals: true, transfers: false })).toContain(
+      "terminal sessions",
+    );
     expect(rootRemovalBlocker({ tasks: 0, openFiles: 0, terminals: false, transfers: true })).toContain("transfers");
     expect(rootRemovalBlocker({ tasks: 0, openFiles: 0, terminals: false, transfers: false })).toBeUndefined();
   });
@@ -186,29 +399,74 @@ import type { WorkspaceTaskStore } from "./tasks.js";
 
 describe("workspace paths after filesystem moves", () => {
   it("updates tabs, colors, and Java project paths under a moved directory", () => {
-    const result = renameWorkspacePaths({ openFiles: ["src/App.java", "README.md"], pinnedFiles: ["src/App.java"], activeFile: "src/App.java", fileColors: { "src/App.java": "blue" }, javaProject: { type: "maven", pomPath: "src/pom.xml", mavenExecutable: "mvn", sourceRoots: ["src/main/java"], outputPath: "src/target/classes", testOutputPath: "src/target/test-classes", runConfigurations: [] } }, "src", "app");
-    expect(result).toMatchObject({ openFiles: ["app/App.java", "README.md"], pinnedFiles: ["app/App.java"], activeFile: "app/App.java", fileColors: { "app/App.java": "blue" }, javaProject: { pomPath: "app/pom.xml", sourceRoots: ["app/main/java"], outputPath: "app/target/classes" } });
+    const result = renameWorkspacePaths(
+      {
+        openFiles: ["src/App.java", "README.md"],
+        pinnedFiles: ["src/App.java"],
+        activeFile: "src/App.java",
+        fileColors: { "src/App.java": "blue" },
+        javaProject: {
+          type: "maven",
+          pomPath: "src/pom.xml",
+          mavenExecutable: "mvn",
+          sourceRoots: ["src/main/java"],
+          outputPath: "src/target/classes",
+          testOutputPath: "src/target/test-classes",
+          runConfigurations: [],
+        },
+      },
+      "src",
+      "app",
+    );
+    expect(result).toMatchObject({
+      openFiles: ["app/App.java", "README.md"],
+      pinnedFiles: ["app/App.java"],
+      activeFile: "app/App.java",
+      fileColors: { "app/App.java": "blue" },
+      javaProject: { pomPath: "app/pom.xml", sourceRoots: ["app/main/java"], outputPath: "app/target/classes" },
+    });
   });
 });
 
 describe("built-in app tool access", () => {
   it("does not grant tools without an explicit agent allowlist entry", () => {
     expect(withAppTools("/workspace", "/workspace").servers).toEqual([]);
-    expect(withAppTools("/workspace", "/workspace/task", [], { name: "No tools", instructions: "", mcpServers: [] }).servers).toEqual([]);
+    expect(
+      withAppTools("/workspace", "/workspace/task", [], { name: "No tools", instructions: "", mcpServers: [] }).servers,
+    ).toEqual([]);
   });
 
   it("adds the HatoPad server when explicitly allowed", () => {
-    const result = withAppTools("/workspace", "/workspace/task", [], { name: "Coordinator", instructions: "", mcpServers: ["hatopad"] }, "codex");
+    const result = withAppTools(
+      "/workspace",
+      "/workspace/task",
+      [],
+      { name: "Coordinator", instructions: "", mcpServers: ["hatopad"] },
+      "codex",
+    );
     expect(result.servers).toHaveLength(1);
-    expect(result.servers[0]).toMatchObject({ name: "hatopad", transport: "stdio", env: { HATOPAD_ROOT_WORKSPACE: "/workspace", HATOPAD_CURRENT_WORKSPACE: "/workspace/task", HATOPAD_CURRENT_PROVIDER: "codex" } });
+    expect(result.servers[0]).toMatchObject({
+      name: "hatopad",
+      transport: "stdio",
+      env: {
+        HATOPAD_ROOT_WORKSPACE: "/workspace",
+        HATOPAD_CURRENT_WORKSPACE: "/workspace/task",
+        HATOPAD_CURRENT_PROVIDER: "codex",
+      },
+    });
     expect(result.agent?.mcpServers).toEqual(["hatopad"]);
   });
 });
 
 describe("permission request task routing", () => {
   const tasks = {
-    list: async () => ({ tasks: [{ id: "task-a", name: "A", branch: "a", baseBranch: "main", status: "active" as const, archived: false }, { id: "task-b", name: "B", branch: "b", baseBranch: "main", status: "active" as const, archived: false }] }),
-    taskPath: (taskId: string) => `/tasks/${taskId}/workspace`
+    list: async () => ({
+      tasks: [
+        { id: "task-a", name: "A", branch: "a", baseBranch: "main", status: "active" as const, archived: false },
+        { id: "task-b", name: "B", branch: "b", baseBranch: "main", status: "active" as const, archived: false },
+      ],
+    }),
+    taskPath: (taskId: string) => `/tasks/${taskId}/workspace`,
   } satisfies Pick<WorkspaceTaskStore, "list" | "taskPath">;
 
   it("routes root and simultaneous task requests independently of the selected task", async () => {
@@ -218,14 +476,21 @@ describe("permission request task routing", () => {
   });
 
   it("rejects stale task ownership instead of falling back to the active workspace", async () => {
-    await expect(permissionTargetWorkspace(tasks, "/root", "deleted-task")).rejects.toMatchObject({ code: "INVALID_REQUEST", message: "Task does not exist" });
+    await expect(permissionTargetWorkspace(tasks, "/root", "deleted-task")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+      message: "Task does not exist",
+    });
   });
 });
 
 describe("timer session ownership", () => {
   it("rejects session changes for the provider owning an active timer", async () => {
-    const timers = { next: async (_workspace: string, provider?: string) => provider === "codex" ? { id: "timer" } : undefined };
-    await expect(assertSessionChangeAllowed(timers as never, "/tasks/a/workspace", "codex")).rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    const timers = {
+      next: async (_workspace: string, provider?: string) => (provider === "codex" ? { id: "timer" } : undefined),
+    };
+    await expect(assertSessionChangeAllowed(timers as never, "/tasks/a/workspace", "codex")).rejects.toMatchObject({
+      code: "INVALID_REQUEST",
+    });
     await expect(assertSessionChangeAllowed(timers as never, "/tasks/a/workspace", "copilot")).resolves.toBeUndefined();
   });
 });
@@ -234,13 +499,21 @@ describe("WebSocket stream delivery", () => {
   it("drops a response that completes after the client disconnected", async () => {
     let readyState: number = WebSocket.OPEN;
     let finish!: () => void;
-    const operation = new Promise<void>((resolve) => { finish = resolve; });
+    const operation = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
     const socket = {
-      get readyState() { return readyState; },
-      send: () => { throw new Error("WebSocket is not open"); }
+      get readyState() {
+        return readyState;
+      },
+      send: () => {
+        throw new Error("WebSocket is not open");
+      },
     } as unknown as WebSocket;
 
-    const lateResponse = operation.then(() => sendWebSocketData(socket, JSON.stringify({ id: "ai-send", ok: true, result: {} })));
+    const lateResponse = operation.then(() =>
+      sendWebSocketData(socket, JSON.stringify({ id: "ai-send", ok: true, result: {} })),
+    );
     readyState = WebSocket.CLOSED;
     finish();
 
@@ -251,8 +524,12 @@ describe("WebSocket stream delivery", () => {
     const socket = {
       readyState: WebSocket.OPEN,
       bufferedAmount: 0,
-      once: vi.fn(), off: vi.fn(), terminate: vi.fn(),
-      send: () => { throw new Error("WebSocket is not open: readyState 2 (CLOSING)"); }
+      once: vi.fn(),
+      off: vi.fn(),
+      terminate: vi.fn(),
+      send: () => {
+        throw new Error("WebSocket is not open: readyState 2 (CLOSING)");
+      },
     } as unknown as WebSocket;
 
     expect(() => sendWebSocketData(socket, "late event")).not.toThrow();

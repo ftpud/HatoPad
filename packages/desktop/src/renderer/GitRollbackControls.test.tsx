@@ -1,57 +1,204 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import type { GitStatusEntry } from "@hatopad/protocol";
-import { GitToolbarActions, RollbackSelectedDialog, executeRollbackSelection, selectedGitEntries, shouldApplyGitStatus } from "./GitRollbackControls";
+import {
+  GitToolbarActions,
+  RollbackSelectedDialog,
+  executeRollbackSelection,
+  selectedGitEntries,
+  shouldApplyGitStatus,
+} from "./GitRollbackControls";
 
 const noop = () => {};
-const entry = (path: string, indexStatus = " ", worktreeStatus = "M"): GitStatusEntry => ({ path, indexStatus, worktreeStatus, states: indexStatus === "?" ? ["untracked"] : indexStatus !== " " ? ["index"] : ["worktree"] });
+const entry = (path: string, indexStatus = " ", worktreeStatus = "M"): GitStatusEntry => ({
+  path,
+  indexStatus,
+  worktreeStatus,
+  states: indexStatus === "?" ? ["untracked"] : indexStatus !== " " ? ["index"] : ["worktree"],
+});
 
 describe("Git rollback controls", () => {
   it("places Rollback Selected immediately before Push and disables it without a selection", () => {
-    const markup = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const markup = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(markup.indexOf("Rollback Selected")).toBeLessThan(markup.indexOf('aria-label="Push"'));
     expect(markup).toMatch(/aria-label="Rollback Selected"[^>]*disabled/);
   });
 
   it("disables every toolbar operation while a Git operation is running", () => {
-    const markup = renderToStaticMarkup(<GitToolbarActions selectedCount={2} operationRunning pushing={false} fetching={false} rollingBack onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const markup = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={2}
+        operationRunning
+        pushing={false}
+        fetching={false}
+        rollingBack
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(markup.match(/disabled/g)).toHaveLength(7);
     expect(markup).toContain("status-toast-spinner");
   });
 
   it("shows an accessible ahead badge only for unpushed commits", () => {
-    const ahead = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} upstream={{ upstream: "origin/main", ahead: 2, behind: 1, lastFetch: "2026-08-30T10:00:00.000Z" }} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const ahead = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        upstream={{ upstream: "origin/main", ahead: 2, behind: 1, lastFetch: "2026-08-30T10:00:00.000Z" }}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(ahead).toContain('aria-label="Push 2 unpushed commits"');
     expect(ahead).toContain('class="git-push-badge"');
     expect(ahead).toContain("2 commits ahead of origin/main");
     expect(ahead).toContain('aria-label="Fetch remote changes; 1 commit behind"');
-    const synchronized = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} upstream={{ upstream: "origin/main", ahead: 0, behind: 0 }} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const synchronized = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        upstream={{ upstream: "origin/main", ahead: 0, behind: 0 }}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(synchronized).not.toContain("git-push-badge");
     expect(synchronized).toContain("up to date with origin/main");
   });
 
   it("offers pull only for a branch with an upstream", () => {
-    const published = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} upstream={{ upstream: "origin/main", ahead: 0, behind: 2 }} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
-    expect(published).toContain('aria-label="Pull remote changes"'); expect(published).not.toMatch(/aria-label="Pull remote changes"[^>]*disabled/);
-    const unpublished = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const published = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        upstream={{ upstream: "origin/main", ahead: 0, behind: 2 }}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
+    expect(published).toContain('aria-label="Pull remote changes"');
+    expect(published).not.toMatch(/aria-label="Pull remote changes"[^>]*disabled/);
+    const unpublished = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(unpublished).toMatch(/aria-label="Pull remote changes"[^>]*disabled/);
   });
 
   it("offers interactive rebase planning only when publication can be checked", () => {
-    const published = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} upstream={{ upstream: "origin/main", ahead: 2, behind: 0 }} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const published = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        upstream={{ upstream: "origin/main", ahead: 2, behind: 0 }}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(published).not.toMatch(/aria-label="Plan interactive rebase"[^>]*disabled/);
-    const unknown = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const unknown = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(unknown).toMatch(/aria-label="Plan interactive rebase"[^>]*disabled/);
   });
 
   it("distinguishes a branch without an upstream without showing an ahead indicator", () => {
-    const markup = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning={false} pushing={false} fetching={false} rollingBack={false} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const markup = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning={false}
+        pushing={false}
+        fetching={false}
+        rollingBack={false}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(markup).not.toContain("git-push-badge");
     expect(markup).toContain("branch is not published");
   });
 
   it("makes an in-progress fetch visibly cancellable", () => {
-    const markup = renderToStaticMarkup(<GitToolbarActions selectedCount={0} operationRunning fetching pushing={false} rollingBack={false} upstream={{ upstream: "origin/main", ahead: 0, behind: 0 }} onRollbackSelected={noop} onUndoLastCommit={noop} onPush={noop} onFetch={noop} onRefresh={noop} />);
+    const markup = renderToStaticMarkup(
+      <GitToolbarActions
+        selectedCount={0}
+        operationRunning
+        fetching
+        pushing={false}
+        rollingBack={false}
+        upstream={{ upstream: "origin/main", ahead: 0, behind: 0 }}
+        onRollbackSelected={noop}
+        onUndoLastCommit={noop}
+        onPush={noop}
+        onFetch={noop}
+        onRefresh={noop}
+      />,
+    );
     expect(markup).toContain('aria-label="Cancel Git fetch"');
     expect(markup).toContain("status-toast-spinner");
   });
@@ -63,15 +210,28 @@ describe("Git rollback controls", () => {
   });
 
   it("targets only entries whose paths are selected", () => {
-    expect(selectedGitEntries([entry("selected.ts"), entry("untouched.ts"), entry("staged.ts", "M", " ")], new Set(["selected.ts", "staged.ts"])).map((item) => item.path)).toEqual(["selected.ts", "staged.ts"]);
+    expect(
+      selectedGitEntries(
+        [entry("selected.ts"), entry("untouched.ts"), entry("staged.ts", "M", " ")],
+        new Set(["selected.ts", "staged.ts"]),
+      ).map((item) => item.path),
+    ).toEqual(["selected.ts", "staged.ts"]);
   });
 
   it("sends only selected paths and refreshes status after a partial success", async () => {
     const requested: string[][] = [];
     let refreshes = 0;
-    const result = await executeRollbackSelection([entry("selected.ts"), entry("fails.ts", "M", " ")], false, async (paths) => {
-      requested.push(paths); return { rolledBack: ["selected.ts"], failures: [{ path: "fails.ts", message: "locked" }] };
-    }, async () => { refreshes += 1; });
+    const result = await executeRollbackSelection(
+      [entry("selected.ts"), entry("fails.ts", "M", " ")],
+      false,
+      async (paths) => {
+        requested.push(paths);
+        return { rolledBack: ["selected.ts"], failures: [{ path: "fails.ts", message: "locked" }] };
+      },
+      async () => {
+        refreshes += 1;
+      },
+    );
     expect(requested).toEqual([["selected.ts", "fails.ts"]]);
     expect(refreshes).toBe(1);
     expect(result.failures).toEqual([{ path: "fails.ts", message: "locked" }]);
@@ -79,12 +239,26 @@ describe("Git rollback controls", () => {
 
   it("does not refresh status when every selected rollback fails", async () => {
     let refreshes = 0;
-    await executeRollbackSelection([entry("fails.ts")], false, async () => ({ rolledBack: [], failures: [{ path: "fails.ts", message: "locked" }] }), async () => { refreshes += 1; });
+    await executeRollbackSelection(
+      [entry("fails.ts")],
+      false,
+      async () => ({ rolledBack: [], failures: [{ path: "fails.ts", message: "locked" }] }),
+      async () => {
+        refreshes += 1;
+      },
+    );
     expect(refreshes).toBe(0);
   });
 
   it("lists affected paths, offers cancel, and explicitly gates untracked deletion", () => {
-    const markup = renderToStaticMarkup(<RollbackSelectedDialog entries={[entry("tracked.ts"), entry("notes.txt", "?", "?")]} busy={false} onClose={noop} onConfirm={noop} />);
+    const markup = renderToStaticMarkup(
+      <RollbackSelectedDialog
+        entries={[entry("tracked.ts"), entry("notes.txt", "?", "?")]}
+        busy={false}
+        onClose={noop}
+        onConfirm={noop}
+      />,
+    );
     expect(markup).toContain("tracked.ts");
     expect(markup).toContain("notes.txt");
     expect(markup).toContain("Cancel");
@@ -93,7 +267,14 @@ describe("Git rollback controls", () => {
   });
 
   it("allows tracked staged and unstaged rollback without an extra deletion acknowledgement", () => {
-    const markup = renderToStaticMarkup(<RollbackSelectedDialog entries={[entry("partial.ts", "M", "M"), entry("deleted.ts", "D", " ")]} busy={false} onClose={noop} onConfirm={noop} />);
+    const markup = renderToStaticMarkup(
+      <RollbackSelectedDialog
+        entries={[entry("partial.ts", "M", "M"), entry("deleted.ts", "D", " ")]}
+        busy={false}
+        onClose={noop}
+        onConfirm={noop}
+      />,
+    );
     expect(markup).not.toContain("permanently deleted");
     expect(markup).not.toMatch(/class="danger"[^>]*disabled/);
   });

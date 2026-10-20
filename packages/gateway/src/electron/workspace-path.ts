@@ -5,12 +5,16 @@ export function validateWorkspaceDirectoryInput(directory: string): string {
   const value = directory.trim();
   if (!value) throw new Error("A remote directory is required");
   if (value.length > maximumDirectoryLength) throw new Error("The remote directory path is too long");
-  if (!value.startsWith("/")) throw new Error("The remote directory must be an absolute path (for example /home/user/projects/api)");
-  if (/[\u0000-\u001f\u007f]/.test(value)) throw new Error("The remote directory contains unsupported control characters");
+  if (!value.startsWith("/"))
+    throw new Error("The remote directory must be an absolute path (for example /home/user/projects/api)");
+  if (/[\u0000-\u001f\u007f]/.test(value))
+    throw new Error("The remote directory contains unsupported control characters");
   return value;
 }
 
-export function quoteWorkspaceShellArgument(value: string): string { return `'${value.replaceAll("'", `'"'"'`)}'`; }
+export function quoteWorkspaceShellArgument(value: string): string {
+  return `'${value.replaceAll("'", `'"'"'`)}'`;
+}
 
 // A file; the Core state directory ~/.hatopad/workspaces is a different path, hence the distinct name.
 const remoteWorkspaceRegistry = "$HOME/.hatopad/gateway-workspaces";
@@ -43,8 +47,11 @@ export function parseDiscoveredWorkspaceDirectories(output: string): string[] {
   for (const line of output.split("\n")) {
     const value = line.trim();
     if (!value || directories.length >= maximumDiscoveredDirectories) continue;
-    try { if (!directories.includes(validateWorkspaceDirectoryInput(value))) directories.push(value); }
-    catch { /* Remote filenames outside the strict UI contract are not shown. */ }
+    try {
+      if (!directories.includes(validateWorkspaceDirectoryInput(value))) directories.push(value);
+    } catch {
+      /* Remote filenames outside the strict UI contract are not shown. */
+    }
   }
   return directories;
 }
@@ -67,7 +74,7 @@ export function legacyRemoteMigrationCommand(): string {
     'H="$HOME"',
     'for f in "$H"/.vibe-server-*; do [ -e "$f" ] || continue; n="${f##*/.vibe-server-}"; [ -e "$H/.hatopad-server-$n" ] || mv -- "$f" "$H/.hatopad-server-$n"; done',
     'if [ -f "$H/.vibe/workspaces" ] && [ ! -e "$H/.hatopad/gateway-workspaces" ]; then mkdir -p -- "$H/.hatopad" && cp -p -- "$H/.vibe/workspaces" "$H/.hatopad/gateway-workspaces"; fi',
-    'true'
+    "true",
   ].join("; ");
   return `bash -lc ${quoteWorkspaceShellArgument(script)}`;
 }

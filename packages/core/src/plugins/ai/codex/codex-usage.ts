@@ -4,7 +4,11 @@ import type { AiAccountQuota, AiQuotaWindow } from "@hatopad/acp";
 
 type JsonRecord = Record<string, unknown>;
 
-export async function readCodexAccountQuota(command: string, args: string[], timeoutMs = 5_000): Promise<AiAccountQuota | undefined> {
+export async function readCodexAccountQuota(
+  command: string,
+  args: string[],
+  timeoutMs = 5_000,
+): Promise<AiAccountQuota | undefined> {
   return new Promise((resolve) => {
     const child = spawn(command, args, { stdio: ["pipe", "pipe", "ignore"] });
     const lines = createInterface({ input: child.stdout });
@@ -23,7 +27,11 @@ export async function readCodexAccountQuota(command: string, args: string[], tim
     child.stdin.on("error", () => finish());
     lines.on("line", (line) => {
       let message: JsonRecord;
-      try { message = JSON.parse(line) as JsonRecord; } catch { return; }
+      try {
+        message = JSON.parse(line) as JsonRecord;
+      } catch {
+        return;
+      }
       if (message.id === 1 && message.result) {
         child.stdin.write(`${JSON.stringify({ method: "initialized" })}\n`);
         child.stdin.write(`${JSON.stringify({ id: 2, method: "account/rateLimits/read", params: null })}\n`);
@@ -31,7 +39,9 @@ export async function readCodexAccountQuota(command: string, args: string[], tim
         finish(parseCodexAccountQuota(message.result));
       }
     });
-    child.stdin.write(`${JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "hatopad", title: "HatoPad", version: "0.1.0" }, capabilities: {} } })}\n`);
+    child.stdin.write(
+      `${JSON.stringify({ id: 1, method: "initialize", params: { clientInfo: { name: "hatopad", title: "HatoPad", version: "0.1.0" }, capabilities: {} } })}\n`,
+    );
   });
 }
 
@@ -48,9 +58,15 @@ export function parseCodexAccountQuota(value: unknown): AiAccountQuota | undefin
     ...(typeof rateLimits.limitName === "string" ? { limitName: rateLimits.limitName } : {}),
     ...(primary ? { primary } : {}),
     ...(secondary ? { secondary } : {}),
-    ...(credits && typeof credits.hasCredits === "boolean" && typeof credits.unlimited === "boolean" ? {
-      credits: { hasCredits: credits.hasCredits, unlimited: credits.unlimited, ...(typeof credits.balance === "string" ? { balance: credits.balance } : {}) }
-    } : {})
+    ...(credits && typeof credits.hasCredits === "boolean" && typeof credits.unlimited === "boolean"
+      ? {
+          credits: {
+            hasCredits: credits.hasCredits,
+            unlimited: credits.unlimited,
+            ...(typeof credits.balance === "string" ? { balance: credits.balance } : {}),
+          },
+        }
+      : {}),
   };
 }
 
@@ -61,10 +77,10 @@ function quotaWindow(value: unknown): AiQuotaWindow | undefined {
     usedPercent: window.usedPercent,
     remainingPercent: Math.max(0, 100 - window.usedPercent),
     ...(typeof window.windowDurationMins === "number" ? { windowMinutes: window.windowDurationMins } : {}),
-    ...(typeof window.resetsAt === "number" ? { resetsAt: new Date(window.resetsAt * 1_000).toISOString() } : {})
+    ...(typeof window.resetsAt === "number" ? { resetsAt: new Date(window.resetsAt * 1_000).toISOString() } : {}),
   };
 }
 
 function record(value: unknown): JsonRecord | undefined {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JsonRecord : undefined;
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonRecord) : undefined;
 }

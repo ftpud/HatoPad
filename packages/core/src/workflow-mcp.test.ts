@@ -5,19 +5,75 @@ import { expect, it } from "vitest";
 
 it("advertises typed workflow tools over the real MCP transport", async () => {
   const replies = await new Promise<string>((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", fileURLToPath(new URL("./app-tools.ts", import.meta.url))], {
-      env: { ...process.env, HATOPAD_ROOT_WORKSPACE: os.tmpdir(), HATOPAD_CURRENT_WORKSPACE: os.tmpdir(), HATOPAD_WORKFLOW_RUN_ID: "run", HATOPAD_WORKFLOW_BLOCK_ID: "agent", HATOPAD_FLOW_TOOLS: "1" }, stdio: ["pipe", "pipe", "pipe"]
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", fileURLToPath(new URL("./app-tools.ts", import.meta.url))],
+      {
+        env: {
+          ...process.env,
+          HATOPAD_ROOT_WORKSPACE: os.tmpdir(),
+          HATOPAD_CURRENT_WORKSPACE: os.tmpdir(),
+          HATOPAD_WORKFLOW_RUN_ID: "run",
+          HATOPAD_WORKFLOW_BLOCK_ID: "agent",
+          HATOPAD_FLOW_TOOLS: "1",
+        },
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    let output = "",
+      error = "";
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
     });
-    let output = "", error = "";
-    child.stdout.on("data", (chunk) => { output += chunk; }); child.stderr.on("data", (chunk) => { error += chunk; });
-    child.on("error", reject); child.on("close", (code) => code === 0 ? resolve(output) : reject(new Error(error)));
-    child.stdin.end(`${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`);
+    child.stderr.on("data", (chunk) => {
+      error += chunk;
+    });
+    child.on("error", reject);
+    child.on("close", (code) => (code === 0 ? resolve(output) : reject(new Error(error))));
+    child.stdin.end(
+      `${JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" })}\n${JSON.stringify({ jsonrpc: "2.0", id: 2, method: "tools/list" })}\n`,
+    );
   });
-  const messages = replies.trim().split("\n").map((line) => JSON.parse(line));
+  const messages = replies
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
   expect(messages[0].result.capabilities).toEqual({ tools: {} });
-  const tools = messages[1].result.tools as Array<{ name: string; inputSchema: { required?: string[]; properties?: Record<string, unknown> } }>;
-  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["workflow_connections", "workflow_use_block", "workflow_block_output", "workflow_block_messages", "workflow_choose_path"]));
+  const tools = messages[1].result.tools as Array<{
+    name: string;
+    inputSchema: { required?: string[]; properties?: Record<string, unknown> };
+  }>;
+  expect(tools.map((tool) => tool.name)).toEqual(
+    expect.arrayContaining([
+      "workflow_connections",
+      "workflow_use_block",
+      "workflow_block_output",
+      "workflow_block_messages",
+      "workflow_choose_path",
+    ]),
+  );
   expect(tools.find((tool) => tool.name === "workflow_use_block")?.inputSchema.required).toEqual(["block_id"]);
-  expect(tools.find((tool) => tool.name === "workflow_use_block")?.inputSchema.properties).toMatchObject({ action: { enum: expect.arrayContaining(["set_commit_message", "update_commit_message", "list", "open", "open_and_run", "read", "write", "publish", "diff", "wait"]) }, after: { type: "integer", minimum: 0 }, message: { type: "string", maxLength: 10000 }, terminal_id: { type: "string" }, name: { type: "string", maxLength: 120 }, command: { type: "string", minLength: 1, maxLength: 100000 }, data: { type: "string", maxLength: 100000 } });
+  expect(tools.find((tool) => tool.name === "workflow_use_block")?.inputSchema.properties).toMatchObject({
+    action: {
+      enum: expect.arrayContaining([
+        "set_commit_message",
+        "update_commit_message",
+        "list",
+        "open",
+        "open_and_run",
+        "read",
+        "write",
+        "publish",
+        "diff",
+        "wait",
+      ]),
+    },
+    after: { type: "integer", minimum: 0 },
+    message: { type: "string", maxLength: 10000 },
+    terminal_id: { type: "string" },
+    name: { type: "string", maxLength: 120 },
+    command: { type: "string", minLength: 1, maxLength: 100000 },
+    data: { type: "string", maxLength: 100000 },
+  });
   expect(tools.map((tool) => tool.name)).not.toContain("workflow_run_stack");
 });

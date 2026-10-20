@@ -8,9 +8,14 @@ afterEach(() => terminals.splice(0).forEach((terminal) => terminal.dispose()));
 const settleActivity = () => new Promise<void>((resolve) => setTimeout(resolve, 170));
 
 it("ignores replay, control-only traffic, and split redraws of the same prompt", async () => {
-  const terminal = new Terminal(); terminals.push(terminal);
+  const terminal = new Terminal();
+  terminals.push(terminal);
   const onChange = vi.fn();
-  const output = createTerminalOutput(terminal, { text: () => terminalBufferText(terminal), isViewed: () => false, onChange });
+  const output = createTerminalOutput(terminal, {
+    text: () => terminalBufferText(terminal),
+    isViewed: () => false,
+    onChange,
+  });
   output.write("Prompt$ ", true);
   await vi.waitFor(() => expect(terminalBufferText(terminal)).toBe("Prompt$"));
   output.write("\x1b[?25l\x1b[31m\x1b]0;new window title\x07");
@@ -26,10 +31,15 @@ it("ignores replay, control-only traffic, and split redraws of the same prompt",
 });
 
 it("does not mark output received while viewed after the user switches away", async () => {
-  const terminal = new Terminal(); terminals.push(terminal);
+  const terminal = new Terminal();
+  terminals.push(terminal);
   let viewed = true;
   const onChange = vi.fn();
-  const output = createTerminalOutput(terminal, { text: () => terminalBufferText(terminal), isViewed: () => viewed, onChange });
+  const output = createTerminalOutput(terminal, {
+    text: () => terminalBufferText(terminal),
+    isViewed: () => viewed,
+    onChange,
+  });
   output.write("Foreground output");
   viewed = false;
   await settleActivity();
@@ -40,9 +50,14 @@ it("does not mark output received while viewed after the user switches away", as
 });
 
 it("clears pending activity when viewed and still tracks later output while hidden", async () => {
-  const terminal = new Terminal(); terminals.push(terminal);
+  const terminal = new Terminal();
+  terminals.push(terminal);
   const onChange = vi.fn();
-  const output = createTerminalOutput(terminal, { text: () => terminalBufferText(terminal), isViewed: () => false, onChange });
+  const output = createTerminalOutput(terminal, {
+    text: () => terminalBufferText(terminal),
+    isViewed: () => false,
+    onChange,
+  });
   output.write("Already viewed");
   await vi.waitFor(() => expect(terminalBufferText(terminal)).toBe("Already viewed"));
   output.acknowledge();
@@ -57,9 +72,14 @@ it("clears pending activity when viewed and still tracks later output while hidd
 });
 
 it("ignores rewrapping on resize and an identical live redraw after queued replay", async () => {
-  const terminal = new Terminal({ cols: 20, rows: 5 }); terminals.push(terminal);
+  const terminal = new Terminal({ cols: 20, rows: 5 });
+  terminals.push(terminal);
   const onChange = vi.fn();
-  const output = createTerminalOutput(terminal, { text: () => terminalBufferText(terminal), isViewed: () => false, onChange });
+  const output = createTerminalOutput(terminal, {
+    text: () => terminalBufferText(terminal),
+    isViewed: () => false,
+    onChange,
+  });
   const prompt = "A long prompt that wraps$ ";
   output.write(prompt, true);
   output.write("\x1b[?25h");
@@ -74,10 +94,13 @@ it("ignores rewrapping on resize and an identical live redraw after queued repla
 });
 
 it("does not feed historical cursor/device responses into the shell and answers queued live queries", async () => {
-  const terminal = new Terminal(); terminals.push(terminal);
+  const terminal = new Terminal();
+  terminals.push(terminal);
   const output = createTerminalOutput(terminal);
   const received: string[] = [];
-  terminal.onData((data) => { if (!output.isHistoricalReply()) received.push(data); });
+  terminal.onData((data) => {
+    if (!output.isHistoricalReply()) received.push(data);
+  });
   output.write("Prompt$ \x1b[6n\x1b[c\x1b[>c\x1b[?6n\x1b[?25$p\x1bP$qm\x1b\\", true);
   output.write("\x1b[6n\x1b[>c");
   await vi.waitFor(() => expect(received).toHaveLength(2));
@@ -88,10 +111,13 @@ it("does not feed historical cursor/device responses into the shell and answers 
 });
 
 it("preserves user input between asynchronous replay chunks", async () => {
-  const terminal = new Terminal(); terminals.push(terminal);
+  const terminal = new Terminal();
+  terminals.push(terminal);
   const output = createTerminalOutput(terminal);
   const received: string[] = [];
-  terminal.onData((data) => { if (!output.isHistoricalReply()) received.push(data); });
+  terminal.onData((data) => {
+    if (!output.isHistoricalReply()) received.push(data);
+  });
   output.write("\x1b[", true);
   await new Promise<void>((resolve) => terminal.write("", resolve));
   terminal.input("typed while reconnecting");
@@ -107,8 +133,15 @@ it("ignores colour replies while preserving default handling of replayed palette
   const handlers = new Map<number, () => boolean>();
   const writes: { data: string; done: () => void }[] = [];
   const terminal = {
-    parser: { registerCsiHandler: () => ({ dispose() {} }), registerDcsHandler: () => ({ dispose() {} }), registerOscHandler: (id: number, handler: () => boolean) => { handlers.set(id, handler); return { dispose() {} }; } },
-    write: (data: string, done: () => void) => writes.push({ data, done })
+    parser: {
+      registerCsiHandler: () => ({ dispose() {} }),
+      registerDcsHandler: () => ({ dispose() {} }),
+      registerOscHandler: (id: number, handler: () => boolean) => {
+        handlers.set(id, handler);
+        return { dispose() {} };
+      },
+    },
+    write: (data: string, done: () => void) => writes.push({ data, done }),
   };
   const output = createTerminalOutput(terminal as unknown as Terminal);
   output.write("\x1b]4;1;#ff0000;2;?\x07\x1b]10;?\x07\x1b]11;?\x07", true);
@@ -119,7 +152,8 @@ it("ignores colour replies while preserving default handling of replayed palette
   await Promise.resolve();
   expect(output.isHistoricalReply()).toBe(false);
   writes[0]!.done();
-  output.write("live"); handlers.get(10)!();
+  output.write("live");
+  handlers.get(10)!();
   expect(output.isHistoricalReply()).toBe(false);
   output.dispose();
 });

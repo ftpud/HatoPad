@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { adjacentEditorTabId, editorShortcutEligible, editorTabShortcut } from "./editor-shortcuts";
 
-afterEach(() => { document.body.innerHTML = ""; });
+afterEach(() => {
+  document.body.innerHTML = "";
+});
 
 describe("adjacentEditorTabId", () => {
   const tabs = ["one", "two", "three"];
@@ -23,10 +25,18 @@ describe("adjacentEditorTabId", () => {
 
 describe("editor shortcuts", () => {
   it("recognizes navigation and platform close modifiers", () => {
-    expect(editorTabShortcut({ key: "Tab", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe("next");
-    expect(editorTabShortcut({ key: "Tab", ctrlKey: true, metaKey: false, altKey: false, shiftKey: true })).toBe("previous");
-    expect(editorTabShortcut({ key: "w", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe("close");
-    expect(editorTabShortcut({ key: "w", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false })).toBe("close");
+    expect(editorTabShortcut({ key: "Tab", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe(
+      "next",
+    );
+    expect(editorTabShortcut({ key: "Tab", ctrlKey: true, metaKey: false, altKey: false, shiftKey: true })).toBe(
+      "previous",
+    );
+    expect(editorTabShortcut({ key: "w", ctrlKey: true, metaKey: false, altKey: false, shiftKey: false })).toBe(
+      "close",
+    );
+    expect(editorTabShortcut({ key: "w", ctrlKey: false, metaKey: true, altKey: false, shiftKey: false })).toBe(
+      "close",
+    );
   });
 
   it("excludes dialogs, context menus, terminals, focused controls, and Monaco suggestions", () => {
@@ -35,7 +45,7 @@ describe("editor shortcuts", () => {
       '<div class="context-menu-layer"><button id="target">Item</button></div>',
       '<div class="terminal-panel"><textarea id="target"></textarea></div>',
       '<input id="target">',
-      '<div class="monaco-editor"><div class="suggest-widget visible"></div><textarea id="target"></textarea></div>'
+      '<div class="monaco-editor"><div class="suggest-widget visible"></div><textarea id="target"></textarea></div>',
     ]) {
       document.body.innerHTML = html;
       expect(editorShortcutEligible(document.querySelector("#target"), document)).toBe(false);

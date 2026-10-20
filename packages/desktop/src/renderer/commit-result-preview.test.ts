@@ -2,7 +2,11 @@ import { expect, it } from "vitest";
 import { buildCommitResultPreview, commitResultStates, hasConflictMarkers } from "./commit-result-preview";
 import { applyBlock } from "./conflict-merge";
 it("previews all clean changes preserving unrelated local edits and shifted lines", () => {
-  const preview = buildCommitResultPreview("header\na\nseparator\nb\n", "intro\nheader\na\nseparator\nb\n", "header\nA\nseparator\nB\n");
+  const preview = buildCommitResultPreview(
+    "header\na\nseparator\nb\n",
+    "intro\nheader\na\nseparator\nb\n",
+    "header\nA\nseparator\nB\n",
+  );
   expect(preview.initial).toBe("intro\nheader\nA\nseparator\nB\n");
   expect(commitResultStates(preview, preview.initial).map((s) => s.conflict)).toEqual([false, false]);
   expect(commitResultStates(preview, preview.initial)[1]?.range).toEqual({ start: 4, end: 5 });

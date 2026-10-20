@@ -9,10 +9,10 @@ already-running Core work.
 
 ## Heartbeats and recovery
 
-| Monitor | Interval | Response deadline |
-| --- | --- | --- |
-| Desktop `protocol.keepAlive` | 10 seconds | 10 seconds |
-| Core WebSocket ping/pong | 30 seconds | 10 seconds |
+| Monitor                      | Interval   | Response deadline |
+| ---------------------------- | ---------- | ----------------- |
+| Desktop `protocol.keepAlive` | 10 seconds | 10 seconds        |
+| Core WebSocket ping/pong     | 30 seconds | 10 seconds        |
 
 Desktop has at most one probe in flight. Keep-alive replies bypass service
 initialization, workspace-switch waits and application admission. Browsers answer
@@ -46,8 +46,8 @@ createServer(host, port, workspace, {
     maxCoalescedBytes: 64 * 1024,
     maxCoalescedEvents: 64,
     drainIntervalMs: 25,
-    maxCoalesceDelayMs: 2_000
-  }
+    maxCoalesceDelayMs: 2_000,
+  },
 });
 ```
 
@@ -112,7 +112,7 @@ reads can finish but cannot commit stale state. Manual refreshes and required
 stream events retain their own handling. Continuous invalidations can keep one
 batch running at a time; coalescing is not a time-based rate limit.
 
-Implementation and regression tests are colocated with `core/src/server.ts`,
+Implementation and regression tests are colocated with `core/src/server.ts`, its `routes/` domain modules,
 `request-admission.ts`, `websocket-output.ts`, `filesystem.ts`, and renderer
 `client.ts`, `connection-recovery.ts`, `workspace-recovery.ts`, and
 `invalidation-refreshes.ts`.
@@ -153,7 +153,6 @@ The optional macOS `npm run gateway -- --finder` launcher remains available for
 app-attributed privacy prompts, but browser-based sign-in uses your browser's
 passkey UI and does not depend on the embedded Electron passkey implementation.
 
-
 ### Updating cloud Cores
 
 The cloud server view has a compact **Update cloud Core** icon. A packaged
@@ -171,7 +170,6 @@ The icon explains when management access or a platform bundle is unavailable,
 and is disabled when the selected release already matches. Source Gateways do
 not provide this bundled-Core action. Cloud discovery can fail due to protocol
 incompatibility while the SSH update action remains available.
-
 
 ### Desktop connection ownership
 

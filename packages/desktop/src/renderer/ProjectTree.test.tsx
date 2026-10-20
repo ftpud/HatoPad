@@ -4,37 +4,145 @@ import type { FileTreeNode } from "@hatopad/protocol";
 import { useState } from "react";
 import { ProjectTree, compactProjectTree, filterProjectTree, filterProjectTreeByPaths } from "./ProjectTree";
 
-const nodes: FileTreeNode[] = [{
-  name: "src", path: "src", type: "directory", children: [
-    { name: "components", path: "src/components", type: "directory", children: [{ name: "Tree.tsx", path: "src/components/Tree.tsx", type: "file" }] },
-    { name: "main.ts", path: "src/main.ts", type: "file" }
-  ]
-}, { name: "README.md", path: "README.md", type: "file" }];
+const nodes: FileTreeNode[] = [
+  {
+    name: "src",
+    path: "src",
+    type: "directory",
+    children: [
+      {
+        name: "components",
+        path: "src/components",
+        type: "directory",
+        children: [{ name: "Tree.tsx", path: "src/components/Tree.tsx", type: "file" }],
+      },
+      { name: "main.ts", path: "src/main.ts", type: "file" },
+    ],
+  },
+  { name: "README.md", path: "README.md", type: "file" },
+];
 
 afterEach(cleanup);
 
 function renderTree(options: { query?: string; activePath?: string } = {}) {
   const onOpen = vi.fn();
-  render(<ProjectTree nodes={nodes} query={options.query ?? ""} activePath={options.activePath} selectedPaths={new Set()} fileColors={{}} gitStatuses={{}} onAction={(action, selected) => { if (action === "open") onOpen(selected[0]); }} onContextMenu={vi.fn()} onSelectionChange={vi.fn()} />);
+  render(
+    <ProjectTree
+      nodes={nodes}
+      query={options.query ?? ""}
+      activePath={options.activePath}
+      selectedPaths={new Set()}
+      fileColors={{}}
+      gitStatuses={{}}
+      onAction={(action, selected) => {
+        if (action === "open") onOpen(selected[0]);
+      }}
+      onContextMenu={vi.fn()}
+      onSelectionChange={vi.fn()}
+    />,
+  );
   return onOpen;
 }
 
 describe("ProjectTree", () => {
   it("keeps source roots visible and renders Core Java type metadata", () => {
-    const javaNodes = [{ name: "src/main/java", path: "src/main/java", type: "sourceRoot" as const, sourceKind: "source" as const, children: [{ name: "Contract.java", path: "src/main/java/example/Contract.java", type: "file" as const, javaType: { kind: "interface" as const, extends: true } }] }];
-    const tree: FileTreeNode[] = [{ name: "src", path: "src", type: "directory", children: [{ name: "main", path: "src/main", type: "directory", children: [{ name: "java", path: "src/main/java", type: "directory", children: [{ name: "example", path: "src/main/java/example", type: "directory", children: [{ name: "Contract.java", path: "src/main/java/example/Contract.java", type: "file" }] }] }] }] }];
+    const javaNodes = [
+      {
+        name: "src/main/java",
+        path: "src/main/java",
+        type: "sourceRoot" as const,
+        sourceKind: "source" as const,
+        children: [
+          {
+            name: "Contract.java",
+            path: "src/main/java/example/Contract.java",
+            type: "file" as const,
+            javaType: { kind: "interface" as const, extends: true },
+          },
+        ],
+      },
+    ];
+    const tree: FileTreeNode[] = [
+      {
+        name: "src",
+        path: "src",
+        type: "directory",
+        children: [
+          {
+            name: "main",
+            path: "src/main",
+            type: "directory",
+            children: [
+              {
+                name: "java",
+                path: "src/main/java",
+                type: "directory",
+                children: [
+                  {
+                    name: "example",
+                    path: "src/main/java/example",
+                    type: "directory",
+                    children: [{ name: "Contract.java", path: "src/main/java/example/Contract.java", type: "file" }],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ];
     const compacted = compactProjectTree(tree, new Set(["src/main/java"]));
     expect(compacted[0]).toMatchObject({ name: "src/main/java", path: "src/main/java" });
     expect(compacted[0]?.children?.[0]?.name).toBe("example");
-    render(<ProjectTree nodes={tree} javaNodes={javaNodes} query="" selectedPaths={new Set()} fileColors={{}} gitStatuses={{}} onAction={vi.fn()} onContextMenu={vi.fn()} onSelectionChange={vi.fn()} />);
+    render(
+      <ProjectTree
+        nodes={tree}
+        javaNodes={javaNodes}
+        query=""
+        selectedPaths={new Set()}
+        fileColors={{}}
+        gitStatuses={{}}
+        onAction={vi.fn()}
+        onContextMenu={vi.fn()}
+        onSelectionChange={vi.fn()}
+      />,
+    );
     expect(screen.getByLabelText("Source directory")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Expand all folders" }));
     expect(screen.getByRole("img", { name: "Interface · extends a type" })).not.toBeNull();
   });
 
   it("compacts directory-only chains into one explorer row", () => {
-    const compacted = compactProjectTree([{ name: "packages", path: "packages", type: "directory", children: [{ name: "app", path: "packages/app", type: "directory", children: [{ name: "src", path: "packages/app/src", type: "directory", children: [{ name: "main.ts", path: "packages/app/src/main.ts", type: "file" }] }] }] }]);
-    expect(compacted).toEqual([{ name: "packages/app/src", path: "packages/app/src", type: "directory", children: [{ name: "main.ts", path: "packages/app/src/main.ts", type: "file" }] }]);
+    const compacted = compactProjectTree([
+      {
+        name: "packages",
+        path: "packages",
+        type: "directory",
+        children: [
+          {
+            name: "app",
+            path: "packages/app",
+            type: "directory",
+            children: [
+              {
+                name: "src",
+                path: "packages/app/src",
+                type: "directory",
+                children: [{ name: "main.ts", path: "packages/app/src/main.ts", type: "file" }],
+              },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(compacted).toEqual([
+      {
+        name: "packages/app/src",
+        path: "packages/app/src",
+        type: "directory",
+        children: [{ name: "main.ts", path: "packages/app/src/main.ts", type: "file" }],
+      },
+    ]);
   });
 
   it("stops compacting when a directory also contains a file", () => {
@@ -44,14 +152,35 @@ describe("ProjectTree", () => {
   });
 
   it("keeps directory context when filtering by content-matched file paths", () => {
-    expect(filterProjectTreeByPaths(nodes, new Set(["src/components/Tree.tsx"]))).toEqual([expect.objectContaining({
-      path: "src",
-      children: [expect.objectContaining({ path: "src/components", children: [expect.objectContaining({ path: "src/components/Tree.tsx" })] })]
-    })]);
+    expect(filterProjectTreeByPaths(nodes, new Set(["src/components/Tree.tsx"]))).toEqual([
+      expect.objectContaining({
+        path: "src",
+        children: [
+          expect.objectContaining({
+            path: "src/components",
+            children: [expect.objectContaining({ path: "src/components/Tree.tsx" })],
+          }),
+        ],
+      }),
+    ]);
   });
 
   it("keeps stable ctrl and shift multi-selection across visible rows", () => {
-    const Harness = () => { const [selected, setSelected] = useState(new Set<string>()); return <ProjectTree nodes={nodes} query="" selectedPaths={selected} fileColors={{}} gitStatuses={{}} onAction={vi.fn()} onContextMenu={vi.fn()} onSelectionChange={setSelected} />; };
+    const Harness = () => {
+      const [selected, setSelected] = useState(new Set<string>());
+      return (
+        <ProjectTree
+          nodes={nodes}
+          query=""
+          selectedPaths={selected}
+          fileColors={{}}
+          gitStatuses={{}}
+          onAction={vi.fn()}
+          onContextMenu={vi.fn()}
+          onSelectionChange={setSelected}
+        />
+      );
+    };
     render(<Harness />);
     fireEvent.click(screen.getByRole("treeitem", { name: "src" }));
     fireEvent.click(screen.getByRole("treeitem", { name: "components" }), { ctrlKey: true });
@@ -83,14 +212,30 @@ describe("ProjectTree", () => {
   });
 
   it("opens the shared action menu from the keyboard and renames with F2", () => {
-    const onAction = vi.fn(); const onMenu = vi.fn();
-    render(<ProjectTree nodes={nodes} query="" selectedPaths={new Set()} fileColors={{}} gitStatuses={{}} onAction={onAction} onContextMenu={onMenu} onSelectionChange={vi.fn()} />);
+    const onAction = vi.fn();
+    const onMenu = vi.fn();
+    render(
+      <ProjectTree
+        nodes={nodes}
+        query=""
+        selectedPaths={new Set()}
+        fileColors={{}}
+        gitStatuses={{}}
+        onAction={onAction}
+        onContextMenu={onMenu}
+        onSelectionChange={vi.fn()}
+      />,
+    );
     const src = screen.getByRole("treeitem", { name: "src" });
     fireEvent.focus(src);
     fireEvent.keyDown(src, { key: "F2" });
     fireEvent.keyDown(src, { key: "ContextMenu" });
     expect(onAction).toHaveBeenCalledWith("rename", [expect.objectContaining({ path: "src" })]);
-    expect(onMenu).toHaveBeenCalledWith([expect.objectContaining({ path: "src" })], expect.any(Number), expect.any(Number));
+    expect(onMenu).toHaveBeenCalledWith(
+      [expect.objectContaining({ path: "src" })],
+      expect.any(Number),
+      expect.any(Number),
+    );
   });
 
   it("reveals the active file and reports filtered file counts", async () => {
@@ -102,7 +247,8 @@ describe("ProjectTree", () => {
   it("reveals, focuses, and scrolls the active row without collapsing unrelated folders", async () => {
     renderTree({ activePath: "src/components/Tree.tsx" });
     fireEvent.click(screen.getByRole("button", { name: "Collapse all folders" }));
-    const scrollIntoView = vi.fn(); Element.prototype.scrollIntoView = scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
     fireEvent.click(screen.getByRole("button", { name: "Reveal active file" }));
     expect(await screen.findByRole("treeitem", { name: "Tree.tsx" })).toBe(document.activeElement);
     expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
@@ -111,8 +257,20 @@ describe("ProjectTree", () => {
 
   it("routes path-copy shortcuts through the shared tree action model", () => {
     const onAction = vi.fn();
-    render(<ProjectTree nodes={nodes} query="" selectedPaths={new Set()} fileColors={{}} gitStatuses={{}} onAction={onAction} onContextMenu={vi.fn()} onSelectionChange={vi.fn()} />);
-    const src = screen.getByRole("treeitem", { name: "src" }); fireEvent.focus(src);
+    render(
+      <ProjectTree
+        nodes={nodes}
+        query=""
+        selectedPaths={new Set()}
+        fileColors={{}}
+        gitStatuses={{}}
+        onAction={onAction}
+        onContextMenu={vi.fn()}
+        onSelectionChange={vi.fn()}
+      />,
+    );
+    const src = screen.getByRole("treeitem", { name: "src" });
+    fireEvent.focus(src);
     fireEvent.keyDown(src, { key: "c", ctrlKey: true, shiftKey: true });
     fireEvent.keyDown(src, { key: "c", ctrlKey: true, altKey: true });
     expect(onAction).toHaveBeenNthCalledWith(1, "copyAbsolutePath", [expect.objectContaining({ path: "src" })]);
@@ -120,10 +278,17 @@ describe("ProjectTree", () => {
   });
 
   it("keeps matching ancestor context while filtering", () => {
-    expect(filterProjectTree(nodes, "tree.tsx")).toEqual([expect.objectContaining({
-      path: "src",
-      children: [expect.objectContaining({ path: "src/components", children: [expect.objectContaining({ path: "src/components/Tree.tsx" })] })]
-    })]);
+    expect(filterProjectTree(nodes, "tree.tsx")).toEqual([
+      expect.objectContaining({
+        path: "src",
+        children: [
+          expect.objectContaining({
+            path: "src/components",
+            children: [expect.objectContaining({ path: "src/components/Tree.tsx" })],
+          }),
+        ],
+      }),
+    ]);
     renderTree({ query: "tree.tsx" });
     expect(screen.getByText("1 matching file")).not.toBeNull();
     expect(screen.getByText("Tree.tsx")).not.toBeNull();

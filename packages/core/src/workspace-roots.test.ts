@@ -5,11 +5,16 @@ import path from "node:path";
 import { WorkspaceRootRegistry } from "./workspace-roots.js";
 
 const cleanup: string[] = [];
-afterEach(async () => { await Promise.all(cleanup.splice(0).map((item) => rm(item, { recursive: true, force: true }))); });
+afterEach(async () => {
+  await Promise.all(cleanup.splice(0).map((item) => rm(item, { recursive: true, force: true })));
+});
 
 async function fixture() {
-  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-roots-"))); cleanup.push(directory);
-  const primary = path.join(directory, "primary"), related = path.join(directory, "related"), state = path.join(directory, "state");
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-roots-")));
+  cleanup.push(directory);
+  const primary = path.join(directory, "primary"),
+    related = path.join(directory, "related"),
+    state = path.join(directory, "state");
   await Promise.all([mkdir(primary), mkdir(related), mkdir(state)]);
   return { directory, primary, related, state };
 }
@@ -18,7 +23,9 @@ describe("WorkspaceRootRegistry", () => {
   it("keeps a stable primary identity and migrates a legacy single-root workspace", async () => {
     const { primary, state } = await fixture();
     const first = await WorkspaceRootRegistry.open(primary, state);
-    expect(first.list()).toEqual([{ id: expect.stringMatching(/^root_/), alias: "primary", path: primary, primary: true }]);
+    expect(first.list()).toEqual([
+      { id: expect.stringMatching(/^root_/), alias: "primary", path: primary, primary: true },
+    ]);
     expect((await WorkspaceRootRegistry.open(primary, state)).primary().id).toBe(first.primary().id);
   });
 
@@ -43,7 +50,8 @@ describe("WorkspaceRootRegistry", () => {
   it("unregisters without deleting the underlying directory", async () => {
     const { primary, related, state } = await fixture();
     const registry = await WorkspaceRootRegistry.open(primary, state);
-    const root = await registry.add(related, "api"); await registry.remove(root.id);
+    const root = await registry.add(related, "api");
+    await registry.remove(root.id);
     expect(registry.list()).toHaveLength(1);
     await expect(mkdir(path.join(related, "still-here"))).resolves.toBeUndefined();
   });

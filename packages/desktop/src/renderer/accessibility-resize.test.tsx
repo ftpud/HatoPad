@@ -3,7 +3,8 @@ import { keyboardResize } from "./App";
 
 describe("keyboardResize", () => {
   it("supports arrows, larger Shift steps, bounds, and reversed right panels", () => {
-    const update = vi.fn(); const preventDefault = vi.fn();
+    const update = vi.fn();
+    const preventDefault = vi.fn();
     keyboardResize({ key: "ArrowRight", shiftKey: false, preventDefault }, 300, update, 280, 400);
     keyboardResize({ key: "ArrowLeft", shiftKey: true, preventDefault }, 300, update, 280, 400);
     keyboardResize({ key: "ArrowRight", shiftKey: false, preventDefault }, 300, update, 280, 400, true);

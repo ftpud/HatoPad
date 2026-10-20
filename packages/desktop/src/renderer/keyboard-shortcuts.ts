@@ -8,27 +8,18 @@ import {
   type ShortcutBindings,
 } from "./command-registry";
 export const KEYBOARD_SHORTCUTS_SETTING = "keyboardShortcuts";
-export function parseShortcutSetting(
-  value: string | null,
-  platform: DesktopPlatform,
-): ShortcutBindings {
+export function parseShortcutSetting(value: string | null, platform: DesktopPlatform): ShortcutBindings {
   const result = defaultShortcutBindings(platform);
   if (!value) return result;
   try {
     const parsed: unknown = JSON.parse(value);
     const versioned = typeof parsed === "object" && parsed !== null && "version" in parsed;
-    const candidate =
-      versioned
-        ? (parsed as { version?: unknown; bindings?: unknown }).version === 1
-          ? (parsed as { bindings?: unknown }).bindings
-          : undefined
-        : parsed;
-    if (
-      typeof candidate !== "object" ||
-      candidate === null ||
-      Array.isArray(candidate)
-    )
-      return result;
+    const candidate = versioned
+      ? (parsed as { version?: unknown; bindings?: unknown }).version === 1
+        ? (parsed as { bindings?: unknown }).bindings
+        : undefined
+      : parsed;
+    if (typeof candidate !== "object" || candidate === null || Array.isArray(candidate)) return result;
     for (const rawId of Object.keys(candidate)) {
       const id = rawId === "java.configuration" ? "language.java.configuration" : rawId;
       if (!isCommandId(id)) continue;
@@ -40,7 +31,8 @@ export function parseShortcutSetting(
       }
     }
     if (versioned && Array.isArray((parsed as { disabled?: unknown }).disabled)) {
-      for (const id of (parsed as unknown as { disabled: unknown[] }).disabled) if (isCommandId(id)) delete result[id as CommandId];
+      for (const id of (parsed as unknown as { disabled: unknown[] }).disabled)
+        if (isCommandId(id)) delete result[id as CommandId];
     }
   } catch {
     /* Damaged settings retain safe defaults. */
@@ -59,13 +51,11 @@ export function migrateShortcutSetting(value: string | null, platform: DesktopPl
     const parsed: unknown = JSON.parse(value);
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || "version" in parsed) return undefined;
     return serializeShortcutSetting(parseShortcutSetting(value, platform));
-  } catch { return undefined; }
+  } catch {
+    return undefined;
+  }
 }
-export function updateShortcut(
-  bindings: ShortcutBindings,
-  id: CommandId,
-  shortcut?: string,
-): ShortcutBindings {
+export function updateShortcut(bindings: ShortcutBindings, id: CommandId, shortcut?: string): ShortcutBindings {
   const next = { ...bindings };
   if (shortcut) next[id] = shortcut;
   else delete next[id];

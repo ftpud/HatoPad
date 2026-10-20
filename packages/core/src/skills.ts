@@ -12,44 +12,76 @@ import { CoreError } from "./errors.js";
 const loadedSkills = new WeakMap<NonNullable<AiSession["skillCatalogue"]>, Map<string, string>>();
 
 const MAX_BYTES = 256 * 1024;
-export const SKILL_TEMPLATE = "---\nname: New Skill\ndescription: Describe when to use this skill.\n---\n\nDescribe the workflow and instructions here.\n";
+export const SKILL_TEMPLATE =
+  "---\nname: New Skill\ndescription: Describe when to use this skill.\n---\n\nDescribe the workflow and instructions here.\n";
 
-const LEGACY_SKILL_IDS: Readonly<Record<string, string>> = { "global/vibe-self-configuration": "global/hatopad-self-configuration" };
+const LEGACY_SKILL_IDS: Readonly<Record<string, string>> = {
+  "global/vibe-self-configuration": "global/hatopad-self-configuration",
+};
 /** Stored policies written before the rename still name the old shipped skill; map it so the renamed skill stays allowed. */
 function renameLegacySkillIds(policy: SkillPolicy): SkillPolicy {
   const rename = (id: string) => LEGACY_SKILL_IDS[id] ?? id;
-  if (![...policy.allowed, ...policy.defaults, ...Object.keys(policy.agents ?? {})].some((id) => id in LEGACY_SKILL_IDS)) return policy;
-  return { ...policy, allowed: [...new Set(policy.allowed.map(rename))], defaults: [...new Set(policy.defaults.map(rename))], ...(policy.agents ? { agents: Object.fromEntries(Object.entries(policy.agents).map(([id, choices]) => [rename(id), choices])) } : {}) };
+  if (
+    ![...policy.allowed, ...policy.defaults, ...Object.keys(policy.agents ?? {})].some((id) => id in LEGACY_SKILL_IDS)
+  )
+    return policy;
+  return {
+    ...policy,
+    allowed: [...new Set(policy.allowed.map(rename))],
+    defaults: [...new Set(policy.defaults.map(rename))],
+    ...(policy.agents
+      ? { agents: Object.fromEntries(Object.entries(policy.agents).map(([id, choices]) => [rename(id), choices])) }
+      : {}),
+  };
 }
 
 /** Core owns discovery, project policy and instruction loading for all providers. */
 export class SkillsStore {
-  constructor(private readonly stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"), private readonly rootWorkspace?: string) {}
+  constructor(
+    private readonly stateDirectory = process.env.HATOPAD_STATE_DIR ?? path.join(stateHome(), "workspaces"),
+    private readonly rootWorkspace?: string,
+  ) {}
 
   private directory(scope: SkillScope, workspace: string): string {
     if (scope === "global") return path.join(this.stateDirectory, "skills", "global");
     if (scope === "local") {
-      const key = crypto.createHash("sha256").update(this.rootWorkspace ?? workspace).digest("hex");
+      const key = crypto
+        .createHash("sha256")
+        .update(this.rootWorkspace ?? workspace)
+        .digest("hex");
       return path.join(this.stateDirectory, "skills", "local", key);
     }
     return path.join(workspace, ".agents", "skills");
   }
 
-  private async storedPolicy(workspace: string): Promise<{ content: string; path: string; storage: "local" | "workspace" } | undefined> {
+  private async storedPolicy(
+    workspace: string,
+  ): Promise<{ content: string; path: string; storage: "local" | "workspace" } | undefined> {
     const candidates = [
       { path: path.join(this.directory("local", workspace), "skills.json"), workspace, storage: "local" as const },
-      ...[...new Set([this.rootWorkspace ?? workspace, workspace])].map((root) => ({ path: path.join(root, ".agents", "skills.json"), workspace: root, storage: "workspace" as const }))
+      ...[...new Set([this.rootWorkspace ?? workspace, workspace])].map((root) => ({
+        path: path.join(root, ".agents", "skills.json"),
+        workspace: root,
+        storage: "workspace" as const,
+      })),
     ];
     for (const candidate of candidates) {
       const target = await this.checked(candidate.path, candidate.workspace, candidate.storage);
-      try { return { content: await readFile(target, "utf8"), path: target, storage: candidate.storage }; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+      try {
+        return { content: await readFile(target, "utf8"), path: target, storage: candidate.storage };
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
     }
     return undefined;
   }
 
   private target(id: string, workspace: string): string {
-    if (typeof id !== "string" || !/^(global|local|workspace)\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id)) throw new CoreError("INVALID_REQUEST", "Skill ID must be global/name, local/name or workspace/name using letters, numbers, underscores or hyphens");
+    if (typeof id !== "string" || !/^(global|local|workspace)\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id))
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Skill ID must be global/name, local/name or workspace/name using letters, numbers, underscores or hyphens",
+      );
     const [scope, name] = id.split("/");
     return path.join(this.directory(scope as SkillScope, workspace), name!, "SKILL.md");
   }
@@ -59,7 +91,8 @@ export class SkillsStore {
     const boundary = scope === "workspace" ? path.resolve(workspace) : path.resolve(this.stateDirectory);
     const root = await canonicalFuturePath(boundary);
     const effective = await canonicalFuturePath(target);
-    if (effective !== root && !effective.startsWith(`${root}${path.sep}`)) throw new CoreError("INVALID_REQUEST", "Skill path escapes its scope");
+    if (effective !== root && !effective.startsWith(`${root}${path.sep}`))
+      throw new CoreError("INVALID_REQUEST", "Skill path escapes its scope");
     return target;
   }
 
@@ -71,14 +104,23 @@ export class SkillsStore {
 
   /** Read a supporting document without exposing files outside the skill bundle. */
   async readResource(id: string, workspace: string, resource = "SKILL.md"): Promise<string> {
-    if (typeof resource !== "string" || resource.length > 1000 || resource.includes("\\") || resource.includes("\0") || resource.split("/").some((part) => !part || part === "." || part === "..")) {
+    if (
+      typeof resource !== "string" ||
+      resource.length > 1000 ||
+      resource.includes("\\") ||
+      resource.includes("\0") ||
+      resource.split("/").some((part) => !part || part === "." || part === "..")
+    ) {
       throw new CoreError("INVALID_REQUEST", "Skill resource must be a relative path within its skill directory");
     }
     if (resource === "SKILL.md") return this.read(id, workspace);
-    const directory = path.dirname(await this.checked(this.target(id, workspace), workspace, id.split("/", 1)[0] as SkillScope));
+    const directory = path.dirname(
+      await this.checked(this.target(id, workspace), workspace, id.split("/", 1)[0] as SkillScope),
+    );
     const boundary = await realpath(directory);
     const target = await realpath(path.join(directory, resource));
-    if (!target.startsWith(`${boundary}${path.sep}`)) throw new CoreError("INVALID_REQUEST", "Skill resource escapes its skill directory");
+    if (!target.startsWith(`${boundary}${path.sep}`))
+      throw new CoreError("INVALID_REQUEST", "Skill resource escapes its skill directory");
     const info = await stat(target);
     if (!info.isFile()) throw new CoreError("INVALID_REQUEST", "Skill resource must be a file");
     if (info.size > MAX_BYTES) throw new CoreError("FILE_TOO_LARGE", "Skill resource exceeds 256 KB");
@@ -89,46 +131,113 @@ export class SkillsStore {
     const skills: SkillFile[] = [];
     for (const scope of ["global", "local", "workspace"] as const) {
       const directory = await this.checked(this.directory(scope, workspace), workspace, scope);
-      const entries = await readdir(directory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return []; throw error; });
+      const entries = await readdir(directory, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      });
       for (const entry of entries) {
         if (!entry.isDirectory() || !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(entry.name)) continue;
         const id = `${scope}/${entry.name}`;
         try {
           const parsed = parseAgent(entry.name, await this.read(id, workspace));
-          skills.push({ id, scope, name: entry.name, title: parsed.name, description: parsed.description, path: this.target(id, workspace) });
-        } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+          skills.push({
+            id,
+            scope,
+            name: entry.name,
+            title: parsed.name,
+            description: parsed.description,
+            path: this.target(id, workspace),
+          });
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
       }
     }
     skills.sort((a, b) => a.scope.localeCompare(b.scope) || a.title.localeCompare(b.title));
     const storedPolicy = await this.storedPolicy(workspace);
-    const checkoutIds = Object.fromEntries(skills.filter((skill) => skill.scope === "workspace").map((skill) => [`local/${skill.name}`, skill.id]));
-    const legacyIds = Object.fromEntries(Object.entries(checkoutIds).filter(([id]) => !skills.some((skill) => skill.id === id)));
+    const checkoutIds = Object.fromEntries(
+      skills.filter((skill) => skill.scope === "workspace").map((skill) => [`local/${skill.name}`, skill.id]),
+    );
+    const legacyIds = Object.fromEntries(
+      Object.entries(checkoutIds).filter(([id]) => !skills.some((skill) => skill.id === id)),
+    );
     let policy: SkillPolicy;
     try {
-      const stored = storedPolicy ? JSON.parse(storedPolicy.content) : { allowed: skills.map((skill) => skill.id), defaults: [], scopeVersion: 2 };
+      const stored = storedPolicy
+        ? JSON.parse(storedPolicy.content)
+        : { allowed: skills.map((skill) => skill.id), defaults: [], scopeVersion: 2 };
       policy = this.validatePolicy(stored);
       if (stored.scopeVersion !== 2) {
         const resolve = (id: string) => checkoutIds[id] ?? id;
-        policy = { allowed: [...new Set(policy.allowed.map(resolve))], defaults: [...new Set(policy.defaults.map(resolve))], ...(policy.agents ? { agents: Object.fromEntries(Object.entries(policy.agents).map(([id, choices]) => [resolve(id), choices])) } : {}) };
+        policy = {
+          allowed: [...new Set(policy.allowed.map(resolve))],
+          defaults: [...new Set(policy.defaults.map(resolve))],
+          ...(policy.agents
+            ? {
+                agents: Object.fromEntries(
+                  Object.entries(policy.agents).map(([id, choices]) => [resolve(id), choices]),
+                ),
+              }
+            : {}),
+        };
       }
-    }
-    catch (error) {
-      throw new CoreError("INVALID_REQUEST", `Invalid skill policy (${storedPolicy?.path}): ${error instanceof Error ? error.message : String(error)}`);
+    } catch (error) {
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Invalid skill policy (${storedPolicy?.path}): ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
     policy = renameLegacySkillIds(policy);
-    return { skills, policy, policyStorage: storedPolicy?.storage ?? "local", ...(Object.keys(legacyIds).length ? { legacyIds } : {}) };
+    return {
+      skills,
+      policy,
+      policyStorage: storedPolicy?.storage ?? "local",
+      ...(Object.keys(legacyIds).length ? { legacyIds } : {}),
+    };
   }
 
   private validatePolicy(value: SkillPolicy): SkillPolicy {
-    if (!value || !Array.isArray(value.allowed) || !Array.isArray(value.defaults) || [...value.allowed, ...value.defaults].some((id) => typeof id !== "string" || !/^(global|local|workspace)\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id)) || value.defaults.some((id) => !value.allowed.includes(id))) throw new CoreError("INVALID_REQUEST", "Skill policy needs allowed/defaults arrays; defaults must be allowed");
+    if (
+      !value ||
+      !Array.isArray(value.allowed) ||
+      !Array.isArray(value.defaults) ||
+      [...value.allowed, ...value.defaults].some(
+        (id) => typeof id !== "string" || !/^(global|local|workspace)\/[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(id),
+      ) ||
+      value.defaults.some((id) => !value.allowed.includes(id))
+    )
+      throw new CoreError("INVALID_REQUEST", "Skill policy needs allowed/defaults arrays; defaults must be allowed");
     if (value.agents !== undefined) {
-      if (!value.agents || typeof value.agents !== "object" || Array.isArray(value.agents)) throw new CoreError("INVALID_REQUEST", "Skill agents must be a map of skill IDs to agent choices");
+      if (!value.agents || typeof value.agents !== "object" || Array.isArray(value.agents))
+        throw new CoreError("INVALID_REQUEST", "Skill agents must be a map of skill IDs to agent choices");
       for (const [id, choices] of Object.entries(value.agents)) {
         this.target(id, process.cwd());
-        if (!Array.isArray(choices) || choices.some((choice) => choice !== null && (!choice || !["global", "local", "workspace"].includes(choice.scope) || typeof choice.name !== "string" || !choice.name || choice.name.length > 180 || choice.name !== path.basename(choice.name) || choice.name.includes("\0") || !/\.md$/i.test(choice.name)))) throw new CoreError("INVALID_REQUEST", "Skill agent choices must be scoped Markdown preset references or null for no agent");
+        if (
+          !Array.isArray(choices) ||
+          choices.some(
+            (choice) =>
+              choice !== null &&
+              (!choice ||
+                !["global", "local", "workspace"].includes(choice.scope) ||
+                typeof choice.name !== "string" ||
+                !choice.name ||
+                choice.name.length > 180 ||
+                choice.name !== path.basename(choice.name) ||
+                choice.name.includes("\0") ||
+                !/\.md$/i.test(choice.name)),
+          )
+        )
+          throw new CoreError(
+            "INVALID_REQUEST",
+            "Skill agent choices must be scoped Markdown preset references or null for no agent",
+          );
       }
     }
-    return { allowed: [...new Set(value.allowed)], defaults: [...new Set(value.defaults)], ...(value.agents === undefined ? {} : { agents: value.agents }) };
+    return {
+      allowed: [...new Set(value.allowed)],
+      defaults: [...new Set(value.defaults)],
+      ...(value.agents === undefined ? {} : { agents: value.agents }),
+    };
   }
 
   async writePolicy(workspace: string, policy: SkillPolicy): Promise<void> {
@@ -139,7 +248,14 @@ export class SkillsStore {
     await this.replace(target, `${JSON.stringify({ ...validated, scopeVersion: 2 }, null, 2)}\n`);
     // Remove an imported checkout policy only after persisting its settings outside Git.
     // Retain the source if another editor changed it during the write.
-    if (previous?.storage === "workspace" && await readFile(previous.path, "utf8").catch((error: NodeJS.ErrnoException) => { if (error.code === "ENOENT") return undefined; throw error; }) === previous.content) await rm(previous.path, { force: true });
+    if (
+      previous?.storage === "workspace" &&
+      (await readFile(previous.path, "utf8").catch((error: NodeJS.ErrnoException) => {
+        if (error.code === "ENOENT") return undefined;
+        throw error;
+      })) === previous.content
+    )
+      await rm(previous.path, { force: true });
   }
 
   async movePolicyToLocal(workspace: string): Promise<void> {
@@ -148,7 +264,8 @@ export class SkillsStore {
   }
 
   async write(id: string, workspace: string, content: string): Promise<void> {
-    if (typeof content !== "string" || Buffer.byteLength(content) > MAX_BYTES) throw new CoreError("FILE_TOO_LARGE", "Skill exceeds 256 KB");
+    if (typeof content !== "string" || Buffer.byteLength(content) > MAX_BYTES)
+      throw new CoreError("FILE_TOO_LARGE", "Skill exceeds 256 KB");
     const target = await this.checked(this.target(id, workspace), workspace, id.split("/", 1)[0] as SkillScope);
     await mkdir(path.dirname(target), { recursive: true });
     await this.replace(target, content);
@@ -156,8 +273,12 @@ export class SkillsStore {
 
   private async replace(target: string, content: string): Promise<void> {
     const temporary = `${target}.${crypto.randomUUID()}.tmp`;
-    try { await writeFile(temporary, content, "utf8"); await rename(temporary, target); }
-    finally { await rm(temporary, { force: true }); }
+    try {
+      await writeFile(temporary, content, "utf8");
+      await rename(temporary, target);
+    } finally {
+      await rm(temporary, { force: true });
+    }
   }
 
   async delete(id: string, workspace: string): Promise<void> {
@@ -170,7 +291,15 @@ export class SkillsStore {
     const catalog = await this.list(workspace);
     if (!Array.isArray(ids)) throw new CoreError("INVALID_REQUEST", "Selected skills must be an array");
     ids = resolveSkillIds(catalog, ids);
-    if (ids.some((id) => !skillAllowedForAgent(catalog.policy, id, agent) || !catalog.skills.some((skill) => skill.id === id))) throw new CoreError("INVALID_REQUEST", "Selected skill is missing or not allowed by this project for the selected agent");
+    if (
+      ids.some(
+        (id) => !skillAllowedForAgent(catalog.policy, id, agent) || !catalog.skills.some((skill) => skill.id === id),
+      )
+    )
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Selected skill is missing or not allowed by this project for the selected agent",
+      );
     return [...new Set(ids)];
   }
 
@@ -182,34 +311,81 @@ export class SkillsStore {
   async available(workspace: string, ids: string[], agent?: AiAgentPreset | null): Promise<AiSkillSummary[]> {
     const catalog = await this.list(workspace);
     const selected = resolveSkillIds(catalog, ids);
-    const enabled = catalog.skills.filter((skill) => selected.includes(skill.id) && skillAllowedForAgent(catalog.policy, skill.id, agent));
-    return Promise.all(enabled.map(async (skill) => ({ id: skill.id, name: skill.title.slice(0, 200), ...(skill.description ? { description: skill.description.slice(0, 1000) } : {}), revision: crypto.createHash("sha256").update(`${skill.path}\0${await this.read(skill.id, workspace)}`).digest("hex") })));
+    const enabled = catalog.skills.filter(
+      (skill) => selected.includes(skill.id) && skillAllowedForAgent(catalog.policy, skill.id, agent),
+    );
+    return Promise.all(
+      enabled.map(async (skill) => ({
+        id: skill.id,
+        name: skill.title.slice(0, 200),
+        ...(skill.description ? { description: skill.description.slice(0, 1000) } : {}),
+        revision: crypto
+          .createHash("sha256")
+          .update(`${skill.path}\0${await this.read(skill.id, workspace)}`)
+          .digest("hex"),
+      })),
+    );
   }
 
-  async load(workspace: string, id: string, session: AiSession): Promise<{ id: string; revision: string; baseDirectory: string; content: string; unchanged?: boolean; message?: string }> {
+  async load(
+    workspace: string,
+    id: string,
+    session: AiSession,
+  ): Promise<{
+    id: string;
+    revision: string;
+    baseDirectory: string;
+    content: string;
+    unchanged?: boolean;
+    message?: string;
+  }> {
     const catalogue = session.skillCatalogue;
-    if (!catalogue || catalogue.threadId !== session.threadId || !catalogue.entries.some((skill) => skill.id === id)) throw new CoreError("INVALID_REQUEST", "Skill is not available in this conversation's current turn");
+    if (!catalogue || catalogue.threadId !== session.threadId || !catalogue.entries.some((skill) => skill.id === id))
+      throw new CoreError("INVALID_REQUEST", "Skill is not available in this conversation's current turn");
     const loaded = await this.loadAllowed(workspace, id, session.agentPreset);
     let cache = loadedSkills.get(catalogue);
-    if (!cache) { cache = new Map(); loadedSkills.set(catalogue, cache); }
+    if (!cache) {
+      cache = new Map();
+      loadedSkills.set(catalogue, cache);
+    }
     const key = JSON.stringify([workspace, id]);
-    if (cache.get(key) === loaded.revision) return { ...loaded, content: "", unchanged: true, message: "Skill already loaded in this conversation; reuse its instructions." };
+    if (cache.get(key) === loaded.revision)
+      return {
+        ...loaded,
+        content: "",
+        unchanged: true,
+        message: "Skill already loaded in this conversation; reuse its instructions.",
+      };
     cache.set(key, loaded.revision);
     return loaded;
   }
 
   /** Workflow references are enabled by the graph, with the same live project/agent policy. */
-  async loadForWorkflow(workspace: string, id: string, agent?: AiAgentPreset | null): Promise<{ id: string; revision: string; baseDirectory: string; content: string }> {
+  async loadForWorkflow(
+    workspace: string,
+    id: string,
+    agent?: AiAgentPreset | null,
+  ): Promise<{ id: string; revision: string; baseDirectory: string; content: string }> {
     const [resolved] = await this.validateSelection(workspace, [id], agent);
     return this.loadAllowed(workspace, resolved!, agent);
   }
 
-  private async loadAllowed(workspace: string, id: string, agent?: AiAgentPreset | null): Promise<{ id: string; revision: string; baseDirectory: string; content: string }> {
+  private async loadAllowed(
+    workspace: string,
+    id: string,
+    agent?: AiAgentPreset | null,
+  ): Promise<{ id: string; revision: string; baseDirectory: string; content: string }> {
     const catalog = await this.list(workspace);
     const skill = catalog.skills.find((skill) => skill.id === id);
-    if (!skill || !skillAllowedForAgent(catalog.policy, id, agent)) throw new CoreError("INVALID_REQUEST", "Skill is missing or no longer allowed for this agent");
+    if (!skill || !skillAllowedForAgent(catalog.policy, id, agent))
+      throw new CoreError("INVALID_REQUEST", "Skill is missing or no longer allowed for this agent");
     const content = await this.read(id, workspace);
-    return { id, revision: crypto.createHash("sha256").update(`${skill.path}\0${content}`).digest("hex"), baseDirectory: path.dirname(skill.path), content };
+    return {
+      id,
+      revision: crypto.createHash("sha256").update(`${skill.path}\0${content}`).digest("hex"),
+      baseDirectory: path.dirname(skill.path),
+      content,
+    };
   }
 }
 
@@ -217,8 +393,9 @@ export class SkillsStore {
 async function canonicalFuturePath(target: string): Promise<string> {
   let ancestor = path.resolve(target);
   for (;;) {
-    try { return path.resolve(await realpath(ancestor), path.relative(ancestor, target)); }
-    catch (error) {
+    try {
+      return path.resolve(await realpath(ancestor), path.relative(ancestor, target));
+    } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       const parent = path.dirname(ancestor);
       if (parent === ancestor) throw error;

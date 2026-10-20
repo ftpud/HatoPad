@@ -12,12 +12,30 @@ export type TerminalEvent =
   | { type: "opened"; workspace: string; session: TerminalSnapshot }
   | { type: "exit"; workspace: string; terminalId: string; exitCode: number };
 
-export type TerminalSnapshot = { terminalId: string; status: "running" | "exited"; output: string; exitCode?: number; displayName?: string };
+export type TerminalSnapshot = {
+  terminalId: string;
+  status: "running" | "exited";
+  output: string;
+  exitCode?: number;
+  displayName?: string;
+};
 
 type TerminalPty = Pick<IPty, "write" | "resize" | "kill" | "onData" | "onExit">;
 export type TerminalLaunch = { command: string; args: string[]; env?: Record<string, string | undefined> };
 export type TerminalPtyFactory = (cwd: string, cols: number, rows: number, launch?: TerminalLaunch) => TerminalPty;
-type TerminalSession = { id: string; workspace: string; pty?: TerminalPty; output: string; exitCode?: number; stream?: boolean; displayName?: string; write?(data: string): void; resize?(cols: number, rows: number): void; dispose?(): void; onExit?(code: number): void };
+type TerminalSession = {
+  id: string;
+  workspace: string;
+  pty?: TerminalPty;
+  output: string;
+  exitCode?: number;
+  stream?: boolean;
+  displayName?: string;
+  write?(data: string): void;
+  resize?(cols: number, rows: number): void;
+  dispose?(): void;
+  onExit?(code: number): void;
+};
 
 /** Owns PTYs for the backend lifetime, independently of renderer sockets. */
 export class TerminalSessionHost {
@@ -25,16 +43,32 @@ export class TerminalSessionHost {
 
   constructor(
     private readonly onEvent: (event: TerminalEvent) => void,
-    private readonly createPty: TerminalPtyFactory = defaultPtyFactory
+    private readonly createPty: TerminalPtyFactory = defaultPtyFactory,
   ) {}
 
-  create(workspace: string, cols: number, rows: number, cwd = workspace, displayName?: string, launch?: TerminalLaunch & { onExit(code: number): void }): TerminalSnapshot {
+  create(
+    workspace: string,
+    cols: number,
+    rows: number,
+    cwd = workspace,
+    displayName?: string,
+    launch?: TerminalLaunch & { onExit(code: number): void },
+  ): TerminalSnapshot {
     this.validateSize(cols, rows);
     const terminalId = crypto.randomUUID();
     const scopedWorkspace = path.resolve(workspace);
     try {
-      const pty = launch ? this.createPty(path.resolve(cwd), cols, rows, { command: launch.command, args: launch.args, env: launch.env }) : this.createPty(path.resolve(cwd), cols, rows);
-      const session: TerminalSession = { id: terminalId, workspace: scopedWorkspace, pty, output: "", displayName, onExit: launch?.onExit };
+      const pty = launch
+        ? this.createPty(path.resolve(cwd), cols, rows, { command: launch.command, args: launch.args, env: launch.env })
+        : this.createPty(path.resolve(cwd), cols, rows);
+      const session: TerminalSession = {
+        id: terminalId,
+        workspace: scopedWorkspace,
+        pty,
+        output: "",
+        displayName,
+        onExit: launch?.onExit,
+      };
       this.sessions.set(terminalId, session);
       pty.onData((data) => {
         if (this.sessions.get(terminalId) !== session) return;
@@ -45,37 +79,60 @@ export class TerminalSessionHost {
         if (this.sessions.get(terminalId) !== session) return;
         session.pty = undefined;
         session.exitCode = exitCode;
-        session.onExit?.(exitCode); session.onExit = undefined;
+        session.onExit?.(exitCode);
+        session.onExit = undefined;
         this.onEvent({ type: "exit", workspace: scopedWorkspace, terminalId, exitCode });
       });
       this.onEvent({ type: "opened", workspace: scopedWorkspace, session: this.snapshot(session) });
       return this.snapshot(session);
     } catch (error) {
-      throw new CoreError("TERMINAL_FAILED", `Could not start terminal: ${error instanceof Error ? error.message : String(error)}`);
+      throw new CoreError(
+        "TERMINAL_FAILED",
+        `Could not start terminal: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
   /** An external process view, optionally interactive; closing it only unsubscribes. */
-  createOutput(workspace: string, output: string, subscribe: (data: (chunk: string) => void, exit: (code: number) => void) => () => void, exitCode?: number, controls?: { displayName: string; write(data: string): void; resize(cols: number, rows: number): void }): TerminalSnapshot {
+  createOutput(
+    workspace: string,
+    output: string,
+    subscribe: (data: (chunk: string) => void, exit: (code: number) => void) => () => void,
+    exitCode?: number,
+    controls?: { displayName: string; write(data: string): void; resize(cols: number, rows: number): void },
+  ): TerminalSnapshot {
     const id = crypto.randomUUID();
-    const session: TerminalSession = { id, workspace: path.resolve(workspace), output: output.slice(-MAX_REPLAY_LENGTH), stream: true, exitCode, ...controls };
+    const session: TerminalSession = {
+      id,
+      workspace: path.resolve(workspace),
+      output: output.slice(-MAX_REPLAY_LENGTH),
+      stream: true,
+      exitCode,
+      ...controls,
+    };
     this.sessions.set(id, session);
-    if (exitCode === undefined) session.dispose = subscribe((data) => {
-      if (this.sessions.get(id) !== session) return;
-      session.output = (session.output + data).slice(-MAX_REPLAY_LENGTH);
-      this.onEvent({ type: "output", workspace: session.workspace, terminalId: id, data });
-    }, (code) => {
-      if (this.sessions.get(id) !== session) return;
-      session.exitCode = code;
-      session.dispose?.();
-      this.onEvent({ type: "exit", workspace: session.workspace, terminalId: id, exitCode: code });
-    });
+    if (exitCode === undefined)
+      session.dispose = subscribe(
+        (data) => {
+          if (this.sessions.get(id) !== session) return;
+          session.output = (session.output + data).slice(-MAX_REPLAY_LENGTH);
+          this.onEvent({ type: "output", workspace: session.workspace, terminalId: id, data });
+        },
+        (code) => {
+          if (this.sessions.get(id) !== session) return;
+          session.exitCode = code;
+          session.dispose?.();
+          this.onEvent({ type: "exit", workspace: session.workspace, terminalId: id, exitCode: code });
+        },
+      );
     this.onEvent({ type: "opened", workspace: session.workspace, session: this.snapshot(session) });
     return this.snapshot(session);
   }
 
   list(workspace: string): TerminalSnapshot[] {
-    return [...this.sessions.values()].filter((session) => session.workspace === path.resolve(workspace)).map((session) => this.snapshot(session));
+    return [...this.sessions.values()]
+      .filter((session) => session.workspace === path.resolve(workspace))
+      .map((session) => this.snapshot(session));
   }
 
   attach(workspace: string, terminalId: string): TerminalSnapshot | undefined {
@@ -96,7 +153,10 @@ export class TerminalSessionHost {
 
   resize(workspace: string, terminalId: string, cols: number, rows: number): void {
     this.validateSize(cols, rows);
-    if (this.get(workspace, terminalId).stream) { this.get(workspace, terminalId).resize?.(cols, rows); return; }
+    if (this.get(workspace, terminalId).stream) {
+      this.get(workspace, terminalId).resize?.(cols, rows);
+      return;
+    }
     this.getRunning(workspace, terminalId).resize(cols, rows);
   }
 
@@ -104,7 +164,8 @@ export class TerminalSessionHost {
     const session = this.get(workspace, terminalId);
     this.sessions.delete(terminalId);
     session.dispose?.();
-    session.onExit?.(130); session.onExit = undefined;
+    session.onExit?.(130);
+    session.onExit = undefined;
     session.pty?.kill();
   }
 
@@ -119,7 +180,8 @@ export class TerminalSessionHost {
       if (session.workspace !== scopedWorkspace) continue;
       this.sessions.delete(session.id);
       session.dispose?.();
-      session.onExit?.(130); session.onExit = undefined;
+      session.onExit?.(130);
+      session.onExit = undefined;
       session.pty?.kill();
     }
   }
@@ -130,17 +192,29 @@ export class TerminalSessionHost {
   }
 
   closeAll(): void {
-    for (const session of this.sessions.values()) { session.dispose?.(); session.onExit?.(130); session.onExit = undefined; session.pty?.kill(); }
+    for (const session of this.sessions.values()) {
+      session.dispose?.();
+      session.onExit?.(130);
+      session.onExit = undefined;
+      session.pty?.kill();
+    }
     this.sessions.clear();
   }
 
   private snapshot(session: TerminalSession): TerminalSnapshot {
-    return { terminalId: session.id, status: session.pty || (session.stream && session.exitCode === undefined) ? "running" : "exited", output: session.output, ...(session.displayName ? { displayName: session.displayName } : {}), ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}) };
+    return {
+      terminalId: session.id,
+      status: session.pty || (session.stream && session.exitCode === undefined) ? "running" : "exited",
+      output: session.output,
+      ...(session.displayName ? { displayName: session.displayName } : {}),
+      ...(session.exitCode !== undefined ? { exitCode: session.exitCode } : {}),
+    };
   }
 
   private get(workspace: string, terminalId: string): TerminalSession {
     const session = this.sessions.get(terminalId);
-    if (!session || session.workspace !== path.resolve(workspace)) throw new CoreError("TERMINAL_FAILED", `Terminal not found: ${terminalId}`);
+    if (!session || session.workspace !== path.resolve(workspace))
+      throw new CoreError("TERMINAL_FAILED", `Terminal not found: ${terminalId}`);
     return session;
   }
 
@@ -159,5 +233,11 @@ export class TerminalSessionHost {
 
 function defaultPtyFactory(cwd: string, cols: number, rows: number, launch?: TerminalLaunch): TerminalPty {
   const shell = workspaceShell();
-  return spawn(launch?.command ?? shell, launch?.args ?? [], { name: "xterm-256color", cols, rows, cwd, env: { ...process.env, ...launch?.env, TERM: "xterm-256color", COLORTERM: "truecolor" } });
+  return spawn(launch?.command ?? shell, launch?.args ?? [], {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env: { ...process.env, ...launch?.env, TERM: "xterm-256color", COLORTERM: "truecolor" },
+  });
 }

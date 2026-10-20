@@ -11,11 +11,24 @@ const run = (command, args) => {
 export async function electronExecutable({ packageRoot, productName, bundleId }) {
   const electronPackageRoot = path.resolve(packageRoot, "../../node_modules/electron");
   const electronDist = path.resolve(packageRoot, "../../node_modules/electron/dist");
-  const binary = path.join(electronDist, process.platform === "darwin" ? "Electron.app/Contents/MacOS/Electron" : process.platform === "win32" ? "electron.exe" : "electron");
-  try { await access(binary); } catch {
+  const binary = path.join(
+    electronDist,
+    process.platform === "darwin"
+      ? "Electron.app/Contents/MacOS/Electron"
+      : process.platform === "win32"
+        ? "electron.exe"
+        : "electron",
+  );
+  try {
+    await access(binary);
+  } catch {
     console.log("[startup] Installing the Electron runtime for this platform…");
-    const env = { ...process.env }; delete env.ELECTRON_SKIP_BINARY_DOWNLOAD;
-    const result = spawnSync(process.execPath, [path.join(electronPackageRoot, "install.js")], { stdio: "inherit", env });
+    const env = { ...process.env };
+    delete env.ELECTRON_SKIP_BINARY_DOWNLOAD;
+    const result = spawnSync(process.execPath, [path.join(electronPackageRoot, "install.js")], {
+      stdio: "inherit",
+      env,
+    });
     if (result.status !== 0) throw new Error(`Electron installation failed: ${result.error?.message ?? result.status}`);
     await access(binary);
   }
@@ -26,19 +39,33 @@ export async function electronExecutable({ packageRoot, productName, bundleId })
   const bundle = path.join(runtimeRoot, `${productName}.app`);
   const icon = path.join(packageRoot, "assets/app-icon.png");
   const markerFile = path.join(runtimeRoot, ".runtime-version");
-  const electronPackage = JSON.parse(await readFile(path.resolve(packageRoot, "../../node_modules/electron/package.json"), "utf8"));
+  const electronPackage = JSON.parse(
+    await readFile(path.resolve(packageRoot, "../../node_modules/electron/package.json"), "utf8"),
+  );
   const iconInfo = await stat(icon);
   const marker = `${electronPackage.version}:${Math.floor(iconInfo.mtimeMs)}:native-icon-v1`;
   let currentMarker = "";
-  try { currentMarker = (await readFile(markerFile, "utf8")).trim(); } catch { /* First launch creates the branded runtime. */ }
+  try {
+    currentMarker = (await readFile(markerFile, "utf8")).trim();
+  } catch {
+    /* First launch creates the branded runtime. */
+  }
   const executable = path.join(bundle, "Contents/MacOS/Electron");
-  const available = await access(executable).then(() => true, () => false);
+  const available = await access(executable).then(
+    () => true,
+    () => false,
+  );
   if (currentMarker !== marker || !available) {
     await rm(runtimeRoot, { recursive: true, force: true });
     await mkdir(runtimeRoot, { recursive: true });
     run("/bin/cp", ["-cR", electronRoot, bundle]);
     const plist = path.join(bundle, "Contents/Info.plist");
-    for (const [key, value] of [["CFBundleDisplayName", productName], ["CFBundleName", productName], ["CFBundleIdentifier", bundleId]]) run("/usr/bin/plutil", ["-replace", key, "-string", value, plist]);
+    for (const [key, value] of [
+      ["CFBundleDisplayName", productName],
+      ["CFBundleName", productName],
+      ["CFBundleIdentifier", bundleId],
+    ])
+      run("/usr/bin/plutil", ["-replace", key, "-string", value, plist]);
     const nativeIcon = await macApplicationIcon(icon, runtimeRoot);
     await copyFile(nativeIcon, path.join(bundle, "Contents/Resources/electron.icns"));
     run("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", bundle]);
@@ -49,13 +76,13 @@ export async function electronExecutable({ packageRoot, productName, bundleId })
 
 /** LaunchServices makes the app, rather than its terminal/editor parent, responsible for macOS privacy prompts. */
 export function macFinderLaunch(executable, packageRoot, args, env) {
-  const bundle = path.resolve(path.dirname(executable), '../..');
-  if (!bundle.endsWith('.app')) throw new Error('Finder launch requires an Electron application bundle');
-  const options = ['-n', '-a', bundle];
+  const bundle = path.resolve(path.dirname(executable), "../..");
+  if (!bundle.endsWith(".app")) throw new Error("Finder launch requires an Electron application bundle");
+  const options = ["-n", "-a", bundle];
   // Forward only launch configuration. Passing the entire environment here could expose secrets in argv.
-  for (const key of ['HATOPAD_NODE_EXECUTABLE', 'HATOPAD_DESKTOP_EXECUTABLE', 'HATOPAD_DESKTOP_ICON']) {
-    if (env[key] !== undefined) options.push('--env', `${key}=${env[key]}`);
+  for (const key of ["HATOPAD_NODE_EXECUTABLE", "HATOPAD_DESKTOP_EXECUTABLE", "HATOPAD_DESKTOP_ICON"]) {
+    if (env[key] !== undefined) options.push("--env", `${key}=${env[key]}`);
   }
-  options.push('--env', 'ELECTRON_RUN_AS_NODE=', '--env', 'VITE_DEV_SERVER_URL=', '--args', packageRoot, ...args);
-  return { command: '/usr/bin/open', args: options };
+  options.push("--env", "ELECTRON_RUN_AS_NODE=", "--env", "VITE_DEV_SERVER_URL=", "--args", packageRoot, ...args);
+  return { command: "/usr/bin/open", args: options };
 }

@@ -83,10 +83,10 @@ reopened while Core remains running, including after Desktop reconnects.
 
 Scripts are UTF-8 files stored alongside Useful Files:
 
-| Scope | Path under the state directory |
-| --- | --- |
-| Local | `run-configs/local/<workspace-hash>/<name>.sh` |
-| Global | `run-configs/global/<name>.sh` |
+| Scope  | Path under the state directory                 |
+| ------ | ---------------------------------------------- |
+| Local  | `run-configs/local/<workspace-hash>/<name>.sh` |
+| Global | `run-configs/global/<name>.sh`                 |
 
 The state directory is `HATOPAD_STATE_DIR`, or `~/.hatopad/workspaces` when
 unset. The workspace hash is the SHA-256 hash of the selected project's root path.

@@ -3,7 +3,18 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import crypto from "node:crypto";
 import path from "node:path";
 import { createInterface } from "node:readline";
-import { findAutopilotOption, type AiAgent, type AiConfiguration, type AiMcpServer, type AiModel, type AiOption, type AiProvider, type AiQuotaWindow, type AiSession, type AiUsage } from "@hatopad/acp";
+import {
+  findAutopilotOption,
+  type AiAgent,
+  type AiConfiguration,
+  type AiMcpServer,
+  type AiModel,
+  type AiOption,
+  type AiProvider,
+  type AiQuotaWindow,
+  type AiSession,
+  type AiUsage,
+} from "@hatopad/acp";
 import type { AgentFileReference } from "@hatopad/protocol";
 import { WorkspaceTaskStore, type WorkspaceTask } from "./tasks.js";
 import type { AcpRegistry } from "./ai/index.js";
@@ -18,12 +29,21 @@ type ToolResult = { content: { type: "text"; text: string }[]; isError?: boolean
 const taskMergeQueues = new WeakMap<WorkspaceTaskStore, Promise<void>>();
 
 async function serializedTaskMerge(tasks: WorkspaceTaskStore, taskId: string, strategy: "smart" | "merge") {
-  const previous = taskMergeQueues.get(tasks) ?? Promise.resolve(); let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  taskMergeQueues.set(tasks, previous.catch(() => undefined).then(() => gate));
+  const previous = taskMergeQueues.get(tasks) ?? Promise.resolve();
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  taskMergeQueues.set(
+    tasks,
+    previous.catch(() => undefined).then(() => gate),
+  );
   await previous.catch(() => undefined);
-  try { return await tasks.merge(taskId, strategy); }
-  finally { release(); }
+  try {
+    return await tasks.merge(taskId, strategy);
+  } finally {
+    release();
+  }
 }
 
 function requiredTaskStatus(args: Record<string, unknown>): WorkspaceTask["status"] {
@@ -35,233 +55,456 @@ function requiredTaskStatus(args: Record<string, unknown>): WorkspaceTask["statu
 export const appToolDefinitions = [
   {
     name: "workflow_run_stack",
-    description: "Run directly connected downstream workflow agents now, wait for every result, then return those results to this still-running agent so it can continue its response.",
+    description:
+      "Run directly connected downstream workflow agents now, wait for every result, then return those results to this still-running agent so it can continue its response.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
-        inputs: { type: "array", minItems: 1, items: { type: "string", minLength: 1 }, description: "Distinct prompts for the downstream agent stack. There is no configured item-count limit." },
-        path: { type: "string", minLength: 1, description: "Named outgoing path. Required for AI-selected routing; omit to run every directly connected path." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this downstream dispatch. Reuse it only when retrying the same stack." }
+        inputs: {
+          type: "array",
+          minItems: 1,
+          items: { type: "string", minLength: 1 },
+          description: "Distinct prompts for the downstream agent stack. There is no configured item-count limit.",
+        },
+        path: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Named outgoing path. Required for AI-selected routing; omit to run every directly connected path.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this downstream dispatch. Reuse it only when retrying the same stack.",
+        },
       },
-      required: ["inputs"]
-    }
+      required: ["inputs"],
+    },
   },
   {
     name: "ai_usage",
-    description: "Report the current AI session's token usage, remaining reported capacity, and reset time when the provider exposes one. Context-window capacity and account quota are identified separately.",
+    description:
+      "Report the current AI session's token usage, remaining reported capacity, and reset time when the provider exposes one. Context-window capacity and account quota are identified separately.",
     inputSchema: {
-      type: "object", additionalProperties: false,
-      properties: { provider: { type: "string", description: "AI provider id. Omit to use the provider running this agent." } }
-    }
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        provider: { type: "string", description: "AI provider id. Omit to use the provider running this agent." },
+      },
+    },
   },
   {
     name: "timer_set",
-    description: "Set or replace a timer for this agent. After the requested number of seconds, HatoPad sends the continuation prompt back to this task's AI session.",
+    description:
+      "Set or replace a timer for this agent. After the requested number of seconds, HatoPad sends the continuation prompt back to this task's AI session.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
-        seconds: { type: "integer", minimum: 1, maximum: 604800, description: "Delay in whole seconds, from 1 second to 7 days." },
-        prompt: { type: "string", minLength: 1, maxLength: 10000, description: "Continuation prompt to send when the timer expires." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended timer. Reuse it only when retrying the same operation." }
+        seconds: {
+          type: "integer",
+          minimum: 1,
+          maximum: 604800,
+          description: "Delay in whole seconds, from 1 second to 7 days.",
+        },
+        prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10000,
+          description: "Continuation prompt to send when the timer expires.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this intended timer. Reuse it only when retrying the same operation.",
+        },
       },
-      required: ["seconds", "prompt"]
-    }
+      required: ["seconds", "prompt"],
+    },
   },
   {
     name: "timer_set_at",
-    description: "Set or replace a timer for this agent at an exact ISO-8601 timestamp. Use this with reset timestamps returned by ai_usage. After that instant, HatoPad sends the continuation prompt back to this same AI session.",
+    description:
+      "Set or replace a timer for this agent at an exact ISO-8601 timestamp. Use this with reset timestamps returned by ai_usage. After that instant, HatoPad sends the continuation prompt back to this same AI session.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         due_at: { type: "string", minLength: 1, description: "Exact future ISO-8601 timestamp, up to 7 days ahead." },
-        prompt: { type: "string", minLength: 1, maxLength: 10000, description: "Continuation prompt to send when the timer expires." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended timer. Reuse it only when retrying the same operation." }
+        prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10000,
+          description: "Continuation prompt to send when the timer expires.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this intended timer. Reuse it only when retrying the same operation.",
+        },
       },
-      required: ["due_at", "prompt"]
-    }
+      required: ["due_at", "prompt"],
+    },
   },
   {
     name: "model_switch_next",
-    description: "Use a provider-advertised model and reasoning effort for exactly the next new task turn in this AI session. When called during a running turn, automatically queue a continuation so the selection is exercised after the current turn; it never changes the current turn. A later call replaces the pending selection.",
+    description:
+      "Use a provider-advertised model and reasoning effort for exactly the next new task turn in this AI session. When called during a running turn, automatically queue a continuation so the selection is exercised after the current turn; it never changes the current turn. A later call replaces the pending selection.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         model: { type: "string", minLength: 1, description: "Model id advertised by the provider running this agent." },
-        reasoning: { type: "string", minLength: 1, description: "Reasoning effort advertised for that model." }
+        reasoning: { type: "string", minLength: 1, description: "Reasoning effort advertised for that model." },
       },
-      required: ["model", "reasoning"]
-    }
+      required: ["model", "reasoning"],
+    },
   },
   {
     name: "session_new",
-    description: "After this turn, archive the current conversation, start a new empty session in the same workspace/provider, and send a handoff prompt as its first message.",
+    description:
+      "After this turn, archive the current conversation, start a new empty session in the same workspace/provider, and send a handoff prompt as its first message.",
     inputSchema: {
-      type: "object", additionalProperties: false,
-      properties: { prompt: { type: "string", minLength: 1, maxLength: 10000, description: "Self-contained handoff prompt for the fresh session." } },
-      required: ["prompt"]
-    }
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        prompt: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10000,
+          description: "Self-contained handoff prompt for the fresh session.",
+        },
+      },
+      required: ["prompt"],
+    },
   },
   {
     name: "task_create",
     description: "Create an isolated HatoPad task worktree without starting an agent.",
     inputSchema: {
-      type: "object", additionalProperties: false,
-      properties: { branch: { type: "string", description: "Git branch name for the task." }, idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended task. Reuse it only when retrying the same creation." } },
-      required: ["branch"]
-    }
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        branch: { type: "string", description: "Git branch name for the task." },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this intended task. Reuse it only when retrying the same creation.",
+        },
+      },
+      required: ["branch"],
+    },
   },
   {
     name: "task_create_and_start",
-    description: "Create an isolated HatoPad task and start a provider/model session in it, optionally selecting an agent preset and reasoning effort.",
+    description:
+      "Create an isolated HatoPad task and start a provider/model session in it, optionally selecting an agent preset and reasoning effort.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         branch: { type: "string", description: "Git branch name for the task. Omit to generate one." },
         prompt: { type: "string", description: "Work to give the new task's AI session." },
         provider: { type: "string", description: "AI provider id, for example codex or copilot." },
         model: { type: "string", description: "Model id supported by the selected provider." },
-        feature_id: { type: "string", minLength: 1, maxLength: 120, description: "Durable workflow feature ID from workflow_plan_features. Core refuses to start it until prerequisites are merged." },
+        feature_id: {
+          type: "string",
+          minLength: 1,
+          maxLength: 120,
+          description:
+            "Durable workflow feature ID from workflow_plan_features. Core refuses to start it until prerequisites are merged.",
+        },
         agent: {
           oneOf: [
             {
-              type: "object", additionalProperties: false,
+              type: "object",
+              additionalProperties: false,
               properties: {
-                scope: { type: "string", enum: ["global", "local", "workspace"], description: "Configured agent-preset scope." },
-                name: { type: "string", minLength: 1, description: "Agent preset Markdown file name, for example reviewer.md." }
+                scope: {
+                  type: "string",
+                  enum: ["global", "local", "workspace"],
+                  description: "Configured agent-preset scope.",
+                },
+                name: {
+                  type: "string",
+                  minLength: 1,
+                  description: "Agent preset Markdown file name, for example reviewer.md.",
+                },
               },
-              required: ["scope", "name"]
+              required: ["scope", "name"],
             },
-            { type: "null" }
+            { type: "null" },
           ],
-          description: "Configured agent preset to apply. Omit to inherit the invoking session's preset; pass null to start with no agent preset. This does not select the AI provider."
+          description:
+            "Configured agent preset to apply. Omit to inherit the invoking session's preset; pass null to start with no agent preset. This does not select the AI provider.",
         },
-        reasoning: { type: "string", minLength: 1, description: "Reasoning effort advertised for the selected model, for example low, medium, or high. Omit to use the provider/model default." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended task. Reuse it only when retrying the same creation." }
+        reasoning: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Reasoning effort advertised for the selected model, for example low, medium, or high. Omit to use the provider/model default.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this intended task. Reuse it only when retrying the same creation.",
+        },
       },
-      required: ["prompt", "provider", "model"]
-    }
+      required: ["prompt", "provider", "model"],
+    },
   },
   {
     name: "task_list",
     description: "List HatoPad tasks and their current aggregate and per-provider AI status.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} }
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
   },
   {
     name: "task_merge",
-    description: "Commit outstanding changes in a HatoPad task and merge its branch into the root workspace. Smart merge preserves root workspace changes.",
+    description:
+      "Commit outstanding changes in a HatoPad task and merge its branch into the root workspace. Smart merge preserves root workspace changes.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         task_id: { type: "string", description: "Task id returned by task_create_and_start or task_list." },
-        strategy: { type: "string", enum: ["smart", "merge"], description: "Use smart unless the root workspace is known to be clean." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this intended merge. Reuse it only when retrying the same merge." }
+        strategy: {
+          type: "string",
+          enum: ["smart", "merge"],
+          description: "Use smart unless the root workspace is known to be clean.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this intended merge. Reuse it only when retrying the same merge.",
+        },
       },
-      required: ["task_id"]
-    }
+      required: ["task_id"],
+    },
   },
   {
     name: "task_delete",
     description: "Delete a HatoPad task, its worktree, and its task branch.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: { task_id: { type: "string", description: "Task id returned by task_create or task_list." } },
-      required: ["task_id"]
-    }
+      required: ["task_id"],
+    },
   },
   {
     name: "task_set_status",
     description: "Mark a HatoPad task as finished or restore it to active.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         task_id: { type: "string", description: "Task id returned by task_create or task_list." },
-        status: { type: "string", enum: ["active", "finished"], description: "Set finished when the task is complete; set active to restore it." }
+        status: {
+          type: "string",
+          enum: ["active", "finished"],
+          description: "Set finished when the task is complete; set active to restore it.",
+        },
       },
-      required: ["task_id", "status"]
-    }
+      required: ["task_id", "status"],
+    },
   },
   {
     name: "task_ai_response_tail",
     description: "Return the latest messages from a task's AI conversation.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         task_id: { type: "string", description: "Task id returned by task_create or task_list." },
         provider: { type: "string", description: "AI provider whose conversation should be read." },
-        messages: { type: "integer", minimum: 1, maximum: 100, description: "Number of latest messages to return." }
+        messages: { type: "integer", minimum: 1, maximum: 100, description: "Number of latest messages to return." },
       },
-      required: ["task_id", "provider", "messages"]
-    }
+      required: ["task_id", "provider", "messages"],
+    },
   },
   {
     name: "task_append_prompt",
-    description: "Append a prompt to a task's AI conversation. Steers a running turn or starts a follow-up turn after completion.",
+    description:
+      "Append a prompt to a task's AI conversation. Steers a running turn or starts a follow-up turn after completion.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         task_id: { type: "string", description: "Task id returned by task_create or task_list." },
         provider: { type: "string", description: "AI provider that owns the task conversation." },
         prompt: { type: "string", description: "Follow-up instructions for the task's agent." },
-        model: { type: "string", minLength: 1, description: "Model for the next idle task turn. Omit to retain the current model." },
-        reasoning: { type: "string", minLength: 1, description: "Reasoning effort for the next idle task turn. Omit to retain the current effort." },
-        idempotency_key: { type: "string", minLength: 1, maxLength: 200, description: "Stable unique key for this prompt delivery. Reuse it only when retrying the same prompt." }
+        model: {
+          type: "string",
+          minLength: 1,
+          description: "Model for the next idle task turn. Omit to retain the current model.",
+        },
+        reasoning: {
+          type: "string",
+          minLength: 1,
+          description: "Reasoning effort for the next idle task turn. Omit to retain the current effort.",
+        },
+        idempotency_key: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          description: "Stable unique key for this prompt delivery. Reuse it only when retrying the same prompt.",
+        },
       },
-      required: ["task_id", "provider", "prompt"]
-    }
+      required: ["task_id", "provider", "prompt"],
+    },
   },
   {
     name: "set_commit_message",
-    description: "Set or replace the Git commit message draft for a HatoPad task. Omit task_id to use the current task. Preserves multiline text and does not create a commit.",
+    description:
+      "Set or replace the Git commit message draft for a HatoPad task. Omit task_id to use the current task. Preserves multiline text and does not create a commit.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
-        task_id: { type: "string", minLength: 1, description: "Task to update. Omit to use the current task workspace." },
-        message: { type: "string", minLength: 1, maxLength: 10_000, pattern: "\\S", description: "Commit message draft. May contain multiple lines; must contain at least one non-whitespace character." }
+        task_id: {
+          type: "string",
+          minLength: 1,
+          description: "Task to update. Omit to use the current task workspace.",
+        },
+        message: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10_000,
+          pattern: "\\S",
+          description:
+            "Commit message draft. May contain multiple lines; must contain at least one non-whitespace character.",
+        },
       },
-      required: ["message"]
-    }
+      required: ["message"],
+    },
   },
   {
     name: "task_update_commit_message",
-    description: "Rewrite the latest unpushed commit message on a specific HatoPad task branch. Does not change commit contents or working-tree changes and refuses unsafe published-history rewrites.",
+    description:
+      "Rewrite the latest unpushed commit message on a specific HatoPad task branch. Does not change commit contents or working-tree changes and refuses unsafe published-history rewrites.",
     inputSchema: {
-      type: "object", additionalProperties: false,
+      type: "object",
+      additionalProperties: false,
       properties: {
         task_id: { type: "string", minLength: 1, description: "Task id returned by task_create or task_list." },
-        message: { type: "string", minLength: 1, maxLength: 10_000, pattern: "\\S", description: "New Git commit message. May contain multiple lines; must contain at least one non-whitespace character." }
+        message: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10_000,
+          pattern: "\\S",
+          description:
+            "New Git commit message. May contain multiple lines; must contain at least one non-whitespace character.",
+        },
       },
-      required: ["task_id", "message"]
-    }
-  }
-  ,{
+      required: ["task_id", "message"],
+    },
+  },
+  {
     name: "workflow_resume_failed",
-    description: "Watchdog recovery signal: queue failed blocks in this workflow for continuation in their existing sessions. Returns immediately; running and completed blocks are left alone.",
-    inputSchema: { type: "object", additionalProperties: false, properties: {} }
-  }
-  ,{
+    description:
+      "Watchdog recovery signal: queue failed blocks in this workflow for continuation in their existing sessions. Returns immediately; running and completed blocks are left alone.",
+    inputSchema: { type: "object", additionalProperties: false, properties: {} },
+  },
+  {
     name: "workflow_plan_features",
-    description: "Persist the complete feature plan before creating implementation tasks. Each feature has a stable ID, implementation prompt, and prerequisite IDs.",
-    inputSchema: { type: "object", additionalProperties: false, properties: { features: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, properties: { id: { type: "string", minLength: 1, maxLength: 120 }, prompt: { type: "string", minLength: 1, maxLength: 10000 }, prerequisites: { type: "array", items: { type: "string", minLength: 1, maxLength: 120 } } }, required: ["id", "prompt"] } } }, required: ["features"] }
+    description:
+      "Persist the complete feature plan before creating implementation tasks. Each feature has a stable ID, implementation prompt, and prerequisite IDs.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        features: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "string", minLength: 1, maxLength: 120 },
+              prompt: { type: "string", minLength: 1, maxLength: 10000 },
+              prerequisites: { type: "array", items: { type: "string", minLength: 1, maxLength: 120 } },
+            },
+            required: ["id", "prompt"],
+          },
+        },
+      },
+      required: ["features"],
+    },
   },
   {
     name: "configuration_list",
-    description: "Discover editable HatoPad configuration documents, resource formats, scopes and provider metadata. Optionally include provider models when designing AI workflow blocks.",
-    inputSchema: { type: "object", additionalProperties: false, properties: { include_models: { type: "boolean", description: "Include live provider model catalogues; omit for ordinary configuration edits." } } }
+    description:
+      "Discover editable HatoPad configuration documents, resource formats, scopes and provider metadata. Optionally include provider models when designing AI workflow blocks.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        include_models: {
+          type: "boolean",
+          description: "Include live provider model catalogues; omit for ordinary configuration edits.",
+        },
+      },
+    },
   },
   {
     name: "configuration_read",
-    description: "Read a logical configuration document and its revision. Read workflows/new.json for a new-workflow template. Missing agent/skill/useful documents return exists=false and revision=null.",
-    inputSchema: { type: "object", additionalProperties: false, properties: { resource: { type: "string", minLength: 1, description: "Logical resource from configuration_list, or a new agents/skills/useful/runs resource in the documented format." } }, required: ["resource"] }
+    description:
+      "Read a logical configuration document and its revision. Read workflows/new.json for a new-workflow template. Missing agent/skill/useful documents return exists=false and revision=null.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        resource: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Logical resource from configuration_list, or a new agents/skills/useful/runs resource in the documented format.",
+        },
+      },
+      required: ["resource"],
+    },
   },
   {
     name: "configuration_write",
-    description: "Create or replace a configuration document through validated Core stores. Use the read revision; null creates a new document. Returns the saved document, revision and workflow validation. Does not run workflows, commands or tasks.",
-    inputSchema: { type: "object", additionalProperties: false, properties: { resource: { type: "string", minLength: 1 }, content: { type: "string", maxLength: 2097152, description: "Full document text. JSON for workflows, language run configurations, skill policy and task metadata; Markdown/text for agents, skills and useful files; shell commands for runs." }, expected_revision: { type: ["string", "null"], description: "Revision returned by configuration_read; null for a new resource. Stale revisions are rejected." } }, required: ["resource", "content", "expected_revision"] }
+    description:
+      "Create or replace a configuration document through validated Core stores. Use the read revision; null creates a new document. Returns the saved document, revision and workflow validation. Does not run workflows, commands or tasks.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        resource: { type: "string", minLength: 1 },
+        content: {
+          type: "string",
+          maxLength: 2097152,
+          description:
+            "Full document text. JSON for workflows, language run configurations, skill policy and task metadata; Markdown/text for agents, skills and useful files; shell commands for runs.",
+        },
+        expected_revision: {
+          type: ["string", "null"],
+          description:
+            "Revision returned by configuration_read; null for a new resource. Stale revisions are rejected.",
+        },
+      },
+      required: ["resource", "content", "expected_revision"],
+    },
   },
   {
     name: "skill_load",
-    description: "Load a skill from the current turn's HatoPad catalogue when its description matches the task. Returns SKILL.md, revision and base directory for supporting files. Repeated unchanged loads return unchanged: true and empty content; reuse the earlier instructions. Unselected or disallowed skills cannot be loaded.",
-    inputSchema: { type: "object", additionalProperties: false, properties: { id: { type: "string", minLength: 1 } }, required: ["id"] }
+    description:
+      "Load a skill from the current turn's HatoPad catalogue when its description matches the task. Returns SKILL.md, revision and base directory for supporting files. Repeated unchanged loads return unchanged: true and empty content; reuse the earlier instructions. Unselected or disallowed skills cannot be loaded.",
+    inputSchema: {
+      type: "object",
+      additionalProperties: false,
+      properties: { id: { type: "string", minLength: 1 } },
+      required: ["id"],
+    },
   },
 ] as const;
 
@@ -271,38 +514,79 @@ export class AppToolService {
     private readonly acp: AcpRegistry,
     private readonly currentWorkspace: string,
     private readonly onTasksChanged: () => Promise<void> = async () => undefined,
-    private readonly onCommitMessageChanged: (workspace: string, message: string) => Promise<void> = async () => undefined,
+    private readonly onCommitMessageChanged: (workspace: string, message: string) => Promise<void> = async () =>
+      undefined,
     private readonly currentProvider?: AiProvider,
     private readonly agents?: Pick<AgentsStore, "list">,
     private readonly rootWorkspace?: string,
     private readonly timers?: Pick<AiTimerService, "schedule" | "scheduleAt" | "next" | "cancelWorkspace">,
     private readonly bridgeWorkspace?: string,
-    private readonly workflow?: { runId: string; blockId: string; flow?: boolean; runStack(inputs: string[], path?: string): Promise<unknown>; resumeFailed?(): Promise<unknown>; planFeatures?(features: Array<{ id: string; prompt: string; prerequisites?: string[] }>): Promise<unknown>; assertFeatureReady?(featureId: string): Promise<void>; dispatchFeature?(featureId: string, taskId: string): Promise<unknown>; completeFeature?(taskId: string, commit: string): Promise<unknown>; registerChild?(taskId: string, provider: AiProvider, workspace: string): Promise<void>; operation?<T>(kind: "timer_create" | "task_create" | "prompt_delivery" | "merge", key: string, input: unknown, effect: () => Promise<T>, reconcile?: () => Promise<T | null | undefined>): Promise<T>; recordTool?(name: string, args: Record<string, unknown>, result?: unknown, error?: unknown): Promise<void>; assertActive?(): void },
+    private readonly workflow?: {
+      runId: string;
+      blockId: string;
+      flow?: boolean;
+      runStack(inputs: string[], path?: string): Promise<unknown>;
+      resumeFailed?(): Promise<unknown>;
+      planFeatures?(features: Array<{ id: string; prompt: string; prerequisites?: string[] }>): Promise<unknown>;
+      assertFeatureReady?(featureId: string): Promise<void>;
+      dispatchFeature?(featureId: string, taskId: string): Promise<unknown>;
+      completeFeature?(taskId: string, commit: string): Promise<unknown>;
+      registerChild?(taskId: string, provider: AiProvider, workspace: string): Promise<void>;
+      operation?<T>(
+        kind: "timer_create" | "task_create" | "prompt_delivery" | "merge",
+        key: string,
+        input: unknown,
+        effect: () => Promise<T>,
+        reconcile?: () => Promise<T | null | undefined>,
+      ): Promise<T>;
+      recordTool?(name: string, args: Record<string, unknown>, result?: unknown, error?: unknown): Promise<void>;
+      assertActive?(): void;
+    },
     private readonly configuration?: Pick<ConfigurationService, "list" | "read" | "write">,
-    private readonly loadSkill?: (id: string) => Promise<unknown>
+    private readonly loadSkill?: (id: string) => Promise<unknown>,
   ) {}
 
   async call(name: string, args: Record<string, unknown>): Promise<unknown> {
     this.workflow?.assertActive?.();
     try {
-      const kind = workflowOperationKind(name); const invoke = () => this.callActive(name, args); const key = operationKey(name, args);
-      const result = kind && this.workflow?.operation ? await this.workflow.operation(kind, key, { tool: name, args: operationInput(args) }, invoke, () => this.reconcileOperation(name, args, key)) : await invoke();
-      if (!kind) await this.workflow?.recordTool?.(name, args, result); return result;
-    } catch (error) { await this.workflow?.recordTool?.(name, args, undefined, error); throw error; }
-    finally { this.workflow?.assertActive?.(); }
+      const kind = workflowOperationKind(name);
+      const invoke = () => this.callActive(name, args);
+      const key = operationKey(name, args);
+      const result =
+        kind && this.workflow?.operation
+          ? await this.workflow.operation(kind, key, { tool: name, args: operationInput(args) }, invoke, () =>
+              this.reconcileOperation(name, args, key),
+            )
+          : await invoke();
+      if (!kind) await this.workflow?.recordTool?.(name, args, result);
+      return result;
+    } catch (error) {
+      await this.workflow?.recordTool?.(name, args, undefined, error);
+      throw error;
+    } finally {
+      this.workflow?.assertActive?.();
+    }
   }
 
   private async callActive(name: string, args: Record<string, unknown>): Promise<unknown> {
-    if (name === "skill_load") { if (!this.loadSkill) throw new Error("Skill loading is unavailable"); return this.loadSkill(requiredString(args, "id")); }
+    if (name === "skill_load") {
+      if (!this.loadSkill) throw new Error("Skill loading is unavailable");
+      return this.loadSkill(requiredString(args, "id"));
+    }
     if (["configuration_list", "configuration_read", "configuration_write"].includes(name)) {
       if (!this.configuration) throw new Error("Configuration interface is unavailable");
       if (name === "configuration_list") {
-        if (args.include_models !== undefined && typeof args.include_models !== "boolean") throw new Error("include_models must be boolean");
+        if (args.include_models !== undefined && typeof args.include_models !== "boolean")
+          throw new Error("include_models must be boolean");
         return this.configuration.list(args.include_models === true);
       }
       const resource = requiredString(args, "resource");
       if (name === "configuration_read") return this.configuration.read(resource);
-      if (typeof args.content !== "string" || (args.expected_revision !== null && typeof args.expected_revision !== "string")) throw new Error("content and expected_revision are required; revision must be a string or null");
+      if (
+        typeof args.content !== "string" ||
+        (args.expected_revision !== null && typeof args.expected_revision !== "string")
+      )
+        throw new Error("content and expected_revision are required; revision must be a string or null");
       return this.configuration.write(resource, args.content, args.expected_revision);
     }
     if (name === "workflow_resume_failed") {
@@ -310,12 +594,18 @@ export class AppToolService {
       return this.workflow.resumeFailed();
     }
     if (name === "workflow_plan_features") {
-      if (!this.workflow?.planFeatures) throw new Error("Feature planning is only available inside an active workflow block");
+      if (!this.workflow?.planFeatures)
+        throw new Error("Feature planning is only available inside an active workflow block");
       if (!Array.isArray(args.features)) throw new Error("features must be an array");
       const features = args.features.map((feature) => {
-        if (!feature || typeof feature !== "object" || Array.isArray(feature)) throw new Error("Each feature must be an object");
+        if (!feature || typeof feature !== "object" || Array.isArray(feature))
+          throw new Error("Each feature must be an object");
         const item = feature as Record<string, unknown>;
-        return { id: requiredString(item, "id"), prompt: requiredString(item, "prompt"), ...(item.prerequisites === undefined ? {} : { prerequisites: requiredStringArray(item, "prerequisites") }) };
+        return {
+          id: requiredString(item, "id"),
+          prompt: requiredString(item, "prompt"),
+          ...(item.prerequisites === undefined ? {} : { prerequisites: requiredStringArray(item, "prerequisites") }),
+        };
       });
       return { features: await this.workflow.planFeatures(features) };
     }
@@ -335,7 +625,12 @@ export class AppToolService {
       if (prompt.length > 10_000) throw new Error("prompt must be at most 10000 characters");
       const seconds = requiredInteger(args, "seconds", 1, 604_800);
       const timer = this.workflow
-        ? await this.timers.schedule(this.currentWorkspace, this.currentProvider, prompt, seconds, { runId: this.workflow.runId, blockId: this.workflow.blockId, flow: this.workflow.flow, operationKey: operationKey(name, args) })
+        ? await this.timers.schedule(this.currentWorkspace, this.currentProvider, prompt, seconds, {
+            runId: this.workflow.runId,
+            blockId: this.workflow.blockId,
+            flow: this.workflow.flow,
+            operationKey: operationKey(name, args),
+          })
         : await this.timers.schedule(this.currentWorkspace, this.currentProvider, prompt, seconds);
       return { timer_id: timer.id, status: "waiting", due_at: timer.dueAt, continuation_prompt: timer.prompt };
     }
@@ -344,12 +639,30 @@ export class AppToolService {
       if (!this.currentProvider) throw new Error("provider is required when the invoking AI provider is not known");
       const prompt = requiredString(args, "prompt");
       if (prompt.length > 10_000) throw new Error("prompt must be at most 10000 characters");
-      const dueAt = requiredString(args, "due_at"); const due = new Date(dueAt).getTime(); const now = Date.now();
+      const dueAt = requiredString(args, "due_at");
+      const due = new Date(dueAt).getTime();
+      const now = Date.now();
       if (!Number.isFinite(due) || due <= now) throw new Error("due_at must be a valid future ISO-8601 timestamp");
       if (due - now > 604_800_000) throw new Error("due_at must be no more than 7 days ahead");
       const timer = this.workflow
-        ? await this.timers.scheduleAt(this.currentWorkspace, this.currentProvider, prompt, new Date(due).toISOString(), { runId: this.workflow.runId, blockId: this.workflow.blockId, flow: this.workflow.flow, operationKey: operationKey(name, args) })
-        : await this.timers.scheduleAt(this.currentWorkspace, this.currentProvider, prompt, new Date(due).toISOString());
+        ? await this.timers.scheduleAt(
+            this.currentWorkspace,
+            this.currentProvider,
+            prompt,
+            new Date(due).toISOString(),
+            {
+              runId: this.workflow.runId,
+              blockId: this.workflow.blockId,
+              flow: this.workflow.flow,
+              operationKey: operationKey(name, args),
+            },
+          )
+        : await this.timers.scheduleAt(
+            this.currentWorkspace,
+            this.currentProvider,
+            prompt,
+            new Date(due).toISOString(),
+          );
       return { timer_id: timer.id, status: "waiting", due_at: timer.dueAt, continuation_prompt: timer.prompt };
     }
     if (name === "model_switch_next") {
@@ -360,7 +673,11 @@ export class AppToolService {
       await validateReasoning(await manager.models(), model, reasoning);
       const current = await manager.get(this.currentWorkspace);
       await manager.configureNext(this.currentWorkspace, { model, reasoning });
-      await manager.steer(this.currentWorkspace, "Continue the current task using the newly selected model and reasoning effort.", { senderModel: current.model, queue: true });
+      await manager.steer(
+        this.currentWorkspace,
+        "Continue the current task using the newly selected model and reasoning effort.",
+        { senderModel: current.model, queue: true },
+      );
       return { provider: this.currentProvider, model, reasoning, applies_to: "next_turn", continuation: "queued" };
     }
     if (name === "session_new") {
@@ -370,9 +687,29 @@ export class AppToolService {
       const manager = this.acp.get(this.currentProvider);
       const current = await manager.get(this.currentWorkspace);
       const selectedAgent = await this.resolveAgent(undefined, current);
-      const appTools = this.rootWorkspace ? withAppTools(this.rootWorkspace, this.currentWorkspace, [], selectedAgent?.agent, this.currentProvider, this.bridgeWorkspace) : { servers: [], agent: selectedAgent?.agent };
-      const session = await manager.startFreshSession(this.currentWorkspace, { prompt, configuration: current.configuration ?? { model: current.model, reasoning: current.reasoning }, ...(appTools.servers.length ? { mcpServers: appTools.servers } : {}), ...(appTools.agent ? { agent: appTools.agent, agentPreset: selectedAgent!.preset } : {}) });
-      return { provider: this.currentProvider, workspace: this.currentWorkspace, status: session.status, transition: "queued", prompt };
+      const appTools = this.rootWorkspace
+        ? withAppTools(
+            this.rootWorkspace,
+            this.currentWorkspace,
+            [],
+            selectedAgent?.agent,
+            this.currentProvider,
+            this.bridgeWorkspace,
+          )
+        : { servers: [], agent: selectedAgent?.agent };
+      const session = await manager.startFreshSession(this.currentWorkspace, {
+        prompt,
+        configuration: current.configuration ?? { model: current.model, reasoning: current.reasoning },
+        ...(appTools.servers.length ? { mcpServers: appTools.servers } : {}),
+        ...(appTools.agent ? { agent: appTools.agent, agentPreset: selectedAgent!.preset } : {}),
+      });
+      return {
+        provider: this.currentProvider,
+        workspace: this.currentWorkspace,
+        status: session.status,
+        transition: "queued",
+        prompt,
+      };
     }
     if (name === "task_create") {
       const task = await this.tasks.create(requiredString(args, "branch"), false, false, false);
@@ -383,7 +720,11 @@ export class AppToolService {
       const prompt = requiredString(args, "prompt");
       const provider = requiredString(args, "provider") as AiProvider;
       const model = requiredString(args, "model");
-      const branch = optionalString(args, "branch") ?? (this.workflow ? `task/workflow-${crypto.createHash("sha256").update(operationKey(name, args)).digest("hex").slice(0, 12)}` : undefined);
+      const branch =
+        optionalString(args, "branch") ??
+        (this.workflow
+          ? `task/workflow-${crypto.createHash("sha256").update(operationKey(name, args)).digest("hex").slice(0, 12)}`
+          : undefined);
       const requestedAgent = agentReference(args);
       const reasoning = optionalString(args, "reasoning");
       const manager = this.acp.get(provider);
@@ -391,7 +732,11 @@ export class AppToolService {
       const parent = await parentManager.get(this.currentWorkspace);
       const selectedAgent = await this.resolveAgent(requestedAgent, parent);
       if (reasoning !== undefined) await validateReasoning(await manager.models(), model, reasoning);
-      const configuration: AiConfiguration = { ...inheritedAutopilot(parentManager.descriptor.options, parent, manager.descriptor.options), model, ...(reasoning !== undefined ? { reasoning } : {}) };
+      const configuration: AiConfiguration = {
+        ...inheritedAutopilot(parentManager.descriptor.options, parent, manager.descriptor.options),
+        model,
+        ...(reasoning !== undefined ? { reasoning } : {}),
+      };
       const featureId = optionalString(args, "feature_id");
       if (featureId) await this.workflow?.assertFeatureReady?.(featureId);
       const task = branch ? await this.tasks.create(branch, false, false, false) : await this.tasks.createRandom(false);
@@ -400,11 +745,23 @@ export class AppToolService {
       await this.workflow?.registerChild?.(task.id, provider, this.tasks.taskPath(task.id));
       try {
         const workspace = this.tasks.taskPath(task.id);
-        const appTools = this.rootWorkspace ? withAppTools(this.rootWorkspace, workspace, [], selectedAgent?.agent, provider, this.bridgeWorkspace) : { servers: [], agent: selectedAgent?.agent };
-        const session = await manager.send(workspace, { prompt, configuration, ...(appTools.servers.length > 0 ? { mcpServers: appTools.servers } : {}), ...(appTools.agent ? { agent: appTools.agent, agentPreset: selectedAgent!.preset } : {}) });
+        const appTools = this.rootWorkspace
+          ? withAppTools(this.rootWorkspace, workspace, [], selectedAgent?.agent, provider, this.bridgeWorkspace)
+          : { servers: [], agent: selectedAgent?.agent };
+        const session = await manager.send(workspace, {
+          prompt,
+          configuration,
+          ...(appTools.servers.length > 0 ? { mcpServers: appTools.servers } : {}),
+          ...(appTools.agent ? { agent: appTools.agent, agentPreset: selectedAgent!.preset } : {}),
+        });
         return { task, session: { status: session.status, model: session.model } };
       } catch (error) {
-        if (this.workflow) return { task, error: error instanceof Error ? error.message : String(error), recovery: "Task preserved. Inspect this task before retrying; do not create a replacement." };
+        if (this.workflow)
+          return {
+            task,
+            error: error instanceof Error ? error.message : String(error),
+            recovery: "Task preserved. Inspect this task before retrying; do not create a replacement.",
+          };
         await this.tasks.delete(task.id).catch(() => undefined);
         await this.onTasksChanged().catch(() => undefined);
         throw error;
@@ -413,7 +770,9 @@ export class AppToolService {
     if (name === "task_list") {
       const registry = await this.tasks.list();
       const providers = this.acp.list();
-      const tasks = await Promise.all(registry.tasks.map(async (task) => ({ ...task, task_status: task.status, ...await this.status(task) })));
+      const tasks = await Promise.all(
+        registry.tasks.map(async (task) => ({ ...task, task_status: task.status, ...(await this.status(task)) })),
+      );
       return { tasks };
     }
     if (name === "task_merge") {
@@ -445,8 +804,12 @@ export class AppToolService {
       const count = requiredInteger(args, "messages", 1, 100);
       const session = await this.acp.get(provider).get(this.tasks.taskPath(task.id));
       return {
-        task_id: task.id, provider, status: session.status,
-        messages: session.messages.slice(-count).map(({ id, role, text, timestamp }) => ({ id, role, text, timestamp }))
+        task_id: task.id,
+        provider,
+        status: session.status,
+        messages: session.messages
+          .slice(-count)
+          .map(({ id, role, text, timestamp }) => ({ id, role, text, timestamp })),
       };
     }
     if (name === "task_append_prompt") {
@@ -464,10 +827,20 @@ export class AppToolService {
       }
       if (reasoning !== undefined) await validateReasoning(await manager.models(), model ?? current.model, reasoning);
       const running = current.status === "in_progress" || current.status === "user_prompt";
-      if (running && ((model !== undefined && model !== current.model) || (reasoning !== undefined && reasoning !== current.reasoning))) throw new Error("Wait for the task's current AI turn to finish before changing its model or reasoning");
+      if (
+        running &&
+        ((model !== undefined && model !== current.model) ||
+          (reasoning !== undefined && reasoning !== current.reasoning))
+      )
+        throw new Error("Wait for the task's current AI turn to finish before changing its model or reasoning");
       await this.workflow?.registerChild?.(task.id, provider, workspace);
-      const configuration: AiConfiguration = { ...(current.configuration ?? { model: current.model, reasoning: current.reasoning }) };
-      if (model !== undefined) { if (model !== current.model) delete configuration.reasoning; configuration.model = model; }
+      const configuration: AiConfiguration = {
+        ...(current.configuration ?? { model: current.model, reasoning: current.reasoning }),
+      };
+      if (model !== undefined) {
+        if (model !== current.model) delete configuration.reasoning;
+        configuration.model = model;
+      }
       if (reasoning !== undefined) configuration.reasoning = reasoning;
       const session = running
         ? await manager.steer(workspace, prompt)
@@ -488,24 +861,38 @@ export class AppToolService {
       const message = requiredCommitMessage(args, "message");
       const update = await this.tasks.updateGitCommitMessage(taskId, message);
       return {
-        task_id: update.task.id, branch: update.task.branch, previous_commit: update.previousCommit,
-        commit: update.commit, previous_message: update.previousMessage, message: update.message, rewritten: true
+        task_id: update.task.id,
+        branch: update.task.branch,
+        previous_commit: update.previousCommit,
+        commit: update.commit,
+        previous_message: update.previousMessage,
+        message: update.message,
+        rewritten: true,
       };
     }
     throw new Error(`Unknown tool '${name}'`);
   }
 
-  private async reconcileOperation(name: string, args: Record<string, unknown>, key: string): Promise<unknown | null | undefined> {
+  private async reconcileOperation(
+    name: string,
+    args: Record<string, unknown>,
+    key: string,
+  ): Promise<unknown | null | undefined> {
     if ((name === "timer_set" || name === "timer_set_at") && this.timers && this.currentProvider) {
       const timer = await this.timers.next(this.currentWorkspace, this.currentProvider);
-      if (timer?.workflowOperationKey === key) return { timer_id: timer.id, status: "waiting", due_at: timer.dueAt, continuation_prompt: timer.prompt };
+      if (timer?.workflowOperationKey === key)
+        return { timer_id: timer.id, status: "waiting", due_at: timer.dueAt, continuation_prompt: timer.prompt };
       return null;
     }
     if (name === "task_create" || name === "task_create_and_start") {
-      const requested = optionalString(args, "branch") ?? `task/workflow-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
-      const task = (await this.tasks.list()).tasks.find((item) => item.branch === requested); if (!task) return null;
+      const requested =
+        optionalString(args, "branch") ??
+        `task/workflow-${crypto.createHash("sha256").update(key).digest("hex").slice(0, 12)}`;
+      const task = (await this.tasks.list()).tasks.find((item) => item.branch === requested);
+      if (!task) return null;
       if (name === "task_create") return { task };
-      const provider = requiredString(args, "provider") as AiProvider; const session = await this.acp.get(provider).get(this.tasks.taskPath(task.id));
+      const provider = requiredString(args, "provider") as AiProvider;
+      const session = await this.acp.get(provider).get(this.tasks.taskPath(task.id));
       await this.workflow?.registerChild?.(task.id, provider, this.tasks.taskPath(task.id));
       return { task, session: { status: session.status, model: session.model } };
     }
@@ -514,8 +901,11 @@ export class AppToolService {
       return task?.status === "finished" ? { task, targetBranch: task.baseBranch } : task ? null : undefined;
     }
     if (name === "task_append_prompt") {
-      const task = (await this.tasks.list()).tasks.find((item) => item.id === requiredString(args, "task_id")); if (!task) return undefined;
-      const provider = requiredString(args, "provider") as AiProvider; const prompt = requiredString(args, "prompt"); const session = await this.acp.get(provider).get(this.tasks.taskPath(task.id));
+      const task = (await this.tasks.list()).tasks.find((item) => item.id === requiredString(args, "task_id"));
+      if (!task) return undefined;
+      const provider = requiredString(args, "provider") as AiProvider;
+      const prompt = requiredString(args, "prompt");
+      const session = await this.acp.get(provider).get(this.tasks.taskPath(task.id));
       if (!session.messages.some((message) => message.role === "user" && message.text === prompt)) return null;
       return { task_id: task.id, provider, session: { status: session.status, model: session.model } };
     }
@@ -529,13 +919,24 @@ export class AppToolService {
   }
 
   private async status(task: WorkspaceTask) {
-    const sessions = await Promise.all(this.acp.list().map((provider) => this.acp.get(provider.id).get(this.tasks.taskPath(task.id))));
+    const sessions = await Promise.all(
+      this.acp.list().map((provider) => this.acp.get(provider.id).get(this.tasks.taskPath(task.id))),
+    );
     const summary = summarizeAiSessions(sessions);
     const timer = await this.timers?.next(this.tasks.taskPath(task.id));
-    return { ...summary, ...(timer && summary.status !== "in_progress" && summary.status !== "user_prompt" ? { status: "waiting", waiting_until: timer.dueAt } : {}), providers: Object.fromEntries(this.acp.list().map((provider, index) => [provider.id, sessions[index]!.status])) };
+    return {
+      ...summary,
+      ...(timer && summary.status !== "in_progress" && summary.status !== "user_prompt"
+        ? { status: "waiting", waiting_until: timer.dueAt }
+        : {}),
+      providers: Object.fromEntries(this.acp.list().map((provider, index) => [provider.id, sessions[index]!.status])),
+    };
   }
 
-  private async resolveAgent(requested: AgentFileReference | null | undefined, parent: AiSession): Promise<{ agent: AiAgent; preset: AgentFileReference } | undefined> {
+  private async resolveAgent(
+    requested: AgentFileReference | null | undefined,
+    parent: AiSession,
+  ): Promise<{ agent: AiAgent; preset: AgentFileReference } | undefined> {
     if (requested === null) return undefined;
     if (!this.agents) {
       if (requested !== undefined || parent.agent) throw new Error("Agent presets are not available");
@@ -550,14 +951,21 @@ export class AppToolService {
     if (!parent.agent) return undefined;
     const inherited = parent.agentPreset
       ? configured.find((file) => file.scope === parent.agentPreset!.scope && file.name === parent.agentPreset!.name)
-      : configured.find((file) => file.agent.name === parent.agent!.name && agentFingerprint(file.agent) === parent.agent!.fingerprint);
-    if (!inherited) throw new Error(`Invoking agent preset '${parent.agent.name}' is no longer available; pass agent: null to start without it`);
+      : configured.find(
+          (file) =>
+            file.agent.name === parent.agent!.name && agentFingerprint(file.agent) === parent.agent!.fingerprint,
+        );
+    if (!inherited)
+      throw new Error(
+        `Invoking agent preset '${parent.agent.name}' is no longer available; pass agent: null to start without it`,
+      );
     return { agent: inherited.agent, preset: { scope: inherited.scope, name: inherited.name } };
   }
 }
 
 function usageResult(provider: AiProvider, usage: AiUsage) {
-  const remaining = usage.used !== undefined && usage.limit !== undefined ? Math.max(0, usage.limit - usage.used) : undefined;
+  const remaining =
+    usage.used !== undefined && usage.limit !== undefined ? Math.max(0, usage.limit - usage.used) : undefined;
   return {
     provider,
     supported: usage.supported,
@@ -569,26 +977,36 @@ function usageResult(provider: AiProvider, usage: AiUsage) {
     unit: usage.unit ?? null,
     resets_at: usage.resetsAt ?? null,
     details: usage.details ?? {},
-    account_quota: usage.accountQuota ? {
-      plan: usage.accountQuota.plan ?? null,
-      limit_id: usage.accountQuota.limitId ?? null,
-      limit_name: usage.accountQuota.limitName ?? null,
-      primary: usage.accountQuota.primary ? quotaWindowResult(usage.accountQuota.primary) : null,
-      secondary: usage.accountQuota.secondary ? quotaWindowResult(usage.accountQuota.secondary) : null,
-      credits: usage.accountQuota.credits ? {
-        has_credits: usage.accountQuota.credits.hasCredits,
-        unlimited: usage.accountQuota.credits.unlimited,
-        balance: usage.accountQuota.credits.balance ?? null
-      } : null
-    } : null,
-    note: usage.accountQuota === undefined
-      ? "This provider has not exposed a quota reset time through ACP. A context-window limit is conversation capacity, not an account rate-limit quota."
-      : undefined
+    account_quota: usage.accountQuota
+      ? {
+          plan: usage.accountQuota.plan ?? null,
+          limit_id: usage.accountQuota.limitId ?? null,
+          limit_name: usage.accountQuota.limitName ?? null,
+          primary: usage.accountQuota.primary ? quotaWindowResult(usage.accountQuota.primary) : null,
+          secondary: usage.accountQuota.secondary ? quotaWindowResult(usage.accountQuota.secondary) : null,
+          credits: usage.accountQuota.credits
+            ? {
+                has_credits: usage.accountQuota.credits.hasCredits,
+                unlimited: usage.accountQuota.credits.unlimited,
+                balance: usage.accountQuota.credits.balance ?? null,
+              }
+            : null,
+        }
+      : null,
+    note:
+      usage.accountQuota === undefined
+        ? "This provider has not exposed a quota reset time through ACP. A context-window limit is conversation capacity, not an account rate-limit quota."
+        : undefined,
   };
 }
 
 function quotaWindowResult(window: AiQuotaWindow) {
-  return { used_percent: window.usedPercent, remaining_percent: window.remainingPercent, window_minutes: window.windowMinutes ?? null, resets_at: window.resetsAt ?? null };
+  return {
+    used_percent: window.usedPercent,
+    remaining_percent: window.remainingPercent,
+    window_minutes: window.windowMinutes ?? null,
+    resets_at: window.resetsAt ?? null,
+  };
 }
 
 type AgentArgument = AgentFileReference | null | undefined;
@@ -597,19 +1015,24 @@ function agentReference(args: Record<string, unknown>): AgentArgument {
   if (!("agent" in args)) return undefined;
   const value = args.agent;
   if (value === null) return null;
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("agent must be a configured agent reference or null");
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new Error("agent must be a configured agent reference or null");
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => key !== "scope" && key !== "name")) throw new Error("agent contains unsupported properties");
-  if (record.scope !== "global" && record.scope !== "local" && record.scope !== "workspace") throw new Error("agent.scope must be global, local, or workspace");
+  if (Object.keys(record).some((key) => key !== "scope" && key !== "name"))
+    throw new Error("agent contains unsupported properties");
+  if (record.scope !== "global" && record.scope !== "local" && record.scope !== "workspace")
+    throw new Error("agent.scope must be global, local, or workspace");
   return { scope: record.scope, name: requiredString(record, "name") };
 }
 
 async function validateReasoning(models: AiModel[], modelId: string, reasoning: string): Promise<void> {
   const model = models.find((item) => item.id === modelId);
   if (!model) throw new Error(`Model '${modelId}' is not advertised by the selected provider`);
-  if (model.available === false) throw new Error(`Model '${modelId}' is advertised but is not available for the selected provider account`);
+  if (model.available === false)
+    throw new Error(`Model '${modelId}' is advertised but is not available for the selected provider account`);
   if (!model.reasoningLevels.includes(reasoning)) {
-    const supported = model.reasoningLevels.length > 0 ? model.reasoningLevels.join(", ") : "none (omit reasoning to use this model)";
+    const supported =
+      model.reasoningLevels.length > 0 ? model.reasoningLevels.join(", ") : "none (omit reasoning to use this model)";
     throw new Error(`reasoning '${reasoning}' is not supported by model '${modelId}'; supported values: ${supported}`);
   }
 }
@@ -628,29 +1051,138 @@ function optionalString(args: Record<string, unknown>, key: string): string | un
 
 function requiredInteger(args: Record<string, unknown>, key: string, minimum: number, maximum: number): number {
   const value = args[key];
-  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new Error(`${key} must be an integer from ${minimum} to ${maximum}`);
+  if (!Number.isInteger(value) || (value as number) < minimum || (value as number) > maximum)
+    throw new Error(`${key} must be an integer from ${minimum} to ${maximum}`);
   return value as number;
 }
 
 function requiredStringArray(args: Record<string, unknown>, key: string): string[] {
   const value = args[key];
-  if (!Array.isArray(value) || !value.length || !value.every((item) => typeof item === "string" && item.trim())) throw new Error(`${key} must be a non-empty array of strings`);
+  if (!Array.isArray(value) || !value.length || !value.every((item) => typeof item === "string" && item.trim()))
+    throw new Error(`${key} must be a non-empty array of strings`);
   return value.map((item) => item.trim());
 }
 
 function requiredCommitMessage(args: Record<string, unknown>, key: string): string {
   const value = args[key];
-  if (typeof value !== "string" || !value.trim()) throw new Error(`${key} must contain at least one non-whitespace character`);
+  if (typeof value !== "string" || !value.trim())
+    throw new Error(`${key} must contain at least one non-whitespace character`);
   if (value.length > 10_000) throw new Error(`${key} must be at most 10000 characters`);
   return value;
 }
 
 export const flowToolDefinitions = [
-  { name: "workflow_connections", description: "List blocks connected to this AI Agent and their use, follow, or path connection types.", inputSchema: { type: "object", properties: {} } },
-  { name: "workflow_use_block", description: "Use a connected block. For Meeting blocks, publish posts message (or input), tail reads recent messages, diff reads new messages since this caller last read, and wait holds the call until unread messages arrive or timeout_seconds expires (defaults to the connection timeout). wait returns messages with status updated or timed_out and releases workflow execution capacity while waiting. lines selects 1–50 messages (default 20); after optionally supplies a sequence number for diff. Results are in meeting with messages, cursor, latestSequence, hasMore and historyTruncated. Read again while hasMore is true. Publishing does not start other agents. Meeting status lists connected peers with online and block_status fields (online means an active workflow turn, not network presence). Meeting shake takes peer_block_id and an optional message: it steers an active peer or starts an idle peer in the background, reusing its session. Only AI Agents and Chatboxes connected to that room can be shaken. For AI Agents and Chatboxes, start launches input in the background immediately, status checks state, tail reads recent messages (lines 1–50), and steer sends input to the running session without waiting for completion. Different connected AI blocks can run independently. For any connected block that holds data (Meeting, AI Agent, Chatbox, Run App, Terminal Control, Task controls, and blocks with retained output such as Text, Script and Markdown), action fetch returns only what this caller has not yet fetched, without starting or changing the block: new messages and activity, new log or terminal text (Terminal Control needs terminal_id), changed task status, or new output text. Results flag hasMore (fetch again), gap (older unread data has rolled off) and unchanged. fetch accepts no lines, after or input. Omit action to wait for completion. For Task controls, actions are create (branch), create_and_start (input prompt, optional branch), status (optional task_id), prompt (task_id and input prompt), set_status (task_id and status active or finished), set_commit_message (task_id and message or input; saves a draft), and update_commit_message (task_id and message or input; rewrites the latest unpushed commit without changing contents). Provider, model and reasoning come from the block design. Results are in task_controls. Terminal Control is only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. For Terminal Control, use action list, open (name is the tab title), open_and_run (name and command, or input as the command; starts a terminal and runs the command in one call, appending a newline automatically and returning its terminalId immediately), run_and_wait (name and command, or input as the command, or terminal_id to reuse an open terminal; runs the command and holds the call until it finishes, then returns status completed with exitCode and output, exited if the terminal ended, or timed_out with the output so far while the command keeps running; timeout_seconds sets the wait, default 300; the output includes the terminal echo), read (terminal_id, optional lines), or write (terminal_id and data, raw terminal input; include a newline to execute commands). Results are in terminal and are scoped to the task workspace. For Run App, pass action to choose one of its allowed actions: start, status, kill, or tail. Input is optional (defaults to empty). For tail, lines optionally selects the last 1–10000 log lines. The result contains structured app state and logs in app. Structured app, task_controls, and skill results omit the duplicate output string; other blocks return output. Timer blocks arm their configured countdown and return immediately; when they fire, their follow connections receive the supplied input. User Prompt and Yes/No Prompt blocks wait for the user to answer in the workflow UI and return that answer to the calling agent; their wait is not limited by the connection timeout. Other blocks return their output when done. Tool results are bounded to 20000 characters; truncated results are marked. Use workflow_block_output to read retained output in pages. Unchanged results may return unchanged: true. timeout_seconds overrides the connection timeout (default 300 seconds, maximum 86400). On timeout the child keeps working; the result includes status timed_out, recent messages, and activity. Use workflow_block_messages to check its progress without sending another prompt. An AI block continues its own existing context.", inputSchema: { type: "object", properties: { block_id: { type: "string" }, timeout_seconds: { type: "number", exclusiveMinimum: 0, maximum: 86400 }, input: { type: "string" }, action: { type: "string", enum: ["list", "open", "open_and_run", "run_and_wait", "read", "write", "start", "status", "kill", "tail", "steer", "create", "create_and_start", "prompt", "set_status", "set_commit_message", "update_commit_message", "publish", "diff", "wait", "fetch", "shake"] }, peer_block_id: { type: "string", minLength: 1, description: "Target peer block ID returned by Meeting status; only for Meeting shake." }, after: { type: "integer", minimum: 0, description: "Meeting diff/wait: read messages after this sequence; omit to use your own saved cursor." }, message: { type: "string", minLength: 1, maxLength: 10000, description: "Meeting publish text or Task controls commit message; preserves multiline messages." }, terminal_id: { type: "string" }, name: { type: "string", maxLength: 120 }, command: { type: "string", minLength: 1, maxLength: 100000, description: "Command to execute with Terminal Control open_and_run; a newline is appended automatically. Defaults to input." }, data: { type: "string", maxLength: 100000 }, task_id: { type: "string" }, branch: { type: "string" }, status: { type: "string", enum: ["active", "finished"] }, idempotency_key: { type: "string", minLength: 1, maxLength: 200 }, lines: { type: "integer", minimum: 1, maximum: 10000 } }, required: ["block_id"] } },
-  { name: "workflow_block_output", description: "Read retained output from a connected block in bounded pages without invoking it. Use after a truncated tool result or template preview. offset defaults to 0; limit defaults to 8000 (maximum 8000). Follow nextOffset for the next page. Skill blocks must be loaded through workflow_use_block to recheck current policy.", inputSchema: { type: "object", properties: { block_id: { type: "string" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 8000 } }, required: ["block_id"] } },
-  { name: "workflow_block_messages", description: "Read recent messages and activity from a connected AI Agent or Chatbox without invoking it. Use after a workflow_use_block timeout to check progress. count defaults to 6 (1–50). Messages contain the latest output with up to 8000 characters per message and 20000 characters per result; truncated results are marked. Changed polls omit unchanged messages and activity. Repeated identical polls return unchanged: true. Set include_unchanged: true to reread the snapshot. Read-only polling does not start another turn.", inputSchema: { type: "object", properties: { block_id: { type: "string" }, count: { type: "integer", minimum: 1, maximum: 50 }, include_unchanged: { type: "boolean", description: "Return the snapshot even if the last poll was identical." } }, required: ["block_id"] } },
-  { name: "workflow_choose_path", description: "Choose a connected path by label. The chosen block receives your final output after you finish. Follow connections also run.", inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] } }
+  {
+    name: "workflow_connections",
+    description: "List blocks connected to this AI Agent and their use, follow, or path connection types.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "workflow_use_block",
+    description:
+      "Use a connected block. For Meeting blocks, publish posts message (or input), tail reads recent messages, diff reads new messages since this caller last read, and wait holds the call until unread messages arrive or timeout_seconds expires (defaults to the connection timeout). wait returns messages with status updated or timed_out and releases workflow execution capacity while waiting. lines selects 1–50 messages (default 20); after optionally supplies a sequence number for diff. Results are in meeting with messages, cursor, latestSequence, hasMore and historyTruncated. Read again while hasMore is true. Publishing does not start other agents. Meeting status lists connected peers with online and block_status fields (online means an active workflow turn, not network presence). Meeting shake takes peer_block_id and an optional message: it steers an active peer or starts an idle peer in the background, reusing its session. Only AI Agents and Chatboxes connected to that room can be shaken. For AI Agents and Chatboxes, start launches input in the background immediately, status checks state, tail reads recent messages (lines 1–50), and steer sends input to the running session without waiting for completion. Different connected AI blocks can run independently. For any connected block that holds data (Meeting, AI Agent, Chatbox, Run App, Terminal Control, Task controls, and blocks with retained output such as Text, Script and Markdown), action fetch returns only what this caller has not yet fetched, without starting or changing the block: new messages and activity, new log or terminal text (Terminal Control needs terminal_id), changed task status, or new output text. Results flag hasMore (fetch again), gap (older unread data has rolled off) and unchanged. fetch accepts no lines, after or input. Omit action to wait for completion. For Task controls, actions are create (branch), create_and_start (input prompt, optional branch), status (optional task_id), prompt (task_id and input prompt), set_status (task_id and status active or finished), set_commit_message (task_id and message or input; saves a draft), and update_commit_message (task_id and message or input; rewrites the latest unpushed commit without changing contents). Provider, model and reasoning come from the block design. Results are in task_controls. Terminal Control is only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. For Terminal Control, use action list, open (name is the tab title), open_and_run (name and command, or input as the command; starts a terminal and runs the command in one call, appending a newline automatically and returning its terminalId immediately), run_and_wait (name and command, or input as the command, or terminal_id to reuse an open terminal; runs the command and holds the call until it finishes, then returns status completed with exitCode and output, exited if the terminal ended, or timed_out with the output so far while the command keeps running; timeout_seconds sets the wait, default 300; the output includes the terminal echo), read (terminal_id, optional lines), or write (terminal_id and data, raw terminal input; include a newline to execute commands). Results are in terminal and are scoped to the task workspace. For Run App, pass action to choose one of its allowed actions: start, status, kill, or tail. Input is optional (defaults to empty). For tail, lines optionally selects the last 1–10000 log lines. The result contains structured app state and logs in app. Structured app, task_controls, and skill results omit the duplicate output string; other blocks return output. Timer blocks arm their configured countdown and return immediately; when they fire, their follow connections receive the supplied input. User Prompt and Yes/No Prompt blocks wait for the user to answer in the workflow UI and return that answer to the calling agent; their wait is not limited by the connection timeout. Other blocks return their output when done. Tool results are bounded to 20000 characters; truncated results are marked. Use workflow_block_output to read retained output in pages. Unchanged results may return unchanged: true. timeout_seconds overrides the connection timeout (default 300 seconds, maximum 86400). On timeout the child keeps working; the result includes status timed_out, recent messages, and activity. Use workflow_block_messages to check its progress without sending another prompt. An AI block continues its own existing context.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block_id: { type: "string" },
+        timeout_seconds: { type: "number", exclusiveMinimum: 0, maximum: 86400 },
+        input: { type: "string" },
+        action: {
+          type: "string",
+          enum: [
+            "list",
+            "open",
+            "open_and_run",
+            "run_and_wait",
+            "read",
+            "write",
+            "start",
+            "status",
+            "kill",
+            "tail",
+            "steer",
+            "create",
+            "create_and_start",
+            "prompt",
+            "set_status",
+            "set_commit_message",
+            "update_commit_message",
+            "publish",
+            "diff",
+            "wait",
+            "fetch",
+            "shake",
+          ],
+        },
+        peer_block_id: {
+          type: "string",
+          minLength: 1,
+          description: "Target peer block ID returned by Meeting status; only for Meeting shake.",
+        },
+        after: {
+          type: "integer",
+          minimum: 0,
+          description: "Meeting diff/wait: read messages after this sequence; omit to use your own saved cursor.",
+        },
+        message: {
+          type: "string",
+          minLength: 1,
+          maxLength: 10000,
+          description: "Meeting publish text or Task controls commit message; preserves multiline messages.",
+        },
+        terminal_id: { type: "string" },
+        name: { type: "string", maxLength: 120 },
+        command: {
+          type: "string",
+          minLength: 1,
+          maxLength: 100000,
+          description:
+            "Command to execute with Terminal Control open_and_run; a newline is appended automatically. Defaults to input.",
+        },
+        data: { type: "string", maxLength: 100000 },
+        task_id: { type: "string" },
+        branch: { type: "string" },
+        status: { type: "string", enum: ["active", "finished"] },
+        idempotency_key: { type: "string", minLength: 1, maxLength: 200 },
+        lines: { type: "integer", minimum: 1, maximum: 10000 },
+      },
+      required: ["block_id"],
+    },
+  },
+  {
+    name: "workflow_block_output",
+    description:
+      "Read retained output from a connected block in bounded pages without invoking it. Use after a truncated tool result or template preview. offset defaults to 0; limit defaults to 8000 (maximum 8000). Follow nextOffset for the next page. Skill blocks must be loaded through workflow_use_block to recheck current policy.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block_id: { type: "string" },
+        offset: { type: "integer", minimum: 0 },
+        limit: { type: "integer", minimum: 1, maximum: 8000 },
+      },
+      required: ["block_id"],
+    },
+  },
+  {
+    name: "workflow_block_messages",
+    description:
+      "Read recent messages and activity from a connected AI Agent or Chatbox without invoking it. Use after a workflow_use_block timeout to check progress. count defaults to 6 (1–50). Messages contain the latest output with up to 8000 characters per message and 20000 characters per result; truncated results are marked. Changed polls omit unchanged messages and activity. Repeated identical polls return unchanged: true. Set include_unchanged: true to reread the snapshot. Read-only polling does not start another turn.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        block_id: { type: "string" },
+        count: { type: "integer", minimum: 1, maximum: 50 },
+        include_unchanged: { type: "boolean", description: "Return the snapshot even if the last poll was identical." },
+      },
+      required: ["block_id"],
+    },
+  },
+  {
+    name: "workflow_choose_path",
+    description:
+      "Choose a connected path by label. The chosen block receives your final output after you finish. Follow connections also run.",
+    inputSchema: { type: "object", properties: { path: { type: "string" } }, required: ["path"] },
+  },
 ];
 
 async function main() {
@@ -663,35 +1195,85 @@ async function main() {
   const lines = createInterface({ input: process.stdin, terminal: false });
   for await (const line of lines) {
     if (!line.trim()) continue;
-    const request = JSON.parse(line) as { jsonrpc: "2.0"; id?: string | number; method: string; params?: Record<string, unknown> };
+    const request = JSON.parse(line) as {
+      jsonrpc: "2.0";
+      id?: string | number;
+      method: string;
+      params?: Record<string, unknown>;
+    };
     if (request.id === undefined) continue;
     try {
       let result: unknown;
-      if (request.method === "initialize") result = { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "hatopad", version: "0.1.0" } };
+      if (request.method === "initialize")
+        result = {
+          protocolVersion: "2025-06-18",
+          capabilities: { tools: {} },
+          serverInfo: { name: "hatopad", version: "0.1.0" },
+        };
       else if (request.method === "ping") result = {};
-      else if (request.method === "tools/list") result = { tools: process.env.HATOPAD_SKILLS_ONLY ? appToolDefinitions.filter((tool) => tool.name === "skill_load") : process.env.HATOPAD_FLOW_TOOLS ? [...flowToolDefinitions, ...appToolDefinitions.filter((tool) => !["workflow_run_stack", "workflow_resume_failed", "workflow_plan_features"].includes(tool.name))] : appToolDefinitions };
+      else if (request.method === "tools/list")
+        result = {
+          tools: process.env.HATOPAD_SKILLS_ONLY
+            ? appToolDefinitions.filter((tool) => tool.name === "skill_load")
+            : process.env.HATOPAD_FLOW_TOOLS
+              ? [
+                  ...flowToolDefinitions,
+                  ...appToolDefinitions.filter(
+                    (tool) =>
+                      !["workflow_run_stack", "workflow_resume_failed", "workflow_plan_features"].includes(tool.name),
+                  ),
+                ]
+              : appToolDefinitions,
+        };
       else if (request.method === "tools/call") {
         const params = request.params ?? {};
-        if (process.env.HATOPAD_SKILLS_ONLY && params.name !== "skill_load") throw new Error("Only skill_load is available on this server");
-        const workflowRunId = process.env.HATOPAD_WORKFLOW_RUN_ID; const workflowBlockId = process.env.HATOPAD_WORKFLOW_BLOCK_ID;
-        const value = await bridge.call({ name: requiredString(params, "name"), args: (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<string, unknown>, currentWorkspace, ...(currentProvider ? { currentProvider } : {}), ...(workflowRunId ? { workflowRunId } : {}), ...(workflowBlockId ? { workflowBlockId } : {}) }, 86_460_000);
+        if (process.env.HATOPAD_SKILLS_ONLY && params.name !== "skill_load")
+          throw new Error("Only skill_load is available on this server");
+        const workflowRunId = process.env.HATOPAD_WORKFLOW_RUN_ID;
+        const workflowBlockId = process.env.HATOPAD_WORKFLOW_BLOCK_ID;
+        const value = await bridge.call(
+          {
+            name: requiredString(params, "name"),
+            args: (params.arguments && typeof params.arguments === "object" ? params.arguments : {}) as Record<
+              string,
+              unknown
+            >,
+            currentWorkspace,
+            ...(currentProvider ? { currentProvider } : {}),
+            ...(workflowRunId ? { workflowRunId } : {}),
+            ...(workflowBlockId ? { workflowBlockId } : {}),
+          },
+          86_460_000,
+        );
         result = toolResult(value);
       } else throw Object.assign(new Error(`Method not found: ${request.method}`), { code: -32601 });
       process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (request.method === "tools/call") process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: toolResult(message, true) })}\n`);
-      else process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: (error as { code?: number }).code ?? -32603, message } })}\n`);
+      if (request.method === "tools/call")
+        process.stdout.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: toolResult(message, true) })}\n`,
+        );
+      else
+        process.stdout.write(
+          `${JSON.stringify({ jsonrpc: "2.0", id: request.id, error: { code: (error as { code?: number }).code ?? -32603, message } })}\n`,
+        );
     }
   }
 }
 
 function toolResult(value: unknown, isError = false): ToolResult {
-  return { content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }], ...(isError ? { isError: true } : {}) };
+  return {
+    content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
+    ...(isError ? { isError: true } : {}),
+  };
 }
 
 function inheritedAutopilot(parentOptions: AiOption[], parent: AiSession, childOptions: AiOption[]): AiConfiguration {
-  const effectiveParentOptions = [...parentOptions.filter((option) => !parent.availableOptions?.some((candidate) => candidate.id === option.id)), ...(parent.availableOptions ?? [])];
+  const effectiveParentOptions = [
+    ...parentOptions.filter((option) => !parent.availableOptions?.some((candidate) => candidate.id === option.id)),
+    ...(parent.availableOptions ?? []),
+  ];
   const parentAutopilot = findAutopilotOption(effectiveParentOptions);
   if (!parentAutopilot) return {};
   const parentValue = parent.configuration?.[parentAutopilot.option.id] ?? parentAutopilot.option.defaultValue;
@@ -700,28 +1282,86 @@ function inheritedAutopilot(parentOptions: AiOption[], parent: AiSession, childO
   return { [childAutopilot.option.id]: enabled ? childAutopilot.on : childAutopilot.off };
 }
 
-export function withAppTools(rootWorkspace: string, currentWorkspace: string, servers?: AiMcpServer[], agent?: AiAgent, currentProvider?: AiProvider, bridgeWorkspace = rootWorkspace): { servers: AiMcpServer[]; agent?: AiAgent } {
+export function withAppTools(
+  rootWorkspace: string,
+  currentWorkspace: string,
+  servers?: AiMcpServer[],
+  agent?: AiAgent,
+  currentProvider?: AiProvider,
+  bridgeWorkspace = rootWorkspace,
+): { servers: AiMcpServer[]; agent?: AiAgent } {
   if (!agent?.mcpServers?.includes("hatopad")) return { servers: servers ?? [], ...(agent ? { agent } : {}) };
   const appServer = appToolServer(rootWorkspace, currentWorkspace, currentProvider, bridgeWorkspace);
   const filtered = (servers ?? []).filter((server) => server.name !== appServer.name);
   return { servers: [...filtered, appServer], agent };
 }
 
-export function skillToolServer(rootWorkspace: string, workspace: string, provider: AiProvider, bridgeWorkspace = rootWorkspace): AiMcpServer {
+export function skillToolServer(
+  rootWorkspace: string,
+  workspace: string,
+  provider: AiProvider,
+  bridgeWorkspace = rootWorkspace,
+): AiMcpServer {
   const server = appToolServer(rootWorkspace, workspace, provider, bridgeWorkspace);
   if (server.transport !== "stdio") throw new Error("Skills require the Core stdio tool server");
   return { ...server, name: "hatopad-skills", env: { ...server.env, HATOPAD_SKILLS_ONLY: "1" } };
 }
 
-export function appToolServer(rootWorkspace: string, currentWorkspace: string, currentProvider?: AiProvider, bridgeWorkspace = rootWorkspace, workflow?: { runId: string; blockId: string; flow?: boolean }): AiMcpServer {
+export function appToolServer(
+  rootWorkspace: string,
+  currentWorkspace: string,
+  currentProvider?: AiProvider,
+  bridgeWorkspace = rootWorkspace,
+  workflow?: { runId: string; blockId: string; flow?: boolean },
+): AiMcpServer {
   const compiled = fileURLToPath(new URL("app-tools.js", import.meta.url));
   const source = fileURLToPath(new URL("app-tools.ts", import.meta.url));
   const runningFromSource = import.meta.url.endsWith("/src/app-tools.ts");
   // Providers may filter inherited environment variables when spawning MCP servers.
   const stateDirectory = path.resolve(path.dirname(new AppEventBridge(bridgeWorkspace).directory));
   return runningFromSource
-    ? { transport: "stdio", name: "hatopad", command: process.execPath, args: ["--import", "tsx", source], env: { HATOPAD_STATE_DIR: stateDirectory, HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } }
-    : { transport: "stdio", name: "hatopad", command: process.execPath, args: [compiled], env: { HATOPAD_STATE_DIR: stateDirectory, HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId, HATOPAD_ROOT_WORKSPACE: rootWorkspace, HATOPAD_CURRENT_WORKSPACE: currentWorkspace, HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace, ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}), ...(workflow ? { HATOPAD_WORKFLOW_RUN_ID: workflow.runId, HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId, ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}) } : {}) } };
+    ? {
+        transport: "stdio",
+        name: "hatopad",
+        command: process.execPath,
+        args: ["--import", "tsx", source],
+        env: {
+          HATOPAD_STATE_DIR: stateDirectory,
+          HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId,
+          HATOPAD_ROOT_WORKSPACE: rootWorkspace,
+          HATOPAD_CURRENT_WORKSPACE: currentWorkspace,
+          HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace,
+          ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}),
+          ...(workflow
+            ? {
+                HATOPAD_WORKFLOW_RUN_ID: workflow.runId,
+                HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId,
+                ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}),
+              }
+            : {}),
+        },
+      }
+    : {
+        transport: "stdio",
+        name: "hatopad",
+        command: process.execPath,
+        args: [compiled],
+        env: {
+          HATOPAD_STATE_DIR: stateDirectory,
+          HATOPAD_BRIDGE_INSTANCE_ID: appBridgeInstanceId,
+          HATOPAD_ROOT_WORKSPACE: rootWorkspace,
+          HATOPAD_CURRENT_WORKSPACE: currentWorkspace,
+          HATOPAD_BRIDGE_WORKSPACE: bridgeWorkspace,
+          ...(currentProvider ? { HATOPAD_CURRENT_PROVIDER: currentProvider } : {}),
+          ...(workflow
+            ? {
+                HATOPAD_WORKFLOW_RUN_ID: workflow.runId,
+                HATOPAD_WORKFLOW_BLOCK_ID: workflow.blockId,
+                ...(workflow.flow ? { HATOPAD_FLOW_TOOLS: "1" } : {}),
+              }
+            : {}),
+        },
+      };
 }
 
 function workflowOperationKind(name: string): "timer_create" | "task_create" | "prompt_delivery" | "merge" | undefined {
@@ -732,15 +1372,29 @@ function workflowOperationKind(name: string): "timer_create" | "task_create" | "
   return undefined;
 }
 
-function operationInput(args: Record<string, unknown>): Record<string, unknown> { const { idempotency_key: _key, ...input } = args; return input; }
+function operationInput(args: Record<string, unknown>): Record<string, unknown> {
+  const { idempotency_key: _key, ...input } = args;
+  return input;
+}
 function operationKey(name: string, args: Record<string, unknown>): string {
   const supplied = optionalString(args, "idempotency_key");
   if (supplied && supplied.length > 200) throw new Error("idempotency_key must be at most 200 characters");
-  return supplied ?? `${name}:${crypto.createHash("sha256").update(stableJson(operationInput(args))).digest("hex").slice(0, 24)}`;
+  return (
+    supplied ??
+    `${name}:${crypto
+      .createHash("sha256")
+      .update(stableJson(operationInput(args)))
+      .digest("hex")
+      .slice(0, 24)}`
+  );
 }
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-  if (value && typeof value === "object") return `{${Object.entries(value as Record<string, unknown>).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`;
+  if (value && typeof value === "object")
+    return `{${Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`)
+      .join(",")}}`;
   return JSON.stringify(value);
 }
 

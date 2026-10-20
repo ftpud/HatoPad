@@ -31,7 +31,7 @@ jobs:
           - os: macos-15
             target: darwin-arm64
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -41,12 +41,38 @@ jobs:
       - run: npm ci
       - run: npm run build -w @hatopad/acp
       - run: npm run build -w @hatopad/protocol
+      - run: npm run build -w @hatopad/relay
+      - run: npm run build -w @hatopad/connector
+      - run: npm run build -w @hatopad/test-fixtures
       - run: npm run build -w @hatopad/core
       - run: npm run typecheck -w @hatopad/core
       - run: npm run test -w @hatopad/core
       - run: npm run test:bundle
+      - name: Configure macOS signing
+        if: runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true'
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/bundle/ci-mac-signing.mjs setup
       - name: Build and smoke test portable Core
-        run: npm run bundle:core
+        shell: bash
+        env:
+          SIGN_MAC: ${{ runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true' }}
+          HATOPAD_MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+          HATOPAD_NOTARY_PROFILE: hatopad-ci-notary
+          HATOPAD_NOTARY_KEYCHAIN: ${{ runner.temp }}/hatopad-signing.keychain-db
+        run: |
+          if [[ "$SIGN_MAC" == 'true' ]]; then
+            npm run bundle:core -- --sign
+          else
+            npm run bundle:core
+          fi
+      - name: Remove macOS signing credentials
+        if: always() && runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true'
+        run: node scripts/bundle/ci-mac-signing.mjs cleanup
       - uses: actions/upload-artifact@v4
         with:
           name: core-${{ matrix.target }}
@@ -61,7 +87,7 @@ jobs:
       matrix:
         os: [macos-15, windows-2025]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 300
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -90,12 +116,33 @@ jobs:
       - name: Install Windows installer compiler
         if: runner.os == 'Windows'
         run: choco install nsis --version=3.11 --yes --no-progress
+      - name: Configure macOS signing
+        if: runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true'
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: node scripts/bundle/ci-mac-signing.mjs setup
       - name: Package Early Access applications
         id: bundle
         shell: bash
+        env:
+          SIGN_MAC: ${{ runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true' }}
+          HATOPAD_MAC_SIGN_IDENTITY: ${{ secrets.MAC_SIGN_IDENTITY }}
+          HATOPAD_NOTARY_PROFILE: hatopad-ci-notary
+          HATOPAD_NOTARY_KEYCHAIN: ${{ runner.temp }}/hatopad-signing.keychain-db
         run: |
           set -o pipefail
-          npm run bundle:apps 2>&1 | tee "$RUNNER_TEMP/hatopad-bundle.log"
+          if [[ "$SIGN_MAC" == 'true' ]]; then
+            npm run bundle:apps -- --sign 2>&1 | tee "$RUNNER_TEMP/hatopad-bundle.log"
+          else
+            npm run bundle:apps 2>&1 | tee "$RUNNER_TEMP/hatopad-bundle.log"
+          fi
+      - name: Remove macOS signing credentials
+        if: always() && runner.os == 'macOS' && vars.HATOPAD_MAC_SIGNING == 'true'
+        run: node scripts/bundle/ci-mac-signing.mjs cleanup
       - name: Report packaging failure details
         if: failure() && steps.bundle.outcome == 'failure'
         run: node scripts/annotate-test-failure.mjs "${{ runner.temp }}/hatopad-bundle.log" "Bundle creation failure details"

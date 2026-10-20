@@ -51,24 +51,78 @@ export interface LanguageProjectNode {
   extra?: LanguageExtra;
 }
 
-export interface LanguageToolCheck { tool: string; executable: string; ok: boolean; message: string }
-export interface LanguageDiagnostic { path: string; line: number; column: number; severity: "error" | "warning"; message: string }
-export interface LanguageSymbol { name: string; kind: number; path: string; line: number; column: number; container?: string }
+export interface LanguageToolCheck {
+  tool: string;
+  executable: string;
+  ok: boolean;
+  message: string;
+}
+export interface LanguageDiagnostic {
+  path: string;
+  line: number;
+  column: number;
+  severity: "error" | "warning";
+  message: string;
+}
+export interface LanguageSymbol {
+  name: string;
+  kind: number;
+  path: string;
+  line: number;
+  column: number;
+  container?: string;
+}
 
-export interface LanguageRange { startLine: number; startColumn: number; endLine: number; endColumn: number }
-export interface LanguageCompletion { label: string; detail?: string; insertText: string; range?: LanguageRange; additionalTextEdits: { range: LanguageRange; text: string }[] }
+export interface LanguageRange {
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+}
+export interface LanguageCompletion {
+  label: string;
+  detail?: string;
+  insertText: string;
+  range?: LanguageRange;
+  additionalTextEdits: { range: LanguageRange; text: string }[];
+}
 export type LanguageLocation = { path: string } & LanguageRange;
 export type LanguageSemanticToken = LanguageRange & { type: string; modifiers: string[] };
 
-export interface LanguageRunTarget { id: string; name: string; path?: string; extra?: LanguageExtra }
+export interface LanguageRunTarget {
+  id: string;
+  name: string;
+  path?: string;
+  extra?: LanguageExtra;
+}
 
 /** Reuses `run-configs.ts` and `project-processes.ts`; a service only describes what to launch. */
-export interface LanguageRunSpec { command: string; args: string[]; cwd?: string; env?: Record<string, string | undefined>; name?: string }
-export interface LanguageRunHandle { stop(): void; completion: Promise<number> }
+export interface LanguageRunSpec {
+  command: string;
+  args: string[];
+  cwd?: string;
+  env?: Record<string, string | undefined>;
+  name?: string;
+}
+export interface LanguageRunHandle {
+  stop(): void;
+  completion: Promise<number>;
+}
 export type LanguageRunLauncher = (spec: LanguageRunSpec) => LanguageRunHandle;
 
-export interface LanguageBreakpoint { path: string; line: number; extra?: LanguageExtra }
-export interface LanguageDebugVariable { name: string; value: string; reference?: string; type?: string; indexedCount?: number; extra?: LanguageExtra }
+export interface LanguageBreakpoint {
+  path: string;
+  line: number;
+  extra?: LanguageExtra;
+}
+export interface LanguageDebugVariable {
+  name: string;
+  value: string;
+  reference?: string;
+  type?: string;
+  indexedCount?: number;
+  extra?: LanguageExtra;
+}
 export interface LanguageDebugState {
   status: "starting" | "running" | "paused" | "stopped";
   path?: string;
@@ -120,7 +174,10 @@ export interface LanguageService {
   checkTools(content?: string): Promise<LanguageToolCheck[]>;
   /** `revision` is an opaque optimistic-concurrency token the service round-trips unchanged. */
   readConfiguration(): Promise<{ path: string; content: string; revision?: unknown; template?: string }>;
-  saveConfiguration(content: string, expectedRevision?: unknown): Promise<{ content: string; revision: unknown; options?: LanguageExtra }>;
+  saveConfiguration(
+    content: string,
+    expectedRevision?: unknown,
+  ): Promise<{ content: string; revision: unknown; options?: LanguageExtra }>;
   check(): Promise<LanguageDiagnostic[]>;
 
   listRunTargets(): Promise<LanguageRunTarget[]>;
@@ -136,7 +193,10 @@ export interface LanguageService {
 
   setBreakpoints(breakpoints: LanguageBreakpoint[]): Promise<void>;
   startDebug(breakpoints: LanguageBreakpoint[]): Promise<void>;
-  debugVariables(reference: string, start?: number): Promise<{ variables: LanguageDebugVariable[]; nextStart?: number }>;
+  debugVariables(
+    reference: string,
+    start?: number,
+  ): Promise<{ variables: LanguageDebugVariable[]; nextStart?: number }>;
   debugCommand(command: LanguageDebugCommand): void;
   applyChanges(): Promise<LanguageExtra>;
 
@@ -158,4 +218,5 @@ export interface LanguageService {
 }
 
 /** Optional operations are guarded by capability flags; this keeps minimal services small. */
-export type PartialLanguageService = Pick<LanguageService, "descriptor" | "detect" | "dispose"> & Partial<LanguageService>;
+export type PartialLanguageService = Pick<LanguageService, "descriptor" | "detect" | "dispose"> &
+  Partial<LanguageService>;

@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CoreClient } from "./client";
 import { FindInFilesDialog } from "./FindInFilesDialog";
 
-vi.mock("@monaco-editor/react", () => ({ default: ({ value }: { value: string }) => <div data-testid="preview-editor">{value}</div> }));
+vi.mock("@monaco-editor/react", () => ({
+  default: ({ value }: { value: string }) => <div data-testid="preview-editor">{value}</div>,
+}));
 vi.mock("./theme", () => ({ configureMonacoThemes: vi.fn(), monacoTheme: () => "vs-dark" }));
 
 const longSegment = "component-with-an-extremely-long-unbroken-name-that-must-never-expand-the-dialog";
@@ -13,14 +15,18 @@ const matches: SearchResult[] = Array.from({ length: 80 }, (_, index) => ({
   path: `packages/desktop/src/renderer/features/deeply/nested/${longSegment}-${index}.tsx`,
   line: index + 1,
   column: 123456,
-  preview: `${longSegment.repeat(3)}-${index}`
+  preview: `${longSegment.repeat(3)}-${index}`,
 }));
 
-function clientWith(searchResult: { matches: SearchResult[]; truncated: boolean } = { matches, truncated: true }): CoreClient {
+function clientWith(
+  searchResult: { matches: SearchResult[]; truncated: boolean } = { matches, truncated: true },
+): CoreClient {
   return {
-    request: vi.fn((type: string, payload: { path?: string }) => type === "filesystem.search"
-      ? Promise.resolve(searchResult)
-      : Promise.resolve({ content: `preview:${payload.path}` }))
+    request: vi.fn((type: string, payload: { path?: string }) =>
+      type === "filesystem.search"
+        ? Promise.resolve(searchResult)
+        : Promise.resolve({ content: `preview:${payload.path}` }),
+    ),
   } as unknown as CoreClient;
 }
 
@@ -34,21 +40,54 @@ async function search(query = "needle"): Promise<void> {
 }
 
 beforeEach(() => vi.useFakeTimers());
-afterEach(() => { cleanup(); vi.useRealTimers(); });
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 describe("FindInFilesDialog responsive result layout", () => {
   it("keeps same-path results from two roots distinct and visibly rooted", async () => {
-    const rooted: SearchResult[] = [{ rootId: "root-ui", path: "src/index.ts", line: 1, column: 1, preview: "needle" }, { rootId: "root-api", path: "src/index.ts", line: 2, column: 1, preview: "needle" }];
-    const client = { request: vi.fn((type: string, payload: { path?: string }) => type === "filesystem.searchRoots" ? Promise.resolve({ matches: rooted, truncated: false }) : Promise.resolve({ content: `preview:${payload.path}` })) } as unknown as CoreClient;
-    const onNavigate = vi.fn(); render(<FindInFilesDialog client={client} rootIds={["root-ui", "root-api"]} rootAliases={{ "root-ui": "UI", "root-api": "API" }} scope="" onClose={vi.fn()} onNavigate={onNavigate} />);
+    const rooted: SearchResult[] = [
+      { rootId: "root-ui", path: "src/index.ts", line: 1, column: 1, preview: "needle" },
+      { rootId: "root-api", path: "src/index.ts", line: 2, column: 1, preview: "needle" },
+    ];
+    const client = {
+      request: vi.fn((type: string, payload: { path?: string }) =>
+        type === "filesystem.searchRoots"
+          ? Promise.resolve({ matches: rooted, truncated: false })
+          : Promise.resolve({ content: `preview:${payload.path}` }),
+      ),
+    } as unknown as CoreClient;
+    const onNavigate = vi.fn();
+    render(
+      <FindInFilesDialog
+        client={client}
+        rootIds={["root-ui", "root-api"]}
+        rootAliases={{ "root-ui": "UI", "root-api": "API" }}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={onNavigate}
+      />,
+    );
     await search();
-    expect(screen.getByText("UI").classList.contains("root-badge")).toBe(true); expect(screen.getByText("API").classList.contains("root-badge")).toBe(true);
-    fireEvent.doubleClick(screen.getByRole("button", { name: "src/index.ts, line 2, column 1" })); expect(onNavigate).toHaveBeenCalledWith(rooted[1], 6);
+    expect(screen.getByText("UI").classList.contains("root-badge")).toBe(true);
+    expect(screen.getByText("API").classList.contains("root-badge")).toBe(true);
+    fireEvent.doubleClick(screen.getByRole("button", { name: "src/index.ts, line 2, column 1" }));
+    expect(onNavigate).toHaveBeenCalledWith(rooted[1], 6);
   });
   it("records compact recent searches and lets saved searches be reused or deleted", async () => {
     const onQueriesChange = vi.fn();
     const saved = { query: "saved query", path: "src", matchCase: true };
-    render(<FindInFilesDialog client={clientWith({ matches: [], truncated: false })} scope="src" queries={{ saved: [saved] }} onQueriesChange={onQueriesChange} onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(
+      <FindInFilesDialog
+        client={clientWith({ matches: [], truncated: false })}
+        scope="src"
+        queries={{ saved: [saved] }}
+        onQueriesChange={onQueriesChange}
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "saved query" }));
     expect(screen.getByRole<HTMLInputElement>("textbox", { name: "Text to find" }).value).toBe("saved query");
@@ -57,25 +96,53 @@ describe("FindInFilesDialog responsive result layout", () => {
     expect(onQueriesChange).toHaveBeenLastCalledWith({ saved: [] });
 
     await search("needle");
-    expect(onQueriesChange).toHaveBeenLastCalledWith({ saved: [saved], recent: [{ query: "needle", path: "src", matchCase: true }] });
+    expect(onQueriesChange).toHaveBeenLastCalledWith({
+      saved: [saved],
+      recent: [{ query: "needle", path: "src", matchCase: true }],
+    });
     fireEvent.click(screen.getByRole("button", { name: "Save current search" }));
-    expect(onQueriesChange).toHaveBeenLastCalledWith({ saved: [{ query: "needle", path: "src", matchCase: true }, saved] });
+    expect(onQueriesChange).toHaveBeenLastCalledWith({
+      saved: [{ query: "needle", path: "src", matchCase: true }, saved],
+    });
   });
 
   it("sends glob controls to Core and renders a per-file replacement preview", async () => {
     const request = vi.fn((type: string) => {
       if (type === "filesystem.search") return Promise.resolve({ matches: [], truncated: false });
-      if (type === "filesystem.replacePreview") return Promise.resolve({ id: "preview", truncated: false, files: [{ path: "src/a.ts", revision: { identity: "1", version: "1" }, occurrences: [{ line: 1, column: 1, before: "needle", after: "replacement" }] }] });
+      if (type === "filesystem.replacePreview")
+        return Promise.resolve({
+          id: "preview",
+          truncated: false,
+          files: [
+            {
+              path: "src/a.ts",
+              revision: { identity: "1", version: "1" },
+              occurrences: [{ line: 1, column: 1, before: "needle", after: "replacement" }],
+            },
+          ],
+        });
       return Promise.resolve({ content: "" });
     });
-    render(<FindInFilesDialog client={{ request } as unknown as CoreClient} scope="" onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(
+      <FindInFilesDialog
+        client={{ request } as unknown as CoreClient}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
     await search();
     fireEvent.change(screen.getByRole("textbox", { name: "Include globs" }), { target: { value: "src/**/*.ts" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Exclude globs" }), { target: { value: "**/*.test.ts" } });
     fireEvent.change(screen.getByRole("textbox", { name: "Replace with" }), { target: { value: "replacement" } });
     fireEvent.click(screen.getByRole("button", { name: "Preview replace" }));
-    await act(async () => { await Promise.resolve(); });
-    expect(request).toHaveBeenCalledWith("filesystem.replacePreview", expect.objectContaining({ include: "src/**/*.ts", exclude: "**/*.test.ts", replacement: "replacement" }));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(request).toHaveBeenCalledWith(
+      "filesystem.replacePreview",
+      expect.objectContaining({ include: "src/**/*.ts", exclude: "**/*.test.ts", replacement: "replacement" }),
+    );
     expect(screen.getByRole("region", { name: "Replace preview" }).textContent).toContain("src/a.ts");
     expect(screen.getByText("+ replacement")).toBeTruthy();
   });
@@ -111,7 +178,11 @@ describe("FindInFilesDialog responsive result layout", () => {
     expect(resultButton?.getAttribute("title")).toBe(matches[0]!.path);
     expect(resultButton?.getAttribute("aria-label")).toBe(`${matches[0]!.path}, line 1, column 123456`);
     expect(within(firstGroup).getByTitle(`${longSegment}-0.tsx`).classList.contains("find-result-file")).toBe(true);
-    expect(within(firstGroup).getByTitle(`packages/desktop/src/renderer/features/deeply/nested`).classList.contains("find-result-path")).toBe(true);
+    expect(
+      within(firstGroup)
+        .getByTitle(`packages/desktop/src/renderer/features/deeply/nested`)
+        .classList.contains("find-result-path"),
+    ).toBe(true);
     expect(within(resultButton!).getByTitle(matches[0]!.preview)).toBeTruthy();
     expect(within(resultButton!).getByText(longSegment).tagName).toBe("MARK");
     expect(within(results).getByText("1:123456").classList.contains("find-location")).toBe(true);
@@ -119,13 +190,30 @@ describe("FindInFilesDialog responsive result layout", () => {
 
   it("renders bounded context and makes omitted or shortened lines explicit", async () => {
     const contextualMatch: SearchResult = {
-      rootId: "root-primary",       path: "src/context.ts", line: 4, column: 3, preview: "needle suffix", previewTruncated: true,
+      rootId: "root-primary",
+      path: "src/context.ts",
+      line: 4,
+      column: 3,
+      preview: "needle suffix",
+      previewTruncated: true,
       context: {
-        before: [{ line: 2, text: "before", truncated: false }, { line: 3, text: "long before", truncated: true }],
-        after: [{ line: 5, text: "after", truncated: false }], truncatedBefore: true, truncatedAfter: true
-      }
+        before: [
+          { line: 2, text: "before", truncated: false },
+          { line: 3, text: "long before", truncated: true },
+        ],
+        after: [{ line: 5, text: "after", truncated: false }],
+        truncatedBefore: true,
+        truncatedAfter: true,
+      },
     };
-    render(<FindInFilesDialog client={clientWith({ matches: [contextualMatch], truncated: true })} scope="" onClose={vi.fn()} onNavigate={vi.fn()} />);
+    render(
+      <FindInFilesDialog
+        client={clientWith({ matches: [contextualMatch], truncated: true })}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
     await search();
 
     const result = screen.getByRole("button", { name: "src/context.ts, line 4, column 3" });
@@ -137,8 +225,18 @@ describe("FindInFilesDialog responsive result layout", () => {
   });
 
   it("collapses a file group without changing the selected preview", async () => {
-    const sameFileMatches = [{ ...matches[0]!, line: 1 }, { ...matches[0]!, line: 2, column: 4 }];
-    render(<FindInFilesDialog client={clientWith({ matches: sameFileMatches, truncated: false })} scope="" onClose={vi.fn()} onNavigate={vi.fn()} />);
+    const sameFileMatches = [
+      { ...matches[0]!, line: 1 },
+      { ...matches[0]!, line: 2, column: 4 },
+    ];
+    render(
+      <FindInFilesDialog
+        client={clientWith({ matches: sameFileMatches, truncated: false })}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={vi.fn()}
+      />,
+    );
     await search();
 
     const group = document.querySelector<HTMLElement>(".find-result-group")!;
@@ -153,19 +251,28 @@ describe("FindInFilesDialog responsive result layout", () => {
   it("keeps every occurrence from a file available in its result group", async () => {
     const sameLineMatches = [
       { rootId: "root-primary", path: "src/repeated.ts", line: 4, column: 1, preview: "needle needle" },
-      { rootId: "root-primary", path: "src/repeated.ts", line: 4, column: 8, preview: "needle needle" }
+      { rootId: "root-primary", path: "src/repeated.ts", line: 4, column: 8, preview: "needle needle" },
     ];
     const onNavigate = vi.fn();
-    render(<FindInFilesDialog client={clientWith({ matches: sameLineMatches, truncated: false })} scope="" onClose={vi.fn()} onNavigate={onNavigate} />);
+    render(
+      <FindInFilesDialog
+        client={clientWith({ matches: sameLineMatches, truncated: false })}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={onNavigate}
+      />,
+    );
     await search();
 
-    const group = screen.getByRole("region", { name: "Search results" }).querySelector<HTMLElement>(".find-result-group")!;
+    const group = screen
+      .getByRole("region", { name: "Search results" })
+      .querySelector<HTMLElement>(".find-result-group")!;
     expect(within(group).getByText("2").classList.contains("find-group-count")).toBe(true);
     const occurrences = within(group).getAllByRole("button").slice(1);
     expect(occurrences).toHaveLength(2);
     expect(occurrences.map((button) => button.getAttribute("aria-label"))).toEqual([
       "src/repeated.ts, line 4, column 1",
-      "src/repeated.ts, line 4, column 8"
+      "src/repeated.ts, line 4, column 8",
     ]);
 
     fireEvent.doubleClick(occurrences[1]!);
@@ -174,14 +281,23 @@ describe("FindInFilesDialog responsive result layout", () => {
 
   it("keeps result actions usable and exposes full selected paths while metadata is visually truncated", async () => {
     const onNavigate = vi.fn();
-    render(<FindInFilesDialog client={clientWith({ matches: matches.slice(0, 2), truncated: false })} scope="" onClose={vi.fn()} onNavigate={onNavigate} />);
+    render(
+      <FindInFilesDialog
+        client={clientWith({ matches: matches.slice(0, 2), truncated: false })}
+        scope=""
+        onClose={vi.fn()}
+        onNavigate={onNavigate}
+      />,
+    );
     await search("long query");
 
     const results = screen.getByRole("region", { name: "Search results" });
     const second = within(results.querySelectorAll<HTMLElement>(".find-result-group")[1]!).getAllByRole("button")[1]!;
     fireEvent.click(second);
     expect(second.classList.contains("selected")).toBe(true);
-    expect(document.querySelector<HTMLElement>(`.find-preview-file[title="${matches[1]!.path}"]`)?.textContent).toBe(`${longSegment}-1.tsx`);
+    expect(document.querySelector<HTMLElement>(`.find-preview-file[title="${matches[1]!.path}"]`)?.textContent).toBe(
+      `${longSegment}-1.tsx`,
+    );
 
     fireEvent.doubleClick(second);
     expect(onNavigate).toHaveBeenCalledWith(matches[1], "long query".length);
@@ -192,7 +308,9 @@ describe("FindInFilesDialog responsive result layout", () => {
   it("renders empty and long unbroken error states inside the dialog and retains Escape handling", async () => {
     const onClose = vi.fn();
     const emptyClient = clientWith({ matches: [], truncated: false });
-    const { rerender } = render(<FindInFilesDialog client={emptyClient} scope="src" onClose={onClose} onNavigate={vi.fn()} />);
+    const { rerender } = render(
+      <FindInFilesDialog client={emptyClient} scope="src" onClose={onClose} onNavigate={vi.fn()} />,
+    );
     await search();
     expect(screen.getByText("No matches").classList.contains("find-empty")).toBe(true);
 
@@ -200,7 +318,11 @@ describe("FindInFilesDialog responsive result layout", () => {
     const errorClient = { request: vi.fn(() => Promise.reject(new Error(message))) } as unknown as CoreClient;
     rerender(<FindInFilesDialog client={errorClient} scope="src" onClose={onClose} onNavigate={vi.fn()} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Text to find" }), { target: { value: "another" } });
-    await act(async () => { vi.advanceTimersByTime(600); await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => {
+      vi.advanceTimersByTime(600);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(screen.getByRole("alert").classList.contains("find-error")).toBe(true);
     expect(screen.getByRole("alert").textContent).toBe(message);
 

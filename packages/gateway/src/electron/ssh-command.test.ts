@@ -6,7 +6,11 @@ import { executeSshCommand } from "./ssh-command.js";
 
 function begin() {
   const channel = Object.assign(new EventEmitter(), { stderr: new EventEmitter(), close() {} });
-  const client = Object.assign(new EventEmitter(), { exec(_command: string, callback: (error: undefined, stream: typeof channel) => void) { callback(undefined, channel); } });
+  const client = Object.assign(new EventEmitter(), {
+    exec(_command: string, callback: (error: undefined, stream: typeof channel) => void) {
+      callback(undefined, channel);
+    },
+  });
   return { channel, client, result: executeSshCommand(client as unknown as Client, "activate") };
 }
 
@@ -44,13 +48,15 @@ test("preserves a confirmed successful status if the transport closes afterwards
 test("retains remote command failure diagnostics", async () => {
   const { channel, result } = begin();
   channel.stderr.emit("data", Buffer.from("Candidate failed; previous release restored"));
-  channel.emit("exit", 1); channel.emit("close");
+  channel.emit("exit", 1);
+  channel.emit("close");
   await assert.rejects(result, /Candidate failed; previous release restored/);
 });
 
 test("includes the exit status when activation output accompanies a nonzero close", async () => {
   const { channel, result } = begin();
   channel.emit("data", Buffer.from("HATOPAD_ACTIVATED:release\n"));
-  channel.emit("exit", 143); channel.emit("close", 143);
+  channel.emit("exit", 143);
+  channel.emit("close", 143);
   await assert.rejects(result, /Remote command exited with 143\nHATOPAD_ACTIVATED:release/);
 });

@@ -29,7 +29,10 @@ it("returns correlated initial/recovery snapshot errors and keeps the same conne
       const socket = new WebSocket(`ws://127.0.0.1:${address.port}`);
       sockets.push(socket);
       const responses = new Map<string, Response>();
-      socket.on("message", (data) => { const value = JSON.parse(data.toString()); if (value.id) responses.set(value.id, value); });
+      socket.on("message", (data) => {
+        const value = JSON.parse(data.toString());
+        if (value.id) responses.set(value.id, value);
+      });
       await once(socket, "open");
       let sequence = 0;
       let rootId: string | undefined;
@@ -45,7 +48,10 @@ it("returns correlated initial/recovery snapshot errors and keeps the same conne
       rootId = (roots.result as { selectedRootId: string }).selectedRootId;
       for (const type of ["workspace.open", "filesystem.listTree"]) {
         const rejected = await request(type);
-        expect(rejected).toMatchObject({ ok: false, error: { code: "WORKSPACE_TREE_TOO_LARGE", message: expect.stringContaining("smaller workspace") } });
+        expect(rejected).toMatchObject({
+          ok: false,
+          error: { code: "WORKSPACE_TREE_TOO_LARGE", message: expect.stringContaining("smaller workspace") },
+        });
         expect(JSON.stringify(rejected).length).toBeLessThan(1024);
       }
       expect((await request("protocol.keepAlive")).ok).toBe(true);
@@ -54,7 +60,10 @@ it("returns correlated initial/recovery snapshot errors and keeps the same conne
     }
   } finally {
     for (const socket of sockets) socket.terminate();
-    if (server) { for (const socket of server.clients) socket.terminate(); await new Promise<void>((resolve) => server!.close(() => resolve())); }
+    if (server) {
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+    }
     vi.unstubAllEnvs();
     await rm(directory, { recursive: true, force: true });
   }

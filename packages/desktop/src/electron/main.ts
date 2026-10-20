@@ -1,5 +1,16 @@
 import { startManagedConnection, type ManagedDesktopConnection } from "./managed-connection.js";
-import { app, BrowserWindow, clipboard, dialog, ipcMain, nativeImage, shell, powerMonitor, type IpcMainEvent, type IpcMainInvokeEvent } from "electron";
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  ipcMain,
+  nativeImage,
+  shell,
+  powerMonitor,
+  type IpcMainEvent,
+  type IpcMainInvokeEvent,
+} from "electron";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SettingsStore } from "./settings-store.js";
@@ -12,8 +23,11 @@ import { applyLegacyEnvironmentWithWarning } from "@hatopad/protocol";
 
 applyLegacyEnvironmentWithWarning(process.env);
 
-const bundleSmokeTest = (app.isPackaged && process.argv.includes("--bundle-smoke-test")) || (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
-if (bundleSmokeTest) app.setPath("userData", path.join(app.getPath("temp"), `hatopad-desktop-bundle-smoke-${process.pid}`));
+const bundleSmokeTest =
+  (app.isPackaged && process.argv.includes("--bundle-smoke-test")) ||
+  (!app.isPackaged && process.argv.includes("--startup-smoke-test"));
+if (bundleSmokeTest)
+  app.setPath("userData", path.join(app.getPath("temp"), `hatopad-desktop-bundle-smoke-${process.pid}`));
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const rendererFilePath = path.resolve(directory, "../dist-renderer/index.html");
@@ -31,7 +45,7 @@ const launchConfig = {
   host: launchOption("host"),
   port: launchOption("port"),
   rootId: launchOption("root-id"),
-  cloudOrigin: launchOption("cloud-origin")
+  cloudOrigin: launchOption("cloud-origin"),
 };
 
 if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));
@@ -44,26 +58,50 @@ app.commandLine.appendSwitch("class", "HatoPad");
 const settings = new SettingsStore(path.join(app.getPath("userData"), "settings.json"));
 function assertTrustedIpcSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
   const frame = event.senderFrame;
-  if (!isTrustedIpcFrame(frame ? { url: frame.url, isMainFrame: frame.parent === null } : null, Boolean(BrowserWindow.fromWebContents(event.sender)), rendererFilePath, process.env.VITE_DEV_SERVER_URL)) {
+  if (
+    !isTrustedIpcFrame(
+      frame ? { url: frame.url, isMainFrame: frame.parent === null } : null,
+      Boolean(BrowserWindow.fromWebContents(event.sender)),
+      rendererFilePath,
+      process.env.VITE_DEV_SERVER_URL,
+    )
+  ) {
     throw new Error("IPC request rejected from an untrusted renderer frame");
   }
 }
 function handleIpc(channel: string, listener: (event: IpcMainInvokeEvent, ...args: any[]) => any): void {
-  ipcMain.handle(channel, (event, ...args) => { assertTrustedIpcSender(event); return listener(event, ...args); });
+  ipcMain.handle(channel, (event, ...args) => {
+    assertTrustedIpcSender(event);
+    return listener(event, ...args);
+  });
 }
 function onIpc(channel: string, listener: (event: IpcMainEvent, ...args: any[]) => void): void {
   ipcMain.on(channel, (event, ...args) => {
-    if (!isTrustedIpcEvent(event)) { event.returnValue = undefined; return; }
+    if (!isTrustedIpcEvent(event)) {
+      event.returnValue = undefined;
+      return;
+    }
     listener(event, ...args);
   });
 }
 function isTrustedIpcEvent(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   const frame = event.senderFrame;
-  return isTrustedIpcFrame(frame ? { url: frame.url, isMainFrame: frame.parent === null } : null, Boolean(BrowserWindow.fromWebContents(event.sender)), rendererFilePath, process.env.VITE_DEV_SERVER_URL);
+  return isTrustedIpcFrame(
+    frame ? { url: frame.url, isMainFrame: frame.parent === null } : null,
+    Boolean(BrowserWindow.fromWebContents(event.sender)),
+    rendererFilePath,
+    process.env.VITE_DEV_SERVER_URL,
+  );
 }
 registerProjectTransferIpc(assertTrustedIpcSender);
-handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) => managedConnection && host === managedConnection.host && String(port) === managedConnection.port ? managedConnection.token : connectionToken(host, port, launchConfig));
-onIpc("desktop:settings-load", (event) => { event.returnValue = settings.all(); });
+handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) =>
+  managedConnection && host === managedConnection.host && String(port) === managedConnection.port
+    ? managedConnection.token
+    : connectionToken(host, port, launchConfig),
+);
+onIpc("desktop:settings-load", (event) => {
+  event.returnValue = settings.all();
+});
 onIpc("desktop:settings-write", (_event, key: unknown, value: unknown) => settings.set(key, value));
 app.on("before-quit", () => settings.flush());
 
@@ -77,23 +115,49 @@ onIpc("desktop:window-theme", (event, theme: unknown) => {
   const owner = BrowserWindow.fromWebContents(event.sender);
   if (!owner) return;
   owner.setBackgroundColor(theme === "dark" ? "#141927" : "#f6f8fd");
-  if (process.platform !== "darwin") owner.setTitleBarOverlay({ color: theme === "dark" ? "#141927" : "#edf1fc", symbolColor: theme === "dark" ? "#dce4f5" : "#25324d", height: 48 });
+  if (process.platform !== "darwin")
+    owner.setTitleBarOverlay({
+      color: theme === "dark" ? "#141927" : "#edf1fc",
+      symbolColor: theme === "dark" ? "#dce4f5" : "#25324d",
+      height: 48,
+    });
 });
 
-onIpc("editor:dirty-state", (_event, dirty: boolean) => { hasDirtyTabs = dirty; });
+onIpc("editor:dirty-state", (_event, dirty: boolean) => {
+  hasDirtyTabs = dirty;
+});
 handleIpc("desktop:clipboard-read", () => clipboard.readText());
-handleIpc("desktop:restore-input-focus", (event) => restoreWindowInputFocus(BrowserWindow.fromWebContents(event.sender)));
-handleIpc("desktop:clipboard-write", (_event, text: unknown) => { if (typeof text === "string" && text.length <= 2_000_000) clipboard.writeText(text); });
+handleIpc("desktop:restore-input-focus", (event) =>
+  restoreWindowInputFocus(BrowserWindow.fromWebContents(event.sender)),
+);
+handleIpc("desktop:clipboard-write", (_event, text: unknown) => {
+  if (typeof text === "string" && text.length <= 2_000_000) clipboard.writeText(text);
+});
 handleIpc("desktop:open-external", async (_event, value: unknown) => {
   if (typeof value !== "string" || value.length > 4096) return;
-  const url = new URL(value); if (url.protocol !== "http:" && url.protocol !== "https:") return;
+  const url = new URL(value);
+  if (url.protocol !== "http:" && url.protocol !== "https:") return;
   await shell.openExternal(url.toString());
 });
 onIpc("editor:open-window", (_event, options: unknown) => {
   if (!options || typeof options !== "object") return;
   const value = options as Record<string, unknown>;
-  if (typeof value.host !== "string" || typeof value.port !== "string" || (value.type !== "file" && value.type !== "useful") || typeof value.path !== "string" || value.path.length > 1000) return;
-  createWindow({ detached: "1", host: value.host, port: value.port, type: value.type, path: value.path, ...(value.scope === "global" || value.scope === "local" ? { scope: value.scope } : {}) });
+  if (
+    typeof value.host !== "string" ||
+    typeof value.port !== "string" ||
+    (value.type !== "file" && value.type !== "useful") ||
+    typeof value.path !== "string" ||
+    value.path.length > 1000
+  )
+    return;
+  createWindow({
+    detached: "1",
+    host: value.host,
+    port: value.port,
+    type: value.type,
+    path: value.path,
+    ...(value.scope === "global" || value.scope === "local" ? { scope: value.scope } : {}),
+  });
 });
 
 function createWindow(extraQuery: Record<string, string> = {}): void {
@@ -108,13 +172,15 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
     backgroundColor: "#f6f8fd",
     titleBarStyle: "hidden",
     trafficLightPosition: { x: 16, y: 18 },
-    ...(process.platform !== "darwin" ? { titleBarOverlay: { color: "#edf1fc", symbolColor: "#25324d", height: 48 } } : {}),
+    ...(process.platform !== "darwin"
+      ? { titleBarOverlay: { color: "#edf1fc", symbolColor: "#25324d", height: 48 } }
+      : {}),
     webPreferences: {
       preload: path.join(directory, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
-      webSecurity: true
-    }
+      webSecurity: true,
+    },
   });
   const publishFullscreen = () => window.webContents.send("desktop:fullscreen-changed", window.isFullScreen());
   window.on("enter-full-screen", publishFullscreen);
@@ -140,15 +206,20 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
       cancelId: 0,
       title: "Unsaved changes",
       message: "There are unsaved files.",
-      detail: "Closing now will discard those changes."
+      detail: "Closing now will discard those changes.",
     });
-    if (choice === 1) { allowClose = true; window.close(); }
-    else restoreWindowInputFocus(window);
+    if (choice === 1) {
+      allowClose = true;
+      window.close();
+    } else restoreWindowInputFocus(window);
   });
   const devUrl = process.env.VITE_DEV_SERVER_URL;
-  const query = { ...Object.fromEntries(
-    Object.entries(launchConfig).filter((entry): entry is [string, string] => typeof entry[1] === "string")
-  ), ...extraQuery };
+  const query = {
+    ...Object.fromEntries(
+      Object.entries(launchConfig).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+    ),
+    ...extraQuery,
+  };
   const load = devUrl
     ? (() => {
         const url = new URL(devUrl);
@@ -158,26 +229,50 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
     : window.loadFile(rendererFilePath, { query });
   if (bundleSmokeTest) {
     const timeout = setTimeout(() => app.exit(1), 30_000);
-    void load.then(async () => {
-      const healthy = await window.webContents.executeJavaScript("Boolean(window.desktop && document.getElementById('root'))");
-      if (!healthy) throw new Error("Packaged Desktop renderer or preload failed");
-      clearTimeout(timeout); app.exit(0);
-    }).catch(error => { console.error(error); app.exit(1); });
+    void load
+      .then(async () => {
+        const healthy = await window.webContents.executeJavaScript(
+          "Boolean(window.desktop && document.getElementById('root'))",
+        );
+        if (!healthy) throw new Error("Packaged Desktop renderer or preload failed");
+        clearTimeout(timeout);
+        app.exit(0);
+      })
+      .catch((error) => {
+        console.error(error);
+        app.exit(1);
+      });
   }
   void load.catch((error: unknown) => console.error("[desktop] page load failed", error));
 }
 
-app.whenReady().then(async () => {
-  powerMonitor.on("resume", () => managedConnection?.reconnect?.());
-  const handoff = launchOption("connection-file");
-  if (handoff) {
-    managedConnection = await startManagedConnection(handoff);
-    launchConfig.host = managedConnection.host; launchConfig.port = managedConnection.port;
-    launchConfig.rootId = managedConnection.rootId; launchConfig.cloudOrigin = managedConnection.cloudOrigin;
-  }
-  app.setName("HatoPad"); process.title = "HatoPad";
-  if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
-  createWindow();
-}).catch((error: unknown) => { dialog.showErrorBox("Could not connect Desktop", error instanceof Error ? error.message : "Desktop connection failed."); app.quit(); });
-app.on("window-all-closed", () => { if (process.platform !== "darwin") app.quit(); });
-app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+app
+  .whenReady()
+  .then(async () => {
+    powerMonitor.on("resume", () => managedConnection?.reconnect?.());
+    const handoff = launchOption("connection-file");
+    if (handoff) {
+      managedConnection = await startManagedConnection(handoff);
+      launchConfig.host = managedConnection.host;
+      launchConfig.port = managedConnection.port;
+      launchConfig.rootId = managedConnection.rootId;
+      launchConfig.cloudOrigin = managedConnection.cloudOrigin;
+    }
+    app.setName("HatoPad");
+    process.title = "HatoPad";
+    if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
+    createWindow();
+  })
+  .catch((error: unknown) => {
+    dialog.showErrorBox(
+      "Could not connect Desktop",
+      error instanceof Error ? error.message : "Desktop connection failed.",
+    );
+    app.quit();
+  });
+app.on("window-all-closed", () => {
+  if (process.platform !== "darwin") app.quit();
+});
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+});

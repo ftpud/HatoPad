@@ -1,36 +1,91 @@
 import crypto from "node:crypto";
-import { MeetingUpdates, useMeeting, publishMeetingStatusChanges } from "./workflow-meeting.js";
-import type { HarnessDefinition, HarnessBlock, HarnessConnectionTrace, HarnessBlockAttempt, HarnessBlockIteration, HarnessBlockRun, HarnessEdge, HarnessRun, HarnessLogEntry, HarnessChildTask, HarnessFailureReason, HarnessPauseStatus, HarnessOperation, HarnessOperationKind, HarnessFeature, HarnessReviewFinding, HarnessCorrectionCycle, AiSession } from "@hatopad/protocol";
-import { AiProviderError, findAutopilotOption, normalizeAiFailure, type AiFailure } from "@hatopad/acp";
+import { MeetingUpdates } from "./workflow-meeting.js";
+import type {
+  HarnessDefinition,
+  HarnessBlock,
+  HarnessConnectionTrace,
+  HarnessBlockRun,
+  HarnessEdge,
+  HarnessRun,
+  HarnessLogEntry,
+  HarnessChildTask,
+  HarnessPauseStatus,
+  HarnessOperation,
+  HarnessOperationKind,
+  HarnessFeature,
+  HarnessCorrectionCycle,
+  AiSession,
+} from "@hatopad/protocol";
+import { findAutopilotOption } from "@hatopad/acp";
 import { CoreError } from "./errors.js";
-import { harnessExecutionEdges, isHarnessFlow, HarnessSchemaError, parseHarnessData, validateHarness, renderHarnessPrompt } from "./harness-graph.js";
+import { isHarnessFlow, HarnessSchemaError, parseHarnessData, validateHarness } from "./harness-graph.js";
 import type { HarnessStore } from "./harnesses.js";
 import type { AiUsage } from "@hatopad/acp";
-import { takeUnfetchedText, rememberFetch, type FetchCursors } from "./workflow-fetch.js";
-import { contextHash, contextPreview, contextResult, contextOutputs, WORKFLOW_CONTEXT_CHARS } from "./workflow-context.js";
-
-type Dispatch = (block: HarnessBlock, prompt: string, context: { runId: string; blockId: string; attemptId: string; iteration: number; instructions?: string; skillAgent?: HarnessBlock["agent"] | null; started(workspace: string): Promise<void>; activity(session: AiSession, waitingUntil?: string): Promise<void>; assertActive(): void }) => Promise<AiSession>;
-type Append = (block: HarnessBlock, prompt: string, context: { runId: string; blockId: string; workspace: string; activity?(session: AiSession, waitingUntil?: string): Promise<void> }) => Promise<AiSession>;
-type Interrupt = (provider: string, context: { runId: string; blockId: string; workspace?: string }) => Promise<void>;
-type ResolvePermission = (provider: string, workspace: string, requestId: string, optionId?: string) => Promise<AiSession>;
-type AnswerQuestion = (provider: string, workspace: string, input: string) => Promise<AiSession>;
-type FireTimer = (provider: string, workspace: string) => Promise<boolean>;
-type ActiveExecution = { run: HarnessRun; blocks: HarnessBlock[]; edges: HarnessEdge[]; outputs: Map<string, string>; dispatch: Dispatch; append: Append; defaultProvider: string; background: Set<Promise<void>>; stackInvocations: Map<string, number>; loopInvocations: Map<string, number>; turnClaims: Map<string, string>; flowBusy?: Set<string>; flowFinishing?: Map<string, Promise<void>>; scheduler: ExecutionScheduler };
-type RecoveryPolicy = { maxAttempts: number; transportBackoffMs: number; maxElapsedMs?: number; jitterRatio?: number; random?: () => number };
-type ResolvedRecoveryPolicy = Required<RecoveryPolicy>;
-export type HarnessRecoveryInspector = {
-  binding?(run: HarnessRun): Promise<void>;
-  session(provider: string, workspace: string): Promise<AiSession | undefined>;
-  timer(runId: string, blockId: string, provider: string, workspace: string): Promise<boolean>;
-  child?(child: HarnessChildTask): Promise<boolean>;
-};
+import { type FetchCursors } from "./workflow-fetch.js";
+import { contextHash, contextResult } from "./workflow-context.js";
+import {
+  ActiveExecution,
+  ResolvedRecoveryPolicy,
+  RecoveryPolicy,
+  AnswerQuestion,
+  Dispatch,
+  Append,
+  HarnessRecoveryInspector,
+  Interrupt,
+  ResolvePermission,
+  FireTimer,
+} from "./harness/types.js";
+import {
+  validFeature,
+  hasFeatureCycle,
+  readyFeatures,
+  parseReviewReport,
+  parseCorrectionRevision,
+} from "./harness/review.js";
+import {
+  journalValue,
+  isolatedBlockDefinition,
+  connectedInput,
+  chatResponse,
+  blocksById,
+  operationId,
+} from "./harness/context.js";
+import {
+  classifyWorkflowFailure,
+  isRetryableFailure,
+  retryDue,
+  retryBudgetExhausted,
+  nextRetryAt,
+  nextWatchdogReset,
+  isActiveStatus,
+  providerActiveStatuses,
+  isRecoverableWorkflowError,
+} from "./harness/recovery.js";
+import { Cancelled, RunDurationExceeded } from "./harness/errors.js";
+import { blockReadiness } from "./harness/scheduler.js";
+import { harnessExecute } from "./harness/run-execution.js";
+import { harnessCallFlowTool, harnessFetchUnread } from "./harness/flow-tools.js";
+import { harnessExecuteFlow } from "./harness/flow-execution.js";
+import { harnessExecuteBlock } from "./harness/block-execution.js";
+import {
+  harnessUpdate,
+  harnessBeginOperation,
+  harnessFinishOperation,
+  harnessRecordCompletedOperation,
+} from "./harness/persistence.js";
 
 export class HarnessRunner {
   private readonly meetingParticipantStatuses = new WeakMap<HarnessRun, Map<string, string>>();
   private readonly meetingUpdates = new MeetingUpdates();
-  private readonly flowInvocations = new Map<string, (id: string, input: string, ancestors?: string[]) => Promise<string>>();
+  private readonly flowInvocations = new Map<
+    string,
+    (id: string, input: string, ancestors?: string[]) => Promise<string>
+  >();
   private readonly appToolCalls = new Map<string, Promise<unknown>>();
-  private readonly contextReads = new Map<string, { sessionId?: string; outputs: Map<string, string>; reads: Map<string, string>; fetched: FetchCursors }>();
+  private readonly contextReads = new Map<
+    string,
+    { sessionId?: string; outputs: Map<string, string>; reads: Map<string, string>; fetched: FetchCursors }
+  >();
   private readonly agentStarts = new Set<string>();
   private readonly resumingChats = new Set<string>();
   // Steering adds user messages inside a turn; it must not move the transcript boundary.
@@ -46,13 +101,21 @@ export class HarnessRunner {
   private suspended = false;
   private readonly executionTasks = new Set<Promise<void>>();
   /** Freeze durable snapshots so restart recovery sees in-flight operations, not a false cancellation. */
-  async suspend(): Promise<void> { this.suspended = true; this.meetingUpdates.cancel(); await this.updateQueue; }
-  async drain(): Promise<void> { await Promise.all([...this.executionTasks]); }
+  async suspend(): Promise<void> {
+    this.suspended = true;
+    this.meetingUpdates.cancel();
+    await this.updateQueue;
+  }
+  async drain(): Promise<void> {
+    await Promise.all([...this.executionTasks]);
+  }
   private launchExecution(...args: Parameters<HarnessRunner["execute"]>): void {
     if (this.suspended) return;
     const pending = this.execute(...args);
     this.executionTasks.add(pending);
-    void pending.finally(() => this.executionTasks.delete(pending)).catch((error) => console.error("[core] Workflow finalization failed", error));
+    void pending
+      .finally(() => this.executionTasks.delete(pending))
+      .catch((error) => console.error("[core] Workflow finalization failed", error));
   }
 
   private readonly activeRuns = new Set<string>();
@@ -62,13 +125,33 @@ export class HarnessRunner {
   private readonly operationsInFlight = new Map<string, Promise<unknown>>();
   private updateQueue = Promise.resolve();
   private readonly recovery: ResolvedRecoveryPolicy;
-  constructor(private readonly store: HarnessStore, private readonly changed: (runId: string) => void, private readonly concurrency = 4, recovery: RecoveryPolicy = { maxAttempts: 3, transportBackoffMs: 5_000 }, private readonly openDocument?: (document: { runId: string; blockId: string; title: string; content: string }) => void, private readonly steerAgent?: AnswerQuestion) {
+  constructor(
+    private readonly store: HarnessStore,
+    private readonly changed: (runId: string) => void,
+    private readonly concurrency = 4,
+    recovery: RecoveryPolicy = { maxAttempts: 3, transportBackoffMs: 5_000 },
+    private readonly openDocument?: (document: {
+      runId: string;
+      blockId: string;
+      title: string;
+      content: string;
+    }) => void,
+    private readonly steerAgent?: AnswerQuestion,
+  ) {
     this.recovery = { maxElapsedMs: 15 * 60_000, jitterRatio: 0.2, random: Math.random, ...recovery };
   }
 
-  isFlowBlock(runId: string, blockId: string): boolean { return this.executions.get(runId)?.blocks.some((block) => block.id === blockId && ["ai", "chatbox"].includes(block.type)) ?? false; }
+  isFlowBlock(runId: string, blockId: string): boolean {
+    return (
+      this.executions
+        .get(runId)
+        ?.blocks.some((block) => block.id === blockId && ["ai", "chatbox"].includes(block.type)) ?? false
+    );
+  }
 
-  isActive(runId: string): boolean { return !this.suspended && this.activeRuns.has(runId) && !this.cancelled.has(runId); }
+  isActive(runId: string): boolean {
+    return !this.suspended && this.activeRuns.has(runId) && !this.cancelled.has(runId);
+  }
 
   async registerChild(runId: string, child: Omit<HarnessChildTask, "recoveryAttempts">): Promise<void> {
     const execution = this.executions.get(runId);
@@ -76,94 +159,227 @@ export class HarnessRunner {
     execution.run.children ??= [];
     if (!execution.run.children.some((item) => item.taskId === child.taskId && item.provider === child.provider)) {
       const limit = execution.run.definition?.settings?.maxChildTasks ?? 100;
-      if (execution.run.children.length >= limit) throw new CoreError("INVALID_REQUEST", `Workflow reached its limit of ${limit} child task${limit === 1 ? "" : "s"}`);
+      if (execution.run.children.length >= limit)
+        throw new CoreError(
+          "INVALID_REQUEST",
+          `Workflow reached its limit of ${limit} child task${limit === 1 ? "" : "s"}`,
+        );
       execution.run.children.push({ ...child, recoveryAttempts: 0 });
     }
-    await this.recordCompletedOperation(execution.run, "child_registration", `child:${child.taskId}:${child.provider}`, child.blockId, { taskId: child.taskId, provider: child.provider, workspace: child.workspace });
+    await this.recordCompletedOperation(
+      execution.run,
+      "child_registration",
+      `child:${child.taskId}:${child.provider}`,
+      child.blockId,
+      { taskId: child.taskId, provider: child.provider, workspace: child.workspace },
+    );
     await this.update(execution.run);
   }
 
-  async planFeatures(runId: string, planned: Array<{ id: string; prompt: string; prerequisites?: string[] }>): Promise<HarnessFeature[]> {
+  async planFeatures(
+    runId: string,
+    planned: Array<{ id: string; prompt: string; prerequisites?: string[] }>,
+  ): Promise<HarnessFeature[]> {
     const execution = this.activeExecution(runId);
-    if (!planned.length || planned.some((feature) => !validFeature(feature))) throw new CoreError("INVALID_REQUEST", "Each planned feature needs a unique ID, prompt, and valid prerequisite IDs");
+    if (!planned.length || planned.some((feature) => !validFeature(feature)))
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Each planned feature needs a unique ID, prompt, and valid prerequisite IDs",
+      );
     const ids = new Set(planned.map((feature) => feature.id));
-    if (ids.size !== planned.length || planned.some((feature) => (feature.prerequisites ?? []).some((dependency) => dependency === feature.id || !ids.has(dependency)))) throw new CoreError("INVALID_REQUEST", "Feature prerequisites must refer to another planned feature and cannot include themselves");
+    if (
+      ids.size !== planned.length ||
+      planned.some((feature) =>
+        (feature.prerequisites ?? []).some((dependency) => dependency === feature.id || !ids.has(dependency)),
+      )
+    )
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Feature prerequisites must refer to another planned feature and cannot include themselves",
+      );
     if (hasFeatureCycle(planned)) throw new CoreError("INVALID_REQUEST", "Feature prerequisites contain a cycle");
     if (execution.run.features?.length) {
-      const current = JSON.stringify(execution.run.features.map(({ id, prompt, prerequisites }) => ({ id, prompt, prerequisites })));
-      const requested = JSON.stringify(planned.map(({ id, prompt, prerequisites = [] }) => ({ id, prompt, prerequisites })));
-      if (current !== requested) throw new CoreError("INVALID_REQUEST", "The workflow feature plan is already durable and cannot be replaced mid-run");
+      const current = JSON.stringify(
+        execution.run.features.map(({ id, prompt, prerequisites }) => ({ id, prompt, prerequisites })),
+      );
+      const requested = JSON.stringify(
+        planned.map(({ id, prompt, prerequisites = [] }) => ({ id, prompt, prerequisites })),
+      );
+      if (current !== requested)
+        throw new CoreError(
+          "INVALID_REQUEST",
+          "The workflow feature plan is already durable and cannot be replaced mid-run",
+        );
       return structuredClone(execution.run.features);
     }
-    execution.run.features = planned.map((feature) => ({ id: feature.id, prompt: feature.prompt, prerequisites: [...feature.prerequisites ?? []], status: "planned" }));
-    await this.recordCompletedOperation(execution.run, "tool_command", "feature-plan", undefined, { features: execution.run.features });
+    execution.run.features = planned.map((feature) => ({
+      id: feature.id,
+      prompt: feature.prompt,
+      prerequisites: [...(feature.prerequisites ?? [])],
+      status: "planned",
+    }));
+    await this.recordCompletedOperation(execution.run, "tool_command", "feature-plan", undefined, {
+      features: execution.run.features,
+    });
     await this.update(execution.run);
     return structuredClone(execution.run.features);
   }
 
   async dispatchFeature(runId: string, featureId: string, taskId: string): Promise<HarnessFeature> {
-    const execution = this.activeExecution(runId); const existing = execution.run.features?.find((item) => item.id === featureId);
+    const execution = this.activeExecution(runId);
+    const existing = execution.run.features?.find((item) => item.id === featureId);
     if (existing?.status === "dispatched" && existing.taskId === taskId) return structuredClone(existing);
     const feature = this.readyFeature(execution, featureId);
-    feature.status = "dispatched"; feature.taskId = taskId;
-    await this.recordCompletedOperation(execution.run, "tool_command", `feature-dispatch:${featureId}`, undefined, { featureId, taskId });
-    await this.update(execution.run); return structuredClone(feature);
+    feature.status = "dispatched";
+    feature.taskId = taskId;
+    await this.recordCompletedOperation(execution.run, "tool_command", `feature-dispatch:${featureId}`, undefined, {
+      featureId,
+      taskId,
+    });
+    await this.update(execution.run);
+    return structuredClone(feature);
   }
 
-  async completeFeature(runId: string, taskId: string, commit: string): Promise<{ completed: HarnessFeature; ready: HarnessFeature[] }> {
-    const execution = this.activeExecution(runId); const feature = execution.run.features?.find((item) => item.taskId === taskId);
+  async completeFeature(
+    runId: string,
+    taskId: string,
+    commit: string,
+  ): Promise<{ completed: HarnessFeature; ready: HarnessFeature[] }> {
+    const execution = this.activeExecution(runId);
+    const feature = execution.run.features?.find((item) => item.taskId === taskId);
     if (!feature) throw new CoreError("INVALID_REQUEST", `Task '${taskId}' is not assigned to a planned feature`);
-    if (feature.status === "completed") return { completed: structuredClone(feature), ready: readyFeatures(execution.run.features ?? []) };
-    if (feature.status !== "dispatched" || !/^[0-9a-f]{7,64}$/i.test(commit)) throw new CoreError("INVALID_REQUEST", "Only a dispatched feature with a merged commit can complete");
-    feature.status = "completed"; feature.commit = commit;
-    await this.recordCompletedOperation(execution.run, "tool_command", `feature-complete:${feature.id}`, undefined, { featureId: feature.id, taskId, commit });
-    await this.update(execution.run); return { completed: structuredClone(feature), ready: readyFeatures(execution.run.features ?? []) };
+    if (feature.status === "completed")
+      return { completed: structuredClone(feature), ready: readyFeatures(execution.run.features ?? []) };
+    if (feature.status !== "dispatched" || !/^[0-9a-f]{7,64}$/i.test(commit))
+      throw new CoreError("INVALID_REQUEST", "Only a dispatched feature with a merged commit can complete");
+    feature.status = "completed";
+    feature.commit = commit;
+    await this.recordCompletedOperation(execution.run, "tool_command", `feature-complete:${feature.id}`, undefined, {
+      featureId: feature.id,
+      taskId,
+      commit,
+    });
+    await this.update(execution.run);
+    return { completed: structuredClone(feature), ready: readyFeatures(execution.run.features ?? []) };
   }
 
-  async runOperation<T>(runId: string, blockId: string, kind: HarnessOperationKind, idempotencyKey: string, input: unknown, effect: () => Promise<T>, reconcile?: () => Promise<T | null | undefined>): Promise<T> {
+  async runOperation<T>(
+    runId: string,
+    blockId: string,
+    kind: HarnessOperationKind,
+    idempotencyKey: string,
+    input: unknown,
+    effect: () => Promise<T>,
+    reconcile?: () => Promise<T | null | undefined>,
+  ): Promise<T> {
     const execution = this.executions.get(runId);
     if (!execution || !this.isActive(runId)) throw new Error("Workflow is no longer active");
-    const key = `${blockId}:${idempotencyKey}`; const localKey = `${runId}:${key}`;
+    const key = `${blockId}:${idempotencyKey}`;
+    const localKey = `${runId}:${key}`;
     const existing = execution.run.operations?.find((operation) => operation.idempotencyKey === key);
     if (existing?.status === "succeeded") return structuredClone(existing.result) as T;
-    const inFlight = this.operationsInFlight.get(localKey); if (inFlight) return await inFlight as T;
+    const inFlight = this.operationsInFlight.get(localKey);
+    if (inFlight) return (await inFlight) as T;
     const work = (async () => {
       if (existing?.status === "intent") {
         const recovered = await reconcile?.();
         this.assertActive(runId);
-        if (recovered === undefined) throw new CoreError("INVALID_REQUEST", `Operation '${idempotencyKey}' has an unresolved outcome; recovery must reconcile it before retrying`);
+        if (recovered === undefined)
+          throw new CoreError(
+            "INVALID_REQUEST",
+            `Operation '${idempotencyKey}' has an unresolved outcome; recovery must reconcile it before retrying`,
+          );
         // null means reconciliation proved that the external effect never began,
         // so replay is safe. undefined deliberately preserves the blocked intent.
-        if (recovered !== null) { await this.finishOperation(execution.run, existing, "succeeded", recovered); return recovered; }
+        if (recovered !== null) {
+          await this.finishOperation(execution.run, existing, "succeeded", recovered);
+          return recovered;
+        }
       }
-      const operation = existing ?? await this.beginOperation(execution.run, kind, key, blockId, input);
-      if (existing) { operation.status = "intent"; operation.error = undefined; operation.result = undefined; operation.input = journalValue(input); operation.updatedAt = new Date().toISOString(); await this.update(execution.run); }
+      const operation = existing ?? (await this.beginOperation(execution.run, kind, key, blockId, input));
+      if (existing) {
+        operation.status = "intent";
+        operation.error = undefined;
+        operation.result = undefined;
+        operation.input = journalValue(input);
+        operation.updatedAt = new Date().toISOString();
+        await this.update(execution.run);
+      }
       let result: T;
-      try { this.assertActive(runId); result = await effect(); this.assertActive(runId); }
-      catch (error) { operation.error = (error instanceof Error ? error.message : String(error)).slice(-20_000); operation.updatedAt = new Date().toISOString(); await this.update(execution.run); throw error; }
-      await this.finishOperation(execution.run, operation, "succeeded", result); return result;
+      try {
+        this.assertActive(runId);
+        result = await effect();
+        this.assertActive(runId);
+      } catch (error) {
+        operation.error = (error instanceof Error ? error.message : String(error)).slice(-20_000);
+        operation.updatedAt = new Date().toISOString();
+        await this.update(execution.run);
+        throw error;
+      }
+      await this.finishOperation(execution.run, operation, "succeeded", result);
+      return result;
     })();
     this.operationsInFlight.set(localKey, work);
-    try { return await work; } finally { if (this.operationsInFlight.get(localKey) === work) this.operationsInFlight.delete(localKey); }
+    try {
+      return await work;
+    } finally {
+      if (this.operationsInFlight.get(localKey) === work) this.operationsInFlight.delete(localKey);
+    }
   }
 
-  async runTimerOperation<T>(runId: string, blockId: string, idempotencyKey: string, input: unknown, effect: () => Promise<T>, reconcile?: () => Promise<T | null | undefined>): Promise<T> {
+  async runTimerOperation<T>(
+    runId: string,
+    blockId: string,
+    idempotencyKey: string,
+    input: unknown,
+    effect: () => Promise<T>,
+    reconcile?: () => Promise<T | null | undefined>,
+  ): Promise<T> {
     const execution = this.executions.get(runId);
     if (!execution || !this.isActive(runId)) throw new Error("Workflow is no longer active");
-    return execution.scheduler.control(blockId, () => this.runOperation(runId, blockId, "timer_fire", idempotencyKey, input, async () => {
-      const state = execution.run.blocks.find((block) => block.blockId === blockId);
-      if (this.isFlowBlock(runId, blockId) && state?.status === "waiting_timer") { state.status = "running"; state.waitingUntil = undefined; state.pauseId = undefined; execution.run.status = this.runActivityStatus(execution.run); await this.update(execution.run); }
-      return effect();
-    }, reconcile));
+    return execution.scheduler.control(blockId, () =>
+      this.runOperation(
+        runId,
+        blockId,
+        "timer_fire",
+        idempotencyKey,
+        input,
+        async () => {
+          const state = execution.run.blocks.find((block) => block.blockId === blockId);
+          if (this.isFlowBlock(runId, blockId) && state?.status === "waiting_timer") {
+            state.status = "running";
+            state.waitingUntil = undefined;
+            state.pauseId = undefined;
+            execution.run.status = this.runActivityStatus(execution.run);
+            await this.update(execution.run);
+          }
+          return effect();
+        },
+        reconcile,
+      ),
+    );
   }
 
-  async recordTool(runId: string, blockId: string, name: string, args: Record<string, unknown>, result?: unknown, error?: unknown): Promise<void> {
-    const execution = this.executions.get(runId); if (!execution) return;
-    const key = `tool:${name}:${crypto.randomUUID()}`; const operation = await this.beginOperation(execution.run, "tool_command", key, blockId, { name, args });
+  async recordTool(
+    runId: string,
+    blockId: string,
+    name: string,
+    args: Record<string, unknown>,
+    result?: unknown,
+    error?: unknown,
+  ): Promise<void> {
+    const execution = this.executions.get(runId);
+    if (!execution) return;
+    const key = `tool:${name}:${crypto.randomUUID()}`;
+    const operation = await this.beginOperation(execution.run, "tool_command", key, blockId, { name, args });
     await this.finishOperation(execution.run, operation, error === undefined ? "succeeded" : "failed", result, error);
   }
 
-  async recoverChildren(runId: string, inspect: (child: HarnessChildTask) => Promise<AiSession | undefined>, resume: (child: HarnessChildTask, session: AiSession) => Promise<unknown>): Promise<void> {
+  async recoverChildren(
+    runId: string,
+    inspect: (child: HarnessChildTask) => Promise<AiSession | undefined>,
+    resume: (child: HarnessChildTask, session: AiSession) => Promise<unknown>,
+  ): Promise<void> {
     const execution = this.executions.get(runId);
     if (!execution || !this.isActive(runId)) return;
     const policy = this.policy(execution.run);
@@ -175,12 +391,28 @@ export class HarnessRunner {
         const session = await inspect(child);
         this.assertActive(runId);
         if (!session || session.status !== "error" || child.recoveryAttempts >= policy.maxAttempts) continue;
-        const fallback = session.messages.filter((message) => message.role === "error" || message.role === "assistant").slice(-2).map((message) => message.text).join("\n");
+        const fallback = session.messages
+          .filter((message) => message.role === "error" || message.role === "assistant")
+          .slice(-2)
+          .map((message) => message.text)
+          .join("\n");
         child.failureReason = classifyWorkflowFailure(session.failure ?? fallback);
         child.retryStartedAt ??= new Date().toISOString();
-        if (!isRetryableFailure(child.failureReason) || !retryDue(child.retryAt) || retryBudgetExhausted(child.retryStartedAt, policy) || !this.isActive(runId)) continue;
-        child.recoveryAttempts += 1; child.recoveryError = undefined; child.retryAt = undefined;
-        this.log(state, "lifecycle", `Resuming child ${child.taskId} after ${child.failureReason}, attempt ${child.recoveryAttempts}/${policy.maxAttempts}`);
+        if (
+          !isRetryableFailure(child.failureReason) ||
+          !retryDue(child.retryAt) ||
+          retryBudgetExhausted(child.retryStartedAt, policy) ||
+          !this.isActive(runId)
+        )
+          continue;
+        child.recoveryAttempts += 1;
+        child.recoveryError = undefined;
+        child.retryAt = undefined;
+        this.log(
+          state,
+          "lifecycle",
+          `Resuming child ${child.taskId} after ${child.failureReason}, attempt ${child.recoveryAttempts}/${policy.maxAttempts}`,
+        );
         await this.update(execution.run);
         this.assertActive(runId);
         await resume(child, session);
@@ -196,7 +428,12 @@ export class HarnessRunner {
     }
   }
 
-  async watch(runId: string, blockId: string, usage: () => Promise<AiUsage>, recoverChildren: () => Promise<void> = async () => undefined): Promise<AiSession> {
+  async watch(
+    runId: string,
+    blockId: string,
+    usage: () => Promise<AiUsage>,
+    recoverChildren: () => Promise<void> = async () => undefined,
+  ): Promise<AiSession> {
     const execution = this.executions.get(runId);
     const state = execution?.run.blocks.find((item) => item.blockId === blockId);
     if (!execution || !state) throw new Error("Workflow is no longer active");
@@ -208,7 +445,8 @@ export class HarnessRunner {
       state.waitingUntil = nextWatchdogReset(snapshot);
       this.log(state, "lifecycle", `Core watchdog sleeping until ${state.waitingUntil}`);
       await this.update(execution.run);
-      while (this.isActive(runId) && !this.deliveryIsTerminal(execution) && Date.now() < Date.parse(state.waitingUntil)) await new Promise((resolve) => setTimeout(resolve, 250));
+      while (this.isActive(runId) && !this.deliveryIsTerminal(execution) && Date.now() < Date.parse(state.waitingUntil))
+        await new Promise((resolve) => setTimeout(resolve, 250));
       if (!this.isActive(runId)) break;
       if (this.deliveryIsTerminal(execution)) break;
       await this.schedulingReady(runId);
@@ -233,17 +471,35 @@ export class HarnessRunner {
     return live ? structuredClone(live) : (await this.store.runs()).find((run) => run.id === runId);
   }
 
-  async start(harnessId: string, input: string, dispatch: Dispatch, defaultProvider = "codex", append?: Append, startBlockId?: string, rerunRunId?: string, testDefinition?: HarnessDefinition, workspace?: string, prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>, binding?: HarnessRun["binding"], chatSettings?: { blockId: string; settings: import("@hatopad/protocol").HarnessChatSettings }): Promise<HarnessRun> {
+  async start(
+    harnessId: string,
+    input: string,
+    dispatch: Dispatch,
+    defaultProvider = "codex",
+    append?: Append,
+    startBlockId?: string,
+    rerunRunId?: string,
+    testDefinition?: HarnessDefinition,
+    workspace?: string,
+    prepareDefinition?: (definition: HarnessDefinition) => Promise<HarnessDefinition>,
+    binding?: HarnessRun["binding"],
+    chatSettings?: { blockId: string; settings: import("@hatopad/protocol").HarnessChatSettings },
+  ): Promise<HarnessRun> {
     if (this.suspended) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
     const source = rerunRunId ? (await this.store.runs()).find((run) => run.id === rerunRunId) : undefined;
     if (rerunRunId && !source) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
-    if (rerunRunId && !source?.definition) throw new CoreError("INVALID_REQUEST", "This workflow run has no frozen definition to rerun");
+    if (rerunRunId && !source?.definition)
+      throw new CoreError("INVALID_REQUEST", "This workflow run has no frozen definition to rerun");
     input = source?.input ?? input;
-    if (input.length > 100_000) throw new CoreError("INVALID_REQUEST", "Harness input must contain 1–100,000 characters");
-    let harness = testDefinition ? isolatedBlockDefinition(testDefinition, startBlockId!) : source?.definition ?? await this.store.read(harnessId);
+    if (input.length > 100_000)
+      throw new CoreError("INVALID_REQUEST", "Harness input must contain 1–100,000 characters");
+    let harness = testDefinition
+      ? isolatedBlockDefinition(testDefinition, startBlockId!)
+      : (source?.definition ?? (await this.store.read(harnessId)));
     if (prepareDefinition) harness = await prepareDefinition(structuredClone(harness));
     const validation = validateHarness(harness);
-    if (!validation.valid) throw new CoreError("INVALID_REQUEST", validation.issues.map((issue) => issue.message).join("; "));
+    if (!validation.valid)
+      throw new CoreError("INVALID_REQUEST", validation.issues.map((issue) => issue.message).join("; "));
     const starts = harness.blocks.filter((block) => block.type === "start_button" || block.type === "start_input");
     if (startBlockId) {
       const selected = harness.blocks.find((block) => block.id === startBlockId);
@@ -257,40 +513,103 @@ export class HarnessRunner {
       if (!input.trim()) throw new CoreError("INVALID_REQUEST", "Enter text to start the flow");
     }
     const createdAt = new Date().toISOString();
-    const run: HarnessRun = { binding: source?.binding ?? binding, workspace: binding?.workspace ?? source?.workspace ?? workspace, id: crypto.randomUUID(), harnessId, harnessVersion: harness.version, input: input.trim(), status: "queued", createdAt, blocks: validation.order.map((blockId) => ({ blockId, status: "queued" })), operations: [] };
+    const run: HarnessRun = {
+      binding: source?.binding ?? binding,
+      workspace: binding?.workspace ?? source?.workspace ?? workspace,
+      id: crypto.randomUUID(),
+      harnessId,
+      harnessVersion: harness.version,
+      input: input.trim(),
+      status: "queued",
+      createdAt,
+      blocks: validation.order.map((blockId) => ({ blockId, status: "queued" })),
+      operations: [],
+    };
     if (chatSettings) {
       const state = run.blocks.find((item) => item.blockId === chatSettings.blockId);
       const block = harness.blocks.find((item) => item.id === chatSettings.blockId);
-      if (state && block?.type === "chatbox") state.chatSettings = { ...chatSettings.settings, model: chatSettings.settings.model === undefined ? block.model : chatSettings.settings.model || undefined };
+      if (state && block?.type === "chatbox")
+        state.chatSettings = {
+          ...chatSettings.settings,
+          model: chatSettings.settings.model === undefined ? block.model : chatSettings.settings.model || undefined,
+        };
     }
     run.definition = structuredClone(harness);
-    run.executionPlan = { version: 1, createdAt, definitionVersion: harness.version, order: [...validation.order], blocks: validation.order.map((blockId) => ({ blockId, incoming: harness.edges.filter((edge) => edge.to === blockId).map((edge) => edge.id), outgoing: harness.edges.filter((edge) => edge.from === blockId).map((edge) => edge.id) })) };
-    await this.store.createRun(run, harness.settings?.maxActiveRuns ?? 4); this.changed(run.id);
-    this.activeRuns.add(run.id); this.launchExecution(run, harness.blocks, harness.edges, validation.order, dispatch, defaultProvider, append ?? (async () => { throw new Error("This workflow runtime cannot append to an active block session"); }), false, startBlockId);
+    run.executionPlan = {
+      version: 1,
+      createdAt,
+      definitionVersion: harness.version,
+      order: [...validation.order],
+      blocks: validation.order.map((blockId) => ({
+        blockId,
+        incoming: harness.edges.filter((edge) => edge.to === blockId).map((edge) => edge.id),
+        outgoing: harness.edges.filter((edge) => edge.from === blockId).map((edge) => edge.id),
+      })),
+    };
+    await this.store.createRun(run, harness.settings?.maxActiveRuns ?? 4);
+    this.changed(run.id);
+    this.activeRuns.add(run.id);
+    this.launchExecution(
+      run,
+      harness.blocks,
+      harness.edges,
+      validation.order,
+      dispatch,
+      defaultProvider,
+      append ??
+        (async () => {
+          throw new Error("This workflow runtime cannot append to an active block session");
+        }),
+      false,
+      startBlockId,
+    );
     return run;
   }
 
-  async continueChat(runId: string, blockId: string, input: string, dispatch: Dispatch, defaultProvider: string, append: Append, binding?: HarnessRun["binding"], settings?: import("@hatopad/protocol").HarnessChatSettings): Promise<HarnessRun> {
+  async continueChat(
+    runId: string,
+    blockId: string,
+    input: string,
+    dispatch: Dispatch,
+    defaultProvider: string,
+    append: Append,
+    binding?: HarnessRun["binding"],
+    settings?: import("@hatopad/protocol").HarnessChatSettings,
+  ): Promise<HarnessRun> {
     const key = `${runId}:${blockId}`;
-    if (this.resumingChats.has(key)) throw new CoreError("INVALID_REQUEST", "Wait for the current workflow turn on this Chatbox to finish before sending another message");
+    if (this.resumingChats.has(key))
+      throw new CoreError(
+        "INVALID_REQUEST",
+        "Wait for the current workflow turn on this Chatbox to finish before sending another message",
+      );
     this.resumingChats.add(key);
     // Serialize admission, not provider turns: concurrent resumes must share one
     // execution and one mutable run rather than load competing store snapshots.
     const previous = this.chatAdmissionQueue;
     let release!: () => void;
-    this.chatAdmissionQueue = new Promise<void>((resolve) => { release = resolve; });
+    this.chatAdmissionQueue = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     await previous;
     try {
-      if (typeof input !== "string" || !input.trim() || input.length > 100_000) throw new CoreError("INVALID_REQUEST", "Chat input must contain 1–100,000 characters");
+      if (typeof input !== "string" || !input.trim() || input.length > 100_000)
+        throw new CoreError("INVALID_REQUEST", "Chat input must contain 1–100,000 characters");
       let execution = this.executions.get(runId);
       // A finished provider turn may still be publishing its final snapshot.
       // Wait for that publication before admitting the next chat turn.
-      const finishing = execution?.run.blocks.find((item) => item.blockId === blockId)?.status === "succeeded" ? execution.flowFinishing?.get(blockId) : undefined;
-      if (finishing) { await finishing; execution = this.executions.get(runId); }
+      const finishing =
+        execution?.run.blocks.find((item) => item.blockId === blockId)?.status === "succeeded"
+          ? execution.flowFinishing?.get(blockId)
+          : undefined;
+      if (finishing) {
+        await finishing;
+        execution = this.executions.get(runId);
+      }
       const run = execution?.run ?? (await this.store.runs()).find((item) => item.id === runId);
       const definition = run?.definition;
       const block = definition?.blocks.find((item) => item.id === blockId);
-      if (!run || !definition || block?.type !== "chatbox") throw new CoreError("INVALID_REQUEST", "Select a Chatbox in an existing workflow run");
+      if (!run || !definition || block?.type !== "chatbox")
+        throw new CoreError("INVALID_REQUEST", "Select a Chatbox in an existing workflow run");
       run.binding ??= binding;
       if (run.binding) run.workspace = run.binding.workspace;
       const validation = validateHarness(definition);
@@ -305,7 +624,9 @@ export class HarnessRunner {
         if (changed) {
           state.sessionId = undefined;
           state.workspace = undefined;
-          state.context = undefined; state.contextUsed = undefined; state.contextLimit = undefined;
+          state.context = undefined;
+          state.contextUsed = undefined;
+          state.contextLimit = undefined;
         }
         state.chatSettings = { ...settings, provider, model };
         state.provider = provider;
@@ -313,63 +634,150 @@ export class HarnessRunner {
       };
       if (execution) {
         const invoke = this.flowInvocations.get(runId);
-        if (!this.isActive(runId) || !isActiveStatus(run.status) || !invoke || execution.flowBusy?.has(blockId) || isActiveStatus(state.status)) throw new CoreError("INVALID_REQUEST", "Wait for the current workflow turn on this Chatbox to finish before sending another message");
+        if (
+          !this.isActive(runId) ||
+          !isActiveStatus(run.status) ||
+          !invoke ||
+          execution.flowBusy?.has(blockId) ||
+          isActiveStatus(state.status)
+        )
+          throw new CoreError(
+            "INVALID_REQUEST",
+            "Wait for the current workflow turn on this Chatbox to finish before sending another message",
+          );
         applySettings();
         // invoke claims the block synchronously, before its first persistence await.
         // The flow drains background turns before recording the aggregate outcome.
         let pending!: Promise<void>;
-        pending = invoke(blockId, input.trim()).then(() => {}, async (error) => {
-          if (!this.isActive(runId)) return;
-          state.status = "failed"; state.error = error instanceof Error ? error.message : String(error); state.completedAt = new Date().toISOString(); run.status = this.runActivityStatus(run);
-          await this.update(run);
-        }).finally(() => execution.background.delete(pending));
+        pending = invoke(blockId, input.trim())
+          .then(
+            () => {},
+            async (error) => {
+              if (!this.isActive(runId)) return;
+              state.status = "failed";
+              state.error = error instanceof Error ? error.message : String(error);
+              state.completedAt = new Date().toISOString();
+              run.status = this.runActivityStatus(run);
+              await this.update(run);
+            },
+          )
+          .finally(() => execution.background.delete(pending));
         execution.background.add(pending);
         await this.update(run);
         return structuredClone(run);
       }
-      if (this.activeRuns.has(runId) || isActiveStatus(run.status)) throw new CoreError("INVALID_REQUEST", "The previous workflow turn is still active");
+      if (this.activeRuns.has(runId) || isActiveStatus(run.status))
+        throw new CoreError("INVALID_REQUEST", "The previous workflow turn is still active");
       applySettings();
-      run.input = input.trim(); run.status = "queued"; run.error = undefined; run.completedAt = undefined; run.startedAt = undefined;
-      state.status = "queued"; state.error = undefined; state.pendingPermission = undefined; state.question = undefined; state.pauseId = undefined; state.waitingUntil = undefined;
+      run.input = input.trim();
+      run.status = "queued";
+      run.error = undefined;
+      run.completedAt = undefined;
+      run.startedAt = undefined;
+      state.status = "queued";
+      state.error = undefined;
+      state.pendingPermission = undefined;
+      state.question = undefined;
+      state.pauseId = undefined;
+      state.waitingUntil = undefined;
       await this.store.createRun(run, definition.settings?.maxActiveRuns ?? 4);
-      this.changed(run.id); this.activeRuns.add(run.id);
-      this.launchExecution(run, definition.blocks, definition.edges, validation.order, dispatch, state.provider ?? defaultProvider, append, false, blockId);
+      this.changed(run.id);
+      this.activeRuns.add(run.id);
+      this.launchExecution(
+        run,
+        definition.blocks,
+        definition.edges,
+        validation.order,
+        dispatch,
+        state.provider ?? defaultProvider,
+        append,
+        false,
+        blockId,
+      );
       return structuredClone(run);
-    } finally { this.resumingChats.delete(key); release(); }
+    } finally {
+      this.resumingChats.delete(key);
+      release();
+    }
   }
 
-  async recover(dispatch: Dispatch, defaultProvider = "codex", append?: Append, inspector?: HarnessRecoveryInspector): Promise<HarnessRun[]> {
+  async recover(
+    dispatch: Dispatch,
+    defaultProvider = "codex",
+    append?: Append,
+    inspector?: HarnessRecoveryInspector,
+  ): Promise<HarnessRun[]> {
     const recovered: HarnessRun[] = [];
     for (const run of await this.store.runs()) {
       if (!isActiveStatus(run.status)) continue;
       const definition = run.definition;
       const validation = definition ? validateHarness(definition) : undefined;
-      if (!definition || !run.executionPlan || !validation?.valid || run.executionPlan.definitionVersion !== run.harnessVersion) {
-        await this.failRecovery(run, "The persisted workflow has no valid frozen execution plan. Start a new run; completed sessions and task workspaces were preserved.");
-        recovered.push(structuredClone(run)); continue;
+      if (
+        !definition ||
+        !run.executionPlan ||
+        !validation?.valid ||
+        run.executionPlan.definitionVersion !== run.harnessVersion
+      ) {
+        await this.failRecovery(
+          run,
+          "The persisted workflow has no valid frozen execution plan. Start a new run; completed sessions and task workspaces were preserved.",
+        );
+        recovered.push(structuredClone(run));
+        continue;
       }
       const order = run.executionPlan.order;
-      if (order.length !== definition.blocks.length || order.some((id) => !definition.blocks.some((block) => block.id === id))) {
-        await this.failRecovery(run, "The persisted workflow execution plan does not match its frozen definition. Start a new run; completed sessions and task workspaces were preserved.");
-        recovered.push(structuredClone(run)); continue;
+      if (
+        order.length !== definition.blocks.length ||
+        order.some((id) => !definition.blocks.some((block) => block.id === id))
+      ) {
+        await this.failRecovery(
+          run,
+          "The persisted workflow execution plan does not match its frozen definition. Start a new run; completed sessions and task workspaces were preserved.",
+        );
+        recovered.push(structuredClone(run));
+        continue;
       }
-      try { await inspector?.binding?.(run); }
-      catch (error) {
-        await this.failRecovery(run, `Workflow recovery could not validate its bound worktree: ${error instanceof Error ? error.message : String(error)}`);
-        recovered.push(structuredClone(run)); continue;
+      try {
+        await inspector?.binding?.(run);
+      } catch (error) {
+        await this.failRecovery(
+          run,
+          `Workflow recovery could not validate its bound worktree: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        recovered.push(structuredClone(run));
+        continue;
       }
       if (isHarnessFlow(definition)) {
-        await this.failRecovery(run, "Core restarted during this flow. Start a new run; existing AI sessions and block outputs are preserved, and scripts will not be replayed automatically.");
-        recovered.push(structuredClone(run)); continue;
+        await this.failRecovery(
+          run,
+          "Core restarted during this flow. Start a new run; existing AI sessions and block outputs are preserved, and scripts will not be replayed automatically.",
+        );
+        recovered.push(structuredClone(run));
+        continue;
       }
       this.activeRuns.add(run.id);
       try {
         await this.reconcilePersistedRun(run, inspector);
         recovered.push(structuredClone(run));
-        this.launchExecution(run, definition.blocks, definition.edges, order, dispatch, defaultProvider, append ?? (async () => { throw new Error("This workflow runtime cannot append to an active block session"); }), true);
+        this.launchExecution(
+          run,
+          definition.blocks,
+          definition.edges,
+          order,
+          dispatch,
+          defaultProvider,
+          append ??
+            (async () => {
+              throw new Error("This workflow runtime cannot append to an active block session");
+            }),
+          true,
+        );
       } catch (error) {
         this.activeRuns.delete(run.id);
-        await this.failRecovery(run, `Workflow recovery could not inspect its persisted resources: ${error instanceof Error ? error.message : String(error)}`);
+        await this.failRecovery(
+          run,
+          `Workflow recovery could not inspect its persisted resources: ${error instanceof Error ? error.message : String(error)}`,
+        );
         recovered.push(structuredClone(run));
       }
     }
@@ -380,7 +788,8 @@ export class HarnessRunner {
   async setPaused(runId: string, paused: boolean): Promise<HarnessRun> {
     if (typeof paused !== "boolean") throw new CoreError("INVALID_REQUEST", "paused must be boolean");
     const execution = this.executions.get(runId);
-    if (!execution || !this.isActive(runId) || !isActiveStatus(execution.run.status)) throw new CoreError("INVALID_REQUEST", "Only an active workflow can be paused or resumed");
+    if (!execution || !this.isActive(runId) || !isActiveStatus(execution.run.status))
+      throw new CoreError("INVALID_REQUEST", "Only an active workflow can be paused or resumed");
     execution.run.paused = paused;
     await this.update(execution.run);
     return structuredClone(execution.run);
@@ -389,97 +798,242 @@ export class HarnessRunner {
   private async schedulingReady(runId: string): Promise<void> {
     this.assertActive(runId);
     while (this.executions.get(runId)?.run.paused) {
-      await new Promise(resolve => setTimeout(resolve, 50)); this.assertActive(runId);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      this.assertActive(runId);
     }
   }
 
   /** Explicitly continue safe failed stages in the same frozen run, never completed stages. */
-  async retryFailedRun(runId: string, dispatch: Dispatch, defaultProvider: string, append: Append): Promise<HarnessRun> {
+  async retryFailedRun(
+    runId: string,
+    dispatch: Dispatch,
+    defaultProvider: string,
+    append: Append,
+  ): Promise<HarnessRun> {
     if (this.retryAdmissions.has(runId)) throw new CoreError("INVALID_REQUEST", "A workflow retry is already pending");
     this.retryAdmissions.add(runId);
     try {
       if (this.suspended) throw new CoreError("INVALID_REQUEST", "Core is shutting down");
       const execution = this.executions.get(runId);
-      const run = execution?.run ?? (await this.store.runs()).find(item => item.id === runId);
+      const run = execution?.run ?? (await this.store.runs()).find((item) => item.id === runId);
       if (!run) throw new CoreError("FILE_NOT_FOUND", "Workflow run does not exist");
-      if (execution && !isActiveStatus(run.status)) throw new CoreError("INVALID_REQUEST", "Workflow is finishing; refresh before retrying");
-      if (!execution && !["failed", "blocked"].includes(run.status)) throw new CoreError("INVALID_REQUEST", "Only a failed workflow can be retried");
-      const definition = run.definition, validation = definition ? validateHarness(definition) : undefined;
-      if (!definition || !run.executionPlan || !validation?.valid || run.executionPlan.definitionVersion !== run.harnessVersion) throw new CoreError("INVALID_REQUEST", "Workflow has no valid frozen execution plan");
-      if (run.executionPlan.order.length !== definition.blocks.length || new Set(run.executionPlan.order).size !== definition.blocks.length || run.executionPlan.order.some(id => !definition.blocks.some(block => block.id === id))) throw new CoreError("INVALID_REQUEST", "Workflow has an invalid frozen execution plan");
-      const failed = run.blocks.filter(state => ["failed", "retry_scheduled", "blocked"].includes(state.status));
+      if (execution && !isActiveStatus(run.status))
+        throw new CoreError("INVALID_REQUEST", "Workflow is finishing; refresh before retrying");
+      if (!execution && !["failed", "blocked"].includes(run.status))
+        throw new CoreError("INVALID_REQUEST", "Only a failed workflow can be retried");
+      const definition = run.definition,
+        validation = definition ? validateHarness(definition) : undefined;
+      if (
+        !definition ||
+        !run.executionPlan ||
+        !validation?.valid ||
+        run.executionPlan.definitionVersion !== run.harnessVersion
+      )
+        throw new CoreError("INVALID_REQUEST", "Workflow has no valid frozen execution plan");
+      if (
+        run.executionPlan.order.length !== definition.blocks.length ||
+        new Set(run.executionPlan.order).size !== definition.blocks.length ||
+        run.executionPlan.order.some((id) => !definition.blocks.some((block) => block.id === id))
+      )
+        throw new CoreError("INVALID_REQUEST", "Workflow has an invalid frozen execution plan");
+      const failed = run.blocks.filter((state) => ["failed", "retry_scheduled", "blocked"].includes(state.status));
       if (!failed.length) throw new CoreError("INVALID_REQUEST", "There are no failed workflow stages to retry");
-      if (execution?.flowBusy && failed.some(state => execution.flowBusy!.has(state.blockId))) throw new CoreError("INVALID_REQUEST", "Workflow block is finishing; refresh before retrying");
-      const attempted = run.blocks.filter(state => failed.includes(state) || (state.status === "cancelled" && (state.startedAt !== undefined || (state.attempts?.length ?? 0) > 0)));
-      if (attempted.some(state => !["ai", "chatbox", "prompt", "task", "review"].includes(definition.blocks.find(block => block.id === state.blockId)?.type ?? ""))) throw new CoreError("INVALID_REQUEST", "An interrupted script, process or mutation stage has an uncertain outcome; inspect it before starting new work");
-      const attemptedIds = new Set(attempted.map(state => state.blockId));
-      const bookkeeping = new Set(["block_attempt", "dependency_decision", "route_selection", "prompt_delivery", "session_binding", "terminal_outcome"]);
-      if (run.operations?.some(operation => operation.blockId && attemptedIds.has(operation.blockId) && operation.status !== "succeeded" && !bookkeeping.has(operation.kind))) throw new CoreError("INVALID_REQUEST", "A recorded workflow mutation has an uncertain outcome; inspect it before retrying");
+      if (execution?.flowBusy && failed.some((state) => execution.flowBusy!.has(state.blockId)))
+        throw new CoreError("INVALID_REQUEST", "Workflow block is finishing; refresh before retrying");
+      const attempted = run.blocks.filter(
+        (state) =>
+          failed.includes(state) ||
+          (state.status === "cancelled" && (state.startedAt !== undefined || (state.attempts?.length ?? 0) > 0)),
+      );
+      if (
+        attempted.some(
+          (state) =>
+            !["ai", "chatbox", "prompt", "task", "review"].includes(
+              definition.blocks.find((block) => block.id === state.blockId)?.type ?? "",
+            ),
+        )
+      )
+        throw new CoreError(
+          "INVALID_REQUEST",
+          "An interrupted script, process or mutation stage has an uncertain outcome; inspect it before starting new work",
+        );
+      const attemptedIds = new Set(attempted.map((state) => state.blockId));
+      const bookkeeping = new Set([
+        "block_attempt",
+        "dependency_decision",
+        "route_selection",
+        "prompt_delivery",
+        "session_binding",
+        "terminal_outcome",
+      ]);
+      if (
+        run.operations?.some(
+          (operation) =>
+            operation.blockId &&
+            attemptedIds.has(operation.blockId) &&
+            operation.status !== "succeeded" &&
+            !bookkeeping.has(operation.kind),
+        )
+      )
+        throw new CoreError(
+          "INVALID_REQUEST",
+          "A recorded workflow mutation has an uncertain outcome; inspect it before retrying",
+        );
       const continued = structuredClone(run);
-      continued.status = "queued"; continued.completedAt = undefined; continued.error = undefined;
-      for (const state of continued.blocks) if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status)) {
-        state.status = "queued"; state.error = undefined; state.completedAt = undefined; state.retryAt = undefined; state.pauseId = undefined; state.pendingPermission = undefined; state.question = undefined;
-      }
+      continued.status = "queued";
+      continued.completedAt = undefined;
+      continued.error = undefined;
+      for (const state of continued.blocks)
+        if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status)) {
+          state.status = "queued";
+          state.error = undefined;
+          state.completedAt = undefined;
+          state.retryAt = undefined;
+          state.pauseId = undefined;
+          state.pendingPermission = undefined;
+          state.question = undefined;
+        }
       if (execution) {
         // Running peers retain their state object references; only failed stages change.
-        const flow = isHarnessFlow(definition), invoke = this.flowInvocations.get(runId);
+        const flow = isHarnessFlow(definition),
+          invoke = this.flowInvocations.get(runId);
         if (flow && !invoke) throw new CoreError("INVALID_REQUEST", "Workflow is finishing; refresh before retrying");
-        for (const state of run.blocks) if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status)) Object.assign(state, continued.blocks.find(item => item.blockId === state.blockId)!);
-        run.status = this.runActivityStatus(run); run.error = undefined; run.completedAt = undefined;
+        for (const state of run.blocks)
+          if (["failed", "retry_scheduled", "blocked", "cancelled"].includes(state.status))
+            Object.assign(
+              state,
+              continued.blocks.find((item) => item.blockId === state.blockId)!,
+            );
+        run.status = this.runActivityStatus(run);
+        run.error = undefined;
+        run.completedAt = undefined;
         await this.update(run);
         if (flow && invoke) {
-          this.retryEntries.set(runId, failed.map(state => state.blockId));
+          this.retryEntries.set(
+            runId,
+            failed.map((state) => state.blockId),
+          );
           let task!: Promise<void>;
-          task = Promise.allSettled(failed.map(state => invoke(state.blockId, connectedInput(state.blockId, run.input, execution.blocks, execution.edges, execution.outputs)))).then(() => undefined).finally(() => execution.background.delete(task));
+          task = Promise.allSettled(
+            failed.map((state) =>
+              invoke(
+                state.blockId,
+                connectedInput(state.blockId, run.input, execution.blocks, execution.edges, execution.outputs),
+              ),
+            ),
+          )
+            .then(() => undefined)
+            .finally(() => execution.background.delete(task));
           execution.background.add(task);
         }
         return structuredClone(run);
       }
       await this.store.createRun(continued, definition.settings?.maxActiveRuns ?? 4, true);
-      this.retryEntries.set(runId, validation.order.filter(id => failed.some(state => state.blockId === id)));
-      this.cancelled.delete(runId); this.activeRuns.add(runId); this.changed(runId);
-      this.launchExecution(continued, definition.blocks, definition.edges, run.executionPlan.order, dispatch, defaultProvider, append, false);
+      this.retryEntries.set(
+        runId,
+        validation.order.filter((id) => failed.some((state) => state.blockId === id)),
+      );
+      this.cancelled.delete(runId);
+      this.activeRuns.add(runId);
+      this.changed(runId);
+      this.launchExecution(
+        continued,
+        definition.blocks,
+        definition.edges,
+        run.executionPlan.order,
+        dispatch,
+        defaultProvider,
+        append,
+        false,
+      );
       return structuredClone(continued);
-    } finally { this.retryAdmissions.delete(runId); }
+    } finally {
+      this.retryAdmissions.delete(runId);
+    }
   }
 
   async cancel(runId: string, interrupt: Interrupt): Promise<HarnessRun> {
     const persisted = (await this.store.runs()).find((item) => item.id === runId);
-    const execution = this.executions.get(runId); const run = execution?.run ?? persisted;
+    const execution = this.executions.get(runId);
+    const run = execution?.run ?? persisted;
     if (!run) throw new CoreError("FILE_NOT_FOUND", "Harness run does not exist");
     if (!isActiveStatus(run.status)) return run;
     if (this.activeRuns.has(runId)) this.cancelled.add(runId);
     this.meetingUpdates.cancel(runId);
     const active = run.blocks.filter((block) => providerActiveStatuses.has(block.status) && block.provider);
-    const completedAt = new Date().toISOString(); run.status = "cancelled"; run.completedAt = completedAt; run.error = undefined;
-    for (const block of run.blocks) if (isActiveStatus(block.status)) { block.status = "cancelled"; block.completedAt = completedAt; block.error = undefined; }
-    run.cleanupErrors = undefined; await this.recordCompletedOperation(run, "terminal_outcome", "terminal:cancelled", undefined, { status: "cancelled", completedAt }); await this.update(run);
+    const completedAt = new Date().toISOString();
+    run.status = "cancelled";
+    run.completedAt = completedAt;
+    run.error = undefined;
+    for (const block of run.blocks)
+      if (isActiveStatus(block.status)) {
+        block.status = "cancelled";
+        block.completedAt = completedAt;
+        block.error = undefined;
+      }
+    run.cleanupErrors = undefined;
+    await this.recordCompletedOperation(run, "terminal_outcome", "terminal:cancelled", undefined, {
+      status: "cancelled",
+      completedAt,
+    });
+    await this.update(run);
     const targets = [
-      ...active.map((block) => ({ label: `block ${block.blockId}`, provider: block.provider!, context: { runId, blockId: block.blockId, workspace: block.workspace } })),
-      ...(run.children ?? []).map((child) => ({ label: `child task ${child.taskId}`, provider: child.provider, context: { runId, blockId: child.blockId, workspace: child.workspace } }))
+      ...active.map((block) => ({
+        label: `block ${block.blockId}`,
+        provider: block.provider!,
+        context: { runId, blockId: block.blockId, workspace: block.workspace },
+      })),
+      ...(run.children ?? []).map((child) => ({
+        label: `child task ${child.taskId}`,
+        provider: child.provider,
+        context: { runId, blockId: child.blockId, workspace: child.workspace },
+      })),
     ];
     const cleanup = await Promise.allSettled(targets.map((target) => interrupt(target.provider, target.context)));
-    run.cleanupErrors = cleanup.flatMap((result, index) => result.status === "rejected" ? [`Could not stop ${targets[index]!.label}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`] : []);
+    run.cleanupErrors = cleanup.flatMap((result, index) =>
+      result.status === "rejected"
+        ? [
+            `Could not stop ${targets[index]!.label}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+          ]
+        : [],
+    );
     if (!run.cleanupErrors.length) run.cleanupErrors = undefined;
     else await this.update(run);
     return run;
   }
 
-  async setAutopilot(runId: string, blockId: string, sessionId: string, enabled: boolean, configure: (provider: string, workspace: string, sessionId: string, enabled: boolean) => Promise<AiSession>): Promise<HarnessRun> {
+  async setAutopilot(
+    runId: string,
+    blockId: string,
+    sessionId: string,
+    enabled: boolean,
+    configure: (provider: string, workspace: string, sessionId: string, enabled: boolean) => Promise<AiSession>,
+  ): Promise<HarnessRun> {
     if (typeof enabled !== "boolean") throw new CoreError("INVALID_REQUEST", "Autopilot must be a boolean");
     const execution = this.executions.get(runId);
-    const run = execution?.run ?? await this.readRun(runId);
+    const run = execution?.run ?? (await this.readRun(runId));
     const state = run?.blocks.find((item) => item.blockId === blockId);
     const block = run?.definition?.blocks.find((item) => item.id === blockId);
-    if (!run || block?.type !== "chatbox" || !state?.workspace || !state.provider || !sessionId || state.sessionId !== sessionId || ["cancelled", "failed", "blocked"].includes(state.status)) {
+    if (
+      !run ||
+      block?.type !== "chatbox" ||
+      !state?.workspace ||
+      !state.provider ||
+      !sessionId ||
+      state.sessionId !== sessionId ||
+      ["cancelled", "failed", "blocked"].includes(state.status)
+    ) {
       throw new CoreError("INVALID_REQUEST", "Chatbox session is no longer available");
     }
     const change = async () => {
-      if (state.sessionId !== sessionId || ["cancelled", "failed", "blocked"].includes(state.status)) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
+      if (state.sessionId !== sessionId || ["cancelled", "failed", "blocked"].includes(state.status))
+        throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
       const session = await configure(state.provider!, state.workspace!, sessionId, enabled);
-      if (state.sessionId !== sessionId || session.id !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
+      if (state.sessionId !== sessionId || session.id !== sessionId)
+        throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
       state.autopilot = enabled;
-      if (execution && this.isActive(runId) && state.status === "awaiting_permission") await this.recordActivity(run, state, session);
+      if (execution && this.isActive(runId) && state.status === "awaiting_permission")
+        await this.recordActivity(run, state, session);
       else await this.update(run);
     };
     if (execution && this.isActive(runId)) await execution.scheduler.control(blockId, change);
@@ -487,34 +1041,71 @@ export class HarnessRunner {
     return structuredClone(run);
   }
 
-  async steerChat(runId: string, blockId: string, sessionId: string, input: string, steer: AnswerQuestion): Promise<HarnessRun> {
+  async steerChat(
+    runId: string,
+    blockId: string,
+    sessionId: string,
+    input: string,
+    steer: AnswerQuestion,
+  ): Promise<HarnessRun> {
     const value = input.trim();
-    if (!value || value.length > 100_000) throw new CoreError("INVALID_REQUEST", "Steering input must contain 1–100,000 characters");
+    if (!value || value.length > 100_000)
+      throw new CoreError("INVALID_REQUEST", "Steering input must contain 1–100,000 characters");
     const execution = this.executions.get(runId);
     const state = execution?.run.blocks.find((item) => item.blockId === blockId);
-    if (!execution || !this.isActive(runId) || execution.blocks.find((item) => item.id === blockId)?.type !== "chatbox"
-      || !state || !["running", "waiting_timer"].includes(state.status) || !state.workspace || !state.provider || !sessionId || state.sessionId !== sessionId) {
+    if (
+      !execution ||
+      !this.isActive(runId) ||
+      execution.blocks.find((item) => item.id === blockId)?.type !== "chatbox" ||
+      !state ||
+      !["running", "waiting_timer"].includes(state.status) ||
+      !state.workspace ||
+      !state.provider ||
+      !sessionId ||
+      state.sessionId !== sessionId
+    ) {
       throw new CoreError("INVALID_REQUEST", "Chatbox session is no longer running");
     }
     await execution.scheduler.control(blockId, async () => {
       this.assertActive(runId);
-      if (!["running", "waiting_timer"].includes(state.status) || state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
+      if (!["running", "waiting_timer"].includes(state.status) || state.sessionId !== sessionId)
+        throw new CoreError("INVALID_REQUEST", "Chatbox session changed");
       // Publish the input while provider acknowledgement is still pending.
       this.appendChatSteering(state, value);
       this.log(state, "prompt", `User steering: ${value}`);
       await this.update(execution.run);
-      const startedAt = state.startedAt; const provider = state.provider!; const workspace = state.workspace!;
-      const delivery = (this.chatSteeringDeliveries.get(state) ?? Promise.resolve()).then(async () => {
-        if (!this.isActive(runId) || state.sessionId !== sessionId || state.startedAt !== startedAt || !["running", "waiting_timer"].includes(state.status)) throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
-        await steer(provider, workspace, value);
-      }).catch(async (error) => {
-        this.log(state, "error", `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`);
-        if (state.sessionId === sessionId && state.startedAt === startedAt) state.error = `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`;
-        await this.update(execution.run);
-      });
+      const startedAt = state.startedAt;
+      const provider = state.provider!;
+      const workspace = state.workspace!;
+      const delivery = (this.chatSteeringDeliveries.get(state) ?? Promise.resolve())
+        .then(async () => {
+          if (
+            !this.isActive(runId) ||
+            state.sessionId !== sessionId ||
+            state.startedAt !== startedAt ||
+            !["running", "waiting_timer"].includes(state.status)
+          )
+            throw new CoreError("INVALID_REQUEST", "Chatbox turn ended before queued steering could be delivered");
+          await steer(provider, workspace, value);
+        })
+        .catch(async (error) => {
+          this.log(
+            state,
+            "error",
+            `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
+          if (state.sessionId === sessionId && state.startedAt === startedAt)
+            state.error = `Steering delivery failed: ${error instanceof Error ? error.message : String(error)}`;
+          await this.update(execution.run);
+        });
       this.chatSteeringDeliveries.set(state, delivery);
       this.executionTasks.add(delivery);
-      void delivery.finally(() => { this.executionTasks.delete(delivery); if (this.chatSteeringDeliveries.get(state) === delivery) this.chatSteeringDeliveries.delete(state); }).catch((error) => console.error("[core] Could not persist steering failure", error));
+      void delivery
+        .finally(() => {
+          this.executionTasks.delete(delivery);
+          if (this.chatSteeringDeliveries.get(state) === delivery) this.chatSteeringDeliveries.delete(state);
+        })
+        .catch((error) => console.error("[core] Could not persist steering failure", error));
     });
     return structuredClone(execution.run);
   }
@@ -522,68 +1113,156 @@ export class HarnessRunner {
   private appendChatSteering(state: HarnessBlockRun, input: string): void {
     this.chatResponsePrefix.set(state, this.latestChatResponse.get(state) ?? "");
     const timestamp = new Date().toISOString();
-    const messages = [...state.chatMessages ?? []];
+    const messages = [...(state.chatMessages ?? [])];
     if (messages.at(-1)?.role === "assistant" && !messages.at(-1)?.text) messages.pop();
-    state.chatMessages = [...messages, { id: crypto.randomUUID(), role: "user", text: input, timestamp }, { id: crypto.randomUUID(), role: "assistant", text: "", timestamp }].slice(-200) as NonNullable<HarnessBlockRun["chatMessages"]>;
+    state.chatMessages = [
+      ...messages,
+      { id: crypto.randomUUID(), role: "user", text: input, timestamp },
+      { id: crypto.randomUUID(), role: "assistant", text: "", timestamp },
+    ].slice(-200) as NonNullable<HarnessBlockRun["chatMessages"]>;
   }
   private chatReplyText(state: HarnessBlockRun, session: AiSession): string {
-    const full = chatResponse(session, this.chatTurnUsers.get(state)); this.latestChatResponse.set(state, full);
+    const full = chatResponse(session, this.chatTurnUsers.get(state));
+    this.latestChatResponse.set(state, full);
     const prefix = this.chatResponsePrefix.get(state);
     return prefix && full.startsWith(prefix) ? full.slice(prefix.length).replace(/^\n\n/, "") : full;
   }
 
   async appendInput(runId: string, input: string): Promise<HarnessRun> {
-    const value = input.trim(); if (!value || value.length > 100_000) throw new CoreError("INVALID_REQUEST", "Workflow input must contain 1–100,000 characters");
-    const execution = this.executions.get(runId); if (!execution || !this.isActive(runId)) throw new CoreError("INVALID_REQUEST", "Workflow run is no longer active");
-    const targets = execution.blocks.filter((block) => !execution.edges.some((edge) => edge.to === block.id && !edge.loop));
-    const available = targets.filter((block) => { const state = execution.run.blocks.find((item) => item.blockId === block.id); return state?.workspace && state.status === "running"; });
-    if (!available.length) throw new CoreError("INVALID_REQUEST", "The workflow dispatcher session is not ready for another prompt");
-    for (const block of available) { const state = execution.run.blocks.find((item) => item.blockId === block.id)!; state.status = "running"; state.completedAt = undefined; state.prompt = value; }
+    const value = input.trim();
+    if (!value || value.length > 100_000)
+      throw new CoreError("INVALID_REQUEST", "Workflow input must contain 1–100,000 characters");
+    const execution = this.executions.get(runId);
+    if (!execution || !this.isActive(runId)) throw new CoreError("INVALID_REQUEST", "Workflow run is no longer active");
+    const targets = execution.blocks.filter(
+      (block) => !execution.edges.some((edge) => edge.to === block.id && !edge.loop),
+    );
+    const available = targets.filter((block) => {
+      const state = execution.run.blocks.find((item) => item.blockId === block.id);
+      return state?.workspace && state.status === "running";
+    });
+    if (!available.length)
+      throw new CoreError("INVALID_REQUEST", "The workflow dispatcher session is not ready for another prompt");
+    for (const block of available) {
+      const state = execution.run.blocks.find((item) => item.blockId === block.id)!;
+      state.status = "running";
+      state.completedAt = undefined;
+      state.prompt = value;
+    }
     await this.update(execution.run);
     let task!: Promise<void>;
-    task = Promise.all(available.map((block) => execution.scheduler.turn(block.id, async () => {
-      const state = execution.run.blocks.find((item) => item.blockId === block.id)!;
-      const claim = crypto.randomUUID(); execution.turnClaims.set(block.id, claim);
-      this.assertActive(runId);
-      const session = await execution.append(block, value, { runId, blockId: block.id, workspace: state.workspace! });
-      this.assertActive(runId);
-      if (execution.turnClaims.get(block.id) !== claim) return;
-      const output = session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "";
-      state.sessionId = session.id; state.tokens = session.tokens; this.assertTokenBudget(execution.run); state.output = output.slice(-200_000); state.status = "succeeded"; state.completedAt = new Date().toISOString(); execution.outputs.set(block.id, output);
-      await this.update(execution.run);
-    }))).then(() => undefined).catch(async (error) => { if (error instanceof Cancelled || this.cancelled.has(runId)) return; execution.run.status = "failed"; execution.run.error = error instanceof Error ? error.message : String(error); execution.run.completedAt = new Date().toISOString(); await this.update(execution.run); }).finally(() => execution.background.delete(task));
+    task = Promise.all(
+      available.map((block) =>
+        execution.scheduler.turn(block.id, async () => {
+          const state = execution.run.blocks.find((item) => item.blockId === block.id)!;
+          const claim = crypto.randomUUID();
+          execution.turnClaims.set(block.id, claim);
+          this.assertActive(runId);
+          const session = await execution.append(block, value, {
+            runId,
+            blockId: block.id,
+            workspace: state.workspace!,
+          });
+          this.assertActive(runId);
+          if (execution.turnClaims.get(block.id) !== claim) return;
+          const output = session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "";
+          state.sessionId = session.id;
+          state.tokens = session.tokens;
+          this.assertTokenBudget(execution.run);
+          state.output = output.slice(-200_000);
+          state.status = "succeeded";
+          state.completedAt = new Date().toISOString();
+          execution.outputs.set(block.id, output);
+          await this.update(execution.run);
+        }),
+      ),
+    )
+      .then(() => undefined)
+      .catch(async (error) => {
+        if (error instanceof Cancelled || this.cancelled.has(runId)) return;
+        execution.run.status = "failed";
+        execution.run.error = error instanceof Error ? error.message : String(error);
+        execution.run.completedAt = new Date().toISOString();
+        await this.update(execution.run);
+      })
+      .finally(() => execution.background.delete(task));
     execution.background.add(task);
     return structuredClone(execution.run);
   }
 
-  async resolvePermission(runId: string, blockId: string, sessionId: string, pauseId: string, requestId: string, optionId: string | undefined, resolve: ResolvePermission): Promise<HarnessRun> {
-    const { execution, state, provider, workspace } = this.pausedAttempt(runId, blockId, pauseId, "awaiting_permission", sessionId);
-    if (state.pendingPermission?.id !== requestId) throw new CoreError("INVALID_REQUEST", "Permission request is no longer pending");
-    if (optionId && !state.pendingPermission.options.some((option) => option.optionId === optionId)) throw new CoreError("INVALID_REQUEST", "Unknown permission option");
+  async resolvePermission(
+    runId: string,
+    blockId: string,
+    sessionId: string,
+    pauseId: string,
+    requestId: string,
+    optionId: string | undefined,
+    resolve: ResolvePermission,
+  ): Promise<HarnessRun> {
+    const { execution, state, provider, workspace } = this.pausedAttempt(
+      runId,
+      blockId,
+      pauseId,
+      "awaiting_permission",
+      sessionId,
+    );
+    if (state.pendingPermission?.id !== requestId)
+      throw new CoreError("INVALID_REQUEST", "Permission request is no longer pending");
+    if (optionId && !state.pendingPermission.options.some((option) => option.optionId === optionId))
+      throw new CoreError("INVALID_REQUEST", "Unknown permission option");
     const key = `${runId}:${blockId}:${sessionId}:${requestId}`;
-    if (this.resolvingPauses.has(key)) throw new CoreError("INVALID_REQUEST", "Permission request is already being resolved");
+    if (this.resolvingPauses.has(key))
+      throw new CoreError("INVALID_REQUEST", "Permission request is already being resolved");
     this.resolvingPauses.add(key);
     try {
       this.assertActive(runId);
-      const session = await execution.scheduler.control(blockId, () => resolve(provider, workspace, requestId, optionId));
+      const session = await execution.scheduler.control(blockId, () =>
+        resolve(provider, workspace, requestId, optionId),
+      );
       this.assertActive(runId);
       await this.recordActivity(execution.run, state, session);
       return structuredClone(execution.run);
-    } finally { this.resolvingPauses.delete(key); }
+    } finally {
+      this.resolvingPauses.delete(key);
+    }
   }
 
-  async answerQuestion(runId: string, blockId: string, sessionId: string, pauseId: string, input: string, answer: AnswerQuestion): Promise<HarnessRun> {
+  async answerQuestion(
+    runId: string,
+    blockId: string,
+    sessionId: string,
+    pauseId: string,
+    input: string,
+    answer: AnswerQuestion,
+  ): Promise<HarnessRun> {
     if (!this.isActive(runId)) throw new CoreError("INVALID_REQUEST", "Workflow is no longer active");
     const flowAnswer = this.flowAnswers.get(`${runId}:${blockId}:${pauseId}`);
     if (flowAnswer) {
       const execution = this.executions.get(runId)!;
       const state = execution.run.blocks.find((block) => block.blockId === blockId);
       if (state?.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Question session does not match");
-      if (execution.blocks.find((block) => block.id === blockId)?.type === "yes_no_prompt" && input !== "yes" && input !== "no") throw new CoreError("INVALID_REQUEST", "Choose Yes or No");
-      if (!input.trim() || input.length > 100_000) throw new CoreError("INVALID_REQUEST", "Enter an answer of up to 100,000 characters"); this.flowAnswers.delete(`${runId}:${blockId}:${pauseId}`); flowAnswer(input); return structuredClone(this.executions.get(runId)!.run); }
+      if (
+        execution.blocks.find((block) => block.id === blockId)?.type === "yes_no_prompt" &&
+        input !== "yes" &&
+        input !== "no"
+      )
+        throw new CoreError("INVALID_REQUEST", "Choose Yes or No");
+      if (!input.trim() || input.length > 100_000)
+        throw new CoreError("INVALID_REQUEST", "Enter an answer of up to 100,000 characters");
+      this.flowAnswers.delete(`${runId}:${blockId}:${pauseId}`);
+      flowAnswer(input);
+      return structuredClone(this.executions.get(runId)!.run);
+    }
     const value = input.trim();
-    if (!value || value.length > 100_000) throw new CoreError("INVALID_REQUEST", "Workflow answer must contain 1–100,000 characters");
-    const { execution, state, provider, workspace } = this.pausedAttempt(runId, blockId, pauseId, "awaiting_user_input", sessionId);
+    if (!value || value.length > 100_000)
+      throw new CoreError("INVALID_REQUEST", "Workflow answer must contain 1–100,000 characters");
+    const { execution, state, provider, workspace } = this.pausedAttempt(
+      runId,
+      blockId,
+      pauseId,
+      "awaiting_user_input",
+      sessionId,
+    );
     const key = `${runId}:${blockId}:${sessionId}:answer`;
     if (this.resolvingPauses.has(key)) throw new CoreError("INVALID_REQUEST", "An answer is already being delivered");
     this.resolvingPauses.add(key);
@@ -594,92 +1273,183 @@ export class HarnessRunner {
       this.log(state, "prompt", `User answer: ${value}`);
       await this.recordActivity(execution.run, state, session);
       return structuredClone(execution.run);
-    } finally { this.resolvingPauses.delete(key); }
+    } finally {
+      this.resolvingPauses.delete(key);
+    }
   }
 
   async resumeTimer(runId: string, blockId: string, pauseId: string, fire: FireTimer): Promise<HarnessRun> {
     const flow = this.executions.get(runId);
-    const timer = flow?.run.blocks.find((item) => item.blockId === blockId && item.pauseId === pauseId && item.status === "waiting_timer");
-    if (timer && flow!.blocks.find((item) => item.id === blockId)?.type === "timer") { this.assertActive(runId); timer.waitingUntil = new Date().toISOString(); await this.update(flow!.run); return structuredClone(flow!.run); }
+    const timer = flow?.run.blocks.find(
+      (item) => item.blockId === blockId && item.pauseId === pauseId && item.status === "waiting_timer",
+    );
+    if (timer && flow!.blocks.find((item) => item.id === blockId)?.type === "timer") {
+      this.assertActive(runId);
+      timer.waitingUntil = new Date().toISOString();
+      await this.update(flow!.run);
+      return structuredClone(flow!.run);
+    }
     const { execution, state, provider, workspace } = this.pausedAttempt(runId, blockId, pauseId, "waiting_timer");
     const key = `${runId}:${blockId}:${pauseId}:resume`;
     if (this.resolvingPauses.has(key)) throw new CoreError("INVALID_REQUEST", "Timer is already being resumed");
     this.resolvingPauses.add(key);
     try {
       this.assertActive(runId);
-      const fired = await this.runOperation(runId, blockId, "timer_fire", `timer-fire:${pauseId}`, { workspace, provider, pauseId }, () => fire(provider, workspace));
+      const fired = await this.runOperation(
+        runId,
+        blockId,
+        "timer_fire",
+        `timer-fire:${pauseId}`,
+        { workspace, provider, pauseId },
+        () => fire(provider, workspace),
+      );
       if (!fired) throw new CoreError("INVALID_REQUEST", "Workflow timer is no longer pending");
       this.assertActive(runId);
       if (state.status === "waiting_timer" && state.pauseId === pauseId) {
-        state.status = "running"; state.waitingUntil = undefined; state.pauseId = undefined; execution.run.status = this.runActivityStatus(execution.run);
-        this.log(state, "lifecycle", "Timer fired early by user"); await this.update(execution.run);
+        state.status = "running";
+        state.waitingUntil = undefined;
+        state.pauseId = undefined;
+        execution.run.status = this.runActivityStatus(execution.run);
+        this.log(state, "lifecycle", "Timer fired early by user");
+        await this.update(execution.run);
       }
       return structuredClone(execution.run);
-    } finally { this.resolvingPauses.delete(key); }
+    } finally {
+      this.resolvingPauses.delete(key);
+    }
   }
 
   async retryPause(runId: string, blockId: string, pauseId: string): Promise<HarnessRun> {
     const { execution, state } = this.pausedAttempt(runId, blockId, pauseId, "retry_scheduled", undefined, false);
     const policy = this.policy(execution.run);
-    if ((state.recoveryAttempts ?? 0) >= policy.maxAttempts || retryBudgetExhausted(state.retryStartedAt, policy)) throw new CoreError("INVALID_REQUEST", "The automatic retry budget is exhausted");
+    if ((state.recoveryAttempts ?? 0) >= policy.maxAttempts || retryBudgetExhausted(state.retryStartedAt, policy))
+      throw new CoreError("INVALID_REQUEST", "The automatic retry budget is exhausted");
     state.recoveryAttempts = (state.recoveryAttempts ?? 0) + 1;
-    state.status = "queued"; state.error = undefined; state.completedAt = undefined; state.retryAt = undefined; state.pauseId = undefined; execution.run.status = "running";
-    this.log(state, "lifecycle", "Retry requested by user"); await this.update(execution.run);
+    state.status = "queued";
+    state.error = undefined;
+    state.completedAt = undefined;
+    state.retryAt = undefined;
+    state.pauseId = undefined;
+    execution.run.status = "running";
+    this.log(state, "lifecycle", "Retry requested by user");
+    await this.update(execution.run);
     return structuredClone(execution.run);
   }
 
   async cancelPause(runId: string, blockId: string, pauseId: string, interrupt: Interrupt): Promise<HarnessRun> {
     const flow = this.executions.get(runId);
-    if (flow?.blocks.some((block) => block.id === blockId && ["user_prompt", "yes_no_prompt", "timer"].includes(block.type)) && flow.run.blocks.some((state) => state.blockId === blockId && state.pauseId === pauseId)) return this.cancel(runId, interrupt);
-    this.pausedAttempt(runId, blockId, pauseId, ["awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"], undefined, false);
+    if (
+      flow?.blocks.some(
+        (block) => block.id === blockId && ["user_prompt", "yes_no_prompt", "timer"].includes(block.type),
+      ) &&
+      flow.run.blocks.some((state) => state.blockId === blockId && state.pauseId === pauseId)
+    )
+      return this.cancel(runId, interrupt);
+    this.pausedAttempt(
+      runId,
+      blockId,
+      pauseId,
+      ["awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"],
+      undefined,
+      false,
+    );
     return this.cancel(runId, interrupt);
   }
 
   async resumeFailed(runId: string, callerId: string): Promise<{ resumed: string[] }> {
     const execution = this.executions.get(runId);
     if (!execution || this.cancelled.has(runId)) throw new Error("Workflow is no longer active");
-    if (!execution.blocks.find((block) => block.id === callerId)?.watchdog) throw new Error("Only a watchdog can request recovery");
+    if (!execution.blocks.find((block) => block.id === callerId)?.watchdog)
+      throw new Error("Only a watchdog can request recovery");
     const resumed: string[] = [];
     for (const state of execution.run.blocks) {
       if (!["failed", "retry_scheduled"].includes(state.status) || state.blockId === callerId) continue;
       state.failureReason ??= classifyWorkflowFailure(state.error ?? "");
       const policy = this.policy(execution.run);
-      if (!isRetryableFailure(state.failureReason) || !retryDue(state.retryAt) || (state.recoveryAttempts ?? 0) >= policy.maxAttempts) continue;
+      if (
+        !isRetryableFailure(state.failureReason) ||
+        !retryDue(state.retryAt) ||
+        (state.recoveryAttempts ?? 0) >= policy.maxAttempts
+      )
+        continue;
       if (retryBudgetExhausted(state.retryStartedAt, policy)) {
-        state.status = "failed"; state.retryAt = undefined; state.pauseId = undefined;
+        state.status = "failed";
+        state.retryAt = undefined;
+        state.pauseId = undefined;
         state.error = `${state.error ?? "Provider attempt failed"} Automatic retry budget exhausted; retry this block manually after resolving the provider issue.`;
         this.log(state, "error", "Automatic retry budget exhausted");
         continue;
       }
       state.recoveryAttempts = (state.recoveryAttempts ?? 0) + 1;
-      state.status = "queued"; state.error = undefined; state.completedAt = undefined; state.retryAt = undefined; state.pauseId = undefined; execution.run.status = "running";
-      this.log(state, "lifecycle", `Watchdog requested continuation after ${state.failureReason} (${state.recoveryAttempts}/${policy.maxAttempts})`); resumed.push(state.blockId);
+      state.status = "queued";
+      state.error = undefined;
+      state.completedAt = undefined;
+      state.retryAt = undefined;
+      state.pauseId = undefined;
+      execution.run.status = "running";
+      this.log(
+        state,
+        "lifecycle",
+        `Watchdog requested continuation after ${state.failureReason} (${state.recoveryAttempts}/${policy.maxAttempts})`,
+      );
+      resumed.push(state.blockId);
     }
     await this.update(execution.run);
     return { resumed };
   }
 
-  async runStack(runId: string, blockId: string, inputs: string[], path?: string): Promise<{ blocks: Array<{ blockId: string; output: string }> }> {
-    const execution = this.executions.get(runId); if (!execution || !this.isActive(runId)) throw new Error("Workflow execution is no longer active");
-    if (["ai", "chatbox"].includes(execution.blocks.find((block) => block.id === blockId)?.type ?? "")) throw new Error("Use workflow_use_block and workflow_choose_path for typed flow connections");
-    if (!inputs.length || !inputs.every((input) => typeof input === "string" && input.trim())) throw new Error("inputs must be a non-empty array of strings");
+  async runStack(
+    runId: string,
+    blockId: string,
+    inputs: string[],
+    path?: string,
+  ): Promise<{ blocks: Array<{ blockId: string; output: string }> }> {
+    const execution = this.executions.get(runId);
+    if (!execution || !this.isActive(runId)) throw new Error("Workflow execution is no longer active");
+    if (["ai", "chatbox"].includes(execution.blocks.find((block) => block.id === blockId)?.type ?? ""))
+      throw new Error("Use workflow_use_block and workflow_choose_path for typed flow connections");
+    if (!inputs.length || !inputs.every((input) => typeof input === "string" && input.trim()))
+      throw new Error("inputs must be a non-empty array of strings");
     const maxStackSize = execution.run.definition?.settings?.maxStackSize ?? 100;
-    if (inputs.length > maxStackSize) throw new CoreError("INVALID_REQUEST", `Workflow stack accepts at most ${maxStackSize} input${maxStackSize === 1 ? "" : "s"} per invocation`);
-    const caller = execution.blocks.find((block) => block.id === blockId); const callerState = execution.run.blocks.find((block) => block.blockId === blockId);
-    if (!caller || callerState?.status !== "running") throw new Error("Only a currently running workflow block can launch a stack");
+    if (inputs.length > maxStackSize)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Workflow stack accepts at most ${maxStackSize} input${maxStackSize === 1 ? "" : "s"} per invocation`,
+      );
+    const caller = execution.blocks.find((block) => block.id === blockId);
+    const callerState = execution.run.blocks.find((block) => block.blockId === blockId);
+    if (!caller || callerState?.status !== "running")
+      throw new Error("Only a currently running workflow block can launch a stack");
     execution.stackInvocations.set(blockId, (execution.stackInvocations.get(blockId) ?? 0) + 1);
     let outgoing = execution.edges.filter((edge) => edge.from === blockId);
     if (path !== undefined) outgoing = outgoing.filter((edge) => edge.label === path);
-    if (!outgoing.length) throw new Error(path === undefined ? "This block has no downstream path" : `No downstream path named '${path}'`);
+    if (!outgoing.length)
+      throw new Error(path === undefined ? "This block has no downstream path" : `No downstream path named '${path}'`);
     for (const edge of outgoing.filter((item) => item.loop)) {
       const count = (execution.loopInvocations.get(edge.id) ?? 0) + 1;
       const limit = execution.run.definition?.settings?.maxLoopCount ?? 100;
-      if (count > limit) throw new CoreError("INVALID_REQUEST", `Workflow loop '${edge.label ?? edge.id}' reached its limit of ${limit} iterations`);
+      if (count > limit)
+        throw new CoreError(
+          "INVALID_REQUEST",
+          `Workflow loop '${edge.label ?? edge.id}' reached its limit of ${limit} iterations`,
+        );
       execution.loopInvocations.set(edge.id, count);
     }
-    if (caller.routing === "ai" && path === undefined) throw new Error("path is required because this block uses AI-selected routing");
-    if (path !== undefined) { callerState.selectedRoute = path; await this.recordCompletedOperation(execution.run, "route_selection", `route:${blockId}:${callerState.attempts?.at(-1)?.id ?? "initial"}`, blockId, { path }); }
-    const targets = outgoing.map((edge) => ({ edge, block: execution.blocks.find((block) => block.id === edge.to)! })).filter((target) => Boolean(target.block));
+    if (caller.routing === "ai" && path === undefined)
+      throw new Error("path is required because this block uses AI-selected routing");
+    if (path !== undefined) {
+      callerState.selectedRoute = path;
+      await this.recordCompletedOperation(
+        execution.run,
+        "route_selection",
+        `route:${blockId}:${callerState.attempts?.at(-1)?.id ?? "initial"}`,
+        blockId,
+        { path },
+      );
+    }
+    const targets = outgoing
+      .map((edge) => ({ edge, block: execution.blocks.find((block) => block.id === edge.to)! }))
+      .filter((target) => Boolean(target.block));
     const launch = async (target: HarnessBlock, waitForCurrentTurn = false): Promise<void> => {
       this.assertActive(runId);
       const state = execution.run.blocks.find((item) => item.blockId === target.id)!;
@@ -691,138 +1461,193 @@ export class HarnessRunner {
         await new Promise((resolve) => setTimeout(resolve, 25));
       }
       if (["queued", "waiting", "skipped"].includes(state.status) && !state.workspace) {
-        state.status = "running"; await this.update(execution.run);
-        await this.executeBlock(execution.run, target, execution.blocks, execution.edges, execution.outputs, execution.dispatch, execution.defaultProvider, inputs);
-        await this.executeRevivedDescendants(execution, target.id); return;
+        state.status = "running";
+        await this.update(execution.run);
+        await this.executeBlock(
+          execution.run,
+          target,
+          execution.blocks,
+          execution.edges,
+          execution.outputs,
+          execution.dispatch,
+          execution.defaultProvider,
+          inputs,
+        );
+        await this.executeRevivedDescendants(execution, target.id);
+        return;
       }
-      if (!state.workspace || !["running", "succeeded"].includes(state.status)) throw new Error(`Downstream block '${target.label}' cannot accept another prompt`);
+      if (!state.workspace || !["running", "succeeded"].includes(state.status))
+        throw new Error(`Downstream block '${target.label}' cannot accept another prompt`);
       const invocationCount = execution.stackInvocations.get(target.id) ?? 0;
       const output = await execution.scheduler.nestedTurn(target.id, async () => {
-        const claim = crypto.randomUUID(); execution.turnClaims.set(target.id, claim);
-        this.assertActive(runId); state.status = "running"; state.completedAt = undefined; await this.update(execution.run);
+        const claim = crypto.randomUUID();
+        execution.turnClaims.set(target.id, claim);
+        this.assertActive(runId);
+        state.status = "running";
+        state.completedAt = undefined;
+        await this.update(execution.run);
         const replies: string[] = [];
-        for (const input of inputs) { this.assertActive(runId); const session = await execution.append(target, input, { runId, blockId: target.id, workspace: state.workspace! }); this.assertActive(runId); replies.push(session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? ""); state.sessionId = session.id; state.tokens = session.tokens; this.assertTokenBudget(execution.run); }
-        const value = replies.length === 1 ? replies[0]! : replies.map((reply, index) => `## Appended prompt ${index + 1}\n${reply}`).join("\n\n");
-        if (execution.turnClaims.get(target.id) === claim) { state.output = value.slice(-200_000); state.status = "succeeded"; state.completedAt = new Date().toISOString(); execution.outputs.set(target.id, value); await this.update(execution.run); }
+        for (const input of inputs) {
+          this.assertActive(runId);
+          const session = await execution.append(target, input, {
+            runId,
+            blockId: target.id,
+            workspace: state.workspace!,
+          });
+          this.assertActive(runId);
+          replies.push(session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "");
+          state.sessionId = session.id;
+          state.tokens = session.tokens;
+          this.assertTokenBudget(execution.run);
+        }
+        const value =
+          replies.length === 1
+            ? replies[0]!
+            : replies.map((reply, index) => `## Appended prompt ${index + 1}\n${reply}`).join("\n\n");
+        if (execution.turnClaims.get(target.id) === claim) {
+          state.output = value.slice(-200_000);
+          state.status = "succeeded";
+          state.completedAt = new Date().toISOString();
+          execution.outputs.set(target.id, value);
+          await this.update(execution.run);
+        }
         return value;
       });
       const forward = execution.edges.filter((edge) => edge.from === target.id && !edge.loop);
-      if (target.routing !== "ai" && forward.length && (execution.stackInvocations.get(target.id) ?? 0) === invocationCount) {
+      if (
+        target.routing !== "ai" &&
+        forward.length &&
+        (execution.stackInvocations.get(target.id) ?? 0) === invocationCount
+      ) {
         // Forward graph edges run automatically on the initial pass. Preserve the
         // same contract when a loop appends to an existing session; otherwise a
         // successful repeated block silently terminates unless the model happens
         // to call workflow_run_stack itself.
-        state.status = "running"; state.completedAt = undefined; await this.update(execution.run);
+        state.status = "running";
+        state.completedAt = undefined;
+        await this.update(execution.run);
         await this.runStack(runId, target.id, [output]);
-        state.status = "succeeded"; state.completedAt = new Date().toISOString(); await this.update(execution.run);
+        state.status = "succeeded";
+        state.completedAt = new Date().toISOString();
+        await this.update(execution.run);
       }
     };
     await execution.scheduler.suspend(blockId, async () => {
       for (const target of targets) {
-        if ((target.edge.execution ?? "sync") === "sync") { await launch(target.block); continue; }
+        if ((target.edge.execution ?? "sync") === "sync") {
+          await launch(target.block);
+          continue;
+        }
         let task!: Promise<void>;
-        task = launch(target.block, true).catch(async (error) => {
-          if (error instanceof Cancelled || this.cancelled.has(runId)) return;
-          const state = execution.run.blocks.find((item) => item.blockId === target.block.id)!;
-          state.status = "failed"; state.error = error instanceof Error ? error.message : String(error); state.completedAt = new Date().toISOString(); this.log(state, "error", state.error); await this.update(execution.run);
-        }).finally(() => execution.background.delete(task));
+        task = launch(target.block, true)
+          .catch(async (error) => {
+            if (error instanceof Cancelled || this.cancelled.has(runId)) return;
+            const state = execution.run.blocks.find((item) => item.blockId === target.block.id)!;
+            state.status = "failed";
+            state.error = error instanceof Error ? error.message : String(error);
+            state.completedAt = new Date().toISOString();
+            this.log(state, "error", state.error);
+            await this.update(execution.run);
+          })
+          .finally(() => execution.background.delete(task));
         execution.background.add(task);
       }
     });
-    return { blocks: targets.map((target) => ({ blockId: target.block.id, output: execution.outputs.get(target.block.id) ?? "" })) };
+    return {
+      blocks: targets.map((target) => ({
+        blockId: target.block.id,
+        output: execution.outputs.get(target.block.id) ?? "",
+      })),
+    };
   }
 
   private async executeRevivedDescendants(execution: ActiveExecution, sourceId: string): Promise<void> {
-    const targets = execution.edges.filter((edge) => edge.from === sourceId).map((edge) => execution.blocks.find((block) => block.id === edge.to)).filter((block): block is HarnessBlock => Boolean(block));
-    await Promise.all(targets.map(async (target) => {
-      this.assertActive(execution.run.id);
-      const state = execution.run.blocks.find((item) => item.blockId === target.id)!;
-      if (state.status !== "queued" && state.status !== "waiting") return;
-      if (blockReadiness(target.id, execution.blocks, execution.edges, execution.run.blocks) !== "ready") return;
-      state.status = "running"; await this.update(execution.run);
-      await this.executeBlock(execution.run, target, execution.blocks, execution.edges, execution.outputs, execution.dispatch, execution.defaultProvider);
-      await this.executeRevivedDescendants(execution, target.id);
-    }));
+    const targets = execution.edges
+      .filter((edge) => edge.from === sourceId)
+      .map((edge) => execution.blocks.find((block) => block.id === edge.to))
+      .filter((block): block is HarnessBlock => Boolean(block));
+    await Promise.all(
+      targets.map(async (target) => {
+        this.assertActive(execution.run.id);
+        const state = execution.run.blocks.find((item) => item.blockId === target.id)!;
+        if (state.status !== "queued" && state.status !== "waiting") return;
+        if (blockReadiness(target.id, execution.blocks, execution.edges, execution.run.blocks) !== "ready") return;
+        state.status = "running";
+        await this.update(execution.run);
+        await this.executeBlock(
+          execution.run,
+          target,
+          execution.blocks,
+          execution.edges,
+          execution.outputs,
+          execution.dispatch,
+          execution.defaultProvider,
+        );
+        await this.executeRevivedDescendants(execution, target.id);
+      }),
+    );
   }
-
-  private async execute(run: HarnessRun, blocks: HarnessBlock[], edges: HarnessEdge[], order: string[], dispatch: Dispatch, defaultProvider: string, append: Append, recovering = false, startBlockId?: string): Promise<void> {
-    edges = harnessExecutionEdges({ blocks, edges });
-    const outputs = new Map(run.blocks.flatMap((state) => state.status === "succeeded" && state.output !== undefined ? [[state.blockId, state.output] as const] : []));
-    for (const state of run.blocks) state.activeToolCalls = undefined;
-    const concurrency = run.definition?.settings?.concurrency ?? this.concurrency;
-    run.status = this.runActivityStatus(run); run.startedAt ??= new Date().toISOString(); const background = new Set<Promise<void>>(); this.executions.set(run.id, { run, blocks, edges, outputs, dispatch, append, defaultProvider, background, stackInvocations: new Map(), loopInvocations: new Map(), turnClaims: new Map(), scheduler: new ExecutionScheduler(concurrency, () => this.assertActive(run.id), () => this.schedulingReady(run.id)) });
-    if (recovering) for (const state of run.blocks) if (isActiveStatus(state.status)) this.log(state, "lifecycle", "Core restarted and reconciled this workflow stage");
-    const running = new Map<string, Promise<{ blockId: string; error?: unknown }>>();
-    try {
-      if (isHarnessFlow({ blocks, edges })) {
-        await this.executeFlow(this.executions.get(run.id)!, startBlockId);
-        run.status = "succeeded"; run.completedAt = new Date().toISOString(); await this.recordCompletedOperation(run, "terminal_outcome", "terminal:succeeded", undefined, { status: "succeeded" }); await this.update(run); return;
-      }
-      await this.update(run);
-      while (running.size || background.size || run.blocks.some((block) => isActiveStatus(block.status))) {
-        if (this.suspended || this.cancelled.has(run.id)) throw new Cancelled();
-        let changed = false;
-        if (run.paused) { await this.schedulingReady(run.id); }
-        for (const blockId of order) {
-          if (running.size >= concurrency) break;
-          const state = run.blocks.find((item) => item.blockId === blockId)!;
-          if (!["queued", "waiting"].includes(state.status)) continue;
-          const readiness = blockReadiness(blockId, blocks, edges, run.blocks);
-          if (readiness === "wait") { if (state.status !== "waiting") { state.status = "waiting"; this.log(state, "lifecycle", "Waiting for upstream blocks"); await this.recordCompletedOperation(run, "dependency_decision", `dependency:${blockId}:wait:${state.attempts?.length ?? 0}`, blockId, { decision: "wait" }); changed = true; } continue; }
-          if (readiness === "skip") { state.status = "skipped"; state.completedAt = new Date().toISOString(); await this.recordCompletedOperation(run, "dependency_decision", `dependency:${blockId}:skip:${state.attempts?.length ?? 0}`, blockId, { decision: "skip" }); changed = true; continue; }
-          await this.recordCompletedOperation(run, "dependency_decision", `dependency:${blockId}:ready:${state.attempts?.length ?? 0}`, blockId, { decision: "ready" });
-          const block = blocks.find((item) => item.id === blockId)!; state.status = "running"; changed = true;
-          const task = this.executeBlock(run, block, blocks, edges, outputs, dispatch, defaultProvider).then(() => ({ blockId }), async (error) => {
-            const failure = workflowFailure(error); const reason = classifyWorkflowFailure(error);
-            if (this.cancelled.has(run.id) || (!blocks.some((item) => item.watchdog) && reason !== "schema_validation")) return { blockId, error };
-            let message = failure.message;
-            state.error = message; state.failureReason = reason;
-            if (isRetryableFailure(reason)) state.retryStartedAt ??= new Date().toISOString();
-            const policy = this.policy(run);
-            state.retryAt = nextRetryAt(reason, state.recoveryAttempts ?? 0, policy, state.retryStartedAt, failure.retryAfter);
-            const cannotSchedule = reason === "transient_transport" && state.retryAt === undefined;
-            const exhausted = cannotSchedule || retryBudgetExhausted(state.retryStartedAt, policy) || (state.recoveryAttempts ?? 0) >= policy.maxAttempts;
-            state.status = (isRetryableFailure(reason) && !exhausted) || reason === "schema_validation" ? "retry_scheduled" : "failed";
-            if (exhausted && isRetryableFailure(reason)) { message += " Automatic retry budget exhausted; retry this block manually after resolving the provider issue."; state.error = message; }
-            state.pauseId = state.status === "retry_scheduled" ? crypto.randomUUID() : undefined;
-            run.status = this.runActivityStatus(run);
-            this.log(state, "error", message); await this.update(run);
-            return { blockId };
-          });
-          running.set(blockId, task);
-        }
-        if (changed) await this.update(run);
-        if (!running.size) {
-          if (background.size) { await Promise.race(background); continue; }
-          if (run.blocks.some((block) => pauseStatuses.has(block.status))) { await new Promise((resolve) => setTimeout(resolve, 250)); continue; }
-          if (run.blocks.some((block) => ["queued", "waiting"].includes(block.status))) throw new Error("Harness could not resolve its remaining paths");
-          break;
-        }
-        let tick: ReturnType<typeof setTimeout> | undefined;
-        const completed = await Promise.race([...running.values(), new Promise<undefined>((resolve) => { tick = setTimeout(() => resolve(undefined), 250); })]);
-        if (tick) clearTimeout(tick);
-        if (completed) { running.delete(completed.blockId); if (completed.error) throw completed.error; }
-      }
-      if (this.cancelled.has(run.id)) throw new Cancelled();
-      const blocked = run.blocks.find((block) => block.status === "blocked"); if (blocked) throw new BlockedCorrection(blocked.error ?? "Workflow correction cycle is blocked");
-      const failed = run.blocks.find((block) => block.status === "failed"); if (failed) throw new Error(failed.error ?? "Asynchronous workflow block failed");
-      const incompleteFeatures = run.features?.filter((feature) => feature.status !== "completed") ?? [];
-      if (incompleteFeatures.length) throw new Error(`Workflow delivery is blocked: planned features were not completed: ${incompleteFeatures.map((feature) => `${feature.id} (${feature.status})`).join(", ")}`);
-      run.status = "succeeded"; run.completedAt = new Date().toISOString(); await this.recordCompletedOperation(run, "terminal_outcome", `terminal:${run.status}`, undefined, { status: run.status, completedAt: run.completedAt }); await this.update(run);
-    } catch (error) {
-      const cancelled = error instanceof Cancelled || this.cancelled.has(run.id); run.status = cancelled ? "cancelled" : error instanceof BlockedCorrection ? "blocked" : "failed"; run.error = cancelled ? undefined : error instanceof Error ? error.message : String(error); run.completedAt = new Date().toISOString();
-      for (const block of run.blocks) if (isActiveStatus(block.status)) { block.status = cancelled ? "cancelled" : block.status === "running" ? "failed" : "cancelled"; if (block.status === "failed") { block.error = run.error; block.failureReason = classifyWorkflowFailure(error); } }
-      await this.recordCompletedOperation(run, "terminal_outcome", `terminal:${run.status}`, undefined, { status: run.status, error: run.error, completedAt: run.completedAt }); await this.update(run);
-    } finally {
-      await Promise.allSettled([...running.values(), ...background]);
-      if (this.cancelled.has(run.id)) {
-        const completedAt = run.completedAt ?? new Date().toISOString(); run.status = "cancelled"; run.completedAt = completedAt; run.error = undefined;
-        for (const block of run.blocks) if (isActiveStatus(block.status)) { block.status = "cancelled"; block.completedAt = completedAt; block.error = undefined; }
-        await this.update(run);
-      }
-      this.meetingUpdates.cancel(run.id);
-      this.retryEntries.delete(run.id); this.flowInvocations.delete(run.id); this.cancelled.delete(run.id); this.activeRuns.delete(run.id); this.activeProviders.delete(run.id); this.executions.delete(run.id);
-    }
+  private async execute(
+    run: HarnessRun,
+    blocks: HarnessBlock[],
+    edges: HarnessEdge[],
+    order: string[],
+    dispatch: Dispatch,
+    defaultProvider: string,
+    append: Append,
+    recovering = false,
+    startBlockId?: string,
+  ): Promise<void> {
+    const runner = this;
+    return harnessExecute(
+      {
+        get concurrency() {
+          return runner.concurrency;
+        },
+        runActivityStatus: this.runActivityStatus.bind(this),
+        get executions() {
+          return runner.executions;
+        },
+        assertActive: this.assertActive.bind(this),
+        schedulingReady: this.schedulingReady.bind(this),
+        log: this.log.bind(this),
+        executeFlow: this.executeFlow.bind(this),
+        recordCompletedOperation: this.recordCompletedOperation.bind(this),
+        update: this.update.bind(this),
+        get suspended() {
+          return runner.suspended;
+        },
+        get cancelled() {
+          return runner.cancelled;
+        },
+        executeBlock: this.executeBlock.bind(this),
+        policy: this.policy.bind(this),
+        get meetingUpdates() {
+          return runner.meetingUpdates;
+        },
+        get retryEntries() {
+          return runner.retryEntries;
+        },
+        get flowInvocations() {
+          return runner.flowInvocations;
+        },
+        get activeRuns() {
+          return runner.activeRuns;
+        },
+        get activeProviders() {
+          return runner.activeProviders;
+        },
+      },
+      run,
+      blocks,
+      edges,
+      order,
+      dispatch,
+      defaultProvider,
+      append,
+      recovering,
+      startBlockId,
+    );
   }
 
   async flowTool(runId: string, blockId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
@@ -830,8 +1655,17 @@ export class HarnessRunner {
     const caller = execution.run.blocks.find((item) => item.blockId === blockId);
     const target = execution.blocks.find((item) => item.id === args.block_id);
     if (name !== "workflow_use_block" || !caller || !target) return this.executeFlowTool(runId, blockId, name, args);
-    const call = { id: crypto.randomUUID(), blockId: target.id, ...(typeof args.action === "string" ? { action: args.action } : target.type === "meeting" ? { action: "diff" } : {}), ...(typeof args.lines === "number" && Number.isInteger(args.lines) ? { lines: args.lines } : {}) };
-    caller.activeToolCalls = [...caller.activeToolCalls ?? [], call];
+    const call = {
+      id: crypto.randomUUID(),
+      blockId: target.id,
+      ...(typeof args.action === "string"
+        ? { action: args.action }
+        : target.type === "meeting"
+          ? { action: "diff" }
+          : {}),
+      ...(typeof args.lines === "number" && Number.isInteger(args.lines) ? { lines: args.lines } : {}),
+    };
+    caller.activeToolCalls = [...(caller.activeToolCalls ?? []), call];
     try {
       await this.update(execution.run);
       return await this.executeFlowTool(runId, blockId, name, args);
@@ -842,7 +1676,12 @@ export class HarnessRunner {
     }
   }
 
-  private async executeFlowTool(runId: string, blockId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
+  private async executeFlowTool(
+    runId: string,
+    blockId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
     // Polling and Meeting cursor updates are saved without growing the operation journal.
     const execution = this.activeExecution(runId);
     const caller = execution.run.blocks.find((item) => item.blockId === blockId);
@@ -854,15 +1693,34 @@ export class HarnessRunner {
       await this.update(execution.run);
       return result;
     };
-    const meetingRead = name === "workflow_use_block" && execution.blocks.some((block) => block.id === args.block_id && block.type === "meeting") && ["tail", "diff", "fetch", "wait", "status"].includes(String(args.action ?? "diff"));
-    if (meetingRead || (name === "workflow_use_block" && args.action === "fetch") || name === "workflow_connections" || name === "workflow_block_output" || name === "workflow_block_messages" || (name === "workflow_use_block" && ["status", "tail"].includes(String(args.action)) && ["ai", "chatbox"].includes(execution.blocks.find((item) => item.id === args.block_id)?.type ?? ""))) return project(await this.callFlowTool(runId, blockId, name, args));
+    const meetingRead =
+      name === "workflow_use_block" &&
+      execution.blocks.some((block) => block.id === args.block_id && block.type === "meeting") &&
+      ["tail", "diff", "fetch", "wait", "status"].includes(String(args.action ?? "diff"));
+    if (
+      meetingRead ||
+      (name === "workflow_use_block" && args.action === "fetch") ||
+      name === "workflow_connections" ||
+      name === "workflow_block_output" ||
+      name === "workflow_block_messages" ||
+      (name === "workflow_use_block" &&
+        ["status", "tail"].includes(String(args.action)) &&
+        ["ai", "chatbox"].includes(execution.blocks.find((item) => item.id === args.block_id)?.type ?? ""))
+    )
+      return project(await this.callFlowTool(runId, blockId, name, args));
     const { run } = this.activeExecution(runId);
-    const operation = await this.beginOperation(run, "tool_command", `flow-tool:${crypto.randomUUID()}`, blockId, { name, args });
+    const operation = await this.beginOperation(run, "tool_command", `flow-tool:${crypto.randomUUID()}`, blockId, {
+      name,
+      args,
+    });
     try {
       const result = await this.callFlowTool(runId, blockId, name, args);
       await this.finishOperation(run, operation, "succeeded", result);
       return await project(result);
-    } catch (error) { await this.finishOperation(run, operation, "failed", undefined, error); throw error; }
+    } catch (error) {
+      await this.finishOperation(run, operation, "failed", undefined, error);
+      throw error;
+    }
   }
 
   private callerContext(runId: string, blockId: string) {
@@ -877,7 +1735,13 @@ export class HarnessRunner {
     return context;
   }
 
-  private projectFlowResult(runId: string, blockId: string, name: string, args: Record<string, unknown>, value: unknown): unknown {
+  private projectFlowResult(
+    runId: string,
+    blockId: string,
+    name: string,
+    args: Record<string, unknown>,
+    value: unknown,
+  ): unknown {
     const target = this.activeExecution(runId).blocks.find((item) => item.id === args.block_id);
     if (target?.type === "meeting") return contextResult(value);
     // Fetch results are already limited to data this caller has not received.
@@ -887,614 +1751,353 @@ export class HarnessRunner {
     const hash = contextHash(value);
     const previous = context.reads.get(key);
     context.reads.set(key, hash);
-    if (previous === hash && !args.include_unchanged) return { blockId: args.block_id, ...(value && typeof value === "object" && "block_status" in value ? { block_status: value.block_status } : {}), unchanged: true };
+    if (previous === hash && !args.include_unchanged)
+      return {
+        blockId: args.block_id,
+        ...(value && typeof value === "object" && "block_status" in value ? { block_status: value.block_status } : {}),
+        unchanged: true,
+      };
     // Changed snapshots should not replay unchanged messages and activity.
     if (value && typeof value === "object" && "messages" in value) {
       const snapshot = value as Record<string, unknown>;
-      const delta = (items: unknown, kind: string) => Array.isArray(items) ? items.filter((item) => {
-        const hash = contextHash(item);
-        const id = item && typeof item === "object" && "id" in item ? String(item.id) : hash;
-        const itemKey = JSON.stringify([args.block_id, kind, id]);
-        const seen = context.reads.get(itemKey) === hash;
-        context.reads.set(itemKey, hash);
-        return args.include_unchanged || !seen;
-      }) : items;
-      value = { ...snapshot, messages: delta(snapshot.messages, "message"), activity: delta(snapshot.activity, "activity") };
+      const delta = (items: unknown, kind: string) =>
+        Array.isArray(items)
+          ? items.filter((item) => {
+              const hash = contextHash(item);
+              const id = item && typeof item === "object" && "id" in item ? String(item.id) : hash;
+              const itemKey = JSON.stringify([args.block_id, kind, id]);
+              const seen = context.reads.get(itemKey) === hash;
+              context.reads.set(itemKey, hash);
+              return args.include_unchanged || !seen;
+            })
+          : items;
+      value = {
+        ...snapshot,
+        messages: delta(snapshot.messages, "message"),
+        activity: delta(snapshot.activity, "activity"),
+      };
     }
     while (context.reads.size > 1024) context.reads.delete(context.reads.keys().next().value!);
     // Skill instructions must be delivered intact on their first load.
     return target?.type === "skill" ? value : contextResult(value);
   }
-
-  private async callFlowTool(runId: string, blockId: string, name: string, args: Record<string, unknown>): Promise<unknown> {
-    const execution = this.activeExecution(runId);
-    const state = execution.run.blocks.find((item) => item.blockId === blockId);
-    if (state?.status !== "running" || !["ai", "chatbox"].includes(execution.blocks.find((block) => block.id === blockId)?.type ?? "")) throw new Error("Only an active AI Agent or Chatbox can use flow tools");
-    const edges = execution.edges.filter((edge) => edge.from === blockId);
-    if (name === "workflow_connections") return edges.map((edge) => ({ blockId: edge.to, block_id: edge.to, name: execution.blocks.find((block) => block.id === edge.to)?.label, blockType: execution.blocks.find((block) => block.id === edge.to)?.type, description: workflowBlockDescription(execution.blocks.find((block) => block.id === edge.to)), seconds: execution.blocks.find((block) => block.id === edge.to)?.seconds, app: execution.blocks.find((block) => block.id === edge.to)?.app, task_controls: taskControlsMetadata(execution.blocks.find((block) => block.id === edge.to), execution.defaultProvider), timeout_seconds: (edge.timeoutMs ?? 300_000) / 1000, type: edge.type ?? "follow", path: edge.label }));
-    if (name === "workflow_choose_path") {
-      const edge = edges.find((edge) => edge.type === "path" && edge.label === args.path);
-      if (!edge) throw new Error("Choose a connected path by its label");
-      state.selectedRoute = edge.label; await this.update(execution.run); return { path: edge.label };
-    }
-    if (name !== "workflow_use_block" && name !== "workflow_block_output" && name !== "workflow_block_messages") throw new Error("Unknown flow tool");
-    const edge = edges.find((edge) => (edge.type === "use" || execution.blocks.find((block) => block.id === blockId)?.type === "chatbox") && edge.to === args.block_id);
-    if (name === "workflow_use_block" && args.action === "fetch" && edge) {
-      const fetchTarget = execution.blocks.find((block) => block.id === edge.to);
-      if (fetchTarget?.type === "meeting") args = { ...args, action: "diff" };
-      else if (fetchTarget) return this.fetchUnread(runId, blockId, fetchTarget, args);
-    }
-    const textInput = args.input ?? "";
-    if (!edge || typeof textInput !== "string" || textInput.length > 100_000) throw new Error("Use a connected block ID and a text input of at most 100000 characters");
-    const target = execution.blocks.find((block) => block.id === edge.to)!;
-    // Calls that answer immediately never reach the traced invocation below;
-    // pulse the connection both ways so every use of it is visible.
-    if (name !== "workflow_use_block" || target.type === "meeting" || (["ai", "chatbox"].includes(target.type) && ["status", "tail", "steer"].includes(String(args.action)))) {
-      await this.traceConnection(execution.run, edge, "forward", "succeeded", textInput.length);
-      await this.traceConnection(execution.run, edge, "return", "succeeded", (execution.run.blocks.find((item) => item.blockId === target.id)?.output ?? "").length);
-    }
-    if (name === "workflow_block_output") {
-      if (target.type === "skill") throw new Error("Load skills through workflow_use_block so current policy is checked");
-      const offset = args.offset ?? 0;
-      const limit = args.limit ?? 8000;
-      if (typeof offset !== "number" || !Number.isInteger(offset) || offset < 0 || typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 8000) throw new Error("Use a nonnegative offset and limit from 1 to 8000");
-      const output = execution.run.blocks.find((item) => item.blockId === target.id)?.output ?? "";
-      return { blockId: target.id, offset, totalChars: output.length, output: output.slice(offset, offset + limit), ...(offset + limit < output.length ? { nextOffset: offset + limit } : {}) };
-    }
-    if (name === "workflow_block_messages") {
-      if (!["ai", "chatbox"].includes(target.type)) throw new Error("Messages are only available for connected AI Agents and Chatboxes");
-      const count = args.count ?? 6;
-      if (typeof count !== "number" || !Number.isInteger(count) || count < 1 || count > 50) throw new Error("Use a message count from 1 to 50");
-      if (args.include_unchanged !== undefined && typeof args.include_unchanged !== "boolean") throw new Error("include_unchanged must be a boolean");
-      const result = this.flowBlockMessages(execution.run, target.id, count);
-      return result;
-    }
-    if (target.type === "meeting") {
-      if (["terminal_id", "name", "data", "command", "task_id", "branch", "status", "idempotency_key"].some((key) => args[key] !== undefined)) throw new Error("Meeting accepts action, message, input, lines and after");
-      if (args.action === "status" || args.action === "shake") {
-        if (["lines", "after"].some((key) => args[key] !== undefined)) throw new Error("Meeting status/shake does not accept lines or after");
-        const peers = execution.blocks.filter((peer) => execution.edges.some((connection) => connection.to === target.id && connection.from === peer.id && (connection.type === "use" || peer.type === "chatbox")));
-        if (args.action === "status") {
-          if (["peer_block_id", "message", "input"].some((key) => args[key] !== undefined)) throw new Error("Meeting status accepts only the room block_id and action");
-          return { blockId: target.id, meeting: { peers: peers.map((peer) => {
-            const live = execution.run.blocks.find((item) => item.blockId === peer.id)!;
-            const starting = this.agentStarts.has(`${runId}:${peer.id}`);
-            return { blockId: peer.id, name: peer.label, type: peer.type, self: peer.id === blockId, online: live.status === "running" || starting, block_status: live.status, hasSession: !!live.sessionId, provider: live.provider ?? peer.provider ?? execution.defaultProvider, ...(live.error ? { error: live.error } : {}) };
-          }) } };
-        }
-        const peer = peers.find((item) => item.id === args.peer_block_id);
-        if (!peer || peer.id === blockId || !["ai", "chatbox"].includes(peer.type)) throw new Error("Shake requires peer_block_id of another AI Agent or Chatbox connected to this Meeting");
-        const message = args.message ?? args.input ?? "Please check the Meeting room and respond.";
-        if (typeof message !== "string" || !message.trim() || message.length > 10000) throw new Error("Meeting shake message must contain 1 to 10000 characters");
-        const caller = execution.blocks.find((item) => item.id === blockId)!;
-        const input = `Shake from ${caller.label} in Meeting "${target.label}" (${target.id}):\n${message}`;
-        const child = execution.run.blocks.find((item) => item.blockId === peer.id)!;
-        const key = `${runId}:${peer.id}`;
-        if (["running", "waiting_timer"].includes(child.status) || execution.flowBusy?.has(peer.id) || this.agentStarts.has(key)) {
-          if (!child.workspace || !child.provider || !this.steerAgent) throw new Error("Peer is starting or cannot receive live messages; check status and retry once ready");
-          await execution.scheduler.control(peer.id, async () => {
-            this.assertActive(runId);
-            if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Peer turn ended; check status and shake again");
-            this.chargeContext(execution.run, child, input.length);
-            if (peer.type === "chatbox") this.appendChatSteering(child, input);
-            this.log(child, "prompt", input);
-            await this.update(execution.run);
-            await this.steerAgent!(child.provider!, child.workspace!, input);
-            this.assertActive(runId);
-          });
-          return { blockId: target.id, meeting: { shake: { blockId: peer.id, delivery: "steered" } } };
-        }
-        const invoke = this.flowInvocations.get(runId);
-        if (!invoke) throw new Error("Flow is unavailable");
-        this.agentStarts.add(key);
-        const result = invoke(peer.id, input, [blockId]);
-        const pending = result.then(() => {}, () => {}).finally(() => { execution.background.delete(pending); this.agentStarts.delete(key); });
-        execution.background.add(pending);
-        return { blockId: target.id, meeting: { shake: { blockId: peer.id, delivery: "started" } } };
-      }
-      if (args.peer_block_id !== undefined) throw new Error("peer_block_id is only available for Meeting shake");
-      // The transcript mutation is synchronous; save through the run update queue.
-      // It needs no execution permit, even when several callers publish at once.
-      this.assertActive(runId);
-      const meetingState = execution.run.blocks.find((item) => item.blockId === target.id)!;
-      const callerBlock = execution.blocks.find((item) => item.id === blockId)!;
-      const participant = { ...callerBlock, ...state.chatSettings, provider: state.provider ?? callerBlock.provider ?? execution.defaultProvider };
-      if (args.action === "wait") {
-        const timeoutMs = args.timeout_seconds === undefined ? edge.timeoutMs ?? 300000 : typeof args.timeout_seconds === "number" ? Math.round(args.timeout_seconds * 1000) : NaN;
-        if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86400000) throw new Error("Use timeout_seconds greater than zero and at most 86400");
-        const initial = useMeeting(meetingState, participant, { ...args, action: "diff" });
-        if (initial.messages?.length) {
-          await this.update(execution.run);
-          return { blockId: target.id, meeting: { ...initial, status: "updated" } };
-        }
-        const duration = execution.run.definition?.settings?.maxRunDurationMs;
-        const remaining = duration === undefined ? timeoutMs : Math.max(1, duration - (Date.now() - Date.parse(execution.run.startedAt!)));
-        // Subscribe before yielding, and release this agent's execution permit so
-        // another participant can publish even at workflow concurrency one.
-        const waiting = this.meetingUpdates.wait(runId, target.id, Math.min(timeoutMs, remaining));
-        return execution.scheduler.suspend(blockId, async () => {
-          const status = await waiting;
-          this.assertActive(runId);
-          const result = useMeeting(meetingState, participant, { ...args, action: "diff", after: initial.cursor });
-          await this.update(execution.run);
-          return { blockId: target.id, meeting: { ...result, status: result.messages?.length ? "updated" : status } };
-        });
-      }
-      const result = useMeeting(meetingState, participant, args);
-      meetingState.status = "succeeded";
-      meetingState.output = meetingState.meeting!.messages.map((message) => `[${message.sequence}] ${message.author}: ${message.text}`).join("\n\n").slice(-200000);
-      execution.outputs.set(target.id, meetingState.output);
-      await this.update(execution.run);
-      if (args.action === "publish") this.meetingUpdates.publish(runId, target.id);
-      return { blockId: target.id, meeting: result };
-    }
-    if (args.peer_block_id !== undefined) throw new Error("peer_block_id is only available for Meeting shake");
-    if (args.after !== undefined) throw new Error("after is only available for Meeting blocks");
-    if (target.type !== "task_controls" && ["task_id", "branch", "status", "message", "idempotency_key"].some((key) => args[key] !== undefined)) throw new Error("Task arguments are only available for Task controls blocks");
-    if (target.type !== "terminal_control" && ["terminal_id", "name", "data", "command"].some((key) => args[key] !== undefined)) throw new Error("Terminal arguments are only available for Terminal Control blocks");
-    const agentTarget = ["ai", "chatbox"].includes(target.type);
-    if (agentTarget && args.lines !== undefined && args.action !== "tail") throw new Error("AI lines are only available with action 'tail'");
-    if (agentTarget && args.action !== undefined) {
-      if (!["start", "status", "tail", "steer"].includes(String(args.action))) throw new Error("AI action must be start, status, tail, or steer");
-      if (args.lines !== undefined && (args.action !== "tail" || typeof args.lines !== "number" || !Number.isInteger(args.lines) || args.lines < 1 || args.lines > 50)) throw new Error("Use lines from 1 to 50 with AI action 'tail'");
-      if (args.action === "status" || args.action === "tail") return this.flowBlockMessages(execution.run, target.id, args.action === "status" ? 0 : (args.lines as number | undefined) ?? 6);
-      if (args.action === "steer") {
-        const child = execution.run.blocks.find((item) => item.blockId === target.id)!;
-        if (!textInput.trim() || !["running", "waiting_timer"].includes(child.status) || !child.workspace || !child.provider || !this.steerAgent) throw new Error("Steering requires a running connected AI session and nonempty input");
-        const steeringInput = contextPreview(textInput, WORKFLOW_CONTEXT_CHARS);
-        await execution.scheduler.control(target.id, async () => {
-          this.assertActive(runId);
-          if (!["running", "waiting_timer"].includes(child.status)) throw new Error("Connected AI session is no longer running");
-          this.chargeContext(execution.run, child, steeringInput.length);
-          if (target.type === "chatbox") {
-            this.appendChatSteering(child, steeringInput);
-          }
-          this.log(child, "prompt", `Agent steering: ${steeringInput}`);
-          await this.update(execution.run);
-          await this.steerAgent!(child.provider!, child.workspace!, steeringInput);
-          this.assertActive(runId);
-        });
-        return this.flowBlockMessages(execution.run, target.id, 6);
-      }
-      if (execution.flowBusy?.has(target.id) || this.agentStarts.has(`${runId}:${target.id}`)) throw new Error("Connected AI block is already running; use status, tail, or steer");
-    }
-    const timeoutMs = args.timeout_seconds === undefined ? edge.timeoutMs ?? 300_000 : typeof args.timeout_seconds === "number" ? Math.round(args.timeout_seconds * 1000) : NaN;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 86_400_000) throw new Error("Use timeout_seconds greater than zero and at most 86400");
-    if (target.type === "run_app") {
-      const allowed = target.app?.actions ?? (target.app?.action ? [target.app.action] : []);
-      if (args.action !== undefined && !allowed.includes(args.action as typeof allowed[number])) throw new Error(`App '${target.label}' does not allow '${String(args.action)}'. Allowed actions for workflow v${execution.run.harnessVersion}: ${allowed.join(", ") || "none"}. If you changed the design, save it and start a new conversation to apply the new allowed actions.`);
-      if (args.lines !== undefined && (args.action !== "tail" || !Number.isInteger(args.lines) || typeof args.lines !== "number" || args.lines < 1 || args.lines > 10000)) throw new Error("Use lines from 1 to 10000 with action 'tail'");
-    } else if (target.type === "terminal_control") {
-      if (args.action !== undefined && !["list", "open", "open_and_run", "run_and_wait", "read", "write"].includes(String(args.action))) throw new Error("Terminal Control action must be list, open, open_and_run, run_and_wait, read, or write");
-    } else if (target.type === "task_controls") {
-      if (args.lines !== undefined) throw new Error("Lines are only available for Run App blocks");
-    } else if (!agentTarget && (args.action !== undefined || args.lines !== undefined)) throw new Error("Action is only available for Run App, Terminal Control and Task controls blocks; lines are only available for Run App and Terminal Control blocks");
-    const invoke = this.flowInvocations.get(runId);
-    if (!invoke) throw new Error("Flow is unavailable");
-    const call = () => execution.scheduler.suspend(blockId, async () => {
-      const transfer = await this.traceConnection(execution.run, edge, "forward", "active", textInput.length);
-      try {
-        const appTarget = execution.blocks.find((block) => block.id === edge.to);
-        const input = appTarget?.type === "terminal_control" && args.action !== undefined ? JSON.stringify({ action: args.action, terminal_id: args.terminal_id, name: args.name, command: args.command ?? (args.action === "open_and_run" || args.action === "run_and_wait" ? textInput : undefined), data: args.data ?? textInput, lines: args.lines, ...(args.action === "run_and_wait" ? { timeout_ms: Math.max(1, timeoutMs - 500) } : {}) }) : appTarget?.type === "task_controls" && (args.action !== undefined || ["task_id", "branch", "status", "message", "idempotency_key"].some((key) => args[key] !== undefined)) ? JSON.stringify({ action: args.action, prompt: textInput, task_id: args.task_id, branch: args.branch, status: args.status, message: args.message === undefined ? textInput : args.message, idempotency_key: args.idempotency_key }) : appTarget?.type === "run_app" && args.action !== undefined ? JSON.stringify({ action: args.action, input: textInput, ...(args.lines !== undefined ? { lines: args.lines } : {}) }) : textInput;
-        const output = await invoke(edge.to, input, [blockId]);
-        transfer.status = "succeeded"; transfer.completedAt = new Date().toISOString();
-        await this.traceConnection(execution.run, edge, "return", "succeeded", output.length);
-        const target = execution.blocks.find((block) => block.id === edge.to);
-        const timer = execution.run.blocks.find((block) => block.blockId === edge.to);
-        const app = target?.type === "run_app" ? JSON.parse(output) : undefined;
-        // Structured results already contain the output; do not send a second,
-        // escaped copy into the calling agent's conversation.
-        return { blockId: edge.to, ...(app ? { app } : target?.type === "terminal_control" ? { terminal: JSON.parse(output) } : target?.type === "task_controls" ? { task_controls: JSON.parse(output) } : target?.type === "skill" && target.skillId ? { skill: JSON.parse(output) } : { output }), ...(target?.type === "timer" ? { status: "waiting", due_at: timer?.waitingUntil } : {}) };
-      } catch (error) { transfer.status = "failed"; transfer.completedAt = new Date().toISOString(); await this.update(execution.run); throw error; }
-    });
-    const waitForResult = async (result: Promise<unknown>) => {
-      // Keep the real invocation alive after the caller's wait expires. The parent
-      // can inspect progress without sending a duplicate prompt to the child.
-      const pending = result.then(() => {}, () => {}).finally(() => execution.background.delete(pending));
-      execution.background.add(pending);
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      try {
-        // A human reply is not bounded by an execution timeout. Returning a
-        // timeout here strands the answer after the calling Chatbox moves on.
-        if (["user_prompt", "yes_no_prompt"].includes(target.type)) return await result;
-        return await Promise.race([result, new Promise<unknown>((resolve) => {
-          timer = setTimeout(() => resolve({ ...this.flowBlockMessages(execution.run, target.id, 6), status: "timed_out", timeout_seconds: timeoutMs / 1000, message: "The block is still running. Call workflow_block_messages to check progress without sending another prompt." }), timeoutMs);
-        })]);
-      } finally { if (timer) clearTimeout(timer); }
-    };
-    if (agentTarget && args.action === "start") {
-      const key = `${runId}:${target.id}`;
-      const result = call();
-      this.agentStarts.add(key);
-      const pending = result.then(() => {}, () => {}).finally(() => {
-        execution.background.delete(pending);
-        this.agentStarts.delete(key);
-      });
-      execution.background.add(pending);
-      return { blockId: target.id, status: "started" };
-    }
-    if (target.type !== "run_app") return waitForResult(call());
-    const key = `${runId}:${target.id}`;
-    const pending = this.appToolCalls.get(key) ?? Promise.resolve();
-    const result = pending.then(call, call);
-    this.appToolCalls.set(key, result);
-    const cleanup = () => { if (this.appToolCalls.get(key) === result) this.appToolCalls.delete(key); };
-    void result.then(cleanup, cleanup);
-    return waitForResult(result);
+  private async callFlowTool(
+    runId: string,
+    blockId: string,
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    const runner = this;
+    return harnessCallFlowTool(
+      {
+        activeExecution: this.activeExecution.bind(this),
+        update: this.update.bind(this),
+        fetchUnread: this.fetchUnread.bind(this),
+        traceConnection: this.traceConnection.bind(this),
+        flowBlockMessages: this.flowBlockMessages.bind(this),
+        get agentStarts() {
+          return runner.agentStarts;
+        },
+        get steerAgent() {
+          return runner.steerAgent;
+        },
+        assertActive: this.assertActive.bind(this),
+        chargeContext: this.chargeContext.bind(this),
+        appendChatSteering: this.appendChatSteering.bind(this),
+        log: this.log.bind(this),
+        get flowInvocations() {
+          return runner.flowInvocations;
+        },
+        get meetingUpdates() {
+          return runner.meetingUpdates;
+        },
+        get appToolCalls() {
+          return runner.appToolCalls;
+        },
+      },
+      runId,
+      blockId,
+      name,
+      args,
+    );
   }
-
-  /** Fetch returns only data this caller has not yet received; it never starts or changes a block. */
-  private async fetchUnread(runId: string, blockId: string, target: HarnessBlock, args: Record<string, unknown>): Promise<unknown> {
-    const execution = this.activeExecution(runId);
-    if (args.lines !== undefined || args.after !== undefined || args.input !== undefined && args.input !== "") throw new Error("fetch accepts only block_id and, for Terminal Control, terminal_id; it returns data not yet fetched");
-    const context = this.callerContext(runId, blockId);
-    const cursors = context.fetched;
-    const unfetchedText = (key: string, text: string) => {
-      const part = takeUnfetchedText(cursors, `${target.id}:${key}`, text);
-      return { output: part.text, ...(part.hasMore ? { hasMore: true } : {}), ...(part.gap ? { gap: true } : {}), ...(!part.text ? { unchanged: true } : {}) };
-    };
-    const forward = (action: string, extra: Record<string, unknown> = {}) => this.callFlowTool(runId, blockId, "workflow_use_block", { ...args, action, ...extra });
-    if (["ai", "chatbox"].includes(target.type)) {
-      this.assertActive(runId);
-      const edge = execution.edges.find((item) => item.from === blockId && item.to === target.id && (item.type === "use" || execution.blocks.find((block) => block.id === blockId)?.type === "chatbox"));
-      if (!edge) throw new Error("Use a connected block ID");
-      await this.traceConnection(execution.run, edge, "forward", "succeeded", 0);
-      const state = execution.run.blocks.find((block) => block.blockId === target.id)!;
-      const messages = state.chatMessages ?? (state.output ? [{ id: "output", role: "assistant", text: state.output, timestamp: state.completedAt ?? state.startedAt ?? "" }] : []);
-      let size = 0;
-      let hasMore = false;
-      const fresh: { id: string; hash: string; item: Record<string, unknown> }[] = [];
-      const take = (kind: string, items: readonly { id: string; text: string }[]) => {
-        for (const item of items) {
-          const hash = contextHash(item);
-          if (cursors.get(`${target.id}:${kind}:${item.id}`) === hash) continue;
-          const shown = kind === "message" ? { ...item, text: item.text.slice(-8000), ...(item.text.length > 8000 ? { truncated: true } : {}) } : item;
-          const length = JSON.stringify(shown).length;
-          if (size + length > 16000 && size > 0) { hasMore = true; return false; }
-          size += length;
-          fresh.push({ id: `${kind}:${item.id}`, hash, item: shown });
-        }
-        return true;
-      };
-      take("message", messages) && take("activity", state.agentActivity ?? []);
-      for (const entry of fresh) rememberFetch(cursors, `${target.id}:${entry.id}`, entry.hash);
-      const result = { blockId: target.id, block_status: state.status, messages: fresh.filter((entry) => entry.id.startsWith("message:")).map((entry) => entry.item), activity: fresh.filter((entry) => entry.id.startsWith("activity:")).map((entry) => entry.item), ...(hasMore ? { hasMore: true } : {}), ...(state.error ? { error: state.error } : {}) };
-      await this.traceConnection(execution.run, edge, "return", "succeeded", JSON.stringify(result).length);
-      return result;
-    }
-    if (target.type === "run_app") {
-      const result = await forward("tail", { lines: 10_000 }) as { blockId: string; app: { output?: string } & Record<string, unknown> };
-      return { ...result, app: { ...result.app, ...unfetchedText("app", result.app.output ?? "") } };
-    }
-    if (target.type === "terminal_control") {
-      if (typeof args.terminal_id !== "string") throw new Error("terminal_id is required to fetch Terminal Control output; use action list to find it");
-      const result = await forward("read", { lines: 10_000 }) as { blockId: string; terminal: { output?: string } & Record<string, unknown> };
-      return { ...result, terminal: { ...result.terminal, ...unfetchedText(`terminal:${args.terminal_id}`, result.terminal.output ?? ""), truncated: undefined } };
-    }
-    if (target.type === "task_controls") {
-      const result = await forward("status") as { blockId: string; task_controls: unknown };
-      const hash = contextHash(result.task_controls);
-      const key = `${target.id}:task_controls:${typeof args.task_id === "string" ? args.task_id : ""}`;
-      if (cursors.get(key) === hash) return { blockId: target.id, unchanged: true };
-      rememberFetch(cursors, key, hash);
-      return result;
-    }
-    if (target.type === "skill") throw new Error("Load skills through workflow_use_block so current policy is checked");
-    this.assertActive(runId);
-    const edge = execution.edges.find((item) => item.from === blockId && item.to === target.id && (item.type === "use" || execution.blocks.find((block) => block.id === blockId)?.type === "chatbox"));
-    if (!edge) throw new Error("Use a connected block ID");
-    const output = execution.run.blocks.find((item) => item.blockId === target.id)?.output ?? "";
-    await this.traceConnection(execution.run, edge, "forward", "succeeded", 0);
-    await this.traceConnection(execution.run, edge, "return", "succeeded", output.length);
-    return { blockId: target.id, ...unfetchedText("output", output) };
+  private async fetchUnread(
+    runId: string,
+    blockId: string,
+    target: HarnessBlock,
+    args: Record<string, unknown>,
+  ): Promise<unknown> {
+    const runner = this;
+    return harnessFetchUnread(
+      {
+        activeExecution: this.activeExecution.bind(this),
+        callerContext: this.callerContext.bind(this),
+        callFlowTool: this.callFlowTool.bind(this),
+        assertActive: this.assertActive.bind(this),
+        traceConnection: this.traceConnection.bind(this),
+      },
+      runId,
+      blockId,
+      target,
+      args,
+    );
   }
 
   private flowBlockMessages(run: HarnessRun, blockId: string, count: number): Record<string, unknown> {
     const state = run.blocks.find((block) => block.blockId === blockId)!;
     const messages = state.chatMessages ?? (state.output ? [{ role: "assistant", text: state.output }] : []);
     return {
-      blockId, block_status: state.status,
+      blockId,
+      block_status: state.status,
       // The latest output is already represented by these messages. Polling
       // must not also repeat the entire (potentially much larger) output.
-      messages: (count ? messages.slice(-count) : []).map((message) => ({ ...message, text: message.text.slice(-8000), ...(message.text.length > 8000 ? { truncated: true } : {}) })),
+      messages: (count ? messages.slice(-count) : []).map((message) => ({
+        ...message,
+        text: message.text.slice(-8000),
+        ...(message.text.length > 8000 ? { truncated: true } : {}),
+      })),
       activity: count ? (state.agentActivity ?? []).slice(-count) : [],
-      ...(state.error ? { error: state.error } : {})
+      ...(state.error ? { error: state.error } : {}),
     };
   }
 
-  private async traceConnection(run: HarnessRun, edge: HarnessEdge, direction: HarnessConnectionTrace["direction"], status: HarnessConnectionTrace["status"], chars?: number): Promise<HarnessConnectionTrace> {
+  private async traceConnection(
+    run: HarnessRun,
+    edge: HarnessEdge,
+    direction: HarnessConnectionTrace["direction"],
+    status: HarnessConnectionTrace["status"],
+    chars?: number,
+  ): Promise<HarnessConnectionTrace> {
     this.assertActive(run.id);
     const now = new Date().toISOString();
-    const trace: HarnessConnectionTrace = { id: crypto.randomUUID(), edgeId: edge.id, direction, status, startedAt: now, ...(chars !== undefined ? { chars } : {}), ...(status !== "active" ? { completedAt: now } : {}) };
-    run.connectionTraces = [...(run.connectionTraces ?? []), trace].filter((trace, index, traces) => trace.status === "active" || index >= traces.length - 128);
-    await this.update(run); return trace;
-  }
-
-  private async executeFlow(execution: ActiveExecution, startBlockId?: string): Promise<void> {
-    const { run, blocks, edges } = execution;
-    const busy = new Set<string>(); execution.flowBusy = busy;
-    const finishing = new Map<string, Promise<void>>(); execution.flowFinishing = finishing;
-    // Unselected Chatboxes are available for independent user turns. They are
-    // not scheduled by this explicitly selected flow entry point.
-    if (startBlockId) for (const state of run.blocks) {
-      if (state.blockId !== startBlockId && state.status === "queued" && blocks.find((block) => block.id === state.blockId)?.type === "chatbox") state.status = "skipped";
-    }
-    const timers = new Map<string, string>();
-    let steps = 0;
-    const invoke = async (id: string, input: string, ancestors: string[] = []): Promise<string> => {
-      await this.schedulingReady(run.id);
-      const prior = run.blocks.find(state => state.blockId === id);
-      if (this.retryEntries.has(run.id) && prior?.status === "succeeded") return prior.output ?? "";
-      this.assertActive(run.id);
-      if (busy.has(id)) throw new Error("This block is already active; recursive tool calls are not allowed");
-      if (++steps > 1000) throw new Error("Flow exceeded 1000 block executions");
-      const originalBlock = blocks.find((item) => item.id === id)!;
-      const state = run.blocks.find((item) => item.blockId === id)!;
-      const settings = state.chatSettings;
-      const block = settings ? { ...originalBlock, ...settings, model: settings.model, ...(settings.options ? { options: { ...originalBlock.options, ...settings.options } } : {}) } : originalBlock;
-      if (settings && ((settings.provider ?? originalBlock.provider ?? execution.defaultProvider) !== (originalBlock.provider ?? execution.defaultProvider) || settings.model !== originalBlock.model)) block.reasoning = undefined;
-      let published!: () => void;
-      finishing.set(id, new Promise<void>((resolve) => { published = resolve; }));
-      busy.add(id); state.error = undefined; state.status = "running"; state.startedAt = new Date().toISOString(); state.completedAt = undefined; state.selectedRoute = undefined;
-      if (block.type === "chatbox") {
-        const timestamp = new Date().toISOString();
-        state.agentActivity = [];
-        this.chatTurnUsers.delete(state);
-        this.latestChatResponse.delete(state); this.chatResponsePrefix.delete(state);
-        state.chatMessages = [...state.chatMessages ?? [], { id: crypto.randomUUID(), role: "user", text: input, timestamp }, { id: crypto.randomUUID(), role: "assistant", text: "", timestamp }].slice(-200) as NonNullable<typeof state.chatMessages>;
-      }
-      run.status = this.runActivityStatus(run); await this.update(run);
-      let output = input;
-      try {
-        const prompt = block.type === "skill" && block.skillId ? "" : renderHarnessPrompt(block.prompt, input, execution.outputs);
-        if (!["ai", "chatbox"].includes(block.type)) { state.prompt = prompt; state.structuredInput = parseHarnessData(input, block.inputSchema, `${block.label} input`); this.log(state, "prompt", input); }
-        if (["ai", "chatbox"].includes(block.type) || ["prompt", "task", "review", "verification"].includes(block.type)) {
-          const tools = edges.filter((edge) => edge.from === id && (edge.type === "use" || block.type === "chatbox")).map((edge) => ({ block_id: edge.to, name: blocks.find((item) => item.id === edge.to)?.label, type: blocks.find((item) => item.id === edge.to)?.type, description: workflowBlockDescription(blocks.find((item) => item.id === edge.to)), seconds: blocks.find((item) => item.id === edge.to)?.seconds, app: blocks.find((item) => item.id === edge.to)?.app, task_controls: taskControlsMetadata(blocks.find((item) => item.id === edge.to), execution.defaultProvider), timeout_seconds: (edge.timeoutMs ?? 300_000) / 1000 }));
-          const paths = block.type === "chatbox" ? [] : edges.filter((edge) => edge.from === id && edge.type === "path").map((edge) => edge.label);
-          const inputTemplate = /\{\{\s*input\s*\}\}/.test(block.prompt) ? block.prompt : `${block.prompt}\n\nInput:\n{{input}}`;
-          const instructions = `Workflow context transfers are bounded and unchanged results may be omitted. Keep delegation requests and reports concise; send new facts rather than forwarding earlier reports. Use workflow_block_output with block_id, offset, and limit (at most 8000) to inspect retained output in pages when a preview is truncated. Connected tools: ${JSON.stringify(tools)}. For connected AI Agents and Chatboxes, action start launches input in the background immediately, status checks state, tail reads recent messages (lines 1–50), and steer sends input to the running session without waiting for completion. To read only what you have not yet seen from any connected data block, call workflow_use_block with action "fetch" (Terminal Control also needs terminal_id); repeat while hasMore is true. Start different connected blocks independently; do not start an already running block. Call workflow_use_block with block_id and input to use one; timeout_seconds optionally overrides its connection timeout. On a timed_out result the child keeps working. Read the returned messages and activity, then call workflow_block_messages with block_id and optional count (default 6, maximum 50) to check progress without starting another turn. For Run App blocks, pass action (start, status, kill, or tail) from the configured allowed actions. Status and tail do not need input; tail optionally accepts lines (1–10000). Read the structured app result: app.status is process status and app.output is log text for tail. For example: workflow_use_block({"block_id":"APP_BLOCK_ID","action":"status"}) or workflow_use_block({"block_id":"APP_BLOCK_ID","action":"tail","lines":100}). Terminal Control blocks are only for long-running apps and services. Do not spawn agents in terminals. List terminals first and reuse an existing terminal whenever possible; avoid spawning new terminals unnecessarily. They list, open, open_and_run, run_and_wait, read, and write terminals in the bound task workspace. Pass action, terminal_id for read/write, name for open/open_and_run, command for open_and_run (or input; a newline is appended automatically), data for write (raw text; include a newline to execute a command), and optional lines for read. open_and_run starts a named terminal and runs the command in one call, returning immediately with its terminalId. run_and_wait (name and command, or input; or terminal_id to reuse a terminal) runs the command and waits for it to finish, returning status, exitCode and output in terminal; on timed_out the command keeps running. Read structured results in terminal. Task controls blocks manage task worktrees using their designed provider/model/reasoning. Call workflow_use_block with action create (branch required), create_and_start (input is the prompt; branch optional), status (task_id optional), prompt (task_id and input required), set_status (task_id and status active or finished required), set_commit_message (task_id and message or input; sets the commit-message draft), or update_commit_message (task_id and message or input; rewrites the latest unpushed commit message without changing contents). Pass idempotency_key for create and prompt operations and reuse it only when retrying the same operation. Read structured results in task_controls. Skill blocks provide reusable instructions. Choose skills by their descriptions; call workflow_use_block with the skill block_id to load its instructions before applying them in your own session. For linked skills, read the returned skill.content and resolve supporting files relative to skill.baseDirectory. Reuse loaded instructions for this workflow run. User Prompt and Yes/No Prompt blocks wait for a human answer in the workflow UI and return that answer to you. Their wait does not expire with the connection timeout. Timer blocks arm immediately and return without waiting, so you can continue your work. When a Timer fires, its follow connections receive the input you supplied to it. Reusing a waiting Timer replaces its countdown. Each AI block keeps its own context. Available paths: ${JSON.stringify(paths)}. ${paths.length ? "Call workflow_choose_path before finishing to choose one path." : ""}`;
-          const reuseSession = Boolean(state.workspace && state.sessionId && block.type !== "review");
-          // A Chatbox's configured prompt is durable session guidance, including
-          // templates. User turns must never reinsert that guidance as a message.
-          const chatbox = block.type === "chatbox";
-          const outputReferences = [...new Set([...block.prompt.matchAll(/\{\{\s*blocks\.([A-Za-z0-9_-]+)\.output\s*\}\}/g)].map((match) => match[1]!))];
-          const chatTurn = outputReferences.length
-            ? `{{input}}\n\nWorkflow context updates:\n${outputReferences.map((id) => `${id}: {{blocks.${id}.output}}`).join("\n")}`
-            : "{{input}}";
-          const continuedPrompt = chatbox ? chatTurn : !/\{\{/.test(block.prompt) ? "{{input}}" : inputTemplate;
-          const sessionInstructions = chatbox && !reuseSession ? block.prompt : undefined;
-          await this.executeBlock(run, { ...block, prompt: reuseSession ? continuedPrompt : chatbox ? "{{input}}" : inputTemplate }, blocks, [], execution.outputs, execution.dispatch, execution.defaultProvider, [input], reuseSession ? undefined : instructions, sessionInstructions);
-          output = state.output ?? "";
-          if (block.type !== "chatbox" && paths.length && !state.selectedRoute) throw new Error(`${block.label} finished without choosing a path`);
-        } else if (block.type === "text" || block.type === "start_button") output = prompt;
-        else if (block.type === "skill") {
-          if (block.skillId) {
-            const caller = blocks.find((item) => item.id === ancestors.at(-1));
-            const loaded = await execution.dispatch(block, "", { runId: run.id, blockId: id, attemptId: crypto.randomUUID(), iteration: 1, skillAgent: caller?.agent ?? null, started: async () => {}, activity: async () => {}, assertActive: () => this.assertActive(run.id) });
-            output = loaded.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "";
-          } else output = prompt;
-        }
-        else if (block.type === "meeting") output = JSON.stringify(useMeeting(state, block, { action: "tail" }));
-        else if (block.type === "markdown") output = block.prompt.trim() ? prompt : input;
-        else if (block.type === "user_prompt" || block.type === "yes_no_prompt") {
-          state.status = "awaiting_user_input"; state.question = prompt || input; state.pauseId = crypto.randomUUID(); state.sessionId = `flow:${id}`;
-          const key = `${run.id}:${id}:${state.pauseId}`;
-          try {
-            const answer = new Promise<string>((resolve) => this.flowAnswers.set(key, resolve));
-            run.status = this.runActivityStatus(run); await this.update(run);
-            output = await Promise.race([answer, (async () => { while (this.isActive(run.id) && this.flowAnswers.has(key)) await new Promise((resolve) => setTimeout(resolve, 100)); this.assertActive(run.id); return ""; })()]);
-          } finally { this.flowAnswers.delete(key); }
-          state.question = undefined; state.pauseId = undefined;
-        } else if (block.type === "timer") {
-          state.status = "waiting_timer"; state.pauseId = crypto.randomUUID(); state.waitingUntil = new Date(Date.now() + block.seconds! * 1000).toISOString(); run.status = this.runActivityStatus(run); await this.update(run);
-          timers.set(id, input);
-          this.log(state, "lifecycle", `Timer armed for ${state.waitingUntil}`);
-          return `Timer armed for ${state.waitingUntil}`;
-        } else if (block.type === "script" || block.type === "run_app" || block.type === "terminal_control" || block.type === "task_controls") {
-          const session = await execution.dispatch(block, input, { runId: run.id, blockId: id, attemptId: crypto.randomUUID(), iteration: 1, started: async () => {}, activity: async () => {}, assertActive: () => this.assertActive(run.id) });
-          state.tokens = session.tokens; this.assertTokenBudget(run);
-          output = session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "";
-        }
-        if (!["ai", "chatbox"].includes(block.type)) state.structuredOutput = parseHarnessData(output, block.outputSchema, `${block.label} output`);
-        this.assertActive(run.id); this.log(state, "response", output); state.output = output.slice(-200_000); execution.outputs.set(id, output); state.status = "succeeded"; state.completedAt = new Date().toISOString(); run.status = this.runActivityStatus(run);
-        await this.update(run);
-      } catch (error) {
-        state.status = this.isActive(run.id) ? "failed" : "cancelled"; state.error = error instanceof Error ? error.message : String(error); state.completedAt = new Date().toISOString(); this.log(state, "error", state.error); if (this.isActive(run.id)) run.status = this.runActivityStatus(run); await this.update(run); throw error;
-      } finally { finishing.delete(id); busy.delete(id); published(); }
-      if (block.type === "markdown") this.openDocument?.({ runId: run.id, blockId: id, title: block.label.endsWith(".md") ? block.label : `${block.label}.md`, content: output });
-      // Every outgoing connection starts at once; a block connected to several followers does not run them one after another.
-      const followers: Promise<unknown>[] = [];
-      for (const edge of edges.filter((edge) => block.type !== "chatbox" && edge.from === id && (edge.type === "follow" || !edge.type || (edge.type === "path" && edge.label === state.selectedRoute)))) {
-        // A question used as a tool returns its answer to the waiting caller.
-        // A drawn return connection must not start a second turn in that active session.
-        if ((block.type === "user_prompt" || block.type === "yes_no_prompt") && edge.to === ancestors.at(-1) && busy.has(edge.to)) {
-          await this.traceConnection(run, edge, "forward", "succeeded", output.length);
-          continue;
-        }
-        if (ancestors.includes(edge.to) || edge.to === id) {
-          const count = (execution.loopInvocations.get(edge.id) ?? 0) + 1;
-          const limit = run.definition?.settings?.maxLoopCount ?? 100;
-          if (count > limit) throw new CoreError("INVALID_REQUEST", `Workflow loop '${edge.label ?? edge.id}' reached its limit of ${limit} iterations`);
-          execution.loopInvocations.set(edge.id, count);
-        }
-        followers.push((async () => { await this.traceConnection(run, edge, "forward", "succeeded", output.length); await invoke(edge.to, output, [...ancestors, id]); })());
-      }
-      const settled = await Promise.allSettled(followers);
-      const failed = settled.find((item): item is PromiseRejectedResult => item.status === "rejected");
-      if (failed) throw failed.reason;
-      return output;
+    const trace: HarnessConnectionTrace = {
+      id: crypto.randomUUID(),
+      edgeId: edge.id,
+      direction,
+      status,
+      startedAt: now,
+      ...(chars !== undefined ? { chars } : {}),
+      ...(status !== "active" ? { completedAt: now } : {}),
     };
-    this.flowInvocations.set(run.id, invoke);
-    const roots = this.retryEntries.get(run.id) ?? (startBlockId ? [startBlockId] : blocks.filter((block) => !edges.some((edge) => edge.to === block.id)).map((block) => block.id));
-    if (!roots.length && blocks.length) roots.push(blocks[0]!.id);
-    let entryError: unknown;
-    for (const id of roots) {
-      try { await invoke(id, this.retryEntries.has(run.id) ? connectedInput(id, run.input, blocks, edges, execution.outputs) : run.input); } catch (error) {
-        // A failed entry turn must not cancel unrelated Chatboxes still working.
-        if (!this.isActive(run.id)) throw error;
-        entryError ??= error;
-        break;
-      }
-    }
-    while (timers.size || execution.background.size) {
-      if (!timers.size) { await Promise.allSettled([...execution.background]); continue; }
-      this.assertActive(run.id);
-      const due = [...timers].find(([id]) => Date.now() >= Date.parse(run.blocks.find((state) => state.blockId === id)!.waitingUntil!));
-      if (!due) { await new Promise((resolve) => setTimeout(resolve, 100)); continue; }
-      const [id, input] = due; timers.delete(id);
-      const block = blocks.find((block) => block.id === id)!;
-      if (block.seconds! > 0) steps = 0;
-      const state = run.blocks.find((state) => state.blockId === id)!;
-      state.structuredOutput = parseHarnessData(input, block.outputSchema, `${block.label} output`);
-      state.output = input.slice(-200_000); execution.outputs.set(id, input); state.status = "succeeded"; state.completedAt = new Date().toISOString(); state.waitingUntil = undefined; state.pauseId = undefined;
-      this.log(state, "response", input); this.log(state, "lifecycle", "Timer fired; starting followers"); run.status = this.runActivityStatus(run); await this.update(run);
-      const settled = await Promise.allSettled(edges.filter((edge) => edge.from === id && (edge.type === "follow" || !edge.type)).map(async (edge) => { await this.traceConnection(run, edge, "forward", "succeeded", input.length); await invoke(edge.to, input); }));
-      const failed = settled.find((item): item is PromiseRejectedResult => item.status === "rejected");
-      if (failed) throw failed.reason;
-    }
-    // Close admission synchronously with the drain, before execute records the
-    // terminal outcome on its next microtask. No late turn may revive this flow.
-    this.flowInvocations.delete(run.id);
-    this.assertActive(run.id);
-    if (entryError && !this.retryEntries.has(run.id)) throw entryError;
-    const failed = run.blocks.find((state) => state.status === "failed");
-    if (failed) throw new Error(failed.error ?? "A connected workflow block failed");
-    for (const state of run.blocks) if (state.status === "queued") state.status = "skipped";
+    run.connectionTraces = [...(run.connectionTraces ?? []), trace].filter(
+      (trace, index, traces) => trace.status === "active" || index >= traces.length - 128,
+    );
+    await this.update(run);
+    return trace;
   }
-
-  private async executeBlock(run: HarnessRun, block: HarnessBlock, blocks: HarnessBlock[], edges: HarnessEdge[], outputs: Map<string, string>, dispatch: Dispatch, defaultProvider: string, stack?: string[], runtimeContext?: string, sessionInstructions?: string): Promise<void> {
-    const state = run.blocks.find((item) => item.blockId === block.id)!; const outgoing = edges.filter((edge) => edge.from === block.id);
-    const loopOutgoing = outgoing.filter((edge) => edge.loop);
-    const blockInput = connectedInput(block.id, run.input, blocks, edges, outputs); const count = stack?.length ?? 1; const collected: string[] = []; let latestAttemptId: string | undefined;
-    state.startedAt = new Date().toISOString(); state.provider = block.type === "verification" ? undefined : block.provider ?? defaultProvider; state.plannedRuns = count; state.iterations = count > 1 ? [] : undefined; state.log = state.log ?? []; this.log(state, "lifecycle", `Started ${count > 1 ? `${count} planned iterations` : "block"}`);
-    const providers = this.activeProviders.get(run.id) ?? new Set<string>(); if (state.provider) providers.add(state.provider); this.activeProviders.set(run.id, providers); await this.update(run);
-    try {
-      for (let index = 0; index < count; index += 1) {
-        this.assertActive(run.id);
-        const input = stack?.[index] ?? blockInput;
-        const structuredInput = parseHarnessData(input, block.inputSchema, `${block.label} input`);
-        if (structuredInput !== undefined) state.structuredInput = structuredInput;
-        const context = this.callerContext(run.id, block.id);
-        const promptOutputs = contextOutputs(`${block.prompt}\n${sessionInstructions ?? ""}`, outputs, state.workspace && block.type !== "review" ? context.outputs : new Map());
-        const deliveredOutputs = new Map([...promptOutputs].filter(([, preview]) => preview.length > 0).map(([id]) => [id, contextHash(outputs.get(id) ?? "")]));
-        let prompt = renderHarnessPrompt(block.prompt, ["ai", "chatbox"].includes(block.type) && !block.inputSchema ? contextPreview(input, WORKFLOW_CONTEXT_CHARS) : input, promptOutputs).replace(/\{\{\s*iteration\s*\}\}/g, String(index + 1));
-        const instructions = sessionInstructions === undefined ? undefined : [
-          sessionInstructions ? `Chatbox instructions ({{input}} refers to the current user message):\n${renderHarnessPrompt(sessionInstructions, "{{input}}", promptOutputs).replace(/\{\{\s*iteration\s*\}\}/g, String(index + 1))}` : "",
-          runtimeContext,
-        ].filter(Boolean).join("\n\n");
-        if (runtimeContext && sessionInstructions === undefined) prompt += `\n\n${runtimeContext}`;
-        if (index === 0 && state.workspace && !["ai", "chatbox"].includes(block.type)) prompt = `Continue your interrupted work from this session. Inspect prior tool results and preserve recorded task IDs and completed merges; do not duplicate previously completed operations. Original stage instructions:\n\n${prompt}`;
-        if (outgoing.length) prompt += `\n\nWorkflow runtime capability: Use workflow_run_stack to send prompts to directly connected blocks and wait for their replies. If a connected block already has a session, the prompt is appended to that same session. Use timer_set to pause yourself and resume this same session later.`;
-        if (loopOutgoing.length) prompt += `\nLoop paths return to earlier workflow blocks for another cycle. Use one only when another pass is needed: ${loopOutgoing.map((edge) => edge.label ?? blocks.find((item) => item.id === edge.to)?.label ?? edge.to).join(", ")}.`;
-        if (block.routing === "ai" && outgoing.length) prompt += `\nChoose a named path when calling workflow_run_stack. Available paths: ${outgoing.map((edge) => edge.label).join(", ")}.`;
-        if (block.type === "task") prompt += `\n\nThis is a visible task-orchestration block. Create implementation workspaces with task_create_and_start, inspect them with task_list and task_ai_response_tail, append instructions with task_append_prompt, and merge completed work with task_merge.`;
-        const promptLimit = run.definition?.settings?.promptLimitChars ?? 100_000;
-        const deliveredCharacters = prompt.length + (instructions?.length ?? 0);
-        if (deliveredCharacters > promptLimit) throw new CoreError("INVALID_REQUEST", `Block '${block.label}' rendered a ${deliveredCharacters.toLocaleString()} character prompt, exceeding its ${promptLimit.toLocaleString()} character limit`);
-        this.chargeContext(run, state, deliveredCharacters);
-        state.prompt = prompt;
-        this.log(state, "prompt", prompt);
-        const attemptIndex = (state.attempts?.length ?? 0) + 1;
-        const maxAttempts = run.definition?.settings?.maxBlockAttempts ?? 100;
-        if (attemptIndex > maxAttempts) throw new CoreError("INVALID_REQUEST", `Block '${block.label}' reached its limit of ${maxAttempts} attempts`);
-        const attemptId = crypto.randomUUID();
-        latestAttemptId = attemptId;
-        const attemptOperation = await this.beginOperation(run, "block_attempt", `block-attempt:${block.id}:${attemptIndex}`, block.id, { attemptIndex, iteration: index + 1, provider: state.provider }, attemptId);
-        const attempt: HarnessBlockAttempt = { id: attemptId, index: attemptIndex, status: "running", startedAt: new Date().toISOString(), operationId: attemptOperation.id };
-        state.attempts = [...(state.attempts ?? []), attempt];
-        const promptOperation = await this.beginOperation(run, "prompt_delivery", `prompt:${block.id}:${attemptId}`, block.id, { provider: state.provider, prompt, ...(instructions ? { instructions } : {}) }, attemptId);
-        const iteration: HarnessBlockIteration | undefined = state.iterations ? { index: index + 1, status: "running", startedAt: new Date().toISOString(), prompt } : undefined; if (iteration) state.iterations!.push(iteration); await this.update(run);
-        try {
-          const started = async (workspace: string) => { this.assertActive(run.id); state.workspace = workspace; attempt.workspace = workspace; if (iteration) iteration.workspace = workspace; await this.recordCompletedOperation(run, "session_binding", `session-workspace:${attemptId}`, block.id, { workspace }, attemptId); await this.update(run); this.assertActive(run.id); };
-          const activity = async (session: AiSession, waitingUntil?: string) => this.recordActivity(run, state, session, waitingUntil);
-          const execution = this.executions.get(run.id);
-          this.assertActive(run.id);
-          if (!execution) throw new Error("Workflow execution is no longer active");
-          const settled = await execution.scheduler.turn(block.id, () => {
-            execution.turnClaims.set(block.id, attemptId);
-            return state.workspace && block.type !== "review"
-              ? execution.append(block, prompt, { runId: run.id, blockId: block.id, workspace: state.workspace!, activity })
-              : dispatch(this.effectiveBlock(run, block), prompt, { runId: run.id, blockId: block.id, attemptId, iteration: index + 1, ...(instructions ? { instructions } : {}), started, activity, assertActive: () => this.assertActive(run.id) });
-          });
-          this.assertActive(run.id);
-          if (block.type === "chatbox") state.chatMessages!.at(-1)!.text = this.chatReplyText(state, settled);
-          state.sessionId = settled.id; attempt.sessionId = settled.id; if (iteration) iteration.sessionId = settled.id;
-          context.sessionId = state.sessionId;
-          for (const [id, hash] of deliveredOutputs) context.outputs.set(id, hash);
-          state.tokens = settled.tokens;
-          state.context = settled.context; state.contextUsed = settled.contextUsed; state.contextLimit = settled.contextLimit;
-          this.assertTokenBudget(run);
-          await this.finishOperation(run, promptOperation, "succeeded", { sessionId: settled.id, workspace: state.workspace, status: settled.status });
-          await this.recordCompletedOperation(run, "session_binding", `session:${attemptId}`, block.id, { sessionId: settled.id, workspace: state.workspace }, attemptId);
-          this.log(state, "response", settled.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "Provider turn completed without an assistant response");
-          if (settled.status === "user_prompt") throw new CoreError("INVALID_REQUEST", `${block.label} requires user input; resume support is not implemented yet`);
-          if (settled.status === "error") {
-            const message = [settled.messages.filter((message) => message.role === "error").at(-1)?.text ?? `${block.label} failed`, settled.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? ""].join("\n");
-            throw new AiProviderError(settled.failure ?? normalizeAiFailure(message));
-          }
-          let output = settled.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "";
-          this.chargeContext(run, state, output.length);
-          const structuredOutput = parseHarnessData(output, block.outputSchema, `${block.label} output`);
-          if (structuredOutput !== undefined) state.structuredOutput = structuredOutput;
-          output = this.output(run, output);
-          collected.push(output); attempt.status = "succeeded"; attempt.completedAt = new Date().toISOString(); await this.finishOperation(run, attemptOperation, "succeeded", { sessionId: settled.id, workspace: state.workspace, output: output.slice(-20_000) }); if (iteration) { iteration.output = output.slice(-200_000); iteration.status = "succeeded"; iteration.completedAt = new Date().toISOString(); } await this.update(run);
-        } catch (error) {
-          this.log(state, "error", error instanceof Error ? error.message : String(error));
-          const message = error instanceof Error ? error.message : String(error); attempt.status = error instanceof Cancelled ? "cancelled" : "failed"; attempt.error = message; attempt.completedAt = new Date().toISOString();
-          if (promptOperation.status === "intent") await this.finishOperation(run, promptOperation, "failed", undefined, error);
-          if (attemptOperation.status === "intent") await this.finishOperation(run, attemptOperation, "failed", undefined, error);
-          if (iteration) { iteration.status = error instanceof Cancelled ? "cancelled" : "failed"; iteration.error = message; iteration.completedAt = new Date().toISOString(); } throw error;
-        }
-      }
-      const output = count === 1 ? collected[0] ?? "" : collected.map((value, index) => `## Stack item ${index + 1}\n${value}`).join("\n\n");
-      if (block.type === "review" && block.review?.correction) {
-        const corrected = await this.requestReviewCorrection(run, block, output);
-        if (corrected === "blocked") return;
-        if (corrected === "corrected") return this.executeBlock(run, block, blocks, edges, outputs, dispatch, defaultProvider, stack);
-      }
-      this.assertActive(run.id);
-      const execution = this.executions.get(run.id); if (!execution || execution.turnClaims.get(block.id) !== latestAttemptId) return;
-      const boundedOutput = this.output(run, output); outputs.set(block.id, boundedOutput); state.output = boundedOutput; state.status = "succeeded"; state.completedAt = new Date().toISOString(); state.failureReason = undefined; state.retryAt = undefined; state.retryStartedAt = undefined; state.waitingUntil = undefined; state.pendingPermission = undefined; state.question = undefined; state.pauseId = undefined; this.log(state, "lifecycle", "Completed successfully"); await this.update(run);
-    } finally { const active = this.activeProviders.get(run.id); if (state.provider) active?.delete(state.provider); }
+  private async executeFlow(execution: ActiveExecution, startBlockId?: string): Promise<void> {
+    const runner = this;
+    return harnessExecuteFlow(
+      {
+        schedulingReady: this.schedulingReady.bind(this),
+        get retryEntries() {
+          return runner.retryEntries;
+        },
+        assertActive: this.assertActive.bind(this),
+        get chatTurnUsers() {
+          return runner.chatTurnUsers;
+        },
+        get latestChatResponse() {
+          return runner.latestChatResponse;
+        },
+        get chatResponsePrefix() {
+          return runner.chatResponsePrefix;
+        },
+        runActivityStatus: this.runActivityStatus.bind(this),
+        update: this.update.bind(this),
+        log: this.log.bind(this),
+        executeBlock: this.executeBlock.bind(this),
+        get flowAnswers() {
+          return runner.flowAnswers;
+        },
+        isActive: this.isActive.bind(this),
+        assertTokenBudget: this.assertTokenBudget.bind(this),
+        get openDocument() {
+          return runner.openDocument?.bind(runner);
+        },
+        traceConnection: this.traceConnection.bind(this),
+        get flowInvocations() {
+          return runner.flowInvocations;
+        },
+      },
+      execution,
+      startBlockId,
+    );
+  }
+  private async executeBlock(
+    run: HarnessRun,
+    block: HarnessBlock,
+    blocks: HarnessBlock[],
+    edges: HarnessEdge[],
+    outputs: Map<string, string>,
+    dispatch: Dispatch,
+    defaultProvider: string,
+    stack?: string[],
+    runtimeContext?: string,
+    sessionInstructions?: string,
+  ): Promise<void> {
+    const runner = this;
+    return harnessExecuteBlock(
+      {
+        log: this.log.bind(this),
+        get activeProviders() {
+          return runner.activeProviders;
+        },
+        update: this.update.bind(this),
+        assertActive: this.assertActive.bind(this),
+        callerContext: this.callerContext.bind(this),
+        chargeContext: this.chargeContext.bind(this),
+        beginOperation: this.beginOperation.bind(this),
+        recordCompletedOperation: this.recordCompletedOperation.bind(this),
+        recordActivity: this.recordActivity.bind(this),
+        get executions() {
+          return runner.executions;
+        },
+        effectiveBlock: this.effectiveBlock.bind(this),
+        chatReplyText: this.chatReplyText.bind(this),
+        assertTokenBudget: this.assertTokenBudget.bind(this),
+        finishOperation: this.finishOperation.bind(this),
+        output: this.output.bind(this),
+        requestReviewCorrection: this.requestReviewCorrection.bind(this),
+        executeBlock: this.executeBlock.bind(this),
+      },
+      run,
+      block,
+      blocks,
+      edges,
+      outputs,
+      dispatch,
+      defaultProvider,
+      stack,
+      runtimeContext,
+      sessionInstructions,
+    );
   }
 
   /** Persist review findings before asking the owning session to correct them. A restart can therefore never lose ownership or repeat a completed correction. */
-  private async requestReviewCorrection(run: HarnessRun, block: HarnessBlock, output: string): Promise<"none" | "corrected" | "blocked"> {
+  private async requestReviewCorrection(
+    run: HarnessRun,
+    block: HarnessBlock,
+    output: string,
+  ): Promise<"none" | "corrected" | "blocked"> {
     const correction = block.review?.correction;
     if (!correction) return "none";
-    const previous = [...(run.corrections ?? [])].reverse().find((cycle) => cycle.reviewBlockId === block.id && cycle.status === "corrected");
-    const report = parseReviewReport(output, block.id, previous?.correctedRevision ?? block.review!.revision, correction.ownerBlockId);
-    await this.recordCompletedOperation(run, "review", `review-findings:${block.id}:${report.revision}:${report.findings.map((finding) => finding.id).join(",")}`, block.id, report);
+    const previous = [...(run.corrections ?? [])]
+      .reverse()
+      .find((cycle) => cycle.reviewBlockId === block.id && cycle.status === "corrected");
+    const report = parseReviewReport(
+      output,
+      block.id,
+      previous?.correctedRevision ?? block.review!.revision,
+      correction.ownerBlockId,
+    );
+    await this.recordCompletedOperation(
+      run,
+      "review",
+      `review-findings:${block.id}:${report.revision}:${report.findings.map((finding) => finding.id).join(",")}`,
+      block.id,
+      report,
+    );
     if (!report.findings.length) return "none";
     const cycles = (run.corrections ?? []).filter((cycle) => cycle.reviewBlockId === block.id);
     const maximum = correction.maxCycles ?? 3;
     const state = run.blocks.find((item) => item.blockId === block.id)!;
     if (cycles.length >= maximum) {
       const message = `Review found ${report.findings.length} remaining finding(s) after ${maximum} correction cycle(s): ${report.findings.map((finding) => finding.message).join("; ")}`;
-      run.corrections = [...(run.corrections ?? []), { reviewBlockId: block.id, ownerBlockId: correction.ownerBlockId, verificationBlockId: correction.verificationBlockId, cycle: cycles.length + 1, revision: report.revision, findings: report.findings, status: "blocked", requestedAt: new Date().toISOString(), completedAt: new Date().toISOString(), error: message }];
-      state.status = "blocked"; state.error = message; this.log(state, "error", message); await this.update(run); return "blocked";
+      run.corrections = [
+        ...(run.corrections ?? []),
+        {
+          reviewBlockId: block.id,
+          ownerBlockId: correction.ownerBlockId,
+          verificationBlockId: correction.verificationBlockId,
+          cycle: cycles.length + 1,
+          revision: report.revision,
+          findings: report.findings,
+          status: "blocked",
+          requestedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+          error: message,
+        },
+      ];
+      state.status = "blocked";
+      state.error = message;
+      this.log(state, "error", message);
+      await this.update(run);
+      return "blocked";
     }
     const owner = run.blocks.find((item) => item.blockId === correction.ownerBlockId);
     const execution = this.executions.get(run.id);
-    if (!owner?.workspace || !execution) throw new CoreError("INVALID_REQUEST", `Review '${block.label}' cannot request a correction because owner block '${correction.ownerBlockId}' has no persistent session`);
-    const cycle: HarnessCorrectionCycle = { reviewBlockId: block.id, ownerBlockId: correction.ownerBlockId, verificationBlockId: correction.verificationBlockId, cycle: cycles.length + 1, revision: report.revision, findings: report.findings, status: "requested", requestedAt: new Date().toISOString() };
-    run.corrections = [...(run.corrections ?? []), cycle]; await this.recordCompletedOperation(run, "review", `correction-request:${block.id}:${cycle.cycle}`, block.id, cycle); await this.update(run);
+    if (!owner?.workspace || !execution)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Review '${block.label}' cannot request a correction because owner block '${correction.ownerBlockId}' has no persistent session`,
+      );
+    const cycle: HarnessCorrectionCycle = {
+      reviewBlockId: block.id,
+      ownerBlockId: correction.ownerBlockId,
+      verificationBlockId: correction.verificationBlockId,
+      cycle: cycles.length + 1,
+      revision: report.revision,
+      findings: report.findings,
+      status: "requested",
+      requestedAt: new Date().toISOString(),
+    };
+    run.corrections = [...(run.corrections ?? []), cycle];
+    await this.recordCompletedOperation(
+      run,
+      "review",
+      `correction-request:${block.id}:${cycle.cycle}`,
+      block.id,
+      cycle,
+    );
+    await this.update(run);
     const prompt = `Correct the following review findings for revision ${report.revision}. Keep working in this owned session. When finished, reply with JSON only: {"revision":"<new exact commit SHA>"}.\n\n${report.findings.map((finding) => `- [${finding.id}] ${finding.message}`).join("\n")}`;
-    const session = await execution.scheduler.turn(correction.ownerBlockId, () => execution.append(blocksById(execution.blocks, correction.ownerBlockId), prompt, { runId: run.id, blockId: correction.ownerBlockId, workspace: owner.workspace! }));
+    const session = await execution.scheduler.turn(correction.ownerBlockId, () =>
+      execution.append(blocksById(execution.blocks, correction.ownerBlockId), prompt, {
+        runId: run.id,
+        blockId: correction.ownerBlockId,
+        workspace: owner.workspace!,
+      }),
+    );
     this.assertActive(run.id);
-    if (session.status !== "done") throw new CoreError("INVALID_REQUEST", `Correction owner '${correction.ownerBlockId}' did not complete its correction turn`);
-    const revision = parseCorrectionRevision(session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "");
-    cycle.status = "corrected"; cycle.correctedRevision = revision; cycle.completedAt = new Date().toISOString();
-    owner.sessionId = session.id; owner.output = session.messages.filter((message) => message.role === "assistant").at(-1)?.text?.slice(-200_000) ?? owner.output;
-    await this.recordCompletedOperation(run, "review", `correction-result:${block.id}:${cycle.cycle}`, block.id, { revision, ownerBlockId: correction.ownerBlockId }); await this.update(run);
+    if (session.status !== "done")
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Correction owner '${correction.ownerBlockId}' did not complete its correction turn`,
+      );
+    const revision = parseCorrectionRevision(
+      session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? "",
+    );
+    cycle.status = "corrected";
+    cycle.correctedRevision = revision;
+    cycle.completedAt = new Date().toISOString();
+    owner.sessionId = session.id;
+    owner.output =
+      session.messages
+        .filter((message) => message.role === "assistant")
+        .at(-1)
+        ?.text?.slice(-200_000) ?? owner.output;
+    await this.recordCompletedOperation(run, "review", `correction-result:${block.id}:${cycle.cycle}`, block.id, {
+      revision,
+      ownerBlockId: correction.ownerBlockId,
+    });
+    await this.update(run);
     return "corrected";
   }
 
   private effectiveBlock(run: HarnessRun, block: HarnessBlock): HarnessBlock {
-    const corrected = [...(run.corrections ?? [])].reverse().find((cycle) => cycle.reviewBlockId === block.id && cycle.status === "corrected" && cycle.correctedRevision);
-    if (block.type === "review" && corrected?.correctedRevision && block.review) return { ...block, review: { ...block.review, revision: corrected.correctedRevision } };
-    const verificationCorrection = [...(run.corrections ?? [])].reverse().find((cycle) => cycle.verificationBlockId === block.id && cycle.status === "corrected" && cycle.correctedRevision);
-    if (block.type === "verification" && verificationCorrection?.correctedRevision && block.verification) return { ...block, verification: { ...block.verification, revision: verificationCorrection.correctedRevision } };
+    const corrected = [...(run.corrections ?? [])]
+      .reverse()
+      .find((cycle) => cycle.reviewBlockId === block.id && cycle.status === "corrected" && cycle.correctedRevision);
+    if (block.type === "review" && corrected?.correctedRevision && block.review)
+      return { ...block, review: { ...block.review, revision: corrected.correctedRevision } };
+    const verificationCorrection = [...(run.corrections ?? [])]
+      .reverse()
+      .find(
+        (cycle) => cycle.verificationBlockId === block.id && cycle.status === "corrected" && cycle.correctedRevision,
+      );
+    if (block.type === "verification" && verificationCorrection?.correctedRevision && block.verification)
+      return { ...block, verification: { ...block.verification, revision: verificationCorrection.correctedRevision } };
     return block;
   }
 
@@ -1502,100 +2105,275 @@ export class HarnessRunner {
     const entry: HarnessLogEntry = { timestamp: new Date().toISOString(), kind, message: message.slice(-200_000) };
     state.log = [...(state.log ?? []), entry].slice(-500);
   }
-
   private async update(run: HarnessRun): Promise<void> {
-    if (this.suspended) return;
-    let statuses = this.meetingParticipantStatuses.get(run);
-    if (!statuses) { statuses = new Map(); this.meetingParticipantStatuses.set(run, statuses); }
-    const changedRooms = publishMeetingStatusChanges(run, statuses);
-    const execution = this.executions.get(run.id);
-    for (const roomId of changedRooms) execution?.outputs.set(roomId, run.blocks.find((block) => block.blockId === roomId)!.output!);
-    const limit = run.definition?.settings?.logLimitEntries ?? 500;
-    for (const block of run.blocks) if (block.log && block.log.length > limit) block.log = block.log.slice(-limit);
-    const snapshot = structuredClone(run); const next = this.updateQueue.then(async () => { await this.store.saveRun(snapshot); this.changed(run.id); });
-    this.updateQueue = next.catch(() => undefined); await next;
-    for (const roomId of changedRooms) this.meetingUpdates.publish(run.id, roomId);
+    const runner = this;
+    return harnessUpdate(
+      {
+        get suspended() {
+          return runner.suspended;
+        },
+        get meetingParticipantStatuses() {
+          return runner.meetingParticipantStatuses;
+        },
+        get executions() {
+          return runner.executions;
+        },
+        get updateQueue() {
+          return runner.updateQueue;
+        },
+        set updateQueue(value: Promise<void>) {
+          runner.updateQueue = value;
+        },
+        get store() {
+          return runner.store;
+        },
+        get changed() {
+          return runner.changed.bind(runner);
+        },
+        get meetingUpdates() {
+          return runner.meetingUpdates;
+        },
+      },
+      run,
+    );
   }
 
   private activeExecution(runId: string): ActiveExecution {
-    const execution = this.executions.get(runId); if (!execution || !this.isActive(runId)) throw new CoreError("INVALID_REQUEST", "Workflow execution is no longer active"); return execution;
+    const execution = this.executions.get(runId);
+    if (!execution || !this.isActive(runId))
+      throw new CoreError("INVALID_REQUEST", "Workflow execution is no longer active");
+    return execution;
   }
 
-  async assertFeatureReady(runId: string, featureId: string): Promise<void> { this.readyFeature(this.activeExecution(runId), featureId); }
+  async assertFeatureReady(runId: string, featureId: string): Promise<void> {
+    this.readyFeature(this.activeExecution(runId), featureId);
+  }
 
   private readyFeature(execution: ActiveExecution, featureId: string): HarnessFeature {
     const feature = execution.run.features?.find((item) => item.id === featureId);
     if (!feature) throw new CoreError("INVALID_REQUEST", `Feature '${featureId}' is not in the durable feature plan`);
-    if (feature.status !== "planned") throw new CoreError("INVALID_REQUEST", `Feature '${featureId}' is already ${feature.status}`);
-    const waiting = feature.prerequisites.filter((dependency) => execution.run.features!.find((item) => item.id === dependency)?.status !== "completed");
-    if (waiting.length) throw new CoreError("INVALID_REQUEST", `Feature '${featureId}' cannot start until ${waiting.join(", ")} is merged into the root workspace`);
+    if (feature.status !== "planned")
+      throw new CoreError("INVALID_REQUEST", `Feature '${featureId}' is already ${feature.status}`);
+    const waiting = feature.prerequisites.filter(
+      (dependency) => execution.run.features!.find((item) => item.id === dependency)?.status !== "completed",
+    );
+    if (waiting.length)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Feature '${featureId}' cannot start until ${waiting.join(", ")} is merged into the root workspace`,
+      );
     return feature;
   }
-
-  private async beginOperation(run: HarnessRun, kind: HarnessOperationKind, idempotencyKey: string, blockId?: string, input?: unknown, attemptId?: string): Promise<HarnessOperation> {
-    const existing = run.operations?.find((operation) => operation.idempotencyKey === idempotencyKey); if (existing) return existing;
-    const now = new Date().toISOString(); const operation: HarnessOperation = { id: operationId(run.id, idempotencyKey), idempotencyKey, kind, status: "intent", createdAt: now, updatedAt: now, ...(blockId ? { blockId } : {}), ...(attemptId ? { attemptId } : {}), ...(input === undefined ? {} : { input: journalValue(input) }) };
-    run.operations = [...(run.operations ?? []), operation]; await this.update(run); return operation;
+  private async beginOperation(
+    run: HarnessRun,
+    kind: HarnessOperationKind,
+    idempotencyKey: string,
+    blockId?: string,
+    input?: unknown,
+    attemptId?: string,
+  ): Promise<HarnessOperation> {
+    const runner = this;
+    return harnessBeginOperation(
+      {
+        update: this.update.bind(this),
+      },
+      run,
+      kind,
+      idempotencyKey,
+      blockId,
+      input,
+      attemptId,
+    );
+  }
+  private async finishOperation(
+    run: HarnessRun,
+    operation: HarnessOperation,
+    status: "succeeded" | "failed",
+    result?: unknown,
+    error?: unknown,
+  ): Promise<void> {
+    const runner = this;
+    return harnessFinishOperation(
+      {
+        update: this.update.bind(this),
+      },
+      run,
+      operation,
+      status,
+      result,
+      error,
+    );
+  }
+  private async recordCompletedOperation(
+    run: HarnessRun,
+    kind: HarnessOperationKind,
+    idempotencyKey: string,
+    blockId: string | undefined,
+    result: unknown,
+    attemptId?: string,
+  ): Promise<void> {
+    const runner = this;
+    return harnessRecordCompletedOperation(
+      {
+        finishOperation: this.finishOperation.bind(this),
+        update: this.update.bind(this),
+      },
+      run,
+      kind,
+      idempotencyKey,
+      blockId,
+      result,
+      attemptId,
+    );
   }
 
-  private async finishOperation(run: HarnessRun, operation: HarnessOperation, status: "succeeded" | "failed", result?: unknown, error?: unknown): Promise<void> {
-    operation.status = status; operation.updatedAt = new Date().toISOString(); operation.result = result === undefined ? undefined : journalValue(result); operation.error = status === "failed" ? (error instanceof Error ? error.message : String(error)).slice(-20_000) : undefined; await this.update(run);
-  }
-
-  private async recordCompletedOperation(run: HarnessRun, kind: HarnessOperationKind, idempotencyKey: string, blockId: string | undefined, result: unknown, attemptId?: string): Promise<void> {
-    const existing = run.operations?.find((operation) => operation.idempotencyKey === idempotencyKey);
-    if (existing?.status === "succeeded") return;
-    if (existing) { await this.finishOperation(run, existing, "succeeded", result); return; }
-    const now = new Date().toISOString(); const operation: HarnessOperation = { id: operationId(run.id, idempotencyKey), idempotencyKey, kind, status: "succeeded", createdAt: now, updatedAt: now, result: journalValue(result), ...(blockId ? { blockId } : {}), ...(attemptId ? { attemptId } : {}) };
-    run.operations = [...(run.operations ?? []), operation]; await this.update(run);
-  }
-
-  private async recordActivity(run: HarnessRun, state: HarnessRun["blocks"][number], session: AiSession, waitingUntil?: string): Promise<void> {
+  private async recordActivity(
+    run: HarnessRun,
+    state: HarnessRun["blocks"][number],
+    session: AiSession,
+    waitingUntil?: string,
+  ): Promise<void> {
     this.assertActive(run.id);
     const option = findAutopilotOption(session.availableOptions ?? []);
-    const autopilot = option ? String(session.configuration?.[option.option.id] ?? option.option.defaultValue) === String(option.on) : state.autopilot;
-    const status: "running" | HarnessPauseStatus = session.pendingPermission ? "awaiting_permission" : waitingUntil ? "waiting_timer" : session.status === "user_prompt" ? "awaiting_user_input" : "running";
-    const question = status === "awaiting_user_input" ? session.messages.filter((message) => message.role === "assistant").at(-1)?.text : undefined;
+    const autopilot = option
+      ? String(session.configuration?.[option.option.id] ?? option.option.defaultValue) === String(option.on)
+      : state.autopilot;
+    const status: "running" | HarnessPauseStatus = session.pendingPermission
+      ? "awaiting_permission"
+      : waitingUntil
+        ? "waiting_timer"
+        : session.status === "user_prompt"
+          ? "awaiting_user_input"
+          : "running";
+    const question =
+      status === "awaiting_user_input"
+        ? session.messages.filter((message) => message.role === "assistant").at(-1)?.text
+        : undefined;
     const permission = status === "awaiting_permission" ? session.pendingPermission : undefined;
-    const response = waitingUntil || !state.chatMessages ? session.messages.filter((message) => message.role === "assistant").at(-1)?.text.slice(-200_000) : undefined;
-    if (state.chatMessages && !this.chatTurnUsers.has(state)) this.chatTurnUsers.set(state, session.messages.filter((message) => message.role === "user").at(-1)?.id ?? null);
+    const response =
+      waitingUntil || !state.chatMessages
+        ? session.messages
+            .filter((message) => message.role === "assistant")
+            .at(-1)
+            ?.text.slice(-200_000)
+        : undefined;
+    if (state.chatMessages && !this.chatTurnUsers.has(state))
+      this.chatTurnUsers.set(state, session.messages.filter((message) => message.role === "user").at(-1)?.id ?? null);
     const chatReply = state.chatMessages?.at(-1);
     const chatText = chatReply?.role === "assistant" ? this.chatReplyText(state, session) : undefined;
     const chatChanged = chatText !== undefined && chatText !== chatReply?.text;
-    const lastUser = state.chatMessages ? session.messages.findIndex((message) => message.id === this.chatTurnUsers.get(state)) : session.messages.map((message) => message.role).lastIndexOf("user");
-    const agentActivity = session.messages.slice(lastUser + 1).filter((message) => message.role === "activity").slice(-50).map((message) => ({ id: message.id, timestamp: message.timestamp, text: (message.text || message.content?.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "Agent activity").slice(-8000) }));
-    const contextChanged = state.contextUsed !== session.contextUsed || state.contextLimit !== session.contextLimit || JSON.stringify(state.context) !== JSON.stringify(session.context);
-    if (contextChanged) { state.context = session.context; state.contextUsed = session.contextUsed; state.contextLimit = session.contextLimit; }
+    const lastUser = state.chatMessages
+      ? session.messages.findIndex((message) => message.id === this.chatTurnUsers.get(state))
+      : session.messages.map((message) => message.role).lastIndexOf("user");
+    const agentActivity = session.messages
+      .slice(lastUser + 1)
+      .filter((message) => message.role === "activity")
+      .slice(-50)
+      .map((message) => ({
+        id: message.id,
+        timestamp: message.timestamp,
+        text: (
+          message.text ||
+          message.content
+            ?.filter((item) => item.type === "text")
+            .map((item) => item.text)
+            .join("\n") ||
+          "Agent activity"
+        ).slice(-8000),
+      }));
+    const contextChanged =
+      state.contextUsed !== session.contextUsed ||
+      state.contextLimit !== session.contextLimit ||
+      JSON.stringify(state.context) !== JSON.stringify(session.context);
+    if (contextChanged) {
+      state.context = session.context;
+      state.contextUsed = session.contextUsed;
+      state.contextLimit = session.contextLimit;
+    }
     const activityChanged = JSON.stringify(state.agentActivity ?? []) !== JSON.stringify(agentActivity);
     if (activityChanged) state.agentActivity = agentActivity;
     if (chatChanged) chatReply!.text = chatText!;
     const responseChanged = response !== undefined && response !== state.output;
-    const pauseId = status === "running" ? undefined : state.status === status ? state.pauseId ?? crypto.randomUUID() : crypto.randomUUID();
-    if (state.autopilot === autopilot && state.status === status && state.waitingUntil === waitingUntil && state.question === question && JSON.stringify(state.pendingPermission) === JSON.stringify(permission) && state.sessionId === session.id && state.pauseId === pauseId && !responseChanged && !chatChanged && !activityChanged && !contextChanged) return;
+    const pauseId =
+      status === "running"
+        ? undefined
+        : state.status === status
+          ? (state.pauseId ?? crypto.randomUUID())
+          : crypto.randomUUID();
+    if (
+      state.autopilot === autopilot &&
+      state.status === status &&
+      state.waitingUntil === waitingUntil &&
+      state.question === question &&
+      JSON.stringify(state.pendingPermission) === JSON.stringify(permission) &&
+      state.sessionId === session.id &&
+      state.pauseId === pauseId &&
+      !responseChanged &&
+      !chatChanged &&
+      !activityChanged &&
+      !contextChanged
+    )
+      return;
     state.autopilot = autopilot;
-    if (responseChanged) { state.output = response; this.log(state, "response", response!); }
-    const previous = state.status; state.status = status; state.sessionId = session.id; state.waitingUntil = waitingUntil; state.question = question; state.pendingPermission = permission;
-    const attempt = state.attempts?.at(-1); if (attempt && session.id) { attempt.sessionId = session.id; await this.recordCompletedOperation(run, "session_binding", `session:${attempt.id}`, state.blockId, { sessionId: session.id, workspace: state.workspace }, attempt.id); }
+    if (responseChanged) {
+      state.output = response;
+      this.log(state, "response", response!);
+    }
+    const previous = state.status;
+    state.status = status;
+    state.sessionId = session.id;
+    state.waitingUntil = waitingUntil;
+    state.question = question;
+    state.pendingPermission = permission;
+    const attempt = state.attempts?.at(-1);
+    if (attempt && session.id) {
+      attempt.sessionId = session.id;
+      await this.recordCompletedOperation(
+        run,
+        "session_binding",
+        `session:${attempt.id}`,
+        state.blockId,
+        { sessionId: session.id, workspace: state.workspace },
+        attempt.id,
+      );
+    }
     state.pauseId = pauseId;
     run.status = this.runActivityStatus(run);
-    if (previous !== status) this.log(state, "lifecycle", status === "running" ? "Provider resumed work" : `Paused: ${status.replaceAll("_", " ")}`);
+    if (previous !== status)
+      this.log(
+        state,
+        "lifecycle",
+        status === "running" ? "Provider resumed work" : `Paused: ${status.replaceAll("_", " ")}`,
+      );
     await this.update(run);
   }
 
-  private pausedAttempt(runId: string, blockId: string, pauseId: string, expected: HarnessPauseStatus | HarnessPauseStatus[], sessionId?: string, requireOwnership = true): { execution: ActiveExecution; state: HarnessRun["blocks"][number]; provider: string; workspace: string } {
+  private pausedAttempt(
+    runId: string,
+    blockId: string,
+    pauseId: string,
+    expected: HarnessPauseStatus | HarnessPauseStatus[],
+    sessionId?: string,
+    requireOwnership = true,
+  ): { execution: ActiveExecution; state: HarnessRun["blocks"][number]; provider: string; workspace: string } {
     const execution = this.executions.get(runId);
     if (!execution || !this.isActive(runId)) throw new CoreError("INVALID_REQUEST", "Workflow run is no longer active");
     const state = execution.run.blocks.find((item) => item.blockId === blockId);
     const statuses = Array.isArray(expected) ? expected : [expected];
-    if (!state || !statuses.includes(state.status as HarnessPauseStatus)) throw new CoreError("INVALID_REQUEST", "Workflow block is no longer waiting for this response");
-    if (state.pauseId !== pauseId) throw new CoreError("INVALID_REQUEST", "Response belongs to a different paused attempt");
-    if (sessionId !== undefined && state.sessionId !== sessionId) throw new CoreError("INVALID_REQUEST", "Response belongs to a different workflow session");
-    if (requireOwnership && (!state.provider || !state.workspace)) throw new CoreError("INVALID_REQUEST", "Workflow session ownership is incomplete");
+    if (!state || !statuses.includes(state.status as HarnessPauseStatus))
+      throw new CoreError("INVALID_REQUEST", "Workflow block is no longer waiting for this response");
+    if (state.pauseId !== pauseId)
+      throw new CoreError("INVALID_REQUEST", "Response belongs to a different paused attempt");
+    if (sessionId !== undefined && state.sessionId !== sessionId)
+      throw new CoreError("INVALID_REQUEST", "Response belongs to a different workflow session");
+    if (requireOwnership && (!state.provider || !state.workspace))
+      throw new CoreError("INVALID_REQUEST", "Workflow session ownership is incomplete");
     return { execution, state, provider: state.provider ?? "", workspace: state.workspace ?? "" };
   }
 
   private runActivityStatus(run: HarnessRun): HarnessRun["status"] {
-    for (const status of ["awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"] as const) if (run.blocks.some((block) => block.status === status)) return status;
+    for (const status of ["awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"] as const)
+      if (run.blocks.some((block) => block.status === status)) return status;
     return "running";
   }
 
@@ -1607,347 +2385,231 @@ export class HarnessRunner {
       if (!exists) child.recoveryError = `Owned task '${child.taskId}' is missing after Core restart`;
     }
     for (const state of run.blocks) {
-      if (!isActiveStatus(state.status) || state.status === "queued" || state.status === "waiting" || state.status === "retry_scheduled") continue;
-      const unresolved = run.operations?.filter((operation) => operation.blockId === state.blockId && operation.status === "intent") ?? [];
+      if (
+        !isActiveStatus(state.status) ||
+        state.status === "queued" ||
+        state.status === "waiting" ||
+        state.status === "retry_scheduled"
+      )
+        continue;
+      const unresolved =
+        run.operations?.filter((operation) => operation.blockId === state.blockId && operation.status === "intent") ??
+        [];
       if (!state.provider || !state.workspace || !inspector) {
-        this.pauseOrphan(state, unresolved.length ? `Core restarted with unresolved ${unresolved.map((operation) => operation.kind).join(", ")} intent; inspect the existing session and choose Resume or Cancel.` : "Core restarted before session ownership was durably recorded; inspect preserved work and choose Resume or Cancel.");
+        this.pauseOrphan(
+          state,
+          unresolved.length
+            ? `Core restarted with unresolved ${unresolved.map((operation) => operation.kind).join(", ")} intent; inspect the existing session and choose Resume or Cancel.`
+            : "Core restarted before session ownership was durably recorded; inspect preserved work and choose Resume or Cancel.",
+        );
         continue;
       }
-      if (state.status === "waiting_timer" && await inspector.timer(run.id, state.blockId, state.provider, state.workspace)) continue;
+      if (
+        state.status === "waiting_timer" &&
+        (await inspector.timer(run.id, state.blockId, state.provider, state.workspace))
+      )
+        continue;
       const session = await inspector.session(state.provider, state.workspace);
-      const ambiguousOperations = unresolved.filter((item) => !["block_attempt", "prompt_delivery", "session_binding"].includes(item.kind));
+      const ambiguousOperations = unresolved.filter(
+        (item) => !["block_attempt", "prompt_delivery", "session_binding"].includes(item.kind),
+      );
       if (ambiguousOperations.length) {
-        this.pauseOrphan(state, `Core restarted with unresolved ${ambiguousOperations.map((operation) => operation.kind).join(", ")} intent. Inspect the recorded operation and choose Resume or Cancel; recovery will not repeat it automatically.`); continue;
+        this.pauseOrphan(
+          state,
+          `Core restarted with unresolved ${ambiguousOperations.map((operation) => operation.kind).join(", ")} intent. Inspect the recorded operation and choose Resume or Cancel; recovery will not repeat it automatically.`,
+        );
+        continue;
       }
       if (session && (!state.sessionId || state.sessionId === session.id) && session.status === "done") {
-        const output = session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? state.output ?? "";
+        const output =
+          session.messages.filter((message) => message.role === "assistant").at(-1)?.text ?? state.output ?? "";
         const block = run.definition?.blocks.find((item) => item.id === state.blockId);
         try {
-          const structuredOutput = parseHarnessData(output, block?.outputSchema, `${block?.label ?? state.blockId} output`);
+          const structuredOutput = parseHarnessData(
+            output,
+            block?.outputSchema,
+            `${block?.label ?? state.blockId} output`,
+          );
           if (structuredOutput !== undefined) state.structuredOutput = structuredOutput;
         } catch (error) {
           if (!(error instanceof HarnessSchemaError)) throw error;
-          state.status = "retry_scheduled"; state.error = error.message; state.failureReason = "schema_validation"; state.pauseId = crypto.randomUUID(); state.waitingUntil = undefined;
-          this.log(state, "error", error.message); continue;
+          state.status = "retry_scheduled";
+          state.error = error.message;
+          state.failureReason = "schema_validation";
+          state.pauseId = crypto.randomUUID();
+          state.waitingUntil = undefined;
+          this.log(state, "error", error.message);
+          continue;
         }
-        state.sessionId = session.id; state.output = output.slice(-200_000); state.status = "succeeded"; state.completedAt = now; state.error = undefined; state.failureReason = undefined; state.pauseId = undefined; state.pendingPermission = undefined; state.question = undefined; state.waitingUntil = undefined;
+        state.sessionId = session.id;
+        state.output = output.slice(-200_000);
+        state.status = "succeeded";
+        state.completedAt = now;
+        state.error = undefined;
+        state.failureReason = undefined;
+        state.pauseId = undefined;
+        state.pendingPermission = undefined;
+        state.question = undefined;
+        state.waitingUntil = undefined;
         const attempt = [...(state.attempts ?? [])].reverse().find((item) => item.status === "running");
-        if (attempt) { attempt.status = "succeeded"; attempt.completedAt = now; attempt.sessionId = session.id; attempt.workspace ??= state.workspace; const operation = run.operations?.find((item) => item.id === attempt.operationId); if (operation) { operation.status = "succeeded"; operation.updatedAt = now; operation.error = undefined; operation.result = journalValue({ sessionId: session.id, workspace: state.workspace, output: output.slice(-20_000) }); } }
-        for (const operation of unresolved.filter((item) => item.kind === "prompt_delivery" || item.kind === "session_binding")) { operation.status = "succeeded"; operation.updatedAt = now; operation.error = undefined; operation.result = journalValue({ sessionId: session.id, workspace: state.workspace, status: session.status }); }
+        if (attempt) {
+          attempt.status = "succeeded";
+          attempt.completedAt = now;
+          attempt.sessionId = session.id;
+          attempt.workspace ??= state.workspace;
+          const operation = run.operations?.find((item) => item.id === attempt.operationId);
+          if (operation) {
+            operation.status = "succeeded";
+            operation.updatedAt = now;
+            operation.error = undefined;
+            operation.result = journalValue({
+              sessionId: session.id,
+              workspace: state.workspace,
+              output: output.slice(-20_000),
+            });
+          }
+        }
+        for (const operation of unresolved.filter(
+          (item) => item.kind === "prompt_delivery" || item.kind === "session_binding",
+        )) {
+          operation.status = "succeeded";
+          operation.updatedAt = now;
+          operation.error = undefined;
+          operation.result = journalValue({
+            sessionId: session.id,
+            workspace: state.workspace,
+            status: session.status,
+          });
+        }
         this.log(state, "lifecycle", "Recovered a provider turn that completed before Core restarted");
         continue;
       }
       if (session && (!state.sessionId || state.sessionId === session.id) && session.pendingPermission) {
-        state.status = "awaiting_permission"; state.sessionId = session.id; state.pendingPermission = session.pendingPermission; state.pauseId ??= crypto.randomUUID(); state.failureReason = "permission_required"; continue;
+        state.status = "awaiting_permission";
+        state.sessionId = session.id;
+        state.pendingPermission = session.pendingPermission;
+        state.pauseId ??= crypto.randomUUID();
+        state.failureReason = "permission_required";
+        continue;
       }
       if (session && (!state.sessionId || state.sessionId === session.id) && session.status === "user_prompt") {
-        state.status = "awaiting_user_input"; state.sessionId = session.id; state.question = session.messages.filter((message) => message.role === "assistant").at(-1)?.text; state.pauseId ??= crypto.randomUUID(); state.failureReason = "user_input_required"; continue;
+        state.status = "awaiting_user_input";
+        state.sessionId = session.id;
+        state.question = session.messages.filter((message) => message.role === "assistant").at(-1)?.text;
+        state.pauseId ??= crypto.randomUUID();
+        state.failureReason = "user_input_required";
+        continue;
       }
-      const detail = !session ? "the recorded provider session no longer exists" : state.sessionId && state.sessionId !== session.id ? "the workspace now belongs to a different provider session" : session.status === "error" ? "the provider session stopped while Core was offline" : "the provider session outcome is still ambiguous";
-      this.pauseOrphan(state, `Core restart recovery found that ${detail}. Existing work was preserved; choose Resume to continue in the recorded workspace or Cancel.`);
+      const detail = !session
+        ? "the recorded provider session no longer exists"
+        : state.sessionId && state.sessionId !== session.id
+          ? "the workspace now belongs to a different provider session"
+          : session.status === "error"
+            ? "the provider session stopped while Core was offline"
+            : "the provider session outcome is still ambiguous";
+      this.pauseOrphan(
+        state,
+        `Core restart recovery found that ${detail}. Existing work was preserved; choose Resume to continue in the recorded workspace or Cancel.`,
+      );
     }
-    run.status = this.runActivityStatus(run); run.completedAt = undefined; run.error = undefined; await this.update(run);
+    run.status = this.runActivityStatus(run);
+    run.completedAt = undefined;
+    run.error = undefined;
+    await this.update(run);
   }
 
   private pauseOrphan(state: HarnessRun["blocks"][number], message: string): void {
-    state.status = "retry_scheduled"; state.error = message; state.failureReason = "recovery_orphaned"; state.retryAt = undefined; state.pauseId = crypto.randomUUID(); state.pendingPermission = undefined; state.question = undefined; state.waitingUntil = undefined; this.log(state, "error", message);
+    state.status = "retry_scheduled";
+    state.error = message;
+    state.failureReason = "recovery_orphaned";
+    state.retryAt = undefined;
+    state.pauseId = crypto.randomUUID();
+    state.pendingPermission = undefined;
+    state.question = undefined;
+    state.waitingUntil = undefined;
+    this.log(state, "error", message);
   }
 
   private async failRecovery(run: HarnessRun, message: string): Promise<void> {
-    const now = new Date().toISOString(); run.status = "failed"; run.error = message; run.completedAt = now;
-    for (const state of run.blocks) if (isActiveStatus(state.status)) { state.status = state.status === "running" ? "failed" : "cancelled"; state.completedAt = now; if (state.status === "failed") { state.error = message; state.failureReason = "recovery_orphaned"; } }
-    await this.recordCompletedOperation(run, "terminal_outcome", "terminal:recovery-orphaned", undefined, { status: run.status, error: message, completedAt: now }); await this.update(run);
+    const now = new Date().toISOString();
+    run.status = "failed";
+    run.error = message;
+    run.completedAt = now;
+    for (const state of run.blocks)
+      if (isActiveStatus(state.status)) {
+        state.status = state.status === "running" ? "failed" : "cancelled";
+        state.completedAt = now;
+        if (state.status === "failed") {
+          state.error = message;
+          state.failureReason = "recovery_orphaned";
+        }
+      }
+    await this.recordCompletedOperation(run, "terminal_outcome", "terminal:recovery-orphaned", undefined, {
+      status: run.status,
+      error: message,
+      completedAt: now,
+    });
+    await this.update(run);
   }
 
   private deliveryIsTerminal(execution: ActiveExecution): boolean {
-    return execution.blocks.filter((block) => !block.watchdog).every((block) => {
-      const state = execution.run.blocks.find((item) => item.blockId === block.id);
-      if (!state) return false;
-      if (["succeeded", "skipped", "cancelled"].includes(state.status)) return true;
-      if (state.status !== "failed") return false;
-      const reason = state.failureReason ?? classifyWorkflowFailure(state.error ?? "");
-      return !isRetryableFailure(reason)
-        || (state.recoveryAttempts ?? 0) >= this.policy(execution.run).maxAttempts
-        || retryBudgetExhausted(state.retryStartedAt, this.policy(execution.run))
-        || (reason === "transient_transport" && state.retryAt === undefined);
-    });
+    return execution.blocks
+      .filter((block) => !block.watchdog)
+      .every((block) => {
+        const state = execution.run.blocks.find((item) => item.blockId === block.id);
+        if (!state) return false;
+        if (["succeeded", "skipped", "cancelled"].includes(state.status)) return true;
+        if (state.status !== "failed") return false;
+        const reason = state.failureReason ?? classifyWorkflowFailure(state.error ?? "");
+        return (
+          !isRetryableFailure(reason) ||
+          (state.recoveryAttempts ?? 0) >= this.policy(execution.run).maxAttempts ||
+          retryBudgetExhausted(state.retryStartedAt, this.policy(execution.run)) ||
+          (reason === "transient_transport" && state.retryAt === undefined)
+        );
+      });
   }
 
   private assertActive(runId: string): void {
     if (!this.isActive(runId)) throw new Cancelled();
     const run = this.executions.get(runId)?.run;
     const duration = run?.definition?.settings?.maxRunDurationMs;
-    if (run?.startedAt && duration !== undefined && Date.now() - Date.parse(run.startedAt) >= duration) throw new RunDurationExceeded(duration);
+    if (run?.startedAt && duration !== undefined && Date.now() - Date.parse(run.startedAt) >= duration)
+      throw new RunDurationExceeded(duration);
   }
 
-  private policy(run: HarnessRun): ResolvedRecoveryPolicy { return { ...this.recovery, maxAttempts: run.definition?.settings?.retry?.maxAttempts ?? this.recovery.maxAttempts }; }
+  private policy(run: HarnessRun): ResolvedRecoveryPolicy {
+    return { ...this.recovery, maxAttempts: run.definition?.settings?.retry?.maxAttempts ?? this.recovery.maxAttempts };
+  }
 
-  private output(run: HarnessRun, value: string): string { return value.slice(-(run.definition?.settings?.outputLimitChars ?? 200_000)); }
+  private output(run: HarnessRun, value: string): string {
+    return value.slice(-(run.definition?.settings?.outputLimitChars ?? 200_000));
+  }
 
   private chargeContext(run: HarnessRun, state: HarnessRun["blocks"][number], chars: number): void {
     const limit = run.definition?.settings?.contextBudgetChars ?? 400_000;
     const used = (state.deliveredContextChars ?? 0) + chars;
     state.deliveredContextChars = used;
-    if (used >= limit) throw new CoreError("INVALID_REQUEST", `Block '${state.blockId}' reached its workflow context budget of ${limit.toLocaleString()} characters. Start a new workflow run with a concise handoff, or increase settings.contextBudgetChars. Provider history has been preserved.`);
+    if (used >= limit)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Block '${state.blockId}' reached its workflow context budget of ${limit.toLocaleString()} characters. Start a new workflow run with a concise handoff, or increase settings.contextBudgetChars. Provider history has been preserved.`,
+      );
   }
 
   private assertTokenBudget(run: HarnessRun): void {
     const budget = run.definition?.settings?.tokenBudget;
     const used = run.blocks.reduce((total, block) => total + (block.tokens?.total ?? 0), 0);
-    if (budget !== undefined && used > budget) throw new CoreError("INVALID_REQUEST", `Workflow token budget of ${budget.toLocaleString()} was exceeded (${used.toLocaleString()} used)`);
+    if (budget !== undefined && used > budget)
+      throw new CoreError(
+        "INVALID_REQUEST",
+        `Workflow token budget of ${budget.toLocaleString()} was exceeded (${used.toLocaleString()} used)`,
+      );
   }
 }
 
-function blockReadiness(blockId: string, blocks: HarnessBlock[], edges: HarnessEdge[], states: HarnessRun["blocks"]): "ready" | "wait" | "skip" {
-  const incoming = edges.filter((edge) => edge.to === blockId && !edge.loop); if (!incoming.length) return "ready";
-  const resolved = incoming.map((edge) => {
-    const source = blocks.find((block) => block.id === edge.from)!; const state = states.find((item) => item.blockId === edge.from)!;
-    if (state.status === "skipped") return "inactive";
-    if (state.status !== "succeeded") return "pending";
-    return source.routing === "ai" && state.selectedRoute !== edge.label ? "inactive" : "active";
-  });
-  const join = blocks.find((block) => block.id === blockId)?.join ?? "all";
-  if (join === "any" && resolved.includes("active")) return "ready";
-  if (resolved.includes("pending")) return "wait";
-  if (!resolved.includes("active")) return "skip";
-  return "ready";
-}
+export type { HarnessRecoveryInspector } from "./harness/types.js";
 
-export function connectedInput(blockId: string, harnessInput: string, blocks: HarnessBlock[], edges: HarnessEdge[], outputs: ReadonlyMap<string, string>): string {
-  const predecessors = edges.filter((edge) => edge.to === blockId && !edge.loop).map((edge) => edge.from);
-  if (!predecessors.length) return harnessInput;
-  const available = predecessors.map((id) => ({ id, output: outputs.get(id) })).filter((item): item is { id: string; output: string } => item.output !== undefined);
-  if (available.length === 1) return available[0]!.output;
-  const target = blocks.find((block) => block.id === blockId);
-  const bounded = available.length > 1 && ["ai", "chatbox"].includes(target?.type ?? "") && !target?.inputSchema;
-  const share = Math.max(0, Math.floor(WORKFLOW_CONTEXT_CHARS / Math.max(1, available.length)) - 100);
-  return available.map(({ id, output }) => {
-    const label = blocks.find((block) => block.id === id)?.label ?? id;
-    return `## ${bounded ? label.slice(0, 100) : label}\n${bounded ? contextPreview(output, share) : output}`;
-  }).join("\n\n");
-}
+export { connectedInput, isolatedBlockDefinition } from "./harness/context.js";
 
-class ExecutionScheduler {
-  private active = 0;
-  private readonly waiters: Array<() => void> = [];
-  private readonly serial = new Map<string, Promise<void>>();
-  private readonly owners = new Map<string, { permit: boolean }>();
-
-  constructor(private readonly limit: number, private readonly assertActive: () => void, private readonly schedulingReady: () => Promise<void> = async () => {}) {}
-
-  async turn<T>(blockId: string, work: () => Promise<T>): Promise<T> {
-    const previous = this.serial.get(blockId) ?? Promise.resolve();
-    let unlock!: () => void;
-    const gate = new Promise<void>((resolve) => { unlock = resolve; });
-    const tail = previous.catch(() => undefined).then(() => gate);
-    this.serial.set(blockId, tail);
-    const owner = { permit: false };
-    try {
-      await previous.catch(() => undefined);
-      this.assertActive(); await this.schedulingReady(); await this.acquire();
-      owner.permit = true; this.owners.set(blockId, owner);
-      this.assertActive(); await this.schedulingReady();
-      return await work();
-    } finally {
-      if (owner.permit) this.release();
-      if (this.owners.get(blockId) === owner) this.owners.delete(blockId);
-      unlock();
-      if (this.serial.get(blockId) === tail) this.serial.delete(blockId);
-    }
-  }
-
-  async suspend<T>(blockId: string, work: () => Promise<T>): Promise<T> {
-    const owner = this.owners.get(blockId);
-    if (!owner?.permit) return work();
-    owner.permit = false;
-    this.release();
-    try { return await work(); }
-    finally {
-      // A timed-out caller may have finished its turn while the child continued.
-      if (this.owners.get(blockId) === owner) {
-        await this.acquire();
-        if (this.owners.get(blockId) === owner) owner.permit = true;
-        else this.release();
-        this.assertActive();
-      }
-    }
-  }
-
-  async nestedTurn<T>(blockId: string, work: () => Promise<T>): Promise<T> {
-    const suspended = this.owners.get(blockId);
-    if (!suspended || suspended.permit) return this.turn(blockId, work);
-    await this.acquire();
-    const owner = { permit: true };
-    this.owners.set(blockId, owner);
-    try {
-      this.assertActive();
-      await this.schedulingReady();
-      return await work();
-    } finally {
-      if (owner.permit) this.release();
-      if (this.owners.get(blockId) === owner) this.owners.set(blockId, suspended);
-    }
-  }
-
-  async control<T>(blockId: string, work: () => Promise<T>): Promise<T> {
-    const owner = this.owners.get(blockId);
-    if (!owner) return this.turn(blockId, work);
-    if (!owner.permit) return this.nestedTurn(blockId, work);
-    this.assertActive();
-    return work();
-  }
-
-  private async acquire(): Promise<void> {
-    if (this.active < this.limit) { this.active += 1; return; }
-    await new Promise<void>((resolve) => this.waiters.push(resolve));
-  }
-
-  private release(): void {
-    const waiter = this.waiters.shift();
-    if (waiter) waiter();
-    else this.active -= 1;
-  }
-}
-
-class Cancelled extends Error {}
-class RunDurationExceeded extends Error { constructor(duration: number) { super(`Workflow run duration of ${Math.round(duration / 60_000)} minute(s) was exceeded`); } }
-class BlockedCorrection extends Error {}
-
-function blocksById(blocks: HarnessBlock[], id: string): HarnessBlock {
-  const block = blocks.find((item) => item.id === id);
-  if (!block) throw new CoreError("INVALID_REQUEST", `Correction owner block '${id}' no longer exists`);
-  return block;
-}
-
-function parseReviewReport(output: string, reviewBlockId: string, expectedRevision: string, defaultOwner: string): { revision: string; findings: HarnessReviewFinding[] } {
-  let value: unknown;
-  try { value = JSON.parse(output); }
-  catch { throw new HarnessSchemaError(`Review '${reviewBlockId}' must return JSON: {"revision":"${expectedRevision}","findings":[{"id":"...","message":"..."}]}`); }
-  if (!value || typeof value !== "object" || Array.isArray(value)) throw new HarnessSchemaError(`Review '${reviewBlockId}' must return an object with revision and findings`);
-  const report = value as Record<string, unknown>;
-  if (report.revision !== expectedRevision) throw new HarnessSchemaError(`Review '${reviewBlockId}' findings must be bound to the exact reviewed revision '${expectedRevision}'`);
-  if (!Array.isArray(report.findings)) throw new HarnessSchemaError(`Review '${reviewBlockId}' must return a findings array`);
-  const ids = new Set<string>(); const findings: HarnessReviewFinding[] = report.findings.map((item, index) => {
-    if (!item || typeof item !== "object" || Array.isArray(item)) throw new HarnessSchemaError(`Review finding ${index + 1} must be an object`);
-    const finding = item as Record<string, unknown>; const id = finding.id; const message = finding.message; const ownerBlockId = finding.ownerBlockId ?? defaultOwner;
-    if (typeof id !== "string" || !id.trim() || ids.has(id) || typeof message !== "string" || !message.trim() || typeof ownerBlockId !== "string" || !ownerBlockId.trim()) throw new HarnessSchemaError(`Review finding ${index + 1} needs a unique id, message, and owner block ID`);
-    ids.add(id); return { id, message, ownerBlockId, revision: expectedRevision };
-  });
-  if (findings.some((finding) => finding.ownerBlockId !== defaultOwner)) throw new HarnessSchemaError(`Review '${reviewBlockId}' returned a finding for an owner outside its configured correction block`);
-  return { revision: expectedRevision, findings };
-}
-
-function parseCorrectionRevision(output: string): string {
-  let value: unknown;
-  try { value = JSON.parse(output); }
-  catch { throw new HarnessSchemaError("Correction response must be JSON: {\"revision\":\"<new exact commit SHA>\"}"); }
-  const revision = value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>).revision : undefined;
-  if (typeof revision !== "string" || !/^[0-9a-f]{7,64}$/i.test(revision)) throw new HarnessSchemaError("Correction response must name a new exact commit SHA");
-  return revision;
-}
-
-function validFeature(feature: { id: string; prompt: string; prerequisites?: string[] }): boolean {
-  return typeof feature.id === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(feature.id) && typeof feature.prompt === "string" && Boolean(feature.prompt.trim()) && Array.isArray(feature.prerequisites ?? []) && (feature.prerequisites ?? []).every((dependency) => typeof dependency === "string" && /^[A-Za-z0-9_-]{1,120}$/.test(dependency));
-}
-
-function hasFeatureCycle(features: Array<{ id: string; prerequisites?: string[] }>): boolean {
-  const byId = new Map(features.map((feature) => [feature.id, feature])); const visiting = new Set<string>(); const visited = new Set<string>();
-  const visit = (id: string): boolean => { if (visiting.has(id)) return true; if (visited.has(id)) return false; visiting.add(id); const cycle = (byId.get(id)?.prerequisites ?? []).some(visit); visiting.delete(id); visited.add(id); return cycle; };
-  return features.some((feature) => visit(feature.id));
-}
-
-function readyFeatures(features: HarnessFeature[]): HarnessFeature[] {
-  return features.filter((feature) => feature.status === "planned" && feature.prerequisites.every((dependency) => features.find((item) => item.id === dependency)?.status === "completed")).map((feature) => structuredClone(feature));
-}
-
-const activeStatuses = new Set(["queued", "running", "waiting", "awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"]);
-const pauseStatuses = new Set(["awaiting_permission", "awaiting_user_input", "waiting_timer", "retry_scheduled"]);
-const providerActiveStatuses = new Set(["running", "awaiting_permission", "awaiting_user_input", "waiting_timer"]);
-function isActiveStatus(status: string): boolean { return activeStatuses.has(status); }
-
-export function isRecoverableWorkflowError(message: string): boolean {
-  return isRetryableFailure(classifyWorkflowFailure(message));
-}
-
-export function classifyWorkflowFailure(error: unknown): HarnessFailureReason {
-  if (error instanceof Cancelled) return "cancelled";
-  if (error instanceof HarnessSchemaError) return "schema_validation";
-  return workflowFailure(error).kind;
-}
-
-function workflowFailure(error: unknown): AiFailure {
-  if (error instanceof Cancelled) return { kind: "cancelled", message: error.message || "Workflow cancelled" };
-  if (error instanceof HarnessSchemaError) return { kind: "permanent", message: error.message };
-  if (error instanceof AiProviderError) return (error as AiProviderError).failure;
-  if (isAiFailure(error)) return error;
-  return normalizeAiFailure(error);
-}
-
-function isAiFailure(value: unknown): value is AiFailure {
-  return Boolean(value && typeof value === "object" && "kind" in value && "message" in value);
-}
-
-function isRetryableFailure(reason: HarnessFailureReason): boolean { return reason === "quota_exhausted" || reason === "transient_transport"; }
-function retryDue(value?: string): boolean { return value === undefined || Date.parse(value) <= Date.now(); }
-function nextRetryAt(reason: HarnessFailureReason, attempts: number, policy: ResolvedRecoveryPolicy, startedAt?: string, providerRetryAfter?: string): string | undefined {
-  if (providerRetryAfter && Date.parse(providerRetryAfter) > Date.now()) return withinRetryBudget(providerRetryAfter, startedAt, policy) ? providerRetryAfter : undefined;
-  if (reason !== "transient_transport") return undefined;
-  const base = policy.transportBackoffMs * 2 ** attempts;
-  const jitter = base * policy.jitterRatio * (policy.random() * 2 - 1);
-  const value = new Date(Date.now() + Math.max(0, base + jitter)).toISOString();
-  return withinRetryBudget(value, startedAt, policy) ? value : undefined;
-}
-
-function retryBudgetExhausted(startedAt: string | undefined, policy: ResolvedRecoveryPolicy): boolean {
-  return startedAt !== undefined && Date.now() - Date.parse(startedAt) >= policy.maxElapsedMs;
-}
-
-function withinRetryBudget(value: string, startedAt: string | undefined, policy: ResolvedRecoveryPolicy): boolean {
-  return startedAt === undefined || Date.parse(value) - Date.parse(startedAt) <= policy.maxElapsedMs;
-}
-
-function operationId(runId: string, idempotencyKey: string): string { return crypto.createHash("sha256").update(`${runId}\0${idempotencyKey}`).digest("hex").slice(0, 32); }
-
-function journalValue(value: unknown): unknown {
-  const serialized = JSON.stringify(value);
-  if (serialized === undefined) return undefined;
-  if (serialized.length <= 50_000) return JSON.parse(serialized) as unknown;
-  return { truncated: true, bytes: Buffer.byteLength(serialized), preview: serialized.slice(0, 49_000) };
-}
-
-export function nextWatchdogReset(usage?: AiUsage, now = Date.now()): string {
-  const windows = [usage?.accountQuota?.primary, usage?.accountQuota?.secondary].filter((window) => window !== undefined);
-  const exhausted = windows.filter((window) => window.remainingPercent <= 0 || window.usedPercent >= 100);
-  const candidates = (exhausted.length ? exhausted : windows).map((window) => Date.parse(window.resetsAt ?? "")).filter((time) => Number.isFinite(time) && time > now);
-  if (exhausted.length && candidates.length !== exhausted.length) return new Date(now + 300_000).toISOString();
-  const topLevel = Date.parse(usage?.resetsAt ?? "");
-  if (!windows.length && topLevel > now) candidates.push(topLevel);
-  return new Date(candidates.length ? (exhausted.length ? Math.max(...candidates) : Math.min(...candidates)) : now + 300_000).toISOString();
-}
-
-function chatResponse(session: AiSession, turnUserId?: string | null): string {
-  const lastUser = turnUserId === undefined ? session.messages.map((message) => message.role).lastIndexOf("user") : session.messages.findIndex((message) => message.id === turnUserId);
-  return session.messages.slice(lastUser + 1).filter((message) => message.role === "assistant").map((message) => message.text).join("\n\n").slice(-200_000);
-}
-
-/** Test a draft block with its connected tools, without advancing follow/path steps. */
-export function isolatedBlockDefinition(definition: HarnessDefinition, blockId: string): HarnessDefinition {
-  if (!definition.blocks.some((block) => block.id === blockId)) throw new CoreError("INVALID_REQUEST", "Selected workflow block does not exist");
-  const ids = new Set([blockId]);
-  const tools = definition.edges.filter((edge) => edge.type === "use" || definition.blocks.find((block) => block.id === edge.from)?.type === "chatbox");
-  for (let size = -1; size !== ids.size;) {
-    size = ids.size;
-    for (const edge of tools) if (ids.has(edge.from)) ids.add(edge.to);
-  }
-  return { ...structuredClone(definition), blocks: structuredClone(definition.blocks.filter((block) => ids.has(block.id))), edges: tools.filter((edge) => ids.has(edge.from) && ids.has(edge.to)).map((edge) => ({ ...edge, type: "use" })) };
-}
-
-/** Skill catalogues expose when to use a skill; its instructions load on demand. */
-function workflowBlockDescription(block: HarnessBlock | undefined): string | undefined {
-  const description = block?.type === "meeting" ? 'Shared meeting chat for this workflow run. Use action publish with message (or input) to post; tail with lines (1–50) to read recent messages; diff to read new messages since your own last read; wait to sleep until unread messages arrive (timeout_seconds defaults to the connection timeout). Optional after selects a sequence. Wait returns messages with status updated or timed_out. Read pages while hasMore is true. Messages include author and sequence; each participant has an independent durable cursor. Keeps the latest 1000 messages and reports historyTruncated if older unread messages were removed. Publishing does not invoke other agents. Use status to list connected peers and their online/block status. Use shake with peer_block_id and optional message to notify an active AI peer or start an idle peer turn; only peers connected to this room can be shaken.' : block?.type === "skill" ? block.description : block?.type === "terminal_control" ? 'Only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. Control terminals in this task workspace. Pass JSON in input: {"action":"list"}, {"action":"open","name":"Server"}, {"action":"open_and_run","name":"Server","command":"npm run dev"}, {"action":"write","terminal_id":"ID","data":"command\\n"}, or {"action":"read","terminal_id":"ID","lines":100}. open_and_run appends a newline automatically and returns the terminalId immediately. Writes are raw input; include a newline to execute commands.' : block?.type === "task_controls" ? "Create tasks, check task and AI status, send prompts with the designed AI settings, set tasks active or finished, set commit-message drafts, and rewrite the latest unpushed commit message." : block?.description ?? block?.prompt;
-  return description && description.length > 512 ? `${description.slice(0, 512)}… (preview; use the block to load its content)` : description;
-}
-
-function taskControlsMetadata(block: HarnessBlock | undefined, defaultProvider: string) {
-  return block?.type === "task_controls" ? { actions: ["create", "create_and_start", "status", "prompt", "set_status", "set_commit_message", "update_commit_message"], provider: block.provider ?? defaultProvider, model: block.model, reasoning: block.reasoning } : undefined;
-}
+export { isRecoverableWorkflowError, classifyWorkflowFailure, nextWatchdogReset } from "./harness/recovery.js";

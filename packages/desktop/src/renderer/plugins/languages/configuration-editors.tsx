@@ -4,8 +4,16 @@ import type { CoreClient } from "../../client";
 import { JavaConfigurationDialog } from "./java";
 import { NpmConfigurationDialog } from "./node/NpmConfigurationDialog";
 
-type Props = { language?: string; client: CoreClient; running: boolean; onClose(): void; onSaved(options: LanguageExtra): void };
+type Props = {
+  language?: string;
+  client: CoreClient;
+  running: boolean;
+  onClose(): void;
+  onSaved(options: LanguageExtra): void;
+};
 export const projectConfigurationEditors: Record<string, ComponentType<Props>> = {
   node: NpmConfigurationDialog,
-  java: ({ onSaved, ...props }) => <JavaConfigurationDialog {...props} onSaved={(options) => onSaved({ ...options })} />
+  java: ({ onSaved, ...props }) => (
+    <JavaConfigurationDialog {...props} onSaved={(options) => onSaved({ ...options })} />
+  ),
 };

@@ -18,7 +18,12 @@ it("enters focus mode and restores the workspace using the same button or Escape
   expect(screen.getByRole("button", { name: "Enter focus mode" }).getAttribute("aria-pressed")).toBe("false");
 });
 it("leaves focus mode active when Escape belongs to a dialog", () => {
-  render(<><Workspace /><div role="dialog">Settings</div></>);
+  render(
+    <>
+      <Workspace />
+      <div role="dialog">Settings</div>
+    </>,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Enter focus mode" }));
   fireEvent.keyDown(window, { key: "Escape" });
   expect(screen.getByRole("button", { name: "Exit focus mode" })).toBeTruthy();

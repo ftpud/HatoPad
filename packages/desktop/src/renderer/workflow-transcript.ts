@@ -8,7 +8,10 @@ export function useWorkflowTranscript(ref: RefObject<HTMLDivElement>, scope: str
     following.current = true;
     if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
   }, [ref]);
-  useLayoutEffect(() => { wasVisible.current = false; following.current = true; }, [scope]);
+  useLayoutEffect(() => {
+    wasVisible.current = false;
+    following.current = true;
+  }, [scope]);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -27,11 +30,16 @@ export function useWorkflowTranscript(ref: RefObject<HTMLDivElement>, scope: str
     const observer = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(adjust);
     observer?.observe(element);
     if (element.lastElementChild) observer?.observe(element.lastElementChild);
-    return () => { disposed = true; cancelAnimationFrame(frame); observer?.disconnect(); };
+    return () => {
+      disposed = true;
+      cancelAnimationFrame(frame);
+      observer?.disconnect();
+    };
   }, [ref, scope, revision]);
   const onScroll = useCallback(() => {
     const element = ref.current;
-    if (element && element.clientHeight > 0) following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
+    if (element && element.clientHeight > 0)
+      following.current = element.scrollHeight - element.scrollTop - element.clientHeight < 60;
   }, [ref]);
   return { onScroll, followLatest };
 }

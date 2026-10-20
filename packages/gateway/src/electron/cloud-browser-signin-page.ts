@@ -2,10 +2,30 @@ import { createHash } from "node:crypto";
 
 export type BrowserSignInPageState = "success" | "cancelled" | "rejected" | "failed";
 const content = {
-  success: { title: "Signed in", message: "Your HatoHub account is now connected to Gateway on this device.", note: "You can close this tab and return to Gateway.", status: "Connected to HatoHub" },
-  cancelled: { title: "Sign-in cancelled", message: "Your HatoHub account has not been connected to Gateway.", note: "Return to Gateway whenever you're ready to sign in.", status: "Connection cancelled" },
-  rejected: { title: "Sign-in not accepted", message: "This sign-in response was not accepted.", note: "Return to Gateway and start sign-in again.", status: "Connection not confirmed" },
-  failed: { title: "Couldn't finish sign-in", message: "Gateway could not confirm your HatoHub connection.", note: "Return to Gateway and start sign-in again.", status: "Connection not confirmed" },
+  success: {
+    title: "Signed in",
+    message: "Your HatoHub account is now connected to Gateway on this device.",
+    note: "You can close this tab and return to Gateway.",
+    status: "Connected to HatoHub",
+  },
+  cancelled: {
+    title: "Sign-in cancelled",
+    message: "Your HatoHub account has not been connected to Gateway.",
+    note: "Return to Gateway whenever you're ready to sign in.",
+    status: "Connection cancelled",
+  },
+  rejected: {
+    title: "Sign-in not accepted",
+    message: "This sign-in response was not accepted.",
+    note: "Return to Gateway and start sign-in again.",
+    status: "Connection not confirmed",
+  },
+  failed: {
+    title: "Couldn't finish sign-in",
+    message: "Gateway could not confirm your HatoHub connection.",
+    note: "Return to Gateway and start sign-in again.",
+    status: "Connection not confirmed",
+  },
 } as const;
 
 // Standalone browser document: no renderer runtime, network assets or scripts.
@@ -42,7 +62,12 @@ export const browserSignInPagePolicy = `default-src 'none'; style-src 'sha256-${
 
 export function browserSignInPage(state: BrowserSignInPageState): string {
   const copy = content[state];
-  const glyph = state === "success" ? '<path d="m5 12 4 4L19 6"/>' : state === "cancelled" ? '<path d="m6 6 12 12M18 6 6 18"/>' : '<path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="10"/>';
+  const glyph =
+    state === "success"
+      ? '<path d="m5 12 4 4L19 6"/>'
+      : state === "cancelled"
+        ? '<path d="m6 6 12 12M18 6 6 18"/>'
+        : '<path d="M12 8v5M12 17h.01"/><circle cx="12" cy="12" r="10"/>';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>${copy.title} · HatoPad Gateway</title><style>${style}</style></head>
 <body><main><section class="panel ${state}" aria-labelledby="signin-title">
 <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24">${glyph}</svg></div>

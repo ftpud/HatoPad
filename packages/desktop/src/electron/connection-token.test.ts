@@ -31,15 +31,23 @@ describe("connectionToken launch binding", () => {
   it("returns an explicit token when the selected target matches the launch target", async () => {
     process.env.HATOPAD_SESSION_TOKEN = "launch-secret";
 
-    await expect(connectionToken("core.example", 4312, { host: "CORE.EXAMPLE", port: "4312" })).resolves.toBe("launch-secret");
+    await expect(connectionToken("core.example", 4312, { host: "CORE.EXAMPLE", port: "4312" })).resolves.toBe(
+      "launch-secret",
+    );
   });
 
   it("rejects credentials for a different host or port without returning them", async () => {
     process.env.HATOPAD_SESSION_TOKEN = "launch-secret";
 
-    await expect(connectionToken("attacker.example", 4312, { host: "core.example", port: "4312" })).rejects.toThrow("does not match the launch target");
-    await expect(connectionToken("core.example", 4313, { host: "core.example", port: "4312" })).rejects.toThrow("does not match the launch target");
-    await expect(connectionToken("127.0.0.2", 4312, { host: "127.0.0.1", port: "4312" })).rejects.toThrow("does not match the launch target");
+    await expect(connectionToken("attacker.example", 4312, { host: "core.example", port: "4312" })).rejects.toThrow(
+      "does not match the launch target",
+    );
+    await expect(connectionToken("core.example", 4313, { host: "core.example", port: "4312" })).rejects.toThrow(
+      "does not match the launch target",
+    );
+    await expect(connectionToken("127.0.0.2", 4312, { host: "127.0.0.1", port: "4312" })).rejects.toThrow(
+      "does not match the launch target",
+    );
   });
 
   it("binds an explicitly configured token file to the launch target", async () => {
@@ -47,23 +55,35 @@ describe("connectionToken launch binding", () => {
     await writeFile(tokenFile, "file-secret\n", "utf8");
     process.env.HATOPAD_SESSION_TOKEN_FILE = tokenFile;
 
-    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "4312" })).resolves.toBe("file-secret");
-    await expect(connectionToken("other.example", 4312, { host: "core.example", port: "4312" })).rejects.toThrow("does not match the launch target");
+    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "4312" })).resolves.toBe(
+      "file-secret",
+    );
+    await expect(connectionToken("other.example", 4312, { host: "core.example", port: "4312" })).rejects.toThrow(
+      "does not match the launch target",
+    );
   });
 
   it("rejects malformed launch targets", async () => {
     process.env.HATOPAD_SESSION_TOKEN = "launch-secret";
 
-    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "65536" })).rejects.toThrow("Invalid Core launch target");
-    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "not-a-port" })).rejects.toThrow("Invalid Core launch target");
+    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "65536" })).rejects.toThrow(
+      "Invalid Core launch target",
+    );
+    await expect(connectionToken("core.example", 4312, { host: "core.example", port: "not-a-port" })).rejects.toThrow(
+      "Invalid Core launch target",
+    );
   });
 
   it("keeps direct-launch credentials working when no complete launch target is supplied", async () => {
     process.env.HATOPAD_SESSION_TOKEN = "direct-launch-secret";
 
     await expect(connectionToken("direct.example", 4312)).resolves.toBe("direct-launch-secret");
-    await expect(connectionToken("direct.example", 4312, { host: "direct.example" })).resolves.toBe("direct-launch-secret");
-    await expect(connectionToken("other.example", 4312, { host: "direct.example" })).resolves.toBe("direct-launch-secret");
+    await expect(connectionToken("direct.example", 4312, { host: "direct.example" })).resolves.toBe(
+      "direct-launch-secret",
+    );
+    await expect(connectionToken("other.example", 4312, { host: "direct.example" })).resolves.toBe(
+      "direct-launch-secret",
+    );
   });
 
   it("returns undefined for a remote target without an explicit credential", async () => {

@@ -17,8 +17,23 @@ it("refreshes only the requested run without transferring historical output", as
   await promisify(execFile)("git", ["-C", workspace, "init", "-q"]);
   vi.stubEnv("HATOPAD_STATE_DIR", path.join(directory, "state"));
   const store = new HarnessStore(workspace);
-  const current: HarnessRun = { id: "current", harnessId: "flow", harnessVersion: 1, input: "start", status: "cancelled", createdAt: new Date().toISOString(), workspace, binding: { rootWorkspace: workspace, workspace }, blocks: [] };
-  await store.saveRun({ ...current, id: "history", status: "succeeded", blocks: [{ blockId: "old", status: "succeeded", output: "x".repeat(500_000) }] });
+  const current: HarnessRun = {
+    id: "current",
+    harnessId: "flow",
+    harnessVersion: 1,
+    input: "start",
+    status: "cancelled",
+    createdAt: new Date().toISOString(),
+    workspace,
+    binding: { rootWorkspace: workspace, workspace },
+    blocks: [],
+  };
+  await store.saveRun({
+    ...current,
+    id: "history",
+    status: "succeeded",
+    blocks: [{ blockId: "old", status: "succeeded", output: "x".repeat(500_000) }],
+  });
   await store.saveRun(current);
   let server: WebSocketServer | undefined;
   let socket: WebSocket | undefined;
@@ -29,7 +44,10 @@ it("refreshes only the requested run without transferring historical output", as
     if (!address || typeof address === "string") throw new Error("No port");
     socket = new WebSocket(`ws://127.0.0.1:${address.port}`);
     const responses = new Map<string, Response>();
-    socket.on("message", (data) => { const value = JSON.parse(data.toString()); if (value.id) responses.set(value.id, value); });
+    socket.on("message", (data) => {
+      const value = JSON.parse(data.toString());
+      if (value.id) responses.set(value.id, value);
+    });
     await once(socket, "open");
     let sequence = 0;
     let rootId: string | undefined;
@@ -48,7 +66,9 @@ it("refreshes only the requested run without transferring historical output", as
     expect(summaries.runs).toHaveLength(2);
     expect(summaries.runs.every((run) => run.summary === true)).toBe(true);
     expect(JSON.stringify(summaries).length).toBeLessThan(1500);
-    expect(summaries.runs.find((run) => run.id === "history")?.blocks).toEqual([{ blockId: "old", status: "succeeded" }]);
+    expect(summaries.runs.find((run) => run.id === "history")?.blocks).toEqual([
+      { blockId: "old", status: "succeeded" },
+    ]);
     const result = await request("harnesses.runs", { runId: "current" });
     expect(result.runs).toEqual([current]);
     expect((await request("harnesses.runs", { runId: "history" })).runs[0]?.blocks[0]?.output?.length).toBe(500_000);
@@ -57,7 +77,10 @@ it("refreshes only the requested run without transferring historical output", as
     expect((await request("harnesses.runs", { runId: "current", harnessId: "other" })).runs).toEqual([]);
   } finally {
     socket?.terminate();
-    if (server) { for (const peer of server.clients) peer.terminate(); await new Promise<void>((resolve) => server!.close(() => resolve())); }
+    if (server) {
+      for (const peer of server.clients) peer.terminate();
+      await new Promise<void>((resolve) => server!.close(() => resolve()));
+    }
     vi.unstubAllEnvs();
     await rm(directory, { recursive: true, force: true });
   }

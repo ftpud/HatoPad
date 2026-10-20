@@ -4,14 +4,50 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProblemsPanel } from "./ProblemsPanel";
 
 const diagnostics = [
-  { rootId: "root-a", path: "/workspace/src/App.java", line: 4, column: 2, severity: "error", message: "Missing symbol", source: "javac" },
-  { rootId: "root-a", path: "/workspace/test/AppTest.java", line: 9, column: 1, severity: "warning", message: "Unused import", source: "jdt" },
-  { rootId: "root-a", path: "/workspace/src/Other.java", line: 12, column: 3, severity: "warning", message: "Unchecked conversion" }
+  {
+    rootId: "root-a",
+    path: "/workspace/src/App.java",
+    line: 4,
+    column: 2,
+    severity: "error",
+    message: "Missing symbol",
+    source: "javac",
+  },
+  {
+    rootId: "root-a",
+    path: "/workspace/test/AppTest.java",
+    line: 9,
+    column: 1,
+    severity: "warning",
+    message: "Unused import",
+    source: "jdt",
+  },
+  {
+    rootId: "root-a",
+    path: "/workspace/src/Other.java",
+    line: 12,
+    column: 3,
+    severity: "warning",
+    message: "Unchecked conversion",
+  },
 ] as Array<RootedJavaDiagnostic & { source?: string }>;
 
 function setup(onOpen = vi.fn()) {
-  render(<ProblemsPanel height={220} diagnostics={diagnostics} checking={false} onRefresh={vi.fn()} onOpen={onOpen} onResizeStart={vi.fn()} />);
-  return { onOpen, list: screen.getByRole("listbox", { name: "Problems" }), filter: screen.getByRole("textbox", { name: "Filter problems" }) };
+  render(
+    <ProblemsPanel
+      height={220}
+      diagnostics={diagnostics}
+      checking={false}
+      onRefresh={vi.fn()}
+      onOpen={onOpen}
+      onResizeStart={vi.fn()}
+    />,
+  );
+  return {
+    onOpen,
+    list: screen.getByRole("listbox", { name: "Problems" }),
+    filter: screen.getByRole("textbox", { name: "Filter problems" }),
+  };
 }
 
 afterEach(cleanup);
@@ -66,10 +102,28 @@ describe("ProblemsPanel keyboard navigation", () => {
 });
 
 it("opens a diagnostic from a non-Java language without dropping its routing identity", () => {
-  const diagnostic = { rootId: "python-root", language: "python", path: "app.py", line: 2, column: 1, severity: "error" as const, message: "Unknown name" };
+  const diagnostic = {
+    rootId: "python-root",
+    language: "python",
+    path: "app.py",
+    line: 2,
+    column: 1,
+    severity: "error" as const,
+    message: "Unknown name",
+  };
   const onOpen = vi.fn();
   const onRefresh = vi.fn();
-  render(<ProblemsPanel language="python" height={220} diagnostics={[diagnostic]} checking={false} onRefresh={onRefresh} onOpen={onOpen} onResizeStart={vi.fn()} />);
+  render(
+    <ProblemsPanel
+      language="python"
+      height={220}
+      diagnostics={[diagnostic]}
+      checking={false}
+      onRefresh={onRefresh}
+      onOpen={onOpen}
+      onResizeStart={vi.fn()}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Check project" }));
   expect(onRefresh).toHaveBeenCalledOnce();
   fireEvent.keyDown(screen.getByRole("listbox", { name: "Problems" }), { key: "Enter" });

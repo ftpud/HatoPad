@@ -1,0 +1,804 @@
+/* Text actions must override the surrounding titlebar's fixed icon-button width. */
+.settings-menu button {
+  width: auto;
+  max-width: 100%;
+  min-width: max-content;
+  height: auto;
+  min-height: 27px;
+  flex-shrink: 0;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+.settings-menu .settings-row {
+  flex-wrap: wrap;
+}
+.settings-menu .settings-choice > div:first-child {
+  flex: 1 1 150px;
+}
+.settings-menu .settings-choice small {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.settings-menu .settings-control {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.workflow-error {
+  flex: 0 0 auto;
+  min-width: 0;
+  width: 100%;
+  margin: 6px 0;
+  color: var(--danger);
+  font-size: 11px;
+  box-sizing: border-box;
+}
+.workflow-error > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  min-width: 0;
+  padding: 5px 2px;
+}
+.workflow-error > summary::before {
+  content: "›";
+  flex: 0 0 auto;
+}
+.workflow-error[open] > summary::before {
+  transform: rotate(90deg);
+}
+.workflow-error > summary > svg {
+  flex-shrink: 0;
+}
+.workflow-error > summary > span {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workflow-error > pre {
+  margin: 4px 0;
+  padding: 9px;
+  max-height: min(180px, 25vh);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: var(--danger-soft);
+  border: 1px solid var(--danger-border);
+  border-radius: 5px;
+  font: inherit;
+  line-height: 1.5;
+}
+.workflow-error summary:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+.storage-current {
+  background: var(--success-soft);
+}
+.storage-obsolete {
+  background: var(--purple-soft);
+}
+.storage-unregistered {
+  background: var(--warning-soft);
+}
+.storage-ack {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 14px 0;
+}
+.storage-ack input {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.storage-panel button {
+  width: auto;
+  max-width: 100%;
+  height: auto;
+  white-space: normal;
+}
+.storage-details li {
+  margin: 6px 0;
+}
+
+.workflow-chat-settings {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--workflow-border);
+  font-size: 12px;
+}
+.workflow-chat-settings > label {
+  display: grid;
+  gap: 5px;
+}
+.workflow-chat-settings > .harness-autopilot {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.workflow-chat-settings select {
+  width: 100%;
+  min-width: 0;
+}
+.workflow-chat-settings > small {
+  color: var(--workflow-muted);
+}
+.workflow-chat-settings input[role="switch"] {
+  appearance: none;
+  position: relative;
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--workflow-border);
+  border-radius: 10px;
+  background: var(--workflow-muted);
+  cursor: pointer;
+}
+.workflow-chat-settings input[role="switch"]::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--surface-raised);
+  transition: transform 0.15s;
+}
+.workflow-chat-settings input[role="switch"]:checked {
+  background: var(--workflow-accent);
+}
+.workflow-chat-settings input[role="switch"]:checked::after {
+  transform: translateX(12px);
+}
+.workflow-chat-settings input[role="switch"]:focus-visible {
+  outline: 2px solid var(--workflow-accent);
+  outline-offset: 2px;
+}
+.workflow-chat-settings input[role="switch"]:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ai-toolbar .ai-context-button,
+.harness-detail-actions .ai-context-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 26px;
+  width: 26px;
+  height: 26px;
+  padding: 3px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  cursor: pointer;
+}
+.ai-context-button:hover,
+.ai-context-button[aria-expanded="true"] {
+  background: var(--accent-soft);
+}
+.ai-context-button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.context-inspector {
+  flex: 0 0 auto;
+  max-height: min(380px, 45vh);
+  overflow: auto;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: inherit;
+  background: var(--surface-raised);
+  font-size: 11px;
+}
+.context-inspector-heading,
+.context-history > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+  margin-bottom: 9px;
+}
+.context-inspector-heading > span,
+.context-history span,
+.context-inspector small,
+.context-inspector time {
+  opacity: 0.7;
+  font-size: 10px;
+}
+.context-composition {
+  display: flex;
+  gap: 2px;
+  height: 15px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-raised);
+}
+.context-composition > button {
+  flex-basis: 0;
+  min-width: 3px;
+  padding: 0;
+  border: 0;
+  cursor: pointer;
+}
+.context-composition > button:hover,
+.context-composition > button[aria-pressed="true"] {
+  box-shadow: inset 0 0 0 2px #ffffff90;
+}
+.context-composition > span {
+  margin: auto;
+  font-size: 10px;
+  opacity: 0.6;
+}
+.context-color-instructions {
+  background: var(--purple-soft);
+}
+.context-color-conversation {
+  background: var(--accent-soft);
+}
+.context-color-files {
+  background: var(--success-soft);
+}
+.context-color-tools {
+  background: var(--warning-soft);
+}
+.context-color-reasoning {
+  background: var(--pink-soft);
+}
+.context-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 10px;
+  margin-top: 8px;
+}
+.context-legend > button {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 1px;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.context-legend > button[aria-pressed="true"] {
+  border-bottom-color: currentColor;
+}
+.context-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+}
+.context-legend span {
+  opacity: 0.65;
+}
+.context-explanation {
+  margin: 9px 0;
+  opacity: 0.65;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.context-history {
+  margin-top: 12px;
+}
+.context-history svg {
+  display: block;
+  width: 100%;
+  height: 45px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.context-history rect {
+  fill: var(--accent-soft);
+}
+.context-history rect:hover {
+  fill: var(--accent-soft);
+}
+.context-history > small {
+  display: block;
+  margin-top: 5px;
+}
+.context-entries {
+  display: grid;
+  gap: 5px;
+  margin-top: 12px;
+}
+.context-entries details {
+  padding: 6px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+.context-entries summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  cursor: pointer;
+}
+.context-entries summary > span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.context-entries summary > small {
+  flex-shrink: 0;
+}
+.context-entries time {
+  display: block;
+  margin-top: 7px;
+}
+.context-entries pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 6px 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+/* Workspace design system: shared by classic and AI-focused layouts. */
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  transition:
+    background-color 0.12s ease,
+    color 0.12s ease;
+}
+button:disabled {
+  cursor: default;
+}
+::selection {
+  background: var(--selection);
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+.ide-shell {
+  color: var(--text-primary);
+}
+.workspace-row {
+  overflow: hidden;
+}
+.tool-stripe,
+.right-tool-stripe {
+  width: 46px;
+  flex-basis: 46px;
+  padding: 8px 4px;
+  gap: 4px;
+  background: var(--surface-base);
+  border-color: var(--border-subtle);
+}
+.tool-stripe-button,
+.tool-stripe-button.right {
+  width: 36px;
+  min-height: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  padding: 8px;
+  border: 0;
+  border-radius: 8px;
+  color: var(--text-muted);
+}
+.tool-stripe-button > svg {
+  width: 19px;
+  height: 19px;
+  flex-shrink: 0;
+}
+.tool-stripe-button > span:not(.tool-badge) {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.tool-stripe-button.active,
+.tool-stripe-button.right.active {
+  background: var(--selection);
+  color: var(--accent);
+}
+.tool-stripe-button:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+.tool-stripe-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+}
+.tool-badge {
+  top: 0;
+  bottom: auto;
+  right: -1px;
+  min-width: 15px;
+  height: 15px;
+  font-size: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 2px solid var(--surface-base);
+}
+.side-panel {
+  max-width: calc(100vw - 150px);
+  background: var(--surface-panel);
+}
+.panel-header {
+  min-height: 40px;
+  height: 40px;
+  flex-basis: 40px;
+  padding: 0 12px;
+  color: var(--text-heading);
+  font-size: 0.923rem;
+  font-weight: 600;
+}
+.panel-header button,
+.titlebar-actions > button {
+  border-radius: 6px;
+}
+.panel-header button:hover,
+.titlebar-actions > button:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+.resize-handle:hover,
+.resize-handle:focus-visible {
+  background: var(--accent);
+}
+.titlebar-actions {
+  height: 48px;
+  min-height: 48px;
+  flex-basis: 48px;
+  padding: 0 12px;
+  gap: 10px;
+  background: var(--surface-panel);
+  color: var(--text-muted);
+  position: relative;
+  z-index: 12;
+}
+.workspace-identity {
+  min-width: 0;
+  max-width: 240px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-heading);
+}
+.workspace-identity > svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.workspace-identity > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.backend-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 170px;
+  font-size: 0.846rem;
+  white-space: nowrap;
+}
+.backend-status > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.backend-status .connection-dot {
+  margin: 0;
+  flex-shrink: 0;
+  background: var(--success-soft);
+}
+.backend-status.offline .connection-dot {
+  background: var(--warning-soft);
+}
+.tabs {
+  height: 42px;
+  flex-basis: 42px;
+  padding: 5px 6px 0;
+  gap: 3px;
+  background: var(--surface-base);
+}
+.tab {
+  height: 36px;
+  max-width: 220px;
+  min-width: 110px;
+  flex-shrink: 0;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px 7px 0 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.tab.active {
+  border-color: var(--border-subtle);
+  border-bottom-color: var(--surface-panel);
+  background: var(--surface-panel);
+  color: var(--text-heading);
+  box-shadow: inset 0 2px var(--accent);
+}
+.tab:hover:not(.active) {
+  background: var(--surface-hover);
+}
+.tab .close {
+  border-radius: 4px;
+  min-width: 20px;
+  min-height: 20px;
+}
+.tab .close:hover {
+  background: var(--surface-hover);
+  color: var(--text-heading);
+}
+.project-file-tree .tree-row,
+.git-changes .git-file-row,
+.git-changes .git-group-title,
+.useful-files-list .useful-row,
+.useful-files-list .useful-section > header {
+  height: 27px;
+  font-size: 0.923rem;
+}
+.tree-row.selected,
+.git-file-row.selected {
+  background: var(--selection);
+  color: var(--text-heading);
+}
+.editor-status-bar {
+  min-height: 26px;
+  height: 26px;
+  background: var(--surface-panel);
+  color: var(--text-muted);
+}
+.empty-editor {
+  padding: 24px;
+  color: var(--text-muted);
+}
+.workspace-welcome {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  text-align: center;
+}
+.workspace-welcome > svg {
+  color: var(--accent);
+  padding: 12px;
+  width: 64px;
+  height: 64px;
+  background: var(--selection);
+  border-radius: 18px;
+}
+.workspace-welcome h1 {
+  margin: 8px 0 0;
+  font-size: 1.7rem;
+  color: var(--text-heading);
+  letter-spacing: -0.04em;
+}
+.workspace-welcome p {
+  margin: 0 0 10px;
+  line-height: 1.6;
+}
+.workspace-welcome button {
+  width: 240px;
+  max-width: 100%;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+}
+.workspace-welcome button:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+.connection-screen {
+  background: radial-gradient(ellipse at 50% 20%, var(--selection), transparent 65%), var(--surface-base);
+  color: var(--text-primary);
+  padding: 24px;
+  overflow: auto;
+}
+.connection-form {
+  padding: 32px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  background: var(--surface-panel);
+  box-shadow: 0 20px 70px #0002;
+}
+.connection-form h1 {
+  color: var(--text-heading);
+  font-weight: 600;
+  letter-spacing: -0.04em;
+}
+.connection-form p,
+.connection-form label {
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+.connection-form input {
+  height: 40px;
+  border-color: var(--border-strong);
+  border-radius: 7px;
+  background: var(--surface-base);
+  color: var(--text-primary);
+}
+.connection-form .primary {
+  height: 40px;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-weight: 600;
+}
+.dialog-overlay {
+  padding-bottom: 16px;
+  overflow: auto;
+  backdrop-filter: blur(5px);
+}
+.dialog-overlay > * {
+  max-width: calc(100vw - 32px);
+  max-height: calc(100dvh - 32px);
+}
+.status-toast {
+  top: 60px;
+  border-radius: 10px;
+  background: var(--surface-raised);
+  color: var(--text-primary);
+}
+@media (max-width: 1050px) {
+  .workspace-identity {
+    max-width: 160px;
+  }
+  .backend-status > span:last-child {
+    display: none;
+  }
+  .titlebar-actions {
+    gap: 6px;
+  }
+  .top-java-run select {
+    max-width: 120px;
+  }
+}
+@media (max-width: 800px) {
+  .workspace-identity {
+    max-width: 100px;
+  }
+  .side-panel {
+    max-width: 42vw;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
+
+/* Keep header content legible at custom font sizes and in both themes. */
+.titlebar-actions > * {
+  flex-shrink: 0;
+}
+.titlebar-actions .top-java-run select {
+  background: var(--surface-base);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+@media (max-width: 800px) {
+  .titlebar-actions {
+    flex-wrap: wrap;
+    height: auto;
+    flex-basis: auto;
+    padding: 8px;
+  }
+  .titlebar-actions .top-java-run {
+    margin-left: auto;
+  }
+}
+
+@media (max-width: 1050px) {
+  .side-panel,
+  .side-panel-left,
+  .side-panel-right {
+    min-width: 0;
+    max-width: 30vw;
+  }
+  .backend-status.offline::after {
+    content: "Offline";
+    color: var(--text-primary);
+  }
+}
+/* Flexible panel controls also follow the user's drag resizing. */
+.workspace-welcome {
+  width: 100%;
+  min-width: 0;
+}
+.workspace-welcome h1,
+.workspace-welcome p {
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+.empty-editor {
+  min-width: 0;
+  overflow: auto;
+}
+.task-filters select {
+  color: var(--text-primary);
+  background: var(--surface-base);
+}
+.git-commit-panel footer {
+  flex-wrap: wrap;
+}
+.ai-toolbar,
+.ai-toolbar.with-autopilot,
+.ai-toolbar.with-skills,
+.ai-toolbar.with-autopilot.with-skills {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.ai-provider-picker,
+.ai-model-picker {
+  flex: 1 1 110px;
+}
+.ai-toolbar > .ai-provider-picker,
+.ai-toolbar > .ai-model-picker {
+  min-width: 90px;
+}
+.panel-header {
+  height: auto;
+  min-height: 40px;
+  flex-basis: auto;
+  flex-wrap: wrap;
+  padding: 8px;
+  gap: 6px;
+}
+.panel-header-actions {
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+.git-commit-shortcut {
+  display: none;
+}
+.task-filters {
+  flex-wrap: wrap;
+}
+.task-filters .quick-filter {
+  flex-basis: 120px;
+}
+.task-filters select {
+  flex: 1 1 80px;
+}
+
+.workflow-narrow-preview {
+  height: 34px;
+  padding: 0;
+  margin-top: 4px;
+  overflow: hidden;
+  border: 0;
+}
+.workflow-quick-start {
+  margin-top: 8px;
+}

@@ -7,12 +7,33 @@ import { QuestionRequestForm } from "./QuestionRequestForm";
 afterEach(cleanup);
 
 const owner = { provider: "claude", taskId: "task-a", sessionId: "conversation-a" };
-const request: AiQuestionRequest = { id: "q1", message: "Which database?", fields: [
-  { id: "db", type: "choice", title: "Database", required: true, choices: [{ value: "pg", label: "Postgres", description: "Relational" }, { value: "redis", label: "Redis" }] },
-  { id: "extras", type: "multi", title: "Extras", choices: [{ value: "cache", label: "Cache" }, { value: "queue", label: "Queue" }] },
-  { id: "note", type: "text", title: "Note" },
-  { id: "replicas", type: "integer", title: "Replicas" }
-] };
+const request: AiQuestionRequest = {
+  id: "q1",
+  message: "Which database?",
+  fields: [
+    {
+      id: "db",
+      type: "choice",
+      title: "Database",
+      required: true,
+      choices: [
+        { value: "pg", label: "Postgres", description: "Relational" },
+        { value: "redis", label: "Redis" },
+      ],
+    },
+    {
+      id: "extras",
+      type: "multi",
+      title: "Extras",
+      choices: [
+        { value: "cache", label: "Cache" },
+        { value: "queue", label: "Queue" },
+      ],
+    },
+    { id: "note", type: "text", title: "Note" },
+    { id: "replicas", type: "integer", title: "Replicas" },
+  ],
+};
 
 describe("agent question form", () => {
   it("requires required fields and sends a typed answer without empty values", async () => {

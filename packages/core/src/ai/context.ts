@@ -15,17 +15,23 @@ export function captureContextInstructions(session: AiSession, label: string, te
   const section = session.context!.sections.find((item) => item.id === "instructions")!;
   section.characters += text.length;
   section.count++;
-  section.entries = [...section.entries, entry(`instruction-${section.count}`, label, text, new Date().toISOString())].slice(-ENTRY_LIMIT);
+  section.entries = [
+    ...section.entries,
+    entry(`instruction-${section.count}`, label, text, new Date().toISOString()),
+  ].slice(-ENTRY_LIMIT);
 }
 
 /** Rebuild from retained history: streamed tool replacements must not count twice. */
 export function refreshContext(session: AiSession, sampleUsage = false): void {
-  const sections: AiContextSection[] = categories.map((id) => id === "instructions"
-    ? session.context?.sections.find((item) => item.id === id) ?? { id, characters: 0, count: 0, entries: [] }
-    : { id, characters: 0, count: 0, entries: [] });
+  const sections: AiContextSection[] = categories.map((id) =>
+    id === "instructions"
+      ? (session.context?.sections.find((item) => item.id === id) ?? { id, characters: 0, count: 0, entries: [] })
+      : { id, characters: 0, count: 0, entries: [] },
+  );
   const add = (category: AiContextCategory, item: AiContextEntry) => {
     const section = sections.find((section) => section.id === category)!;
-    section.characters += item.characters; section.count++;
+    section.characters += item.characters;
+    section.count++;
     section.entries.push(item);
     if (section.entries.length > ENTRY_LIMIT) section.entries.shift();
   };
@@ -38,21 +44,37 @@ export function refreshContext(session: AiSession, sampleUsage = false): void {
     const label = message.text.slice(0, newline < 0 ? 160 : Math.min(newline, 160));
     add(category, entry(message.id, label || message.role, message.text, message.timestamp));
     for (const [index, content] of (message.content ?? []).entries()) {
-      if (content.type === "resource") add("files", entry(`${message.id}:${index}`, content.name ?? content.uri, content.text, message.timestamp));
+      if (content.type === "resource")
+        add("files", entry(`${message.id}:${index}`, content.name ?? content.uri, content.text, message.timestamp));
       // Text content is already represented by message.text. Links and binary
       // attachments have no measurable text size and must not be tokenized as base64.
-      if (content.type === "resource_link" || content.type === "image") add("files", {
-        id: `${message.id}:${index}`, label: content.name ?? "Image", characters: 0,
-        preview: content.type === "image" ? "Image: token size unavailable." : `Resource link: ${content.uri}. Contents not captured.`, timestamp: message.timestamp,
-      });
+      if (content.type === "resource_link" || content.type === "image")
+        add("files", {
+          id: `${message.id}:${index}`,
+          label: content.name ?? "Image",
+          characters: 0,
+          preview:
+            content.type === "image"
+              ? "Image: token size unavailable."
+              : `Resource link: ${content.uri}. Contents not captured.`,
+          timestamp: message.timestamp,
+        });
     }
   }
   let history = session.context?.history ?? [];
   if (sampleUsage && Number.isFinite(session.contextUsed) && session.contextUsed! >= 0) {
     const characters = sections.reduce((total, item) => total + item.characters, 0);
     const previous = history.at(-1);
-    if (!previous || previous.used !== session.contextUsed || previous.limit !== session.contextLimit || previous.characters !== characters) {
-      history = [...history, { timestamp: new Date().toISOString(), used: session.contextUsed!, limit: session.contextLimit, characters }].slice(-HISTORY_LIMIT);
+    if (
+      !previous ||
+      previous.used !== session.contextUsed ||
+      previous.limit !== session.contextLimit ||
+      previous.characters !== characters
+    ) {
+      history = [
+        ...history,
+        { timestamp: new Date().toISOString(), used: session.contextUsed!, limit: session.contextLimit, characters },
+      ].slice(-HISTORY_LIMIT);
     }
   }
   session.context = { sections, history, compactions: session.context?.compactions ?? 0 };

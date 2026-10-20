@@ -9,7 +9,9 @@ import { GitService } from "./git.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { MAX_FILE_SIZE, WorkspaceFileSystem } from "./filesystem.js";
 
-vi.mock("node:fs/promises", async importOriginal => ({ ...await importOriginal<typeof import("node:fs/promises")>() }));
+vi.mock("node:fs/promises", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:fs/promises")>()),
+}));
 
 const execFileAsync = promisify(execFile);
 
@@ -24,7 +26,10 @@ describe("WorkspaceFileSystem", () => {
     fs = new WorkspaceFileSystem({}, `${root}-state`);
   });
 
-  afterEach(async () => { vi.restoreAllMocks(); await Promise.all([root, `${root}-state`].map(directory => rm(directory, { recursive: true, force: true }))); });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await Promise.all([root, `${root}-state`].map((directory) => rm(directory, { recursive: true, force: true })));
+  });
 
   it("opens an existing workspace and builds its tree", async () => {
     const tree = await fs.open(root);
@@ -95,15 +100,26 @@ describe("WorkspaceFileSystem", () => {
     await writeFile(path.join(root, "target", "index.ts"), "old\n");
     const items = [
       { source: "src", destination: "target/src-copy" },
-      { source: "src/index.ts", destination: "target/index.ts" }
+      { source: "src/index.ts", destination: "target/index.ts" },
     ];
     const preview = await fs.transferPreflight("copy", items, [], ["src/index.ts"], []);
     expect(preview).toMatchObject({ collisions: 0, openFiles: ["src/index.ts"], confirmationRequired: true });
     expect(preview.skipped).toEqual([{ source: "src/index.ts", reason: "Already included by selected directory src" }]);
     const collision = await fs.transferPreflight("copy", [{ source: "src/index.ts", destination: "target/index.ts" }]);
     expect(collision.items[0]).toMatchObject({ collision: true, overwrite: false });
-    await expect(fs.transferApply("copy", [{ source: "src/index.ts", destination: "target/index.ts" }], [], [], [], true)).rejects.toMatchObject({ code: "WRITE_FAILED" });
-    expect(await fs.transferApply("copy", [{ source: "src/index.ts", destination: "target/index.ts" }], ["target/index.ts"], [], [], true)).toMatchObject({ failures: [] });
+    await expect(
+      fs.transferApply("copy", [{ source: "src/index.ts", destination: "target/index.ts" }], [], [], [], true),
+    ).rejects.toMatchObject({ code: "WRITE_FAILED" });
+    expect(
+      await fs.transferApply(
+        "copy",
+        [{ source: "src/index.ts", destination: "target/index.ts" }],
+        ["target/index.ts"],
+        [],
+        [],
+        true,
+      ),
+    ).toMatchObject({ failures: [] });
     expect(await readFile(path.join(root, "target", "index.ts"), "utf8")).toContain("value = 1");
   });
 
@@ -113,8 +129,16 @@ describe("WorkspaceFileSystem", () => {
     await writeFile(path.join(root, "destination.txt"), "destination contents\n");
     const preflight = vi.spyOn(fs, "transferPreflight");
 
-    await expect(fs.transferApply("move", [{ source: "source.txt", destination: "destination.txt" }], ["destination.txt"], [], [], "false" as unknown as boolean))
-      .rejects.toMatchObject({ code: "INVALID_REQUEST" });
+    await expect(
+      fs.transferApply(
+        "move",
+        [{ source: "source.txt", destination: "destination.txt" }],
+        ["destination.txt"],
+        [],
+        [],
+        "false" as unknown as boolean,
+      ),
+    ).rejects.toMatchObject({ code: "INVALID_REQUEST" });
 
     expect(preflight).not.toHaveBeenCalled();
     await expect(readFile(path.join(root, "source.txt"), "utf8")).resolves.toBe("source contents\n");
@@ -124,10 +148,26 @@ describe("WorkspaceFileSystem", () => {
   it("moves multiple paths, reports dirty blockers, and supports case-only names", async () => {
     await fs.open(root);
     await fs.createFile("README.md");
-    await expect(fs.transferApply("move", [{ source: "README.md", destination: "Readme.md" }], [], ["README.md"], ["README.md"], true)).rejects.toMatchObject({ code: "WRITE_FAILED" });
+    await expect(
+      fs.transferApply(
+        "move",
+        [{ source: "README.md", destination: "Readme.md" }],
+        [],
+        ["README.md"],
+        ["README.md"],
+        true,
+      ),
+    ).rejects.toMatchObject({ code: "WRITE_FAILED" });
     const preview = await fs.transferPreflight("move", [{ source: "README.md", destination: "Readme.md" }]);
     expect(preview.items[0]).toMatchObject({ caseOnlyRename: true });
-    const result = await fs.transferApply("move", [{ source: "README.md", destination: "Readme.md" }], [], [], [], true);
+    const result = await fs.transferApply(
+      "move",
+      [{ source: "README.md", destination: "Readme.md" }],
+      [],
+      [],
+      [],
+      true,
+    );
     expect(result).toEqual({ completed: [{ source: "README.md", destination: "Readme.md" }], failures: [] });
     const names = await readdir(root);
     expect(names).toContain("Readme.md");
@@ -138,7 +178,13 @@ describe("WorkspaceFileSystem", () => {
   it("previews, trashes, and restores a directory without exposing trash in the tree", async () => {
     await fs.open(root);
     const preview = await fs.previewDelete("src");
-    expect(preview).toMatchObject({ path: "src", type: "directory", childCount: 1, children: ["src/index.ts"], recoverable: true });
+    expect(preview).toMatchObject({
+      path: "src",
+      type: "directory",
+      childCount: 1,
+      children: ["src/index.ts"],
+      recoverable: true,
+    });
     const deleted = await fs.delete("src");
     expect(deleted.permanentlyDeleted).toBe(false);
     await expect(access(path.join(root, "src"))).rejects.toMatchObject({ code: "ENOENT" });
@@ -153,9 +199,11 @@ describe("WorkspaceFileSystem", () => {
     await fs.open(root);
     const result = await fs.delete("src");
     expect(await fs.listTree()).toEqual([]);
-    expect(await fs.listTree(true)).not.toEqual(expect.arrayContaining([expect.objectContaining({ name: ".vibe-trash" })]));
+    expect(await fs.listTree(true)).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ name: ".vibe-trash" })]),
+    );
     await expect(access(path.join(root, ".vibe-trash"))).rejects.toMatchObject({ code: "ENOENT" });
-    expect((await new GitService(root).status()).entries.map(entry => entry.path)).toEqual(["src/index.ts"]);
+    expect((await new GitService(root).status()).entries.map((entry) => entry.path)).toEqual(["src/index.ts"]);
     // Recovery survives a new service instance selecting the same worktree.
     const restarted = new WorkspaceFileSystem({}, `${root}-state`);
     await restarted.initialize(root);
@@ -166,7 +214,9 @@ describe("WorkspaceFileSystem", () => {
   it("does not fail a filesystem update batch because it contains legacy trash events", async () => {
     await fs.open(root);
     expect(await fs.snapshot(["src/index.ts", ".vibe-trash/deleted.json", "gone.txt"])).toEqual([
-      { path: "src/index.ts", type: "file" }, { path: ".vibe-trash/deleted.json" }, { path: "gone.txt" }
+      { path: "src/index.ts", type: "file" },
+      { path: ".vibe-trash/deleted.json" },
+      { path: "gone.txt" },
     ]);
   });
 
@@ -177,14 +227,16 @@ describe("WorkspaceFileSystem", () => {
     await writeFile(path.join(root, ".vibe-trash", id), "older contents");
     await writeFile(path.join(root, ".vibe-trash", `${id}.json`), JSON.stringify({ path: "restored.txt" }));
     await fs.open(root);
-    expect((await new GitService(root).status()).entries.map(entry => entry.path)).toEqual(["src/index.ts"]);
+    expect((await new GitService(root).status()).entries.map((entry) => entry.path)).toEqual(["src/index.ts"]);
     await fs.restore(id);
     expect(await readFile(path.join(root, "restored.txt"), "utf8")).toBe("older contents");
   });
 
   it("leaves the original intact when recovery metadata cannot be written", async () => {
     await fs.open(root);
-    vi.spyOn(fileOperations, "writeFile").mockRejectedValueOnce(Object.assign(new Error("metadata write denied"), { code: "EACCES" }));
+    vi.spyOn(fileOperations, "writeFile").mockRejectedValueOnce(
+      Object.assign(new Error("metadata write denied"), { code: "EACCES" }),
+    );
     await expect(fs.delete("src/index.ts")).rejects.toMatchObject({ code: "WRITE_FAILED" });
     expect(await readFile(path.join(root, "src/index.ts"), "utf8")).toContain("value = 1");
   });
@@ -233,17 +285,27 @@ describe("WorkspaceFileSystem", () => {
 });
 
 describe("workspace tree producer limits", () => {
-  it.each([false, true])("allows trees beyond the former default path and Git output limits (Git=%s)", async (git) => {
-    const root = await mkdtemp(path.join(tmpdir(), "tree-unlimited-"));
-    try {
-      if (git) await execFileAsync("git", ["-C", root, "init", "-q"]);
-      // Bound open files while avoiding thousands of serial APFS round trips.
-      for (let start = 0; start < 5200; start += 64) {
-        await Promise.all(Array.from({ length: Math.min(64, 5200 - start) }, (_, offset) => writeFile(path.join(root, `${start + offset}${"x".repeat(220)}`), "x")));
+  it.each([false, true])(
+    "allows trees beyond the former default path and Git output limits (Git=%s)",
+    async (git) => {
+      const root = await mkdtemp(path.join(tmpdir(), "tree-unlimited-"));
+      try {
+        if (git) await execFileAsync("git", ["-C", root, "init", "-q"]);
+        // Bound open files while avoiding thousands of serial APFS round trips.
+        for (let start = 0; start < 5200; start += 64) {
+          await Promise.all(
+            Array.from({ length: Math.min(64, 5200 - start) }, (_, offset) =>
+              writeFile(path.join(root, `${start + offset}${"x".repeat(220)}`), "x"),
+            ),
+          );
+        }
+        expect(await new WorkspaceFileSystem().open(root)).toHaveLength(5200);
+      } finally {
+        await rm(root, { recursive: true, force: true, maxRetries: 5 });
       }
-      expect(await new WorkspaceFileSystem().open(root)).toHaveLength(5200);
-    } finally { await rm(root, { recursive: true, force: true, maxRetries: 5 }); }
-  }, 15_000);
+    },
+    15_000,
+  );
 
   it("honors configured environment limits while leaving other limits unlimited", async () => {
     vi.stubEnv("HATOPAD_TREE_MAX_NODES", "1");
@@ -259,35 +321,47 @@ describe("workspace tree producer limits", () => {
     }
   });
 
-  it.each([false, true])("checks exact aggregate boundaries and rejects without changing files (Git=%s)", async (git) => {
-    const root = await mkdtemp(path.join(tmpdir(), "tree-limits-"));
-    await mkdir(path.join(root, "dir"));
-    await writeFile(path.join(root, "dir", "file"), "unchanged");
-    if (git) await execFileAsync("git", ["-C", root, "init", "-q"]);
-    const exact = new WorkspaceFileSystem({ maxNodes: 2, maxPathBytes: 11, maxDepth: 2 });
-    expect((await exact.open(root))[0]?.children?.[0]?.path).toBe("dir/file");
-    for (const limits of [{ maxNodes: 1 }, { maxPathBytes: 10 }, { maxDepth: 1 }]) {
-      await expect(new WorkspaceFileSystem(limits).open(root)).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE" });
-    }
-    await writeFile(path.join(root, "extra"), "extra");
-    await expect(exact.listTree()).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE" });
-    expect((await exact.read("dir/file")).content).toBe("unchanged");
-  });
+  it.each([false, true])(
+    "checks exact aggregate boundaries and rejects without changing files (Git=%s)",
+    async (git) => {
+      const root = await mkdtemp(path.join(tmpdir(), "tree-limits-"));
+      await mkdir(path.join(root, "dir"));
+      await writeFile(path.join(root, "dir", "file"), "unchanged");
+      if (git) await execFileAsync("git", ["-C", root, "init", "-q"]);
+      const exact = new WorkspaceFileSystem({ maxNodes: 2, maxPathBytes: 11, maxDepth: 2 });
+      expect((await exact.open(root))[0]?.children?.[0]?.path).toBe("dir/file");
+      for (const limits of [{ maxNodes: 1 }, { maxPathBytes: 10 }, { maxDepth: 1 }]) {
+        await expect(new WorkspaceFileSystem(limits).open(root)).rejects.toMatchObject({
+          code: "WORKSPACE_TREE_TOO_LARGE",
+        });
+      }
+      await writeFile(path.join(root, "extra"), "extra");
+      await expect(exact.listTree()).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE" });
+      expect((await exact.read("dir/file")).content).toBe("unchanged");
+    },
+  );
 
   it.each([false, true])("bounds deep paths and UTF-8 long names (Git=%s)", async (git) => {
     const root = await mkdtemp(path.join(tmpdir(), "tree-depth-"));
     if (git) await execFileAsync("git", ["-C", root, "init", "-q"]);
     await mkdir(path.join(root, "a/b/c/d"), { recursive: true });
     await writeFile(path.join(root, "a/b/c/d", "é".repeat(100)), "x");
-    await expect(new WorkspaceFileSystem({ maxDepth: 3 }).open(root)).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE" });
-    await expect(new WorkspaceFileSystem({ maxPathBytes: 100 }).open(root)).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE" });
+    await expect(new WorkspaceFileSystem({ maxDepth: 3 }).open(root)).rejects.toMatchObject({
+      code: "WORKSPACE_TREE_TOO_LARGE",
+    });
+    await expect(new WorkspaceFileSystem({ maxPathBytes: 100 }).open(root)).rejects.toMatchObject({
+      code: "WORKSPACE_TREE_TOO_LARGE",
+    });
   });
 
   it("rejects bounded Git stdout rather than falling back to the walk", async () => {
     const root = await mkdtemp(path.join(tmpdir(), "tree-git-output-"));
     await execFileAsync("git", ["-C", root, "init", "-q"]);
     for (let i = 0; i < 30; i++) await writeFile(path.join(root, `${i}${"x".repeat(200)}`), "x");
-    await expect(new WorkspaceFileSystem({ maxNodes: 1, maxPathBytes: 1 }).open(root)).rejects.toMatchObject({ code: "WORKSPACE_TREE_TOO_LARGE", message: expect.stringContaining("Git output") });
+    await expect(new WorkspaceFileSystem({ maxNodes: 1, maxPathBytes: 1 }).open(root)).rejects.toMatchObject({
+      code: "WORKSPACE_TREE_TOO_LARGE",
+      message: expect.stringContaining("Git output"),
+    });
   });
 
   it("applies limits after Git ignore filtering and to includeIgnored traversal", async () => {
@@ -303,6 +377,7 @@ describe("workspace tree producer limits", () => {
   });
 
   it("validates limits", () => {
-    for (const maxNodes of [0, -1, NaN, 1.5, Infinity]) expect(() => new WorkspaceFileSystem({ maxNodes })).toThrow("positive safe integer");
+    for (const maxNodes of [0, -1, NaN, 1.5, Infinity])
+      expect(() => new WorkspaceFileSystem({ maxNodes })).toThrow("positive safe integer");
   });
 });
