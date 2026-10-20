@@ -2,7 +2,7 @@
 export function compatibleCoreTags(tags: string[], compatibility: { minimum: number; maximum: number }): string[] {
   const versions = new Map<string, number[]>();
   for (const tag of tags) {
-    const match = /^core-protocol-(\d+)-v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
+    const match = /^core-protocol-(\d+)(?:-(?:dev|main))?-v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
     if (!match) continue;
     const [wire, ...version] = match.slice(1).map(Number);
     if (

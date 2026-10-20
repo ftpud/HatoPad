@@ -4,26 +4,47 @@ on:
     branches: [main, dev]
 permissions:
   contents: read
+concurrency:
+  group: protocol-tags-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
   protocol-tags:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      PROTOCOL_CHANNEL: ${{ github.ref_name }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
+      - name: Skip superseded commits
+        id: tip
+        run: |
+          git fetch --no-tags origin "$PROTOCOL_CHANNEL"
+          if [ "$(git rev-parse FETCH_HEAD)" = "$(git rev-parse HEAD)" ]; then echo "current=true" >> "$GITHUB_OUTPUT"; else echo "A newer commit exists; it will be tagged instead."; fi
+      - if: steps.tip.outputs.current == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 22
           cache: npm
-      - run: npm ci --ignore-scripts --no-audit --no-fund
-      - name: Verify declared protocol metadata
-        run: node scripts/sync-protocol.mjs --check
-      - run: npm run build -w @hatopad/acp && npm run build -w @hatopad/protocol
-      - run: npm run test -w @hatopad/protocol
-      - run: node --test scripts/protocol-tags.test.mjs
-      - name: Create immutable client and server tags
-        run: node scripts/protocol-tags.mjs
-      - name: Push protocol tags
-        run: git push origin 'refs/tags/core-protocol-*' 'refs/tags/client-protocol-*'
+      - if: steps.tip.outputs.current == 'true'
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - if: steps.tip.outputs.current == 'true'
+        name: Verify declared protocol metadata and that this commit builds
+        run: |
+          node scripts/sync-protocol.mjs --check
+          npm run build
+          npm run typecheck
+      - if: steps.tip.outputs.current == 'true'
+        run: npm run test -w @hatopad/protocol
+      - if: steps.tip.outputs.current == 'true'
+        run: node --test scripts/protocol-tags.test.mjs
+      - if: steps.tip.outputs.current == 'true'
+        name: Create immutable tags, publish them, then remove superseded ones
+        run: |
+          node scripts/protocol-tags.mjs
+          git push origin 'refs/tags/core-protocol-*' 'refs/tags/client-protocol-*'
+          node scripts/protocol-tags.mjs --obsolete | while read -r tag; do
+            [ -n "$tag" ] && git push origin --delete "refs/tags/$tag"
+          done
