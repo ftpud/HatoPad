@@ -24,6 +24,7 @@ test("CI creates immutable client/server protocol tags and reruns idempotently",
       execFileSync(process.execPath, ["scripts/protocol-tags.mjs", ...args], {
         cwd: root,
         encoding: "utf8",
+        env: { ...process.env, PROTOCOL_CHANNEL: "" },
         stdio: ["ignore", "pipe", "pipe"],
       }).trim();
     const first = run("--channel", "dev");
