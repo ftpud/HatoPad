@@ -14,7 +14,6 @@ This is an actively developed experiment. Expect rough edges and breaking change
 
 <img width="1498" height="952" alt="Screenshot 2026-10-20 at 16 30 04" src="https://github.com/user-attachments/assets/83ddd6b8-b853-493c-9989-967fa7dc6c99" />
 
-
 ## First run
 
 Use **HatoPad Gateway** to launch the editor. It handles remote installation, builds, updates, and the SSH connection for you.
@@ -52,5 +51,5 @@ To use AI agents, authenticate your chosen provider on the machine running the w
 - [Why HatoPad exists](WHY.md).
 
 Available under the [MIT License](LICENSE.md).
- 
+
 Early Access packaging and the manual **Bundle Create** action are documented in [Early Access bundles](docs/EARLY_ACCESS.md).
