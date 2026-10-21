@@ -1034,7 +1034,9 @@ export function AppPresentation({ model }: { model: AppViewModel }) {
         {projectPathDialog && (
           <ProjectPathDialog
             mode={projectPathDialog.mode}
-            initialName={projectPathDialog.mode === "rename" ? projectPathDialog.node.name : ""}
+            initialName={
+              projectPathDialog.mode === "rename" ? (projectPathDialog.node.path.split("/").at(-1) ?? "") : ""
+            }
             parentPath={projectPathDialog.parentPath}
             onClose={() => setProjectPathDialog(undefined)}
             onSave={saveProjectPathDialog}

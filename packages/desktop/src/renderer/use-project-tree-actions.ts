@@ -299,7 +299,12 @@ export function useProjectTreeActions(deps: UseProjectTreeActionsDeps) {
     const parentPath = node.type === "directory" ? node.path : node.path.split("/").slice(0, -1).join("/");
     if (action === "createFile") setProjectPathDialog({ mode: "file", node, parentPath });
     else if (action === "createDirectory") setProjectPathDialog({ mode: "directory", node, parentPath });
-    else if (action === "rename") setProjectPathDialog({ mode: "rename", node, parentPath });
+    else if (action === "rename")
+      setProjectPathDialog({
+        mode: "rename",
+        node,
+        parentPath: node.path.split("/").slice(0, -1).join("/"),
+      });
     else if (action === "delete") {
       if (nodes.length > 1) setStatusMessage("Bulk delete is not part of this operation; select one item to delete");
       else void deleteProjectPath(node);
