@@ -573,7 +573,7 @@
   flex: 0 0 auto;
   position: relative;
   display: grid;
-  grid-template-columns: 210px minmax(260px, 34%) minmax(360px, 1fr);
+  grid-template-columns: min(210px, 25%) minmax(0, 34%) minmax(0, 1fr);
   border-top: 1px solid var(--border-subtle);
   background: var(--surface-base);
 }
