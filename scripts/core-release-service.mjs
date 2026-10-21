@@ -133,7 +133,14 @@ async function stage(current, request) {
     ).split("\n");
   if ((await git(current.directory, "rev-parse", "HEAD")) !== request.expectedCurrent)
     throw new Error("Installation changed");
-  await git(current.directory, "fetch", "--tags", "origin", `${request.branch}:refs/remotes/origin/${request.branch}`);
+  await git(
+    current.directory,
+    "fetch",
+    "--no-tags",
+    "origin",
+    `+${request.branch}:refs/remotes/origin/${request.branch}`,
+    "refs/tags/core-protocol-*:refs/tags/core-protocol-*",
+  );
   const tag = compatibleCoreTags(await tagsOutput(), request.compatibility ?? protocolCompatibility)[0];
   if (!tag || (await git(current.directory, "rev-parse", `refs/tags/${tag}^{commit}`)) !== request.expectedLatest)
     throw new Error("Update changed");

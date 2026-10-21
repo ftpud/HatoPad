@@ -120,7 +120,7 @@ export function provisionCommand(
     "SELECTED_UPDATE=0",
     'if [ "$AUTO_UPDATE" = 1 ] || [ ! -f "$SOURCE_CACHE/selected" ]; then',
     "  echo 'HATOPAD_STAGE:fetch'",
-    '  git -C "$SOURCE_CACHE" fetch --tags origin "$BRANCH:refs/remotes/origin/$BRANCH"',
+    '  git -C "$SOURCE_CACHE" fetch --no-tags origin "+$BRANCH:refs/remotes/origin/$BRANCH" "refs/tags/core-protocol-*:refs/tags/core-protocol-*"',
     `  TAG=$(git -C "$SOURCE_CACHE" tag --merged "refs/remotes/origin/$BRANCH" --list 'core-protocol-*-v*' | node -e ${shell(selectTag)}) || { echo 'No compatible tagged Core release is available on this branch.' >&2; exit 1; }`,
     '  COMMIT=$(git -C "$SOURCE_CACHE" rev-parse --verify "refs/tags/$TAG^{commit}")',
     "  SELECTED_UPDATE=1",

@@ -29,6 +29,7 @@ test("local Git installer ignores incompatible HEAD, refuses stale approval, and
     git(origin, "add", ".");
     git(origin, "commit", "-m", "incompatible");
     git(origin, "tag", "core-protocol-20-v99.0.0");
+    git(origin, "tag", "v0.1.0");
     process.env.GIT_CONFIG_COUNT = "1";
     process.env.GIT_CONFIG_KEY_0 = `url.${origin}.insteadOf`;
     process.env.GIT_CONFIG_VALUE_0 = "https://fixture.invalid/core";
@@ -54,11 +55,15 @@ test("local Git installer ignores incompatible HEAD, refuses stale approval, and
     git(installed, "remote", "set-url", "origin", path.join(root, "cache"));
     await releases.pointOriginAtRepository(installed, settings);
     assert.equal(git(installed, "config", "--get", "remote.origin.url"), settings.repository);
+    // Rewritten branch history and a moved app tag must not block Core discovery.
+    git(origin, "reset", "--hard", compatible);
+    git(origin, "tag", "--force", "v0.1.0");
     await writeFile(path.join(origin, "source"), "new compatible");
     git(origin, "add", ".");
     git(origin, "commit", "-m", "new compatible");
     git(origin, "tag", "core-protocol-19-v0.1.2");
     const newer = git(origin, "rev-parse", "HEAD");
+    assert.equal((await releases.check(settings)).commit, newer);
     await assert.rejects(
       releases.prepare(settings, newer, { ...tools, env: { ...process.env, FIXTURE_BUILD_FAIL: "1" } }),
       /previous Core remains/,

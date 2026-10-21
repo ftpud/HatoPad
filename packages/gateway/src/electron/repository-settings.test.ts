@@ -64,7 +64,10 @@ test("provisioning is valid shell and stages a commit-keyed immutable release", 
   );
   const syntax = spawnSync("bash", ["-n"], { input: command, encoding: "utf8" });
   assert.equal(syntax.status, 0, syntax.stderr);
-  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
+  assert.match(
+    command,
+    /git -C "\$SOURCE_CACHE" fetch --no-tags origin "\+\$BRANCH:refs\/remotes\/origin\/\$BRANCH" "refs\/tags\/core-protocol-\*:refs\/tags\/core-protocol-\*"/,
+  );
   assert.match(command, /git -C "\$STAGING" checkout --detach "\$COMMIT"/);
   assert.match(command, /RELEASE_KEY="\$COMMIT-node\$NODE_ABI"/);
   assert.match(command, /npm ci/);
@@ -85,7 +88,10 @@ test("disabled auto-update uses the source cache without fetching except on firs
   );
   assert.match(command, /AUTO_UPDATE=0/);
   assert.match(command, /\[ "\$AUTO_UPDATE" = 1 \] \|\| \[ ! -f "\$SOURCE_CACHE\/selected" \]/);
-  assert.match(command, /git -C "\$SOURCE_CACHE" fetch --tags origin "\$BRANCH:refs\/remotes\/origin\/\$BRANCH"/);
+  assert.match(
+    command,
+    /git -C "\$SOURCE_CACHE" fetch --no-tags origin "\+\$BRANCH:refs\/remotes\/origin\/\$BRANCH" "refs\/tags\/core-protocol-\*:refs\/tags\/core-protocol-\*"/,
+  );
   assert.match(command, /COMMIT=\$\(cat "\$SOURCE_CACHE\/selected"\)/);
 });
 

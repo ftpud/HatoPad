@@ -49,7 +49,16 @@ export class LocalCoreReleases {
     );
     await mkdir(directory, { recursive: true, mode: 0o700 });
     await this.git(directory, "init");
-    await this.git(directory, "fetch", "--tags", repository, `${branch}:refs/remotes/origin/${branch}`);
+    // Branches can be rebased; only Core tags are immutable release inputs.
+    // Unrelated app tags must not prevent discovery when they are replaced.
+    await this.git(
+      directory,
+      "fetch",
+      "--no-tags",
+      repository,
+      `+${branch}:refs/remotes/origin/${branch}`,
+      "refs/tags/core-protocol-*:refs/tags/core-protocol-*",
+    );
     const tag = compatibleCoreTags(
       (
         await this.git(directory, "tag", "--merged", `refs/remotes/origin/${branch}`, "--list", "core-protocol-*-v*")

@@ -74,7 +74,13 @@ export class CoreUpdates {
       const release = this.options.release === true;
       const current = await this.git("rev-parse", "HEAD");
       const localBranch = release ? branch : await this.git("symbolic-ref", "--short", "HEAD");
-      await this.git("fetch", "--tags", "origin", `${branch}:refs/remotes/origin/${branch}`);
+      await this.git(
+        "fetch",
+        "--no-tags",
+        "origin",
+        `+${branch}:refs/remotes/origin/${branch}`,
+        "refs/tags/core-protocol-*:refs/tags/core-protocol-*",
+      );
       const tags = (
         await this.git("tag", "--merged", `refs/remotes/origin/${branch}`, "--list", "core-protocol-*-v*")
       ).split("\n");
