@@ -85,7 +85,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15, windows-2025]
+        # Windows bundles are temporarily paused; restore windows-2025 here to resume.
+        os: [macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 300
     steps:

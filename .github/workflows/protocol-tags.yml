@@ -43,8 +43,11 @@ jobs:
       - if: steps.tip.outputs.current == 'true'
         name: Create immutable tags, publish them, then remove superseded ones
         run: |
-          node scripts/protocol-tags.mjs
-          git push origin 'refs/tags/core-protocol-*' 'refs/tags/client-protocol-*'
+          # Push only this run's tags; stale local tags must not be republished.
+          node scripts/protocol-tags.mjs > current-tags.txt
+          while read -r tag; do
+            git push origin "refs/tags/$tag"
+          done < current-tags.txt
           node scripts/protocol-tags.mjs --obsolete | while read -r tag; do
             [ -n "$tag" ] && git push origin --delete "refs/tags/$tag"
           done
