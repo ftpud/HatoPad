@@ -643,6 +643,7 @@ describe("Gateway cloud", () => {
     const update = await screen.findByRole("button", { name: "Update cloud Core" });
     await waitFor(() => expect(update.title).toBe("No saved management connection"));
     expect(update.hasAttribute("disabled")).toBe(true);
+    expect((await screen.findByRole("alert")).textContent).toBe("No saved management connection");
     expect((await screen.findByText("Update check failed")).getAttribute("title")).toBe(
       "No saved management connection",
     );
@@ -711,7 +712,7 @@ describe("Gateway cloud", () => {
     vi.mocked(window.gateway.cloudListCores).mockRejectedValueOnce(new Error("Relay disconnected"));
     render(<App />);
     fireEvent.click(await screen.findByRole("button", { name: /Cloud machine/ }));
-    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Relay disconnected");
+    expect(await screen.findByText("Relay disconnected")).toHaveProperty("role", "alert");
     fireEvent.click(screen.getByRole("button", { name: "Refresh cloud Cores" }));
     expect(await screen.findByRole("button", { name: "Connect to Cloud project" })).toBeTruthy();
   });

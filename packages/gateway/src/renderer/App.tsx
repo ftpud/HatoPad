@@ -1201,6 +1201,7 @@ function CloudServerView({
           </button>
         </div>
       </header>
+      {chip.tone === "error" ? <p role="alert">{chip.title}</p> : null}
       {core.access === "owner" ? <AutostartControl core={core} onFailure={onFailure} /> : null}
       <section className="workspace-collection cloud-core-collection">
         <header className="section-heading">
