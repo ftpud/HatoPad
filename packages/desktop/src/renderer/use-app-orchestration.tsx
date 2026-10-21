@@ -1,3 +1,5 @@
+import { useMcpLibrary } from "./use-mcp-library";
+import type { McpSelection } from "@hatopad/protocol";
 import { usePanelActions } from "./use-panel-actions";
 import { useProjectFileActions } from "./use-project-file-actions";
 import { useTerminalActions } from "./use-terminal-actions";
@@ -560,6 +562,7 @@ export function useAppOrchestration() {
     [],
   );
   const clientRef = useRef<CoreClient>();
+  const { mcpServers, setMcpServers, refreshMcps, mcpActions } = useMcpLibrary(clientRef);
   useEffect(() => startPresenceReporting(() => clientRef.current), []);
   const recoveryRef = useRef<ConnectionRecovery>();
   const invalidationRefreshes = useRef<InvalidationRefreshes>();
@@ -1016,7 +1019,7 @@ export function useAppOrchestration() {
     const workspace = activeWorkspaceRef.current;
     const root = client.getRoot();
     const taskId = selectedTaskIdRef.current;
-    const catalog = await client.request("skills.list", {});
+    const [catalog] = await Promise.all([client.request("skills.list", {}), refreshMcps(client, canApply)]);
     if (
       canApply() &&
       clientRef.current === client &&
@@ -1042,6 +1045,21 @@ export function useAppOrchestration() {
       applyAiSession(session, token);
     },
     [agents, selectedAgentKey, aiSession.id, aiToken, applyAiSession],
+  );
+  const selectMcps = useCallback(
+    async (selections: McpSelection[], editorEnabled: boolean) => {
+      const client = clientRef.current;
+      if (!client || !aiSession.id) return;
+      const token = aiToken();
+      const { session } = await client.request("ai.mcp", {
+        provider: token.provider,
+        sessionId: aiSession.id,
+        selections,
+        editorEnabled,
+      });
+      applyAiSession(session, token);
+    },
+    [aiSession.id, aiToken, applyAiSession],
   );
   const skillActions: SkillsActions = {
     movePolicyToLocal: async () => {
@@ -1358,6 +1376,7 @@ export function useAppOrchestration() {
     setUsefulFiles([]);
     setRunConfigs([]);
     setSkillCatalog({ skills: [], policy: { allowed: [], defaults: [] } });
+    setMcpServers([]);
     setAiStatuses({ root: emptyAiSummary, tasks: {} });
     setActiveTimers([]);
     setSchedules([]);
@@ -2744,6 +2763,7 @@ export function useAppOrchestration() {
     rightPanels.useful ||
     rightPanels.agents ||
     rightPanels.skills ||
+    rightPanels.mcp ||
     ((rightPanels.taskGit || rightPanels.promptHistory) && Boolean(selectedTaskId)) ||
     (rightPanels.java && Boolean(javaOptions));
   useEffect(() => {
@@ -3068,6 +3088,10 @@ export function useAppOrchestration() {
   });
 
   return {
+    mcpServers,
+    refreshMcps,
+    mcpActions,
+    selectMcps,
     harnessRuns,
     workspaceRoots,
     selectedRootId,

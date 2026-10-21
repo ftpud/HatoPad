@@ -1,3 +1,5 @@
+import { closeMcpConnections } from "./mcp-client.js";
+import { executeWorkflowMcp } from "./mcp-library.js";
 import { handleRequest } from "./routes/dispatch.js";
 import type { SessionServices } from "./routes/context.js";
 import {
@@ -980,6 +982,7 @@ export async function createServer(
         const workspace = (
           await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath: rootWorkspace })
         ).workspace;
+        if (block.type === "mcp") return executeWorkflowMcp(block, prompt, rootWorkspace, runtime.assertActive);
         if (block.type === "skill" && block.skillId)
           return executeWorkflowSkill(block, new SkillsStore(undefined, rootWorkspace), workspace, runtime);
         if (block.type === "script")
@@ -1587,6 +1590,7 @@ export async function createServer(
             ...sessionCleanups,
             cleanupServices(),
             flushWorkspaceStateWrites(),
+            closeMcpConnections(),
             ...[...harnessRunners.values()].map((runner) => runner.drain()),
           ]);
           const failures = [...suspended, ...providerResults, ...cleanupResults].filter(

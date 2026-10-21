@@ -15,10 +15,49 @@ import {
 } from "./stdio-provider.js";
 import { SkillsStore } from "../skills.js";
 import { AcpRegistry } from "./acp.js";
+import { McpLibrary } from "../mcp-library.js";
 
 const FAKE_AGENT = fileURLToPath(new URL("./fake-acp-agent.py", import.meta.url));
 const FAKE_V2_AGENT = fileURLToPath(new URL("./fake-acp-agent-v2.mjs", import.meta.url));
 const fakeProviders = new Set<StdioAcpProvider>();
+
+it("persists chat MCP selections and changes the actual tool servers on the next turn", async () => {
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-mcp-"));
+  const workspace = path.join(state, "workspace");
+  await mkdir(workspace);
+  const provider = new FakeProvider(() => {}, state);
+  const ensure = vi.spyOn(provider as any, "ensureRuntime");
+  const library = new McpLibrary(workspace, state);
+  await library.save({
+    id: "github",
+    name: "GitHub",
+    url: "https://example.test/mcp",
+    defaultConnectionId: "bot",
+    connections: [{ id: "bot", name: "Bot", token: "private-secret" }],
+  });
+  const initial = await provider.get(workspace);
+  await expect(provider.setMcp(workspace, [], false, "wrong-session")).rejects.toThrow("different conversation");
+  await provider.setMcp(workspace, [{ serverId: "github" }], false, initial.id!);
+  await provider.send(workspace, {
+    prompt: "First turn",
+    configuration: {},
+    agent: { name: "No preset tools", instructions: "Work", mcpServers: [] },
+  });
+  await settle(provider, workspace);
+  const firstServers = ensure.mock.calls.at(-1)![2] as { name: string }[];
+  expect(firstServers.map((server) => server.name)).toEqual(["library-github", "hatopad-skills"]);
+  expect(JSON.stringify(ensure.mock.calls)).not.toContain("private-secret");
+  expect((await provider.get(workspace)).mcpSelections).toEqual([{ serverId: "github" }]);
+  await provider.setMcp(workspace, [], true, initial.id!);
+  await provider.send(workspace, { prompt: "Second turn", configuration: {} });
+  await settle(provider, workspace);
+  expect((ensure.mock.calls.at(-1)![2] as { name: string }[]).map((server) => server.name)).toEqual([
+    "hatopad",
+    "hatopad-skills",
+  ]);
+  await provider.shutdown();
+  await rm(state, { recursive: true, force: true });
+});
 
 class FakeProvider extends StdioAcpProvider {
   constructor(

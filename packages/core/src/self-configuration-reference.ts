@@ -213,6 +213,17 @@ not a substitute for that policy check. Inline skills return rendered instructio
 Use a use edge so the agent loads relevant guidance on demand. Skill output must
 be loaded through workflow_use_block, not bypassed with workflow_block_output.
 
+### mcp — MCP server
+
+Set mcp:{serverId,connectionId?} to an existing project MCP library server and
+optionally a named connection. Omit connectionId to use the server default.
+Credentials belong to the library in private Core state, never this definition.
+Connect AI Agents and Chatboxes with use edges. Call workflow_use_block with input
+JSON {"action":"list"} to discover available actions, then
+{"action":"call","name":"TOOL_NAME","arguments":{...}} to invoke one.
+Each invocation pulses its connection. An empty direct input lists actions.
+Configure URL servers and credentials in the Desktop MCP panel.
+
 ### task_controls — Task controls
 
 Configure provider/model/reasoning for task agents; prompt may be empty. Operates

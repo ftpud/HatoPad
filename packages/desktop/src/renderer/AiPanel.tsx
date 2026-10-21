@@ -1,3 +1,5 @@
+import { McpChatControls } from "./McpChatControls";
+import type { McpLibraryServer, McpSelection } from "@hatopad/protocol";
 import { AiAuthentication } from "./AiAuthentication";
 import {
   Check,
@@ -94,6 +96,9 @@ export function resolveAiLink(href: string, workspacePath = ""): AiLink {
 }
 
 export function AiPanel({
+  mcpServers = [],
+  onMcpChange,
+  onOpenMcps,
   skills = [],
   onSkillsChange,
   onOpenSkills,
@@ -126,6 +131,9 @@ export function AiPanel({
   onOpenFile = () => undefined,
   onOpenExternal = () => undefined,
 }: {
+  mcpServers?: McpLibraryServer[];
+  onMcpChange?(selections: McpSelection[], editorEnabled: boolean): Promise<void>;
+  onOpenMcps?(): void;
   skills?: SkillFile[];
   onSkillsChange?(ids: string[]): Promise<void>;
   onOpenSkills?(): void;
@@ -819,6 +827,16 @@ export function AiPanel({
               disabled={submitting || permissionActionsDisabled}
               onChange={onSkillsChange}
               onOpen={onOpenSkills}
+            />
+          )}
+          {descriptor?.capabilities.mcp && onMcpChange && onOpenMcps && (
+            <McpChatControls
+              servers={mcpServers}
+              selected={session.mcpSelections ?? []}
+              editorEnabled={session.editorMcpEnabled !== false}
+              disabled={submitting || permissionActionsDisabled || sessionChangesDisabled}
+              onChange={onMcpChange}
+              onOpen={onOpenMcps}
             />
           )}
           {onSendAsTask && (

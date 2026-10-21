@@ -59,3 +59,5 @@ export * from "./types/http.js";
 export * from "./types/java.js";
 export * from "./types/language.js";
 export * from "./request-registry.js";
+
+export type { McpSelection, McpAction, McpConnection, McpLibraryServer, McpServerInput } from "./types/mcp.js";

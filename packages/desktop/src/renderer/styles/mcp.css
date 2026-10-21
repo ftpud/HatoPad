@@ -1,0 +1,97 @@
+.mcp-library {
+  padding: 8px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mcp-server {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 9px;
+  min-width: 0;
+}
+.mcp-server header,
+.mcp-server strong,
+.mcp-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mcp-server header strong,
+.mcp-dialog h2 {
+  flex: 1;
+}
+.mcp-server small,
+.mcp-dialog p {
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.mcp-url {
+  user-select: text;
+}
+.mcp-server select,
+.mcp-chat-picker select {
+  width: 100%;
+  min-width: 0;
+}
+.mcp-server details {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+.mcp-server pre,
+.mcp-dialog pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+.mcp-dialog {
+  padding: 12px;
+  width: min(620px, 90vw);
+  max-height: 85vh;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.mcp-dialog fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  padding: 12px;
+  min-width: 0;
+}
+.mcp-dialog textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+.mcp-dialog .mcp-default {
+  flex-direction: row;
+  align-items: center;
+}
+.mcp-dialog .mcp-default input {
+  width: auto;
+}
+.mcp-buttons,
+.mcp-dialog footer {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mcp-dialog footer {
+  justify-content: flex-end;
+}
+.mcp-chat-picker {
+  max-height: min(450px, 60vh);
+  overflow-y: auto;
+}
+.mcp-chat-picker > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}

@@ -22,6 +22,7 @@ export type HarnessPanelProps = {
   diagnostics?: HarnessStateDiagnostic[];
   providers: AiProviderDescriptor[];
   agents: AgentFile[];
+  mcpServers?: import("@hatopad/protocol").McpLibraryServer[];
   skillCatalog?: SkillCatalog;
   onRefreshSkills?(): Promise<void>;
   defaultProvider?: AiProvider;

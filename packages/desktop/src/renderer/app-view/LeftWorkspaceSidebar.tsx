@@ -37,6 +37,9 @@ import type { AppViewContext } from "./view-types";
 
 export function LeftWorkspaceSidebar({ context }: { context: AppViewContext }) {
   const {
+    mcpServers,
+    refreshMcps,
+    selectMcps,
     workspaceRoots,
     selectedRootId,
     activeWorkspace,
@@ -437,6 +440,12 @@ export function LeftWorkspaceSidebar({ context }: { context: AppViewContext }) {
                         <span className={`ai-status ${aiSession.status}`}>{formatAiStatus(aiSession.status)}</span>
                       </header>
                       <AiPanel
+                        mcpServers={mcpServers}
+                        onMcpChange={selectMcps}
+                        onOpenMcps={() => {
+                          setRightPanels((current) => ({ ...current, mcp: true }));
+                          void refreshMcps();
+                        }}
                         key={`${activeWorkspace}:${selectedTaskId ?? "root"}:${aiProvider}:${aiSession.id ?? "legacy"}`}
                         provider={aiProvider}
                         providers={aiProviders}

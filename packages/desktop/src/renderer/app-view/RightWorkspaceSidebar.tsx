@@ -1,3 +1,4 @@
+import { McpPanel } from "../McpPanel";
 import { TaskCheckpointHistory } from "../TaskCheckpointHistory";
 import { TaskRow, formatAiStatus } from "../TaskRow";
 import { ResizablePanelStack } from "../ResizablePanelStack";
@@ -33,6 +34,10 @@ import type { AppViewContext } from "./view-types";
 
 export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) {
   const {
+    mcpServers,
+    refreshMcps,
+    mcpActions,
+    selectMcps,
     workspaceRoots,
     selectedRootId,
     activeWorkspace,
@@ -221,6 +226,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                     ...(rightPanels.useful ? ["useful"] : []),
                     ...(rightPanels.agents ? ["agents"] : []),
                     ...(rightPanels.skills ? ["skills"] : []),
+                    ...(rightPanels.mcp ? ["mcp"] : []),
                   ]}
                 >
                   {rightPanels.project && (
@@ -503,6 +509,17 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                       />
                     </section>
                   )}
+                  {rightPanels.mcp && (
+                    <section key="mcp" className="stacked-panel">
+                      <McpPanel
+                        key={selectedRootId}
+                        servers={mcpServers}
+                        actions={mcpActions}
+                        onRefresh={() => refreshMcps()}
+                        disabled={taskSwitching}
+                      />
+                    </section>
+                  )}
                   {rightPanels.skills && (
                     <section key="skills" className="stacked-panel">
                       <SkillsPanel
@@ -608,6 +625,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
             classicTasksOpen ||
             classicAiOpen ||
             rightPanels.skills ||
+            rightPanels.mcp ||
             (rightPanels.promptHistory && selectedTaskId)) && (
             <>
               <div
@@ -773,6 +791,12 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                       <span className={`ai-status ${aiSession.status}`}>{formatAiStatus(aiSession.status)}</span>
                     </header>
                     <AiPanel
+                      mcpServers={mcpServers}
+                      onMcpChange={selectMcps}
+                      onOpenMcps={() => {
+                        setRightPanels((current) => ({ ...current, mcp: true }));
+                        void refreshMcps();
+                      }}
                       key={`classic:${activeWorkspace}:${selectedTaskId ?? "root"}:${aiProvider}:${aiSession.id ?? "legacy"}`}
                       provider={aiProvider}
                       providers={aiProviders}
@@ -812,6 +836,17 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                       onAnswerQuestion={answerAiQuestion}
                       onOpenFile={(path, line, column) => void openAiFile(path, line, column)}
                       onOpenExternal={(url) => void window.desktop?.openExternal(url)}
+                    />
+                  </section>
+                )}
+                {rightPanels.mcp && (
+                  <section className="stacked-panel">
+                    <McpPanel
+                      key={selectedRootId}
+                      servers={mcpServers}
+                      actions={mcpActions}
+                      onRefresh={() => refreshMcps()}
+                      disabled={taskSwitching}
                     />
                   </section>
                 )}

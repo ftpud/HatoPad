@@ -1,3 +1,4 @@
+import type { McpOperations } from "./mcp.js";
 import type { PortTunnelOperations } from "./portTunnel.js";
 import type { CoreOperations } from "./core.js";
 import type { StorageOperations } from "./storage.js";
@@ -28,7 +29,8 @@ import type { PluginsOperations } from "./plugins.js";
 import type { LanguageOperations } from "./language.js";
 import type { JavaOperations } from "./java.js";
 
-export type ProtocolOperations = PortTunnelOperations &
+export type ProtocolOperations = McpOperations &
+  PortTunnelOperations &
   CoreOperations &
   StorageOperations &
   ProtocolSessionOperations &

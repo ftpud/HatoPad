@@ -81,13 +81,15 @@ function workflowBlockDescription(block: HarnessBlock | undefined): string | und
   const description =
     block?.type === "meeting"
       ? "Shared meeting chat for this workflow run. Use action publish with message (or input) to post; tail with lines (1–50) to read recent messages; diff to read new messages since your own last read; wait to sleep until unread messages arrive (timeout_seconds defaults to the connection timeout). Optional after selects a sequence. Wait returns messages with status updated or timed_out. Read pages while hasMore is true. Messages include author and sequence; each participant has an independent durable cursor. Keeps the latest 1000 messages and reports historyTruncated if older unread messages were removed. Publishing does not invoke other agents. Use status to list connected peers and their online/block status. Use shake with peer_block_id and optional message to notify an active AI peer or start an idle peer turn; only peers connected to this room can be shaken."
-      : block?.type === "skill"
-        ? block.description
-        : block?.type === "terminal_control"
-          ? 'Only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. Control terminals in this task workspace. Pass JSON in input: {"action":"list"}, {"action":"open","name":"Server"}, {"action":"open_and_run","name":"Server","command":"npm run dev"}, {"action":"write","terminal_id":"ID","data":"command\\n"}, or {"action":"read","terminal_id":"ID","lines":100}. open_and_run appends a newline automatically and returns the terminalId immediately. Writes are raw input; include a newline to execute commands.'
-          : block?.type === "task_controls"
-            ? "Create tasks, check task and AI status, send prompts with the designed AI settings, set tasks active or finished, set commit-message drafts, and rewrite the latest unpushed commit message."
-            : (block?.description ?? block?.prompt);
+      : block?.type === "mcp"
+        ? 'External MCP tools. Call workflow_use_block with input JSON {"action":"list"} to discover tools, then {"action":"call","name":"TOOL_NAME","arguments":{...}} to invoke one using this block’s connection.'
+        : block?.type === "skill"
+          ? block.description
+          : block?.type === "terminal_control"
+            ? 'Only for long-running apps and services. Do not spawn agents in terminals. List first and reuse existing terminals whenever possible; avoid spawning new terminals unnecessarily. Control terminals in this task workspace. Pass JSON in input: {"action":"list"}, {"action":"open","name":"Server"}, {"action":"open_and_run","name":"Server","command":"npm run dev"}, {"action":"write","terminal_id":"ID","data":"command\\n"}, or {"action":"read","terminal_id":"ID","lines":100}. open_and_run appends a newline automatically and returns the terminalId immediately. Writes are raw input; include a newline to execute commands.'
+            : block?.type === "task_controls"
+              ? "Create tasks, check task and AI status, send prompts with the designed AI settings, set tasks active or finished, set commit-message drafts, and rewrite the latest unpushed commit message."
+              : (block?.description ?? block?.prompt);
   return description && description.length > 512
     ? `${description.slice(0, 512)}… (preview; use the block to load its content)`
     : description;

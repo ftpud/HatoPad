@@ -30,6 +30,7 @@ export function usePanelLayout(workspaceKeyRef: MutableRefObject<string>) {
     useful: false,
     agents: false,
     skills: false,
+    mcp: false,
   });
   const [classicSideView, setClassicSideView] = useState<ClassicTaskPanel>("project");
   const [classicLeftWidth, setClassicLeftWidth] = useState(260);

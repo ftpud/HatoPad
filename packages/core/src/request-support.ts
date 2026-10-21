@@ -1,3 +1,4 @@
+import { executeWorkflowMcp } from "./mcp-library.js";
 import { stateHome } from "./state-home.js";
 import { executeTerminalControlAsync } from "./workflow-terminal.js";
 import { managedProcesses } from "./managed-processes.js";
@@ -219,6 +220,7 @@ export async function startWorkflow(
   const dispatch: Parameters<HarnessRunner["start"]>[2] = async (block, prompt, runtime) =>
     providerOperation(async () => {
       await validateWorkflowBinding(binding, tasks, rootWorkspace);
+      if (block.type === "mcp") return executeWorkflowMcp(block, prompt, rootWorkspace, runtime.assertActive);
       if (block.type === "skill" && block.skillId)
         return executeWorkflowSkill(block, new SkillsStore(undefined, rootWorkspace), workspacePath, runtime);
       if (block.type === "script")

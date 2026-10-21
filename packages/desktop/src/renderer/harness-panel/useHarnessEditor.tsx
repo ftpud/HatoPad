@@ -37,6 +37,7 @@ export function useHarnessEditor({
   diagnostics = [],
   providers,
   agents,
+  mcpServers = [],
   skillCatalog,
   onRefreshSkills,
   defaultProvider,
@@ -634,6 +635,7 @@ export function useHarnessEditor({
               type === "terminal_control" ||
               type === "meeting" ||
               type === "skill" ||
+              type === "mcp" ||
               type === "start_input" ||
               type === "timer" ||
               type === "script" ||
@@ -648,6 +650,7 @@ export function useHarnessEditor({
     setDraft({ ...draft, blocks: [...draft.blocks, next] });
     setSelectedBlockId(id);
     setSelectedBlockIds([id]);
+    if (type === "mcp") setTestInput('{"action":"list"}');
     if (type === "terminal_control") setTestInput('{"action":"list"}');
     if (type === "task_controls") setTestInput('{"action":"status"}');
   };
@@ -1022,6 +1025,7 @@ export function useHarnessEditor({
     blockModels,
     selectedBlockModel,
     agents,
+    mcpServers,
     skillCatalog,
     onRefreshSkills,
     onError,

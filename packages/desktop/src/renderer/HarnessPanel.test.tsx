@@ -32,6 +32,52 @@ function renderEditor(ui: Parameters<typeof render>[0]) {
 }
 
 describe("HarnessPanel", () => {
+  it("configures an MCP block with a library server and named connection", async () => {
+    const harness: HarnessDefinition = {
+      id: "mcp",
+      name: "MCP",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
+    const onSave = vi.fn(async (definition: HarnessDefinition) => definition);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        mcpServers={[
+          {
+            id: "github",
+            name: "GitHub",
+            url: "https://example.test/mcp",
+            defaultConnectionId: "bot",
+            connections: [{ id: "bot", name: "Bot", hasCredentials: true }],
+          },
+        ]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "mcp" } });
+    fireEvent.change(screen.getByLabelText("Workflow MCP server"), { target: { value: "github" } });
+    expect(screen.getByLabelText("Workflow MCP connection")).toHaveProperty("value", "");
+    fireEvent.change(screen.getByLabelText("Workflow MCP connection"), { target: { value: "bot" } });
+    fireEvent.click(screen.getByTitle("Save workflow"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0]![0].blocks[0]).toMatchObject({
+      type: "mcp",
+      mcp: { serverId: "github", connectionId: "bot" },
+    });
+  });
+
   it.each(["ai", "chatbox"] as const)(
     "exposes reasoning in %s block configuration and saves explicit or default effort",
     async (type) => {

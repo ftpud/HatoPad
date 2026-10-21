@@ -214,6 +214,7 @@ export async function harnessExecuteFlow(
         host.log(state, "lifecycle", `Timer armed for ${state.waitingUntil}`);
         return `Timer armed for ${state.waitingUntil}`;
       } else if (
+        block.type === "mcp" ||
         block.type === "script" ||
         block.type === "run_app" ||
         block.type === "terminal_control" ||
