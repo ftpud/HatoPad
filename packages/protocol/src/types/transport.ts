@@ -52,6 +52,8 @@ export const coreCapabilities = [
   "core.gitUpdate",
   "ports.tunnel",
   "client.presence",
+  "mcp.library",
+  "mcp.oauth",
 ] as const;
 
 export type CoreCapability = (typeof coreCapabilities)[number];

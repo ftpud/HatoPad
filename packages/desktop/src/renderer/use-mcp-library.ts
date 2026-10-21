@@ -4,31 +4,41 @@ import type { CoreClient } from "./client";
 
 export function useMcpLibrary(clientRef: MutableRefObject<CoreClient | undefined>) {
   const [mcpServers, setMcpServers] = useState<McpLibraryServer[]>([]);
+  const [mcpLibraryAvailable, setMcpLibraryAvailable] = useState(false);
+  const [mcpUnavailableReason, setMcpUnavailableReason] = useState<string>();
+  const requireClient = (oauth = false) => {
+    const client = clientRef.current;
+    if (!client || !client.isConnected()) throw new Error("Backend is disconnected");
+    if (!client.supports("mcp.library")) throw new Error("Update Core to use MCP servers and chat MCP controls.");
+    if (oauth && !client.supports("mcp.oauth")) throw new Error("Update Core to use MCP OAuth sign-in.");
+    return client;
+  };
   const refreshMcps = useCallback(async (client = clientRef.current, canApply: () => boolean = () => true) => {
     if (!client) return;
     const root = client.getRoot();
-    const { servers } = await client.request("mcp.list", {});
-    if (canApply() && clientRef.current === client && client.isConnected() && root === client.getRoot())
+    const available = client.supports("mcp.library");
+    const servers = available ? (await client.request("mcp.list", {})).servers : [];
+    if (canApply() && clientRef.current === client && client.isConnected() && root === client.getRoot()) {
       setMcpServers(servers);
+      setMcpLibraryAvailable(available);
+      setMcpUnavailableReason(available ? undefined : "Update Core to use MCP servers and chat MCP controls.");
+    }
   }, []);
   const mcpActions = {
     save: async (server: McpServerInput) => {
-      const client = clientRef.current;
-      if (!client) throw new Error("Backend is disconnected");
+      const client = requireClient();
       const result = await client.request("mcp.save", { server });
       await refreshMcps(client);
       return result.server;
     },
     delete: async (id: string) => {
-      const client = clientRef.current;
-      if (!client) throw new Error("Backend is disconnected");
+      const client = requireClient();
       await client.request("mcp.delete", { id });
       await refreshMcps(client);
     },
     signIn: async (selection: McpSelection, port?: number, signal?: AbortSignal) => {
-      const client = clientRef.current;
+      const client = requireClient(true);
       const desktop = window.desktop;
-      if (!client) throw new Error("Backend is disconnected");
       if (!desktop?.mcpOAuthPrepare || !desktop.mcpOAuthWait || !desktop.mcpOAuthCancel)
         throw new Error("Update HatoPad Desktop to use browser OAuth sign-in.");
       const root = client.getRoot();
@@ -65,14 +75,14 @@ export function useMcpLibrary(clientRef: MutableRefObject<CoreClient | undefined
       }
     },
     disconnect: async (selection: McpSelection) => {
-      if (!clientRef.current) throw new Error("Backend is disconnected");
-      await clientRef.current.request("mcp.oauth.disconnect", selection);
+      const client = requireClient(true);
+      await client.request("mcp.oauth.disconnect", selection);
       await refreshMcps();
     },
     discover: async (selection: McpSelection) => {
-      if (!clientRef.current) throw new Error("Backend is disconnected");
-      return (await clientRef.current.request("mcp.actions", selection)).actions;
+      const client = requireClient();
+      return (await client.request("mcp.actions", selection)).actions;
     },
   };
-  return { mcpServers, setMcpServers, refreshMcps, mcpActions };
+  return { mcpServers, setMcpServers, refreshMcps, mcpActions, mcpLibraryAvailable, mcpUnavailableReason };
 }

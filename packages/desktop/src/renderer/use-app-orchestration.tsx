@@ -562,7 +562,8 @@ export function useAppOrchestration() {
     [],
   );
   const clientRef = useRef<CoreClient>();
-  const { mcpServers, setMcpServers, refreshMcps, mcpActions } = useMcpLibrary(clientRef);
+  const { mcpServers, setMcpServers, refreshMcps, mcpActions, mcpLibraryAvailable, mcpUnavailableReason } =
+    useMcpLibrary(clientRef);
   useEffect(() => startPresenceReporting(() => clientRef.current), []);
   const recoveryRef = useRef<ConnectionRecovery>();
   const invalidationRefreshes = useRef<InvalidationRefreshes>();
@@ -1019,7 +1020,7 @@ export function useAppOrchestration() {
     const workspace = activeWorkspaceRef.current;
     const root = client.getRoot();
     const taskId = selectedTaskIdRef.current;
-    const [catalog] = await Promise.all([client.request("skills.list", {}), refreshMcps(client, canApply)]);
+    const catalog = await client.request("skills.list", {});
     if (
       canApply() &&
       clientRef.current === client &&
@@ -1051,6 +1052,7 @@ export function useAppOrchestration() {
       const client = clientRef.current;
       if (!client || !aiSession.id) return;
       const token = aiToken();
+      if (!client.supports("mcp.library")) throw new Error("Update Core to use chat MCP controls.");
       const { session } = await client.request("ai.mcp", {
         provider: token.provider,
         sessionId: aiSession.id,
@@ -1445,7 +1447,11 @@ export function useAppOrchestration() {
         recoverySelection = undefined;
         showStatus("Backend connection restored", "success");
         startBackgroundLoading(
-          [() => refreshAiSessions(client, stillCurrent), () => refreshHarnessRuns(client, stillCurrent)],
+          [
+            () => refreshAiSessions(client, stillCurrent),
+            () => refreshHarnessRuns(client, stillCurrent),
+            () => refreshMcps(client, stillCurrent),
+          ],
           stillCurrent,
           () => showStatus("Session history could not load. Refresh the panel to retry.", "error"),
         );
@@ -1496,6 +1502,7 @@ export function useAppOrchestration() {
       },
       {
         configuration: [
+          (canApply) => refreshMcps(client, canApply),
           (canApply) => refreshAgents(client, selectedTaskIdRef.current, canApply),
           (canApply) => refreshUsefulFiles(client, canApply),
           (canApply) => refreshHarnesses(client, canApply),
@@ -1969,6 +1976,7 @@ export function useAppOrchestration() {
               }),
             () => refreshAiSessions(client, canApply),
             () => refreshAiStatuses(client, canApply),
+            () => refreshMcps(client, canApply),
             () => refreshUsefulFiles(client, canApply),
             () => refreshRunConfigs(client, canApply),
             () => refreshAgents(client, taskResult.selectedTaskId, canApply),
@@ -3088,6 +3096,8 @@ export function useAppOrchestration() {
   });
 
   return {
+    mcpLibraryAvailable,
+    mcpUnavailableReason,
     mcpServers,
     refreshMcps,
     mcpActions,

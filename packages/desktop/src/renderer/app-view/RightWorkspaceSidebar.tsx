@@ -35,6 +35,8 @@ import type { AppViewContext } from "./view-types";
 export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) {
   const {
     mcpServers,
+    mcpLibraryAvailable,
+    mcpUnavailableReason,
     refreshMcps,
     mcpActions,
     selectMcps,
@@ -514,6 +516,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                       <McpPanel
                         key={selectedRootId}
                         servers={mcpServers}
+                        unavailableReason={mcpUnavailableReason}
                         actions={mcpActions}
                         onRefresh={() => refreshMcps()}
                         disabled={taskSwitching}
@@ -792,7 +795,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                     </header>
                     <AiPanel
                       mcpServers={mcpServers}
-                      onMcpChange={selectMcps}
+                      onMcpChange={mcpLibraryAvailable ? selectMcps : undefined}
                       onOpenMcps={() => {
                         setRightPanels((current) => ({ ...current, mcp: true }));
                         void refreshMcps();
@@ -844,6 +847,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                     <McpPanel
                       key={selectedRootId}
                       servers={mcpServers}
+                      unavailableReason={mcpUnavailableReason}
                       actions={mcpActions}
                       onRefresh={() => refreshMcps()}
                       disabled={taskSwitching}

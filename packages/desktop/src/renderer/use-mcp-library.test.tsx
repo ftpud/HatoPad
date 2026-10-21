@@ -25,7 +25,12 @@ it("relays the Desktop browser callback to the same remote Core without exposing
         ? { servers: [] }
         : {},
   );
-  const client = { request, getRoot: () => "root", isConnected: () => true } as unknown as CoreClient;
+  const client = {
+    request,
+    supports: () => true,
+    getRoot: () => "root",
+    isConnected: () => true,
+  } as unknown as CoreClient;
   const { result } = renderHook(() => useMcpLibrary({ current: client }));
   await act(async () => result.current.mcpActions.signIn({ serverId: "example", connectionId: "personal" }));
   expect(desktop.mcpOAuthWait).toHaveBeenCalledWith("local", "state");
@@ -51,9 +56,51 @@ it("does not complete a sign-in after the user switches projects", async () => {
   const request = vi
     .fn()
     .mockResolvedValue({ flowId: "flow", authorizationUrl: "https://identity.example/authorize", state: "state" });
-  const client = { request, getRoot: () => root, isConnected: () => true } as unknown as CoreClient;
+  const client = {
+    request,
+    supports: () => true,
+    getRoot: () => root,
+    isConnected: () => true,
+  } as unknown as CoreClient;
   const { result } = renderHook(() => useMcpLibrary({ current: client }));
   await expect(result.current.mcpActions.signIn({ serverId: "example" })).rejects.toThrow("workspace changed");
   expect(request.mock.calls.some(([type]) => type === "mcp.oauth.finish")).toBe(false);
   expect(desktop.mcpOAuthCancel).toHaveBeenCalledWith("local");
+});
+
+it("skips MCP requests on older Cores and explains how to enable them", async () => {
+  const request = vi.fn();
+  const client = {
+    request,
+    supports: () => false,
+    getRoot: () => "root",
+    isConnected: () => true,
+  } as unknown as CoreClient;
+  const { result } = renderHook(() => useMcpLibrary({ current: client }));
+  await act(async () => result.current.refreshMcps());
+  expect(request).not.toHaveBeenCalled();
+  expect(result.current.mcpLibraryAvailable).toBe(false);
+  expect(result.current.mcpUnavailableReason).toContain("Update Core");
+  await expect(result.current.mcpActions.discover({ serverId: "example" })).rejects.toThrow("Update Core");
+  await expect(result.current.mcpActions.signIn({ serverId: "example" })).rejects.toThrow("Update Core");
+  expect(request).not.toHaveBeenCalled();
+});
+
+it("enables MCP controls after reconnecting to a Core with MCP support", async () => {
+  let supported = false;
+  const request = vi.fn().mockResolvedValue({ servers: [] });
+  const client = {
+    request,
+    supports: () => supported,
+    getRoot: () => "root",
+    isConnected: () => true,
+  } as unknown as CoreClient;
+  const { result } = renderHook(() => useMcpLibrary({ current: client }));
+  await act(async () => result.current.refreshMcps());
+  expect(result.current.mcpUnavailableReason).toContain("Update Core");
+  supported = true;
+  await act(async () => result.current.refreshMcps());
+  expect(request).toHaveBeenCalledWith("mcp.list", {});
+  expect(result.current.mcpLibraryAvailable).toBe(true);
+  expect(result.current.mcpUnavailableReason).toBeUndefined();
 });

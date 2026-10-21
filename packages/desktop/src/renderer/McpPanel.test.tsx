@@ -116,3 +116,17 @@ it("toggles the internal MCP and uses the default connection when enabling an ex
   fireEvent.click(screen.getByLabelText("Enable HatoPad editor MCP"));
   await waitFor(() => expect(onChange).toHaveBeenCalledWith([{ serverId: "github" }], false));
 });
+
+it("explains when Core needs updating without offering unsupported actions", () => {
+  const actions = { save: vi.fn(), delete: vi.fn(), discover: vi.fn(), signIn: vi.fn(), disconnect: vi.fn() };
+  render(
+    <McpPanel
+      servers={[]}
+      actions={actions}
+      onRefresh={vi.fn()}
+      unavailableReason="Update Core to use MCP servers and chat MCP controls."
+    />,
+  );
+  expect(screen.getByText("Update Core to use MCP servers and chat MCP controls.")).toBeTruthy();
+  expect(screen.queryByTitle("Add MCP server")).toBeNull();
+});

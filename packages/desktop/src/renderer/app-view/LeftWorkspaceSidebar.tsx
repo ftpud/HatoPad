@@ -38,6 +38,7 @@ import type { AppViewContext } from "./view-types";
 export function LeftWorkspaceSidebar({ context }: { context: AppViewContext }) {
   const {
     mcpServers,
+    mcpLibraryAvailable,
     refreshMcps,
     selectMcps,
     workspaceRoots,
@@ -441,7 +442,7 @@ export function LeftWorkspaceSidebar({ context }: { context: AppViewContext }) {
                       </header>
                       <AiPanel
                         mcpServers={mcpServers}
-                        onMcpChange={selectMcps}
+                        onMcpChange={mcpLibraryAvailable ? selectMcps : undefined}
                         onOpenMcps={() => {
                           setRightPanels((current) => ({ ...current, mcp: true }));
                           void refreshMcps();
