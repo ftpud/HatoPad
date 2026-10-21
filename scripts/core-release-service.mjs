@@ -144,7 +144,7 @@ async function stage(current, request) {
   const tag = compatibleCoreTags(await tagsOutput(), request.compatibility ?? protocolCompatibility)[0];
   if (!tag || (await git(current.directory, "rev-parse", `refs/tags/${tag}^{commit}`)) !== request.expectedLatest)
     throw new Error("Update changed");
-  await git(current.directory, "merge-base", "--is-ancestor", request.expectedCurrent, request.expectedLatest);
+  // Immutable releases are replaced, never merged. The compatible tag and branch above authorize the target.
   const toolchain = await runtime(current.directory);
   const npm = await npmCli(toolchain.node);
   const abi = (

@@ -215,3 +215,14 @@ Verified with fixtures: supervisor restart and crash-loop stop, the boot script 
 and local layouts, systemd and cron install/status/remove against stubbed tools, input
 validation, and the Gateway switch (owner, operator, declined confirmation). The launchd
 branch and a real reboot have not been exercised.
+
+### Switching supervised releases across branch history
+
+The release supervisor replaces immutable release directories rather than merging
+a checkout. Its target must still be the selected compatible tag reachable from
+the requested update branch, and both approved commits are rechecked. The running
+commit need not be an ancestor of the target, allowing branch-history changes to
+be handled without an in-place merge. Builds and readiness checks still precede
+activation, and an unready release rolls back. The ordinary Git launcher retains
+its ancestry restriction. A Git discovery failure leaves launcher management
+available, blocks application, and returns a safe error message without Git output.

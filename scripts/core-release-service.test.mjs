@@ -21,6 +21,30 @@ const scenarios = {
     expect: /STOPPING_FOR_SWITCH[\s\S]*UPDATED_CORE/,
     switched: true,
   },
+  "divergent release switches without merging": {
+    divergent: true,
+    npm: 0,
+    second:
+      "console.log('UPDATED_CORE:'+process.env.HATOPAD_CORE_RUNNING_COMMIT);process.send({type:'hatopad-core-ready'});setTimeout(()=>process.exit(0),50);",
+    expect: /STOPPING_FOR_SWITCH[\s\S]*UPDATED_CORE/,
+    switched: true,
+  },
+  "a tag outside the requested branch cannot activate": {
+    offBranch: true,
+    npm: 0,
+    second: "console.log('UPDATED_CORE');process.exit(0);",
+    expect: /ABORTED_KEEPING_CORE/,
+    reject: /STOPPING_FOR_SWITCH|UPDATED_CORE/,
+    switched: false,
+  },
+  "a stale approved target cannot activate": {
+    stale: true,
+    npm: 0,
+    second: "console.log('UPDATED_CORE');process.exit(0);",
+    expect: /ABORTED_KEEPING_CORE/,
+    reject: /STOPPING_FOR_SWITCH|UPDATED_CORE/,
+    switched: false,
+  },
   success: {
     npm: 0,
     second:
@@ -93,6 +117,12 @@ for (const [name, scenario] of Object.entries(scenarios))
         );
       const selection = path.join(root, "server.release");
       await writeFile(selection, firstName);
+      if (scenario.offBranch) git(origin, "checkout", "-b", "other");
+      if (scenario.divergent) {
+        git(origin, "checkout", "--orphan", "replacement");
+        git(origin, "branch", "-D", "main");
+        git(origin, "branch", "-m", "main");
+      }
       await writeFile(path.join(origin, "packages/core/dist/index.js"), scenario.second);
       git(origin, "commit", "-am", "update");
       git(origin, "tag", `core-protocol-${protocolCompatibility.maximum}-v0.1.2`);
@@ -115,7 +145,7 @@ for (const [name, scenario] of Object.entries(scenarios))
           env: {
             ...process.env,
             npm_execpath: npm,
-            FIXTURE_LATEST: latest,
+            FIXTURE_LATEST: scenario.stale ? first : latest,
             HATOPAD_CORE_RELEASE_ROOT: deploy,
             ...(scenario.local ? { HATOPAD_CORE_RELEASES_DIR: deploy } : {}),
             HATOPAD_CORE_RELEASE_SELECTION: selection,
