@@ -145,6 +145,10 @@
   color: var(--context-menu-text);
   box-shadow: var(--context-menu-shadow);
 }
+.ai-composer .skill-chat-picker {
+  top: auto;
+  bottom: calc(100% + 5px);
+}
 .skill-chat-picker > input:focus-visible,
 .skill-chat-controls button:focus-visible,
 .skill-chat-enabled button:focus-visible {

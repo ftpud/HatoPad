@@ -85,7 +85,7 @@
 .ai-context-usage.near-full {
   background-image: conic-gradient(var(--warning) var(--context-usage), transparent 0);
 }
-.ai-composer-actions input {
+.ai-composer-actions > input[type="file"] {
   display: none;
 }
 .ai-composer-actions button {

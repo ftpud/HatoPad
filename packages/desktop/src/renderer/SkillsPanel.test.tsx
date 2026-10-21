@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SkillsPanel } from "./SkillsPanel";
 import { SkillChatChips, SkillChatControls as SkillChatPicker } from "./SkillChatControls";
@@ -184,6 +185,38 @@ function SkillChatControls(props: React.ComponentProps<typeof SkillChatPicker>) 
 }
 
 describe("chat skills", () => {
+  it("opens the checklist and changes skills without submitting the chat draft", async () => {
+    const user = userEvent.setup();
+    const onSubmit = vi.fn((event: React.FormEvent) => event.preventDefault());
+    const onChange = vi.fn(async () => undefined);
+    const onOpen = vi.fn();
+    render(
+      <form onSubmit={onSubmit}>
+        <textarea aria-label="Chat draft" defaultValue="Keep this draft" />
+        <SkillChatControls
+          skills={catalog.skills}
+          selected={["local/style"]}
+          running={false}
+          onChange={onChange}
+          onOpen={onOpen}
+        />
+        <button type="submit">Send</button>
+      </form>,
+    );
+    await user.click(screen.getByRole("button", { name: "Skills · 1 active" }));
+    expect(screen.getAllByRole("checkbox")).toHaveLength(2);
+    await user.click(screen.getByLabelText("Enable Reviewer for chat"));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(["local/style", "global/review"]));
+    await user.click(screen.getByRole("button", { name: "Manage skills" }));
+    expect(onOpen).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole("button", { name: "Disable Style" }));
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith([]));
+    expect(onSubmit).not.toHaveBeenCalled();
+    expect((screen.getByLabelText("Chat draft") as HTMLTextAreaElement).value).toBe("Keep this draft");
+    await user.click(screen.getByRole("button", { name: "Send" }));
+    expect(onSubmit).toHaveBeenCalledOnce();
+  });
+
   it("shows active chips and allows changing skills while a turn is running", async () => {
     const onChange = vi.fn(async () => undefined);
     const onOpen = vi.fn();
