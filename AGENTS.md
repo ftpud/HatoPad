@@ -57,3 +57,8 @@ Do not hand-edit `node_modules/`, `coverage/`, `packages/*/dist/`,
 `packages/*/dist-electron/`, `packages/*/dist-renderer/`, `.tools/`, or
 `.electron-runtime/`; regenerate them. Never commit `.env*` secrets or provider/MCP
 configuration.
+
+## Commits
+
+Do not add `Co-Authored-By` (or similar attribution) trailers to commit messages or
+pull request descriptions. Commits are authored by the repository owner only.
