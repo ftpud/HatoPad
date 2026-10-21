@@ -51,8 +51,8 @@ export function ProcessesPanel({
       </header>
       <div className="timers-panel">
         <p className="timers-help">
-          Running workflow apps across this project’s tasks and workflow sessions. Each app counts once, including its
-          children. Stop terminates the whole app tree.
+          Running workflow apps across this project’s tasks and workflow sessions. Each app is tracked by its launcher
+          PID. Stop terminates the launcher and its current children.
         </p>
         {(error || actionError) && (
           <p className="schedule-error" role="alert">
@@ -72,14 +72,10 @@ export function ProcessesPanel({
             <div className="timer-title">
               <SquareTerminal size={14} aria-hidden="true" />
               <strong title={item.command}>{item.name}</strong>
-              <span className="timer-state scheduled">
-                {item.status === "descendants-running" ? "Children running" : "Running"}
-              </span>
+              <span className="timer-state scheduled">Running</span>
             </div>
             <p className="timer-prompt">{item.command}</p>
-            <p>
-              PID {item.pid} · {item.processCount} {item.processCount === 1 ? "process" : "processes"}
-            </p>
+            <p>PID {item.pid}</p>
             <p>{item.taskName ?? (item.workflowRunId ? "Workflow session" : "Workspace session")}</p>
             <details>
               <summary>App details</summary>

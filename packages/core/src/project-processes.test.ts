@@ -91,7 +91,7 @@ describe.skipIf(process.platform !== "linux")("project process operations throug
       );
       const list = await listProjectProcesses(root, tasks);
       await eventually(
-        async () => (await listProjectApps(root, tasks)).find((item) => item.name === "Server")?.processCount === 3,
+        async () => (await listProjectApps(root, tasks)).find((item) => item.name === "Server")?.processCount === 1,
       );
       const appRows = await listProjectApps(root, tasks);
       expect(appRows).toHaveLength(2);
@@ -99,7 +99,7 @@ describe.skipIf(process.platform !== "linux")("project process operations throug
         taskId: "task-a",
         workflowRunId: "workflow-run",
         workflowBlockId: "app",
-        processCount: 3,
+        processCount: 1,
       });
       expect(appRows.find((item) => item.name === "Portal")).toMatchObject({
         taskId: "task-a",
@@ -132,18 +132,10 @@ describe.skipIf(process.platform !== "linux")("project process operations throug
       expect((await listProjectProcesses(otherRoot, tasks)).some((item) => item.id === other!.id)).toBe(true);
       const app = list.find((item) => item.kind === "workflow-app")!;
       expect(app).toMatchObject({ workflowBlockId: "app", taskName: "Task A" });
-      await eventually(async () =>
-        (await listProjectProcesses(root, tasks)).some((item) => item.parentPid === app.pid),
-      );
-      const descendantIds = (await listProjectProcesses(root, tasks))
-        .filter((item) => item.parentPid === app.pid)
-        .map((item) => item.id);
       const appId = appRows.find((item) => item.name === "Server")!.id;
       expect(await killProjectApp(root, appId)).toBe(true);
       await eventually(async () => apps.read("Server", task).status === "exited");
-      expect(
-        (await listProjectProcesses(root, tasks)).some((item) => item.id === app.id || descendantIds.includes(item.id)),
-      ).toBe(false);
+      expect((await listProjectProcesses(root, tasks)).some((item) => item.id === app.id)).toBe(false);
       expect((await listProjectProcesses(root, tasks)).filter((item) => item.kind === "agent")).toHaveLength(3);
       expect(await killProjectApp(root, appId)).toBe(false);
       expect((await listProjectApps(root, tasks)).map((item) => item.name)).toEqual(["Portal"]);

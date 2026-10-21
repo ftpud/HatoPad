@@ -6,6 +6,8 @@ import { createServer, shutdownCore } from "./server.js";
 import { migrateLegacyHome } from "./legacy-migration.js";
 import { parseHubOptions, runHubPairing, startHubConnector } from "./hub-connection.js";
 
+process.title = "hatopad-core";
+
 if (process.env.HATOPAD_MIGRATE_LEGACY_STATE === "1" && !process.env.HATOPAD_STATE_DIR)
   await migrateLegacyHome().catch((error) =>
     console.error(

@@ -86,6 +86,8 @@ npm run core -- --host 127.0.0.1 --port 7331 --workspace /absolute/path/to/proje
 npm run desktop -- --host 127.0.0.1 --port 7331
 ```
 
+Core sets its process title to `hatopad-core` at startup so it is recognizable in tools such as Linux `top` and `ps`. This applies to development and compiled launches; existing Core processes need a restart to pick up the change.
+
 The source launch commands build their dependencies before starting. Gateway builds Core and Desktop too, so its local-workspace controls work from a clean checkout. Missing Electron binaries are installed on first launch. If the current Node is older than 22.12, the launcher selects Node 24 through npm; Gateway passes that same Node executable to local Core. The first launch may need network access for these runtimes. On macOS, source apps also receive their native app icons.
 
 Start Gateway with:

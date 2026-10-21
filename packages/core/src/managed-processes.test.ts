@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawn, type ChildProcess } from "node:child_process";
-import { EventEmitter } from "node:events";
+import { EventEmitter, once } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -13,269 +13,192 @@ const context = {
   sessionId: "session-a",
   kind: "agent" as const,
 };
-const hosts: ManagedProcesses[] = [];
 const children: ChildProcess[] = [];
 afterEach(() => {
-  for (const host of hosts.splice(0)) host.close();
+  vi.useRealTimers();
   for (const child of children.splice(0)) child.kill("SIGKILL");
 });
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-async function eventually(check: () => Promise<boolean>) {
-  for (let i = 0; i < 100; i++) {
-    if (await check()) return;
-    await delay(25);
-  }
-  throw new Error("Process condition did not settle");
+const row = (pid: number, parentPid = 1, birth = `ticks-${pid}`): ProcessRow => ({
+  pid,
+  parentPid,
+  birth,
+  command: `cmd-${pid}`,
+  state: "S",
+});
+function setup() {
+  const rows = new Map([
+    [10, row(10)],
+    [11, row(11, 10)],
+    [99, row(99)],
+  ]);
+  const inspect = vi.fn(async (pid: number) => rows.get(pid));
+  const child = Object.assign(new EventEmitter(), { pid: 10 });
+  const signal = vi.fn((pid: number) => {
+    rows.delete(pid);
+    if (pid === child.pid) child.emit("exit");
+  });
+  const descendants = vi.fn(async (pid: number) =>
+    [...rows.values()].filter((item) => item.parentPid === pid).map((item) => item.pid),
+  );
+  const host = new ManagedProcesses(inspect, signal, descendants);
+  const launch = host.prepare(context);
+  host.track(child, context, launch.launchId);
+  return { host, launch, child, rows, inspect, signal, descendants };
 }
 
-function fakeHost() {
-  let rows: ProcessRow[] = [];
-  const signal = vi.fn((pid: number) => {
-    rows = rows.filter((row) => row.pid !== pid);
-  });
-  const host = new ManagedProcesses(async () => rows, signal);
-  hosts.push(host);
-  const launch = host.prepare(context);
-  const row = (pid: number, parentPid = 1, birth = `ticks-${pid}`): ProcessRow => ({
-    pid,
-    parentPid,
-    birth,
-    command: `cmd-${pid}`,
-    state: "S",
-    launchId: launch.launchId,
-  });
-  const child = Object.assign(new EventEmitter(), { pid: 10 }) as ChildProcess;
-  return {
-    host,
-    launch,
-    signal,
-    row,
-    child,
-    setRows: (value: ProcessRow[]) => {
-      rows = value;
-    },
-  };
-}
-describe("managed process ownership", () => {
-  it("retains observed ancestry after reparenting and never signals another session or host process", async () => {
-    const { host, launch, signal, row, child, setRows } = fakeHost();
-    setRows([row(10), row(11, 10), row(12, 11), { ...row(99), launchId: undefined }]);
-    host.track(child, context, launch.launchId);
-    const list = await host.list();
-    expect(list.map((item) => item.pid)).toEqual([10, 11, 12]);
-    const target = list.find((item) => item.pid === 11)!;
-    setRows([row(10), row(11, 10), row(12, 1), { ...row(99), launchId: undefined }]);
-    expect(await host.kill(target.id, async () => true)).toBe(true);
-    expect(signal.mock.calls.map(([pid]) => pid).sort()).toEqual([11, 12]);
+describe("event-driven managed process ownership", () => {
+  it("records only the launched PID and does no further inspection for idle time or repeated listings", async () => {
+    vi.useFakeTimers();
+    const { host, inspect, descendants } = setup();
     expect((await host.list()).map((item) => item.pid)).toEqual([10]);
+    await vi.advanceTimersByTimeAsync(60_000);
+    for (let i = 0; i < 20; i++) {
+      await host.list();
+      await host.listApps();
+    }
+    expect(inspect.mock.calls).toEqual([[10]]);
+    expect(descendants).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
   });
-  it("guards both registered roots and stale kill IDs against PID reuse", async () => {
-    const { host, launch, signal, row, child, setRows } = fakeHost();
-    setRows([row(10)]);
-    host.track(child, context, launch.launchId);
-    const old = (await host.list())[0]!;
-    setRows([{ ...row(10, 1, "new-ticks"), launchId: undefined }]);
-    expect(await host.list()).toEqual([]);
-    expect(await host.kill(old.id, async () => true)).toBe(false);
-    expect(signal).not.toHaveBeenCalled();
-  });
-  it("treats an already exited process as a successful no-op and rejects cross-project kills", async () => {
-    const { host, launch, signal, row, child, setRows } = fakeHost();
-    setRows([row(10)]);
-    host.track(child, context, launch.launchId);
-    const old = (await host.list())[0]!;
-    await expect(host.kill(old.id, async () => false)).rejects.toThrow("another project");
-    expect(signal).not.toHaveBeenCalled();
-    setRows([]);
-    child.emit("exit", 0);
-    expect(await host.kill(old.id, async () => true)).toBe(false);
-  });
-  it("prunes completed launches only after a complete snapshot, including failed launches", async () => {
-    const { host, launch, row, child, setRows } = fakeHost();
-    setRows([row(10)]);
-    host.track(child, context, launch.launchId);
-    await host.list();
-    expect(host.launchCount).toBe(1);
-    setRows([]);
-    child.emit("exit", 0);
-    await host.list();
-    await host.list();
+  it("publishes cached app metadata and removes it immediately on natural exit", async () => {
+    const { host, child, launch } = setup();
+    host.setWorkspaceContext(context.workspace, { kind: "workflow-app", appName: "Server", workflowRunId: "run" });
+    expect(await host.listApps()).toMatchObject([{ name: "Server", pid: 10, workflowRunId: "run", processCount: 1 }]);
+    const changed = vi.fn();
+    host.on("changed", changed);
+    child.emit("exit");
+    expect(await host.listApps()).toEqual([]);
+    expect(host.appSnapshot(launch.launchId)).toBeUndefined();
     expect(host.launchCount).toBe(0);
-    expect(() =>
-      host.launch(context, () => {
-        throw new Error("sync spawn failure");
-      }),
-    ).toThrow("sync spawn failure");
+    expect(changed).toHaveBeenCalledOnce();
+  });
+  it("tracks delayed spawn and failed launches without leaving stale entries", async () => {
+    const host = new ManagedProcesses(async (pid) => row(pid));
+    const child = new EventEmitter() as ChildProcess;
+    host.launch(context, () => child);
+    expect(await host.list()).toEqual([]);
+    Object.assign(child, { pid: 10 });
+    child.emit("spawn");
+    expect(await host.list()).toHaveLength(1);
+    child.emit("exit");
     expect(host.launchCount).toBe(0);
     const failed = new EventEmitter() as ChildProcess;
     host.launch(context, () => failed);
     failed.emit("error", new Error("ENOENT"));
-    await host.list();
-    await host.list();
+    expect(host.launchCount).toBe(0);
+    expect(() =>
+      host.launch(context, () => {
+        throw new Error("spawn failed");
+      }),
+    ).toThrow("spawn failed");
     expect(host.launchCount).toBe(0);
   });
-  it("does not prune an orphan launch when the parent exits during a snapshot", async () => {
-    let rows: ProcessRow[] = [];
-    let release: ((rows: ProcessRow[]) => void) | undefined;
-    let hold = false;
-    const host = new ManagedProcesses(async () =>
-      hold
-        ? new Promise<ProcessRow[]>((resolve) => {
-            release = resolve;
-          })
-        : rows,
-    );
-    hosts.push(host);
-    const launch = host.prepare(context);
-    const child = Object.assign(new EventEmitter(), { pid: 10 }) as ChildProcess;
-    const row = (pid: number): ProcessRow => ({
-      pid,
-      parentPid: 1,
-      birth: `tick-${pid}`,
-      command: "node",
-      state: "S",
-      launchId: launch.launchId,
-    });
-    rows = [row(10)];
-    host.track(child, context, launch.launchId);
-    await host.list();
-    hold = true;
-    const scan = host.list();
-    child.emit("exit", 0);
-    release!([]);
-    await scan;
-    expect(host.launchCount).toBe(1);
-    hold = false;
-    rows = [row(11)];
-    expect((await host.list()).map((item) => item.pid)).toEqual([11]);
-    rows = [];
-    await host.list();
-    expect(host.launchCount).toBe(0);
-  });
-  it("does not scan the host periodically when idle", async () => {
-    vi.useFakeTimers();
-    try {
-      const snapshot = vi.fn(async () => []);
-      const host = new ManagedProcesses(snapshot);
-      hosts.push(host);
-      host.start();
-      await vi.advanceTimersByTimeAsync(1500);
-      expect(snapshot).not.toHaveBeenCalled();
-      host.close();
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-  it("reconciles an app whose last process exits between the cached and kill snapshots", async () => {
-    let launchId: string;
-    let snapshots = 0;
-    const snapshot = async (): Promise<ProcessRow[]> => {
-      snapshots++;
-      return snapshots < 2
-        ? [{ pid: 50, parentPid: 1, birth: "ticks-50", command: "app child", state: "S", launchId }]
-        : [];
-    };
-    const signal = vi.fn();
-    const host = new ManagedProcesses(snapshot, signal);
-    hosts.push(host);
-    launchId = host.prepare({ ...context, kind: "workflow-app", appName: "Server" }).launchId;
-    expect(await host.listApps()).toHaveLength(1);
-    expect(await host.kill(`app:${launchId}`, async () => true)).toBe(false);
-    expect(signal).not.toHaveBeenCalled();
-    expect(host.appSnapshot(launchId)).toBeUndefined();
-    expect(await host.listApps()).toEqual([]);
-  });
-  it("reports permission errors with the selected PID", async () => {
-    let launchId: string;
+  it("cannot resurrect an entry when identity capture finishes after exit", async () => {
+    let resolve!: (value: ProcessRow) => void;
     const host = new ManagedProcesses(
-      async (): Promise<ProcessRow[]> => [{ pid: 10, parentPid: 1, birth: "10", command: "app", state: "S", launchId }],
-      () => {
-        throw Object.assign(new Error("permission denied"), { code: "EPERM" });
-      },
+      () =>
+        new Promise((done) => {
+          resolve = done;
+        }),
     );
-    hosts.push(host);
-    launchId = host.prepare(context).launchId;
+    const launch = host.prepare(context);
+    const child = Object.assign(new EventEmitter(), { pid: 10 });
+    host.track(child, context, launch.launchId);
+    child.emit("exit");
+    resolve(row(10));
+    expect(await host.list()).toEqual([]);
+    expect(host.launchCount).toBe(0);
+  });
+  it("rejects another project's Stop before discovering or signalling descendants", async () => {
+    const { host, inspect, descendants, signal } = setup();
     const [entry] = await host.list();
+    inspect.mockClear();
+    await expect(host.kill(entry!.id, async () => false)).rejects.toThrow("another project");
+    expect(inspect).not.toHaveBeenCalled();
+    expect(descendants).not.toHaveBeenCalled();
+    expect(signal).not.toHaveBeenCalled();
+  });
+  it("checks PID birth identity before Stop and refuses a recycled PID", async () => {
+    const { host, rows, signal, descendants } = setup();
+    const [entry] = await host.list();
+    rows.set(10, row(10, 1, "new-birth"));
+    expect(await host.kill(entry!.id, async () => true)).toBe(false);
+    expect(signal).not.toHaveBeenCalled();
+    expect(descendants).not.toHaveBeenCalled();
+    expect(await host.list()).toEqual([]);
+  });
+  it("discovers only the chosen launch's current tree on Stop and leaves unrelated processes alone", async () => {
+    const { host, rows, signal, descendants } = setup();
+    rows.set(12, row(12, 11));
+    const [entry] = await host.list();
+    expect(await host.kill(entry!.id, async () => true)).toBe(true);
+    expect(signal.mock.calls.map(([pid]) => pid)).toEqual([10, 11, 12]);
+    expect(descendants.mock.calls.map(([pid]) => pid)).toEqual([10, 11, 12]);
+    expect(rows.has(99)).toBe(true);
+  });
+  it("revalidates each descendant immediately before signalling", async () => {
+    const { host, rows, signal, descendants } = setup();
+    descendants.mockImplementation(async (pid) => {
+      if (pid === 11) rows.set(11, row(11, 1, "reused"));
+      return pid === 10 ? [11] : [];
+    });
+    const [entry] = await host.list();
+    await host.kill(entry!.id, async () => true);
+    expect(signal.mock.calls.map(([pid]) => pid)).toEqual([10]);
+  });
+  it("fails closed when launch identity cannot be captured and reports signal permission failures", async () => {
+    const { host, rows, signal } = setup();
+    const [entry] = await host.list();
+    signal.mockImplementation(() => {
+      throw Object.assign(new Error("permission denied"), { code: "EPERM" });
+    });
     await expect(host.kill(entry!.id, async () => true)).rejects.toThrow("Could not kill PID 10");
+    const other = new ManagedProcesses(async () => undefined, signal);
+    const launch = other.prepare(context);
+    other.track(Object.assign(new EventEmitter(), { pid: 20 }), context, launch.launchId);
+    await expect(other.kill((await other.list())[0]!.id, async () => true)).rejects.toThrow("Could not verify PID 20");
+    expect(rows.has(10)).toBe(true);
   });
 });
 
 describe.skipIf(process.platform !== "linux")("real Linux subprocess lifecycle", () => {
-  it("finds orphaned background commands from a short-lived parent and kills them with their agent, isolating another task", async () => {
+  it("stops a recorded launcher and its current children without registering unrelated processes", async () => {
     const host = new ManagedProcesses();
-    hosts.push(host);
     const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-process-test-"));
-    let orphanPid: number | undefined;
+    let childPid: number | undefined;
     try {
       const marker = path.join(directory, "pid");
-      const intermediate = `const {spawn}=require('node:child_process'); const fs=require('node:fs'); const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'}); fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));child.unref();`;
-      const script = `const {spawn}=require('node:child_process');setTimeout(()=>{spawn(process.execPath,['-e',${JSON.stringify(intermediate)}],{stdio:'ignore'});},100);setInterval(()=>{},1000);`;
-      const launch = host.prepare(context);
-      const root = spawn(process.execPath, ["-e", script], { env: launch.env, stdio: "ignore" });
+      const script = `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));setInterval(()=>{},1000);`;
+      const root = host.launch(context, (env) => spawn(process.execPath, ["-e", script], { env, stdio: "ignore" }));
       children.push(root);
-      host.track(root, context, launch.launchId);
-      const otherContext = { ...context, workspace: "/project/tasks/b", sessionId: "session-b" };
-      const otherLaunch = host.prepare(otherContext);
-      const other = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
-        env: otherLaunch.env,
-        stdio: "ignore",
-      });
-      children.push(other);
-      host.track(other, otherContext, otherLaunch.launchId);
       const unrelated = spawn(process.execPath, ["-e", "setInterval(()=>{},1000)"], { stdio: "ignore" });
       children.push(unrelated);
-      await eventually(async () => {
-        try {
-          orphanPid = Number(await readFile(marker, "utf8"));
-          return !!orphanPid;
-        } catch {
-          return false;
-        }
-      });
-      await delay(150); // Intermediate parent has exited before the next discovery.
-      const list = await host.list();
-      expect(list.some((item) => item.pid === orphanPid && item.sessionId === "session-a")).toBe(true);
-      expect(list.some((item) => item.pid === other.pid && item.workspace === otherContext.workspace)).toBe(true);
-      expect(list.some((item) => item.pid === unrelated.pid)).toBe(false);
-      const agent = list.find((item) => item.pid === root.pid)!;
-      expect(agent.kind).toBe("agent");
-      await host.kill(agent.id, async () => true);
-      await eventually(
-        async () => !(await host.list()).some((item) => item.pid === orphanPid || item.pid === root.pid),
-      );
-      expect((await host.list()).some((item) => item.pid === other.pid)).toBe(true);
+      for (let i = 0; i < 100; i++) {
+        childPid = await readFile(marker, "utf8")
+          .then(Number)
+          .catch(() => undefined);
+        if (childPid) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+      expect(childPid).toBeTruthy();
+      const [entry] = await host.list();
+      expect((await host.list()).map((item) => item.pid)).toEqual([root.pid]);
+      const exited = once(root, "exit");
+      await host.kill(entry!.id, async () => true);
+      await exited;
+      expect(await host.list()).toEqual([]);
       expect(() => process.kill(unrelated.pid!, 0)).not.toThrow();
-      expect(await host.kill(agent.id, async () => true)).toBe(false);
+      await vi.waitFor(async () => {
+        const state = await readFile(`/proc/${childPid}/stat`, "utf8").catch(() => "");
+        expect(!state || state.split(") ")[1]?.startsWith("Z")).toBe(true);
+      });
     } finally {
-      if (orphanPid) {
+      if (childPid) {
         try {
-          process.kill(orphanPid, "SIGKILL");
+          process.kill(childPid, "SIGKILL");
         } catch {}
       }
       await rm(directory, { recursive: true, force: true });
     }
-  });
-  it("publishes natural exits and preserves workflow app metadata", async () => {
-    const host = new ManagedProcesses();
-    hosts.push(host);
-    host.start();
-    const changed = vi.fn();
-    host.on("changed", changed);
-    const appContext = {
-      ...context,
-      provider: undefined,
-      kind: "workflow-app" as const,
-      workflowRunId: "run",
-      workflowBlockId: "app",
-    };
-    const launch = host.prepare(appContext);
-    const child = spawn(process.execPath, ["-e", "setTimeout(()=>{},500)"], { env: launch.env, stdio: "ignore" });
-    children.push(child);
-    host.track(child, appContext, launch.launchId);
-    await eventually(async () =>
-      (await host.list()).some((item) => item.workflowRunId === "run" && item.pid === child.pid),
-    );
-    await eventually(async () => !(await host.list()).some((item) => item.pid === child.pid));
-    expect(changed.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 });

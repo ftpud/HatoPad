@@ -445,7 +445,6 @@ export async function createServer(
     for (const socket of activeSessions) sendWebSocketData(socket, encoded);
   };
   managedProcesses.on("changed", processesChanged);
-  managedProcesses.start();
   let runConfigs: RunConfigService;
   const terminalHost = new TerminalSessionHost((event) => {
     if (event.type === "opened") {
@@ -1524,7 +1523,6 @@ export async function createServer(
     (cleanupPromise ??= (async () => {
       await storage.drain();
       managedProcesses.off("changed", processesChanged);
-      if (!managedProcesses.listenerCount("changed")) managedProcesses.close();
       metadataHints.dispose();
       rootBatcher.dispose();
       terminalHost.closeAll();

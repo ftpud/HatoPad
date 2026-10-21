@@ -422,6 +422,9 @@ export abstract class StdioAcpProvider extends AcpProvider {
         runtime.session.status = "idle";
         runtime.session.messages.push(this.message("activity", "Interrupted because Core is shutting down"));
       }
+      // Detach before stopping the child so disconnect callbacks cannot turn a
+      // deliberately interrupted session into a provider error.
+      this.runtimes.delete(workspace);
     }
     const children = [...this.ownedChildren];
     const ownedPids = new Set(children.flatMap((child) => (child.pid ? [child.pid] : [])));
@@ -432,18 +435,6 @@ export abstract class StdioAcpProvider extends AcpProvider {
           return [];
         })
       : [];
-    let expanded = true;
-    while (expanded) {
-      expanded = false;
-      for (const row of rows)
-        if (row.parentPid !== undefined && ownedPids.has(row.parentPid) && !ownedPids.has(row.pid)) {
-          ownedPids.add(row.pid);
-          expanded = true;
-        }
-    }
-    const descendants = rows.filter(
-      (row) => ownedPids.has(row.pid) && !children.some((child) => child.pid === row.pid),
-    );
     const stopped = children.map(
       (child) =>
         new Promise<void>((resolve) => {
@@ -462,15 +453,31 @@ export abstract class StdioAcpProvider extends AcpProvider {
           child.once("close", done);
         }),
     );
-    await Promise.all(runtimes.map(([workspace]) => this.closeRuntime(workspace)));
+    // Discover only each owned child's current subtree, before its launcher exits.
+    await Promise.all(
+      rows
+        .filter((row) => ownedPids.has(row.pid))
+        .map((row) => {
+          const child = children.find((child) => child.pid === row.pid)!;
+          return managedProcesses
+            .kill(
+              row.id,
+              async () => true,
+              () => {
+                child.stdin.end();
+                child.kill("SIGTERM");
+              },
+            )
+            .catch((error) => {
+              inspectionError = error;
+            });
+        }),
+    );
     for (const child of children) {
       child.stdin.end();
       child.kill("SIGTERM");
     }
     await Promise.all(stopped);
-    // Revalidate recorded process identities before stopping descendants that
-    // survived their launcher. Never signal a recycled PID.
-    await Promise.all(descendants.map((row) => managedProcesses.kill(row.id, async () => true)));
     await Promise.all(
       runtimes.map(async ([workspace, runtime]) => {
         await this.completeCheckpoints(workspace, runtime, "interrupted");

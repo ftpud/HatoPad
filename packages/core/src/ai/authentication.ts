@@ -337,20 +337,27 @@ export class AcpAuthentication {
     clearTimeout(flow.timer);
     flow.answer?.({ action: "cancel" });
     flow.answer = undefined;
-    flow.child?.kill("SIGTERM");
-    flow.child = undefined;
-    flow.terminal?.kill();
-    flow.terminal = undefined;
-    flow.connection = undefined;
     const children = await managedProcesses.list().catch(() => []);
     await Promise.all(
       children
         .filter((child) => child.sessionId === flow.identity)
         .map((child) =>
           managedProcesses
-            .kill(child.id, (context) => Promise.resolve(context.sessionId === flow.identity))
+            .kill(
+              child.id,
+              (context) => Promise.resolve(context.sessionId === flow.identity),
+              () => {
+                if (child.pid === flow.child?.pid) flow.child.kill("SIGTERM");
+                else flow.terminal?.kill();
+              },
+            )
             .catch(() => false),
         ),
     );
+    flow.child?.kill("SIGTERM");
+    flow.child = undefined;
+    flow.terminal?.kill();
+    flow.terminal = undefined;
+    flow.connection = undefined;
   }
 }

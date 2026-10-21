@@ -8,10 +8,10 @@ const process: ManagedWorkflowApp = {
   id: "app:launch",
   name: "Dev server",
   pid: 123,
-  launcherPid: 122,
+  launcherPid: 123,
   command: "npm run dev",
-  status: "descendants-running",
-  processCount: 3,
+  status: "running",
+  processCount: 1,
   kind: "workflow-app",
   workspace: "/task",
   rootWorkspace: "/root",
@@ -41,10 +41,9 @@ describe("Proc tool window", () => {
     expect(document.querySelector(".timers-total")?.textContent).toBe("1");
     expect(screen.getAllByRole("article")).toHaveLength(1);
     expect(screen.getByText("npm run dev")).toBeTruthy();
-    expect(screen.getByText(/PID 123.*3 processes/)).toBeTruthy();
+    expect(screen.getByText("PID 123")).toBeTruthy();
     expect(screen.getByText("Fix UI")).toBeTruthy();
-    expect(screen.getByText("Children running")).toBeTruthy();
-    expect(screen.getByText("Exited launcher PID: 122")).toBeTruthy();
+    expect(screen.getByText("Running")).toBeTruthy();
     expect(screen.getByText("Workflow: run")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(onKill).toHaveBeenCalledWith("app:launch"));

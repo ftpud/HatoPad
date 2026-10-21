@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -60,7 +60,7 @@ describe.skipIf(process.platform !== "linux")("workflow app Proc lifecycle", () 
     for (let cycle = 0; cycle < 4; cycle++) {
       const starts = await Promise.all([execute("start"), execute("start"), execute("start")]);
       expect(new Set(starts.map((result) => result.pid)).size).toBe(1);
-      await eventually(async () => (await list())[0]?.processCount === 3);
+      await eventually(async () => (await list())[0]?.processCount === 1);
       const apps = await list();
       expect(apps).toHaveLength(1);
       expect(apps[0]!.id).not.toBe(previousId);
@@ -84,53 +84,25 @@ describe.skipIf(process.platform !== "linux")("workflow app Proc lifecycle", () 
     await execute("start");
     expect((await list())[0]!.id).not.toBe(first.id);
   });
-  it("explicit Kill discovers surviving children even when the cached app snapshot is absent", async () => {
-    const { workspace, execute } = await setup();
-    const marker = path.join(workspace, "uncached-pid");
-    const code = `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));child.unref();`;
-    const command = `${JSON.stringify(process.execPath)} -e '${code.replace(/'/g, "'\\''")}'`;
-    const cache = vi.spyOn(managedProcesses, "appSnapshot").mockReturnValue(undefined);
-    try {
-      await execute("start", command);
-      await eventually(async () => (await execute("status")).status === "exited");
-      const pid = Number(await readFile(marker, "utf8"));
-      expect(() => process.kill(pid, 0)).not.toThrow();
-      await execute("kill");
-      expect((await managedProcesses.list()).filter((item) => item.workspace === workspace)).toEqual([]);
-    } finally {
-      cache.mockRestore();
-    }
-  });
-
-  it("retains a detached descendant after launcher exit, reuses it on Start, and stops the entire launch", async () => {
-    const { workspace, service, execute, list, stop } = await setup();
+  it("removes an exited launcher without discovering detached host processes", async () => {
+    const { workspace, execute, list } = await setup();
     const marker = path.join(workspace, "pid");
     const code = `const {spawn}=require('node:child_process');const fs=require('node:fs');const child=spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{detached:true,stdio:'ignore'});fs.writeFileSync(${JSON.stringify(marker)},String(child.pid));child.unref();`;
     const command = `${JSON.stringify(process.execPath)} -e '${code.replace(/'/g, "'\\''")}'`;
-    const started = await execute("start", command);
-    await eventually(async () => (await list())[0]?.status === "descendants-running");
-    const [app] = await list();
-    expect(app).toMatchObject({
-      name: "Server",
-      launcherPid: started.pid,
-      status: "descendants-running",
-      processCount: 1,
-      workflowRunId: "run",
-    });
-    expect(app!.pid).toBe(Number(await readFile(marker, "utf8")));
-    expect(service.read("Server", workspace).status).toBe("descendants-running");
-    expect(service.hasWorkspace(workspace)).toBe(true);
-    const repeated = await execute("start", command);
-    expect(repeated.pid).toBe(started.pid);
-    expect(repeated.status).toBe("descendants-running");
-    expect((await list())[0]!.id).toBe(app!.id);
-    await stop(app!.id);
-    expect(await list()).toEqual([]);
-    expect(service.hasWorkspace(workspace)).toBe(false);
-    // A second launcher exit must also remain stoppable via Run App's Kill action.
-    await execute("start", command);
-    await eventually(async () => (await list())[0]?.status === "descendants-running");
-    await execute("kill");
-    expect(await list()).toEqual([]);
+    let pid: number | undefined;
+    try {
+      await execute("start", command);
+      await eventually(async () => (await execute("status")).status === "exited");
+      pid = Number(await readFile(marker, "utf8"));
+      expect(() => process.kill(pid!, 0)).not.toThrow();
+      expect(await list()).toEqual([]);
+      expect((await managedProcesses.list()).some((entry) => entry.pid === pid)).toBe(false);
+    } finally {
+      if (pid) {
+        try {
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+    }
   });
 });

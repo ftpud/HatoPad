@@ -81,7 +81,6 @@ export class WorkflowAppService {
     const key = `${path.resolve(workspace)}\0${name}`;
     let app = this.apps.get(key);
     if (this.closing) throw new Error("Core is shutting down");
-    if (action === "start" && app?.status === "exited") await managedProcesses.listApps();
     if (action === "start") {
       if (!block.command?.trim()) throw new Error("Run App start needs a shell script");
       if (!app || (app.status === "exited" && !managedProcesses.appSnapshot(app.launchId))) {
