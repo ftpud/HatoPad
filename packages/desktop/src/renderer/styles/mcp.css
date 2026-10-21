@@ -96,14 +96,8 @@
   gap: 4px;
 }
 
-.ai-composer:has(.ai-composer-tools) {
-  grid-template-rows: minmax(0, 1fr) auto;
-}
-.ai-composer:has(.ai-attachments):has(.ai-composer-tools) {
-  grid-template-rows: auto minmax(0, 1fr) auto;
-}
 .ai-composer-tools {
-  grid-column: 1 / -1;
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 6px;
