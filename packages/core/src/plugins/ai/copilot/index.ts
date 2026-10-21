@@ -1,3 +1,4 @@
+import { namedNodeArgs } from "../../../ai/node-process.js";
 import type { ProviderContext } from "../../../ai/stdio-provider.js";
 import type { AiConfiguration, AiModel, AiProviderDescriptor } from "@hatopad/acp";
 import { StdioAcpProvider } from "../../../ai/stdio-provider.js";
@@ -91,7 +92,7 @@ export class CopilotSessionManager extends StdioAcpProvider {
     if (typeof configuration.maxAiCredits === "number" && configuration.maxAiCredits > 0)
       args.push(`--max-ai-credits=${configuration.maxAiCredits}`);
     if (process.env.COPILOT_CLI_PATH) return { command: process.env.COPILOT_CLI_PATH, args };
-    return { command: process.execPath, args: [this.installedAgent(), ...args] };
+    return { command: process.execPath, args: namedNodeArgs("hatopad-copilot", [this.installedAgent(), ...args]) };
   }
 
   protected async fallbackModels(): Promise<AiModel[]> {

@@ -45,7 +45,13 @@ it("reads quota from the installed adapter's nested compatible CLI", async () =>
     ...usage,
     accountQuota: { plan: "test" },
   });
-  expect(readCodexAccountQuota).toHaveBeenCalledWith(process.execPath, [await realpath(cli), "app-server", "--stdio"]);
+  expect(readCodexAccountQuota).toHaveBeenCalledWith(process.execPath, [
+    "--import",
+    expect.stringContaining("hatopad-quota"),
+    await realpath(cli),
+    "app-server",
+    "--stdio",
+  ]);
 });
 it("honors the explicit Codex executable for quota checks", async () => {
   vi.stubEnv("CODEX_PATH", "/custom/codex");

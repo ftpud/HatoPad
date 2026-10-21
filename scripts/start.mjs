@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,6 +6,16 @@ import { fileURLToPath } from "node:url";
 const script = fileURLToPath(import.meta.url);
 const root = path.dirname(path.dirname(script));
 const target = process.argv[2];
+if (process.platform === "linux") {
+  try {
+    writeFileSync(
+      "/proc/self/comm",
+      `hato-${target === "desktop" ? "desk" : target === "gateway" ? "gate" : "core"}-start`,
+    );
+  } catch {
+    /* Naming is optional on restricted hosts. */
+  }
+}
 if (!["core", "desktop", "gateway"].includes(target)) throw new Error("Expected core, desktop or gateway");
 const env = { ...process.env, PATH: `${path.dirname(process.execPath)}${path.delimiter}${process.env.PATH ?? ""}` };
 const npm = process.env.npm_execpath;

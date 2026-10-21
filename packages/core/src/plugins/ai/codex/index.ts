@@ -1,3 +1,4 @@
+import { namedNodeArgs } from "../../../ai/node-process.js";
 import type { ProviderContext } from "../../../ai/stdio-provider.js";
 import os from "node:os";
 import path from "node:path";
@@ -112,7 +113,7 @@ export class CodexSessionManager extends StdioAcpProvider {
       };
     return {
       command: process.execPath,
-      args: [this.installedAgent()],
+      args: namedNodeArgs("hatopad-codex", [this.installedAgent()]),
       env: { ...(process.env.CODEX_PATH ? { CODEX_PATH: process.env.CODEX_PATH } : {}), ...env },
     };
   }
@@ -132,7 +133,7 @@ export class CodexSessionManager extends StdioAcpProvider {
         // Usage polling never installs anything; read quota with the installed adapter's own CLI.
         const entry = await providerInstallations.entry(this.descriptor.id, this.installationSpec);
         if (!entry) return usage;
-        args = [createRequire(entry).resolve("@openai/codex/bin/codex.js")];
+        args = namedNodeArgs("hatopad-quota", [createRequire(entry).resolve("@openai/codex/bin/codex.js")]);
       }
       const accountQuota = await readCodexAccountQuota(command, [...args, "app-server", "--stdio"]);
       return accountQuota ? { ...usage, accountQuota } : usage;

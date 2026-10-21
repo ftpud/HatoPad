@@ -52,3 +52,28 @@ during Stop. Only descendants captured while their ancestry is available are
 covered. Every captured PID is checked again before signalling. Core waits for
 the launcher's exit or verifies it has stopped before reporting Stop success; it
 does not run background discovery to recover detached processes.
+
+## Process names
+
+HatoPad sets Linux process names at startup so `top` and `ps` can identify roles.
+The original command line is preserved for Gateway identity checks. Titles avoid workspace names, conversation content and credentials.
+
+| Process                                  | Title                                                     |
+| ---------------------------------------- | --------------------------------------------------------- |
+| Core server                              | `hatopad-core`                                            |
+| Source Core supervisor                   | `hatopad-super`                                           |
+| Release supervisor                       | `hatopad-release`                                         |
+| MCP tools / skills / workflow flow tools | `hatopad-mcp` / `hatopad-skills` / `hatopad-flow`         |
+| Built-in Node provider adapters          | `hatopad-claude` / `hatopad-codex` / `hatopad-copilot`    |
+| Built-in Codex quota query               | `hatopad-quota`                                           |
+| Core development launcher / watcher      | `hato-core-dev` / `hato-core-watch`                       |
+| Desktop / Gateway development launchers  | `hato-desk-dev` / `hato-gate-dev`                         |
+| Desktop / Gateway Vite servers           | `hato-desk-vite` / `hato-gate-vite`                       |
+| Source launchers                         | `hato-core-start` / `hato-desk-start` / `hato-gate-start` |
+| Electron launch wrappers                 | `hato-desk-app` / `hato-gate-app`                         |
+
+Names apply on the next Linux launch of the updated code. Other platforms retain
+the runtime’s naming behavior. Provider executable overrides,
+external tools and provider-owned child processes retain their own naming behavior.
+Provider adapter names are applied through a Node preload for that invocation;
+they do not modify `NODE_OPTIONS` or propagate a naming preload to descendants.

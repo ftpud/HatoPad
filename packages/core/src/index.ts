@@ -1,3 +1,4 @@
+import { setProcessName } from "./process-name.js";
 import { CoreUpdates } from "./core-update.js";
 import "./legacy-env-bootstrap.js";
 import { loadCoreSessionToken } from "./access-policy.js";
@@ -6,7 +7,7 @@ import { createServer, shutdownCore } from "./server.js";
 import { migrateLegacyHome } from "./legacy-migration.js";
 import { parseHubOptions, runHubPairing, startHubConnector } from "./hub-connection.js";
 
-process.title = "hatopad-core";
+setProcessName("hatopad-core");
 
 if (process.env.HATOPAD_MIGRATE_LEGACY_STATE === "1" && !process.env.HATOPAD_STATE_DIR)
   await migrateLegacyHome().catch((error) =>

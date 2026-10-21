@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { compatibleCoreTags, protocolCompatibility } from "../packages/protocol/dist/index.js";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -5,6 +6,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+if (process.platform === "linux") {
+  try {
+    writeFileSync("/proc/self/comm", "hatopad-super");
+  } catch {
+    /* Naming is optional on restricted hosts. */
+  }
+}
+
 const exec = promisify(execFile);
 const repository = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const env = { ...process.env, GIT_TERMINAL_PROMPT: "0" };

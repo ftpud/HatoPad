@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,6 +6,16 @@ import { electronExecutable, macFinderLaunch } from "./electron-runtime.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const target = process.argv[2];
+if (process.platform === "linux") {
+  try {
+    writeFileSync(
+      "/proc/self/comm",
+      `hato-${target === "desktop" ? "desk" : target === "gateway" ? "gate" : "core"}-app`,
+    );
+  } catch {
+    /* Naming is optional on restricted hosts. */
+  }
+}
 const config =
   target === "desktop"
     ? { packageRoot: path.join(root, "packages/desktop"), productName: "HatoPad", bundleId: "com.hatopad.desktop" }

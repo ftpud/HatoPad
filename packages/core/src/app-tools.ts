@@ -1,3 +1,4 @@
+import { setProcessName } from "./process-name.js";
 import "./legacy-env-bootstrap.js";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import crypto from "node:crypto";
@@ -1398,4 +1399,13 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value);
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) void main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  setProcessName(
+    process.env.HATOPAD_SKILLS_ONLY === "1"
+      ? "hatopad-skills"
+      : process.env.HATOPAD_FLOW_TOOLS === "1"
+        ? "hatopad-flow"
+        : "hatopad-mcp",
+  );
+  void main();
+}

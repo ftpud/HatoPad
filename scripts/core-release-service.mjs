@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import { compatibleCoreTags, protocolCompatibility } from "../packages/protocol/dist/index.js";
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -6,6 +7,14 @@ import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from "nod
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+if (process.platform === "linux") {
+  try {
+    writeFileSync("/proc/self/comm", "hatopad-release");
+  } catch {
+    /* Naming is optional on restricted hosts. */
+  }
+}
+
 // Supervises a Gateway-deployed cloud Core. Releases are immutable clones under
 // <root>/releases (or Gateway's local release cache); an update stages a new release beside the running one and
 // switches only after it is built and smoke-tested, then rolls back if it never

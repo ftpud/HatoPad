@@ -1,3 +1,4 @@
+import { namedNodeArgs } from "../../../ai/node-process.js";
 import type { ProviderContext } from "../../../ai/stdio-provider.js";
 import type {
   AiAccountQuota,
@@ -102,9 +103,9 @@ export class ClaudeSessionManager extends StdioAcpProvider {
 
   protected command(_configuration: AiConfiguration): { command: string; args: string[] } {
     if (process.env.CLAUDE_AGENT_ACP_PATH)
-      return { command: process.execPath, args: [process.env.CLAUDE_AGENT_ACP_PATH] };
+      return { command: process.execPath, args: namedNodeArgs("hatopad-claude", [process.env.CLAUDE_AGENT_ACP_PATH]) };
     if (process.env.CLAUDE_ACP_COMMAND) return { command: process.env.CLAUDE_ACP_COMMAND, args: [] };
-    return { command: process.execPath, args: [this.installedAgent()] };
+    return { command: process.execPath, args: namedNodeArgs("hatopad-claude", [this.installedAgent()]) };
   }
 
   protected async fallbackModels(): Promise<AiModel[]> {

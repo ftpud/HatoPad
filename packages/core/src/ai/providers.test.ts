@@ -206,18 +206,18 @@ describe("ACP integration", () => {
       });
       expect(installed(new InspectCodex({ onChanged: () => undefined })).launch({})).toMatchObject({
         command: process.execPath,
-        args: [INSTALLED_ENTRY],
+        args: ["--import", expect.stringContaining("hatopad-codex"), INSTALLED_ENTRY],
       });
       expect(installed(new InspectCodex({ onChanged: () => undefined })).launch({}).env).not.toHaveProperty(
         "CODEX_PATH",
       );
       expect(installed(new InspectClaude({ onChanged: () => undefined })).launch({})).toEqual({
         command: process.execPath,
-        args: [INSTALLED_ENTRY],
+        args: ["--import", expect.stringContaining("hatopad-claude"), INSTALLED_ENTRY],
       });
       expect(installed(new InspectCopilot({ onChanged: () => undefined })).launch({})).toEqual({
         command: process.execPath,
-        args: [INSTALLED_ENTRY, "--acp", "--stdio"],
+        args: ["--import", expect.stringContaining("hatopad-copilot"), INSTALLED_ENTRY, "--acp", "--stdio"],
       });
       vi.stubEnv("CODEX_ACP_COMMAND", "/server/codex-acp");
       vi.stubEnv("CLAUDE_ACP_COMMAND", "/server/claude-acp");
@@ -881,6 +881,8 @@ describe("ACP integration", () => {
       maxAiCredits: 5,
     });
     expect(command.args).toEqual([
+      "--import",
+      expect.stringContaining("hatopad-copilot"),
       INSTALLED_ENTRY,
       "--acp",
       "--stdio",
@@ -894,7 +896,7 @@ describe("ACP integration", () => {
     const claude = installed(new ClaudeSessionManager({ onChanged: () => undefined }));
     const command = claude["command"]({ mode: "plan" });
     expect(command.command).toBe(process.execPath);
-    expect(command.args[0]).toBe(INSTALLED_ENTRY);
+    expect(command.args).toEqual(["--import", expect.stringContaining("hatopad-claude"), INSTALLED_ENTRY]);
     expect(
       claude.descriptor.options.find((option) => option.id === "mode")?.choices?.map((choice) => choice.value),
     ).toContain("plan");
