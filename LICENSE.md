@@ -19,3 +19,10 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Trademarks: this license covers the source code only. It grants no right to use the
+names "HatoPad", "HatoPad Gateway" or "HatoPad Cloud", or the HatoPad logo and icons,
+which are trademarks of Dmitrijs Juskovs. Modified versions and forks must use a
+different name and logo and must not imply they are official or endorsed.
