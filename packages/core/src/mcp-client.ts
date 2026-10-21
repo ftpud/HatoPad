@@ -1,3 +1,4 @@
+import type { OAuthClientProvider } from "@modelcontextprotocol/sdk/client/auth.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
@@ -5,14 +6,28 @@ import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 type Connection = { client: Promise<Client>; users: number; idle?: NodeJS.Timeout };
 const connections = new Map<string, Connection>();
 
-async function connect(url: string, headers: Record<string, string>): Promise<Client> {
+export async function connectMcpClient(
+  url: string,
+  headers: Record<string, string>,
+  authProvider?: OAuthClientProvider,
+  onUnauthorized?: (response: Response) => void,
+): Promise<Client> {
+  const request: typeof fetch = async (target, init) => {
+    const response = await fetch(target, init);
+    if (response.status === 401) onUnauthorized?.(response);
+    return response;
+  };
   let client = new Client({ name: "hatopad", version: "0.1.0" });
   const connecting = new AbortController();
   const timeout = setTimeout(() => connecting.abort(), 15000);
   try {
     try {
       await client.connect(
-        new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers, signal: connecting.signal } }),
+        new StreamableHTTPClientTransport(new URL(url), {
+          authProvider,
+          fetch: request,
+          requestInit: { headers, signal: connecting.signal },
+        }),
         { timeout: 15000 },
       );
     } catch (error) {
@@ -21,10 +36,12 @@ async function connect(url: string, headers: Record<string, string>): Promise<Cl
       client = new Client({ name: "hatopad", version: "0.1.0" });
       await client.connect(
         new SSEClientTransport(new URL(url), {
+          authProvider,
+          fetch: request,
           requestInit: { headers, signal: connecting.signal },
           eventSourceInit: {
             fetch: (target, init) =>
-              fetch(target, {
+              request(target, {
                 ...init,
                 signal: connecting.signal,
                 headers: init?.headers,
@@ -69,10 +86,11 @@ export async function useMcpClient<T>(
   url: string,
   headers: Record<string, string>,
   use: (client: Client) => Promise<T>,
+  authProvider?: OAuthClientProvider,
 ): Promise<T> {
   let connection = connections.get(key);
   if (!connection) {
-    connection = { client: connect(url, headers), users: 0 };
+    connection = { client: connectMcpClient(url, headers, authProvider), users: 0 };
     connections.set(key, connection);
   }
   const selected = connection;

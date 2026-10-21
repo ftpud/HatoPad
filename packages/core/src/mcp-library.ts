@@ -1,3 +1,17 @@
+import { auth } from "@modelcontextprotocol/sdk/client/auth.js";
+import {
+  McpOAuthProvider,
+  McpSignInRequired,
+  beginOAuth,
+  completeOAuth,
+  rememberOAuth,
+  takeOAuth,
+  cancelOAuth,
+  oauthError,
+  oauthFetch,
+  type StoredOAuth,
+  type PendingOAuth,
+} from "./mcp-oauth.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
@@ -15,9 +29,27 @@ import { CoreError } from "./errors.js";
 import { stateHome } from "./state-home.js";
 
 type StoredServer = Omit<McpLibraryServer, "connections"> & {
-  connections: { id: string; name: string; token?: string; headers?: Record<string, string> }[];
+  connections: {
+    id: string;
+    name: string;
+    token?: string;
+    headers?: Record<string, string>;
+    authType?: "token" | "oauth";
+    oauth?: StoredOAuth;
+  }[];
 };
 const writes = new Map<string, Promise<unknown>>();
+const oauthQueues = new Map<string, Promise<unknown>>();
+async function serializeOAuth<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = oauthQueues.get(key) ?? Promise.resolve();
+  const pending = previous.catch(() => {}).then(operation);
+  oauthQueues.set(key, pending);
+  try {
+    return await pending;
+  } finally {
+    if (oauthQueues.get(key) === pending) oauthQueues.delete(key);
+  }
+}
 const validId = (id: unknown): id is string => typeof id === "string" && /^[a-zA-Z0-9_-]{1,100}$/.test(id);
 function invalid(message: string): never {
   throw new CoreError("INVALID_REQUEST", message);
@@ -48,10 +80,23 @@ export class McpLibrary {
   private public(server: StoredServer): McpLibraryServer {
     return {
       ...server,
-      connections: server.connections.map(({ id, name, token, headers }) => ({
+      connections: server.connections.map(({ id, name, token, headers, authType, oauth }) => ({
         id,
         name,
-        hasCredentials: Boolean(token || Object.keys(headers ?? {}).length),
+        hasCredentials: Boolean(token || oauth?.tokens || Object.keys(headers ?? {}).length),
+        authType: authType ?? "token",
+        ...(authType === "oauth" && oauth
+          ? {
+              oauth: {
+                clientId: oauth.clientId,
+                scope: oauth.scope,
+                redirectPort: oauth.redirectPort,
+                connected: Boolean(oauth.tokens),
+                hasClientSecret: Boolean(oauth.clientSecret),
+                expiresAt: oauth.expiresAt,
+              },
+            }
+          : {}),
       })),
     };
   }
@@ -107,6 +152,23 @@ export class McpLibrary {
       )
         invalid("Connections need unique IDs and names");
       ids.add(connection.id);
+      if (connection.authType !== undefined && !["token", "oauth"].includes(connection.authType))
+        invalid("Choose token or OAuth authentication");
+      if (connection.oauth !== undefined) {
+        if (!connection.oauth || typeof connection.oauth !== "object" || Array.isArray(connection.oauth))
+          invalid("Invalid OAuth settings");
+        for (const key of ["clientId", "clientSecret", "scope"] as const)
+          if (
+            connection.oauth[key] !== undefined &&
+            (typeof connection.oauth[key] !== "string" ||
+              connection.oauth[key]!.length > 16000 ||
+              /[\r\n]/.test(connection.oauth[key]!))
+          )
+            invalid("Invalid OAuth settings");
+        const port = connection.oauth.redirectPort;
+        if (port !== undefined && (!Number.isInteger(port) || (port !== 0 && (port < 1024 || port > 65535))))
+          invalid("OAuth callback port must be 0 (automatic) or 1024–65535");
+      }
       if (
         connection.token !== undefined &&
         (typeof connection.token !== "string" || connection.token.length > 16000 || /[\r\n]/.test(connection.token))
@@ -140,10 +202,35 @@ export class McpLibrary {
         defaultConnectionId: input.defaultConnectionId,
         connections: input.connections.map((connection) => {
           const prior = old?.url === url!.href ? old.connections.find((item) => item.id === connection.id) : undefined;
+          const authType = connection.authType ?? prior?.authType ?? "token";
+          if (
+            authType === "oauth" &&
+            Object.keys(connection.headers ?? prior?.headers ?? {}).some((key) => key.toLowerCase() === "authorization")
+          )
+            invalid("OAuth supplies the Authorization header; remove it from custom headers");
+          const config = {
+            clientId: connection.oauth?.clientId ?? prior?.oauth?.clientId,
+            clientSecret: connection.oauth?.clientSecret ?? prior?.oauth?.clientSecret,
+            scope: connection.oauth?.scope ?? prior?.oauth?.scope,
+            redirectPort: connection.oauth?.redirectPort ?? prior?.oauth?.redirectPort,
+          };
+          const unchanged =
+            prior?.authType === "oauth" &&
+            JSON.stringify(config) ===
+              JSON.stringify({
+                clientId: prior.oauth?.clientId,
+                clientSecret: prior.oauth?.clientSecret,
+                scope: prior.oauth?.scope,
+                redirectPort: prior.oauth?.redirectPort,
+              });
           return {
             id: connection.id,
             name: connection.name.trim(),
-            token: connection.token ?? prior?.token,
+            authType,
+            token: authType === "oauth" ? undefined : (connection.token ?? prior?.token),
+            ...(authType === "oauth"
+              ? { oauth: unchanged ? prior!.oauth : { ...config, generation: crypto.randomUUID() } }
+              : {}),
             headers: connection.headers ?? prior?.headers,
           };
         }),
@@ -176,12 +263,137 @@ export class McpLibrary {
       return { serverId: server.id, ...(selection.connectionId ? { connectionId: selection.connectionId } : {}) };
     });
   }
-  private async connected<T>(selection: McpSelection, use: (client: Client) => Promise<T>): Promise<T> {
-    const server = (await this.read()).find((server) => server.id === selection.serverId);
+  private async selected(selection: McpSelection) {
+    const server = (await this.read()).find((server) => server.id === selection?.serverId);
     const connection = server?.connections.find(
       (connection) => connection.id === (selection.connectionId ?? server.defaultConnectionId),
     );
     if (!server || !connection) invalid("MCP server or connection no longer exists");
+    return { server, connection };
+  }
+  private oauthAccess(selection: McpSelection, generation: string) {
+    const check = (servers: StoredServer[]) => {
+      const connection = servers
+        .find((server) => server.id === selection.serverId)
+        ?.connections.find((connection) => connection.id === selection.connectionId);
+      if (connection?.authType !== "oauth" || connection.oauth?.generation !== generation)
+        throw new McpSignInRequired();
+      return connection.oauth;
+    };
+    return {
+      read: async () => check(await this.read()),
+      update: async (change: (oauth: StoredOAuth) => void) => this.mutate((servers) => change(check(servers))),
+    };
+  }
+  async startOAuth(selection: McpSelection, redirectUri: string) {
+    const { server, connection } = await this.selected(selection);
+    if (connection.authType !== "oauth" || !connection.oauth)
+      invalid("Choose OAuth authentication for this connection");
+    let redirect: URL;
+    try {
+      redirect = new URL(redirectUri);
+    } catch {
+      invalid("Invalid OAuth callback URL");
+    }
+    if (
+      redirect!.protocol !== "http:" ||
+      redirect!.hostname !== "127.0.0.1" ||
+      !redirect!.port ||
+      redirect!.pathname !== "/mcp/oauth/callback" ||
+      redirect!.search ||
+      redirect!.hash ||
+      redirect!.username ||
+      redirect!.password ||
+      (connection.oauth.redirectPort && Number(redirect!.port) !== connection.oauth.redirectPort)
+    )
+      invalid("Use the Desktop loopback OAuth callback");
+    const flow: PendingOAuth = {
+      file: this.file,
+      serverId: server.id,
+      connectionId: connection.id,
+      generation: connection.oauth.generation,
+      serverUrl: server.url,
+      oauth: { ...structuredClone(connection.oauth), tokens: undefined, expiresAt: undefined },
+      interaction: { redirectUri: redirect!.href, state: crypto.randomBytes(32).toString("base64url") },
+      expiresAt: Date.now() + 300000,
+    };
+    // DCR servers can require an exact redirect URI, including the ephemeral port.
+    // Re-register in the pending flow without disturbing an existing usable grant.
+    if (!flow.oauth.clientId && flow.oauth.redirectUri && flow.oauth.redirectUri !== redirect!.href)
+      delete flow.oauth.registration;
+    try {
+      await beginOAuth(flow, connection.headers ?? {});
+    } catch (error) {
+      throw oauthError(error);
+    }
+    return {
+      flowId: rememberOAuth(flow),
+      authorizationUrl: flow.interaction.authorizationUrl!,
+      state: flow.interaction.state,
+    };
+  }
+  async finishOAuth(flowId: string, callbackUrl: string) {
+    const flow = takeOAuth(this.file, flowId);
+    const selection = { serverId: flow.serverId, connectionId: flow.connectionId };
+    await serializeOAuth(`${this.file}:${flow.serverId}:${flow.connectionId}`, async () => {
+      const access = this.oauthAccess(selection, flow.generation);
+      await access.read();
+      try {
+        await completeOAuth(flow, callbackUrl);
+      } catch (error) {
+        throw oauthError(error);
+      }
+      await access.update((oauth) => Object.assign(oauth, flow.oauth));
+    });
+  }
+  cancelOAuth(flowId: string) {
+    cancelOAuth(this.file, flowId);
+  }
+  async disconnectOAuth(selection: McpSelection) {
+    const { server, connection } = await this.selected(selection);
+    if (!connection.oauth) return;
+    await serializeOAuth(`${this.file}:${server.id}:${connection.id}`, () =>
+      this.oauthAccess({ serverId: server.id, connectionId: connection.id }, connection.oauth!.generation).update(
+        (oauth) => {
+          delete oauth.tokens;
+          delete oauth.expiresAt;
+          oauth.generation = crypto.randomUUID();
+        },
+      ),
+    );
+  }
+  private async connected<T>(selection: McpSelection, use: (client: Client) => Promise<T>): Promise<T> {
+    const { server, connection } = await this.selected(selection);
+    if (connection.authType === "oauth" && connection.oauth) {
+      return serializeOAuth(`${this.file}:${server.id}:${connection.id}`, async () => {
+        const access = this.oauthAccess(
+          { serverId: server.id, connectionId: connection.id },
+          connection.oauth!.generation,
+        );
+        const oauth = await access.read();
+        if (!oauth.tokens) throw new McpSignInRequired();
+        const provider = new McpOAuthProvider(access, oauth);
+        try {
+          if (oauth.expiresAt !== undefined && oauth.expiresAt < Date.now() + 30000) {
+            if (!oauth.tokens.refresh_token) throw new McpSignInRequired();
+            await auth(provider, { serverUrl: server.url, scope: oauth.scope, fetchFn: oauthFetch });
+          }
+          return await useMcpClient(
+            `${this.file}:${server.id}:${connection.id}:oauth:${oauth.generation}:${crypto
+              .createHash("sha256")
+              .update(JSON.stringify(connection.headers ?? {}))
+              .digest("hex")}`,
+            server.url,
+            connection.headers ?? {},
+            use,
+            provider,
+          );
+        } catch (error) {
+          if (error instanceof McpSignInRequired) throw error;
+          throw new Error("MCP OAuth request failed. Sign in again if this connection has expired or was revoked.");
+        }
+      });
+    }
     const headers = {
       ...connection.headers,
       ...(connection.token ? { Authorization: `Bearer ${connection.token}` } : {}),

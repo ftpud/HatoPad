@@ -819,26 +819,6 @@ export function AiPanel({
           <button type="button" title="Attach files" disabled={busy} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />
           </button>
-          {skillsAvailable && onSkillsChange && onOpenSkills && (
-            <SkillChatControls
-              skills={skills}
-              selected={session.skillIds ?? []}
-              running={running}
-              disabled={submitting || permissionActionsDisabled}
-              onChange={onSkillsChange}
-              onOpen={onOpenSkills}
-            />
-          )}
-          {descriptor?.capabilities.mcp && onMcpChange && onOpenMcps && (
-            <McpChatControls
-              servers={mcpServers}
-              selected={session.mcpSelections ?? []}
-              editorEnabled={session.editorMcpEnabled !== false}
-              disabled={submitting || permissionActionsDisabled || sessionChangesDisabled}
-              onChange={onMcpChange}
-              onOpen={onOpenMcps}
-            />
-          )}
           {onSendAsTask && (
             <button
               type="button"
@@ -864,6 +844,30 @@ export function AiPanel({
             <Send size={15} />
           </button>
         </div>
+        {(skillsAvailable || (descriptor?.capabilities.mcp && onMcpChange && onOpenMcps)) && (
+          <div className="ai-composer-tools" role="group" aria-label="Chat tools">
+            {skillsAvailable && onSkillsChange && onOpenSkills && (
+              <SkillChatControls
+                skills={skills}
+                selected={session.skillIds ?? []}
+                running={running}
+                disabled={submitting || permissionActionsDisabled}
+                onChange={onSkillsChange}
+                onOpen={onOpenSkills}
+              />
+            )}
+            {descriptor?.capabilities.mcp && onMcpChange && onOpenMcps && (
+              <McpChatControls
+                servers={mcpServers}
+                selected={session.mcpSelections ?? []}
+                editorEnabled={session.editorMcpEnabled !== false}
+                disabled={submitting || permissionActionsDisabled || sessionChangesDisabled}
+                onChange={onMcpChange}
+                onOpen={onOpenMcps}
+              />
+            )}
+          </div>
+        )}
       </form>
     </div>
   );

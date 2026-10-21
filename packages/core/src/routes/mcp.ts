@@ -13,6 +13,17 @@ export async function handleMcpRequest(context: RequestContext, request: Request
     case "mcp.delete":
       await library.delete(request.payload.id);
       return {};
+    case "mcp.oauth.start":
+      return library.startOAuth(request.payload, request.payload.redirectUri);
+    case "mcp.oauth.finish":
+      await library.finishOAuth(request.payload.flowId, request.payload.callbackUrl);
+      return {};
+    case "mcp.oauth.cancel":
+      library.cancelOAuth(request.payload.flowId);
+      return {};
+    case "mcp.oauth.disconnect":
+      await library.disconnectOAuth(request.payload);
+      return {};
     case "mcp.actions":
       return { actions: await library.actions(request.payload) };
     case "ai.mcp": {

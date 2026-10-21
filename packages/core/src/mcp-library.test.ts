@@ -93,7 +93,7 @@ it("stores private credentials outside the project and never includes them in pu
   const { library, input, directory } = await setup();
   const publicServers = await library.list();
   expect(JSON.stringify(publicServers)).not.toContain("secret");
-  expect(publicServers[0]?.connections[0]).toEqual({ id: "bot", name: "Bot", hasCredentials: true });
+  expect(publicServers[0]?.connections[0]).toEqual({ id: "bot", name: "Bot", hasCredentials: true, authType: "token" });
   expect((await stat(library.file)).mode & 0o777).toBe(0o600);
   expect((await stat(path.dirname(library.file))).mode & 0o777).toBe(0o700);
   await library.save({

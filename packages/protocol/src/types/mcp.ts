@@ -5,7 +5,10 @@ export type McpConnection = {
   id: string;
   name: string;
   hasCredentials: boolean;
+  authType?: "token" | "oauth";
+  oauth?: McpOAuthConfiguration & { connected: boolean; hasClientSecret: boolean; expiresAt?: number };
 };
+export type McpOAuthConfiguration = { clientId?: string; scope?: string; redirectPort?: number };
 export type McpLibraryServer = {
   id: string;
   name: string;
@@ -14,5 +17,12 @@ export type McpLibraryServer = {
   defaultConnectionId: string;
 };
 export type McpServerInput = Omit<McpLibraryServer, "connections"> & {
-  connections: { id: string; name: string; token?: string; headers?: Record<string, string> }[];
+  connections: {
+    id: string;
+    name: string;
+    token?: string;
+    headers?: Record<string, string>;
+    authType?: "token" | "oauth";
+    oauth?: McpOAuthConfiguration & { clientSecret?: string };
+  }[];
 };

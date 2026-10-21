@@ -157,6 +157,10 @@ export async function handleRequest(
     case "mcp.list":
     case "mcp.save":
     case "mcp.delete":
+    case "mcp.oauth.start":
+    case "mcp.oauth.finish":
+    case "mcp.oauth.cancel":
+    case "mcp.oauth.disconnect":
     case "mcp.actions":
     case "ai.mcp":
       return handleMcpRequest(context, request);

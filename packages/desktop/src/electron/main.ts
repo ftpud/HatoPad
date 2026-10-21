@@ -1,3 +1,4 @@
+import { McpOAuthCallbacks } from "./mcp-oauth-callback.js";
 import { startManagedConnection, type ManagedDesktopConnection } from "./managed-connection.js";
 import {
   app,
@@ -132,6 +133,28 @@ handleIpc("desktop:restore-input-focus", (event) =>
 );
 handleIpc("desktop:clipboard-write", (_event, text: unknown) => {
   if (typeof text === "string" && text.length <= 2_000_000) clipboard.writeText(text);
+});
+const mcpOAuthCallbacks = new McpOAuthCallbacks();
+const mcpOAuthOwners = new Set<number>();
+app.on("before-quit", () => mcpOAuthCallbacks.close());
+handleIpc("mcp-oauth:prepare", async (event, port?: unknown) => {
+  if (port !== undefined && typeof port !== "number") throw new Error("Invalid OAuth callback port");
+  const owner = event.sender.id;
+  if (!mcpOAuthOwners.has(owner)) {
+    mcpOAuthOwners.add(owner);
+    event.sender.once("destroyed", () => {
+      mcpOAuthCallbacks.close(owner);
+      mcpOAuthOwners.delete(owner);
+    });
+  }
+  return mcpOAuthCallbacks.prepare(event.sender.id, port);
+});
+handleIpc("mcp-oauth:wait", (event, id: unknown, state: unknown) => {
+  if (typeof id !== "string" || typeof state !== "string") throw new Error("Invalid OAuth callback");
+  return mcpOAuthCallbacks.wait(event.sender.id, id, state);
+});
+handleIpc("mcp-oauth:cancel", (event, id: unknown) => {
+  if (typeof id === "string") mcpOAuthCallbacks.cancel(event.sender.id, id);
 });
 handleIpc("desktop:open-external", async (_event, value: unknown) => {
   if (typeof value !== "string" || value.length > 4096) return;

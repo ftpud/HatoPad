@@ -95,3 +95,23 @@
   flex-direction: column;
   gap: 4px;
 }
+
+.ai-composer:has(.ai-composer-tools) {
+  grid-template-rows: minmax(0, 1fr) auto;
+}
+.ai-composer:has(.ai-attachments):has(.ai-composer-tools) {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.ai-composer-tools {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ai-composer-tools .skill-chat-controls {
+  position: static;
+}
+.ai-composer-tools .skill-chat-picker {
+  right: 6px;
+  max-width: calc(100% - 12px);
+}

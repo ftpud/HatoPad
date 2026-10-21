@@ -5,6 +5,38 @@ import { McpChatControls } from "./McpChatControls";
 import type { McpLibraryServer, McpServerInput } from "@hatopad/protocol";
 
 afterEach(cleanup);
+
+it("offers generic OAuth registration settings and starts browser sign-in after saving", async () => {
+  const actions = {
+    save: vi.fn().mockResolvedValue({}),
+    discover: vi.fn().mockResolvedValue([]),
+    delete: vi.fn(),
+    signIn: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn(),
+  };
+  render(<McpPanel servers={[]} actions={actions} onRefresh={vi.fn()} />);
+  fireEvent.click(screen.getByTitle("Add MCP server"));
+  fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Example MCP" } });
+  fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.test/mcp" } });
+  fireEvent.change(screen.getByLabelText("Authentication for Connection"), { target: { value: "oauth" } });
+  expect(screen.queryByLabelText("Bearer token")).toBeNull();
+  fireEvent.change(screen.getByLabelText("OAuth client ID"), { target: { value: "registered-client" } });
+  fireEvent.change(screen.getByLabelText("OAuth client secret"), { target: { value: "private-secret" } });
+  fireEvent.change(screen.getByLabelText("Scopes"), { target: { value: "tools:read" } });
+  fireEvent.change(screen.getByLabelText("Callback port"), { target: { value: "54321" } });
+  fireEvent.click(screen.getByText("Save & sign in"));
+  await waitFor(() => expect(actions.signIn).toHaveBeenCalledOnce());
+  const saved = actions.save.mock.calls[0]![0];
+  expect(saved.connections[0]).toMatchObject({
+    authType: "oauth",
+    oauth: { clientId: "registered-client", clientSecret: "private-secret", scope: "tools:read", redirectPort: 54321 },
+  });
+  expect(actions.signIn).toHaveBeenCalledWith(
+    { serverId: saved.id, connectionId: saved.connections[0].id },
+    54321,
+    expect.any(AbortSignal),
+  );
+});
 const server: McpLibraryServer = {
   id: "github",
   name: "GitHub",
@@ -18,6 +50,8 @@ const server: McpLibraryServer = {
 
 it("creates a URL server with multiple named connections and a chosen default", async () => {
   const actions = {
+    signIn: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
     save: vi.fn<(server: McpServerInput) => Promise<McpLibraryServer>>().mockResolvedValue(server),
     discover: vi.fn().mockResolvedValue([]),
     delete: vi.fn().mockResolvedValue(undefined),
@@ -45,6 +79,8 @@ it("creates a URL server with multiple named connections and a chosen default", 
 
 it("retains saved credentials on edit and displays discovered actions", async () => {
   const actions = {
+    signIn: vi.fn().mockResolvedValue(undefined),
+    disconnect: vi.fn().mockResolvedValue(undefined),
     save: vi.fn<(server: McpServerInput) => Promise<McpLibraryServer>>().mockResolvedValue(server),
     discover: vi.fn().mockResolvedValue([{ name: "list_issues", inputSchema: { type: "object" } }]),
     delete: vi.fn(),

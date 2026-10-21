@@ -671,17 +671,6 @@ export function createAppViewParts(model: AppViewModel) {
   };
   const rightBottomTools = (
     <>
-      <button
-        className={`tool-stripe-button right ${rightPanels.mcp ? "active" : ""}`}
-        title={rightPanels.mcp ? "Hide MCP servers" : "Show MCP servers"}
-        onClick={() => {
-          setRightPanels((current) => ({ ...current, mcp: !current.mcp }));
-          void refreshMcps();
-        }}
-      >
-        <Plug size={15} />
-        <span>MCP</span>
-      </button>
       <div className="tool-stripe-spacer" aria-hidden="true" />
       <div className="right-bottom-tools">
         <button
@@ -696,6 +685,17 @@ export function createAppViewParts(model: AppViewModel) {
         >
           <Bookmark size={15} />
           <span>Useful</span>
+        </button>
+        <button
+          className={`tool-stripe-button right ${rightPanels.mcp ? "active" : ""}`}
+          title={rightPanels.mcp ? "Hide MCP servers" : "Show MCP servers"}
+          onClick={() => {
+            setRightPanels((current) => ({ ...current, mcp: !current.mcp }));
+            void refreshMcps();
+          }}
+        >
+          <Plug size={15} />
+          <span>MCP</span>
         </button>
         <button
           className={`tool-stripe-button right ${rightPanels.agents ? "active" : ""}`}

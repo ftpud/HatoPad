@@ -739,7 +739,13 @@ export abstract class StdioAcpProvider extends AcpProvider {
         ...(session.editorMcpEnabled !== false
           ? [appToolServer(root, workspace, this.descriptor.id, this.bridgeWorkspace)]
           : []),
-        ...selections.map((selection) => libraryMcpServer(root, selection, this.stateDirectory)),
+        ...selections.map((selection) =>
+          libraryMcpServer(root, selection, this.stateDirectory, {
+            workspace,
+            provider: this.descriptor.id,
+            bridgeWorkspace: this.bridgeWorkspace,
+          }),
+        ),
       ];
     }
     const servers = this.descriptor.capabilities.skills
