@@ -4,7 +4,12 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, access, symlink, readlink } fr
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { pruneRuntimeDependencies, prepareElectronRuntime, copyBundledApplication } from "./common.mjs";
+import {
+  pruneRuntimeDependencies,
+  prepareElectronRuntime,
+  copyBundledApplication,
+  writeThirdPartyNotices,
+} from "./common.mjs";
 
 test("runtime pruning retains transitive and optional dependencies, excluding renderers and AI runtimes", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-runtime-closure-"));
@@ -130,3 +135,48 @@ for (const workspaceLinks of [true, false]) {
     }
   });
 }
+
+test("third-party notices include nested packages and license text, and reject unlicensed packages", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-notices-"));
+  const pkg = async (location, metadata, files = {}) => {
+    const target = path.join(directory, location);
+    await mkdir(target, { recursive: true });
+    await writeFile(path.join(target, "package.json"), JSON.stringify(metadata));
+    for (const [name, text] of Object.entries(files)) await writeFile(path.join(target, name), text);
+  };
+  try {
+    await pkg(
+      "node_modules/alpha",
+      { name: "alpha", version: "1.0.0", license: "MIT" },
+      { LICENSE: "Copyright (c) Alpha" },
+    );
+    await pkg("node_modules/@scope/beta", {
+      name: "@scope/beta",
+      version: "2.0.0",
+      licenses: [{ type: "BSD-3-Clause" }],
+    });
+    await pkg(
+      "node_modules/alpha/node_modules/gamma",
+      { name: "gamma", version: "3.0.0" },
+      { "LICENSE.txt": "Copyright (c) Gamma" },
+    );
+    await pkg("node_modules/@hatopad/protocol", { name: "@hatopad/protocol", version: "0.1.0", license: "MIT" });
+    const file = path.join(directory, "THIRD-PARTY-NOTICES.md");
+    assert.equal(await writeThirdPartyNotices(file, [path.join(directory, "node_modules")]), 3);
+    const text = await readFile(file, "utf8");
+    for (const expected of [
+      "## alpha@1.0.0",
+      "Copyright (c) Alpha",
+      "## @scope/beta@2.0.0",
+      "BSD-3-Clause",
+      "## gamma@3.0.0",
+      "Copyright (c) Gamma",
+    ])
+      assert.ok(text.includes(expected), expected);
+    assert.ok(!text.includes("@hatopad/protocol"));
+    await pkg("node_modules/delta", { name: "delta", version: "1.0.0" });
+    await assert.rejects(writeThirdPartyNotices(file, [path.join(directory, "node_modules")]), /delta@1\.0\.0/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});

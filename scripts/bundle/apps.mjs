@@ -16,6 +16,7 @@ import {
   prepareElectronRuntime,
   copyBundledApplication,
   pruneElectronLocales,
+  writeThirdPartyNotices,
 } from "./common.mjs";
 
 if (
@@ -59,6 +60,8 @@ for (const kind of ["desktop", "gateway"]) {
   await stageWorkspace(staging, kind);
   // Renderer imports are already compiled by Vite. Only Electron main-process
   // dependencies belong in the shipped node_modules.
+  // Renderer libraries are compiled into dist-renderer, so list the whole production closure.
+  await writeThirdPartyNotices(path.join(staging, "THIRD-PARTY-NOTICES.md"), [path.join(staging, "node_modules")]);
   await prepareElectronRuntime(staging);
   const appDirectory = path.join(staging, "packages", kind);
   for (const name of ["dist-electron", "dist-renderer", "assets"])
@@ -77,6 +80,7 @@ for (const kind of ["desktop", "gateway"]) {
     dereference: true,
   });
   await cp(path.join(root, "LICENSE.md"), path.join(appDirectory, "LICENSE.md"));
+  await cp(path.join(staging, "THIRD-PARTY-NOTICES.md"), path.join(appDirectory, "THIRD-PARTY-NOTICES.md"));
   const resources = path.join(staging, "bundle");
   await mkdir(resources, { recursive: true });
   if (kind === "gateway") await cp(coresDirectory, path.join(resources, "cores"), { recursive: true });

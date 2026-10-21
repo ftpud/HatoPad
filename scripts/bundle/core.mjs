@@ -3,7 +3,17 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import os from "node:os";
 import { macSigningConfiguration, resolveMacSigning, signMacCore, notarizeMacDirectory } from "./mac-signing.mjs";
-import { root, output, json, writeJson, run, stageWorkspace, sha256, pruneRuntimeDependencies } from "./common.mjs";
+import {
+  root,
+  output,
+  json,
+  writeJson,
+  run,
+  stageWorkspace,
+  sha256,
+  pruneRuntimeDependencies,
+  writeThirdPartyNotices,
+} from "./common.mjs";
 
 const target = `${process.platform}-${process.arch}`;
 const signing = await resolveMacSigning(macSigningConfiguration());
@@ -60,6 +70,11 @@ const npmRoot = path.resolve(
   "..",
 );
 await cp(npmRoot, path.join(staging, "lib/node_modules/npm"), { recursive: true });
+await writeThirdPartyNotices(
+  path.join(staging, "THIRD-PARTY-NOTICES.md"),
+  [path.join(staging, "node_modules"), path.join(staging, "lib/node_modules/npm/node_modules")],
+  "HatoPad Core",
+);
 await symlink("../lib/node_modules/npm/bin/npm-cli.js", path.join(staging, "bin/npm"));
 await symlink("../lib/node_modules/npm/bin/npx-cli.js", path.join(staging, "bin/npx"));
 if (signing) await signMacCore(staging, signing);
