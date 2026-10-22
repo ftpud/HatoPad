@@ -350,6 +350,7 @@ export class JavaProjectService {
     );
     const diagnostics: JavaDiagnostic[] = [];
     const workspace = this.filesystem.getWorkspace();
+    const seen = new Set<string>();
     for (const rawLine of output.split(/\r?\n/)) {
       const line = rawLine.replace(/\x1b\[[0-9;]*m/g, "");
       const match =
@@ -361,13 +362,18 @@ export class JavaProjectService {
       const absolute = path.isAbsolute(filePath) ? filePath : path.resolve(workspace, filePath);
       const relative = path.relative(workspace, absolute).split(path.sep).join(path.posix.sep);
       if (relative.startsWith("..")) continue;
-      diagnostics.push({
+      const diagnostic = {
         path: relative,
         line: Number(mavenFormat ? match[3] : match[2]),
         column: Number((mavenFormat ? match[4] : match[3]) || 1),
         severity: (mavenFormat ? match[1] : match[4])!.toLowerCase() as "error" | "warning",
         message: (mavenFormat ? match[5] : match[5])!.trim(),
-      });
+      };
+      // Maven prints each compiler error again in its BUILD FAILURE summary.
+      const key = JSON.stringify(diagnostic);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      diagnostics.push(diagnostic);
     }
     return diagnostics;
   }

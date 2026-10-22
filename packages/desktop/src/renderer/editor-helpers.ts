@@ -58,8 +58,12 @@ export function parseHttpRequests(content: string): ParsedHttpRequest[] {
         if (header) headers[header[1]!.trim()] = header[2]!.trim();
         index += 1;
       }
-      while (index < block.length && !block[index]!.trim()) index += 1;
-      const body = block.slice(index).join("\n").trimEnd();
+      // Only the single blank separator line belongs to the syntax; the rest is the body, byte for byte.
+      if (index < block.length) index += 1;
+      const bodyLines = block.slice(index);
+      // Blank lines that merely space a request from the next `###` separator are not part of the body.
+      if (end < lines.length) while (bodyLines.length && !bodyLines.at(-1)!.trim()) bodyLines.pop();
+      const body = bodyLines.join("\n");
       requests.push({ line, method: match[1]!.toUpperCase(), url: match[2]!, headers, ...(body ? { body } : {}) });
     }
     blockStart = end + 1;
