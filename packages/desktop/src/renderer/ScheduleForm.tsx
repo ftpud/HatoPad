@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { CalendarClock, Plus, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -150,14 +151,14 @@ export function ScheduleForm({
       </label>
       <label>
         Action
-        <select value={type} onChange={(event) => setType(event.target.value as typeof type)}>
+        <Select value={type} onValueChange={(selectedValue) => setType(selectedValue as typeof type)}>
           <option value="prompt">Send a prompt</option>
           <option value="workflow">Start a workflow</option>
-        </select>
+        </Select>
       </label>
       <label>
         Target task
-        <select value={taskId} onChange={(event) => setTaskId(event.target.value)}>
+        <Select value={taskId} onValueChange={(selectedValue) => setTaskId(selectedValue)}>
           <option value="">Root workspace</option>
           {tasks
             .filter((task) => task.status !== "finished" && !task.archived)
@@ -166,50 +167,54 @@ export function ScheduleForm({
                 {task.name}
               </option>
             ))}
-        </select>
+        </Select>
       </label>
       {type === "prompt" && (
         <label>
           Session
-          <select
+          <Select
             value={newSession ? "new" : "continue"}
-            onChange={(event) => setNewSession(event.target.value === "new")}
+            onValueChange={(selectedValue) => setNewSession(selectedValue === "new")}
           >
             <option value="continue">Continue the current session</option>
             <option value="new">Start a new session</option>
-          </select>
+          </Select>
         </label>
       )}
       {type === "prompt" && (
         <label>
           AI provider
-          <select required value={provider} onChange={(event) => setProvider(event.target.value)}>
+          <Select required value={provider} onValueChange={(selectedValue) => setProvider(selectedValue)}>
             {providers.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
       {type === "prompt" ? (
         !newSession ? null : (
           <label>
             Agent preset
-            <select value={agentKey} disabled={agentsLoading} onChange={(event) => setAgentKey(event.target.value)}>
+            <Select
+              value={agentKey}
+              disabled={agentsLoading}
+              onValueChange={(selectedValue) => setAgentKey(selectedValue)}
+            >
               <option value="">Default agent</option>
               {agents.map((agent) => (
                 <option key={`${agent.scope}:${agent.name}`} value={`${agent.scope}:${agent.name}`}>
                   {agent.agent.name} ({agent.scope})
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )
       ) : (
         <label>
           Workflow
-          <select required value={harnessId} onChange={(event) => setHarnessId(event.target.value)}>
+          <Select required value={harnessId} onValueChange={(selectedValue) => setHarnessId(selectedValue)}>
             <option value="" disabled>
               Select workflow
             </option>
@@ -218,7 +223,7 @@ export function ScheduleForm({
                 {workflow.name}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
       {type === "prompt" && newSession && (
@@ -236,13 +241,13 @@ export function ScheduleForm({
       {type === "workflow" && starts.length > 1 && (
         <label>
           Start block
-          <select required value={startBlockId} onChange={(event) => setStartBlockId(event.target.value)}>
+          <Select required value={startBlockId} onValueChange={(selectedValue) => setStartBlockId(selectedValue)}>
             {starts.map((block) => (
               <option key={block.id} value={block.id}>
                 {block.label}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
       {type === "prompt" && newSession && agentsError && <p role="alert">{agentsError}</p>}
@@ -264,10 +269,13 @@ export function ScheduleForm({
       </label>
       <label>
         Schedule
-        <select value={repeat ? "repeat" : "once"} onChange={(event) => setRepeat(event.target.value === "repeat")}>
+        <Select
+          value={repeat ? "repeat" : "once"}
+          onValueChange={(selectedValue) => setRepeat(selectedValue === "repeat")}
+        >
           <option value="once">One time</option>
           <option value="repeat">Recurring</option>
-        </select>
+        </Select>
       </label>
       {repeat && (
         <div className="schedule-interval">
@@ -285,11 +293,11 @@ export function ScheduleForm({
           </label>
           <label>
             Interval unit
-            <select value={unit} onChange={(event) => setUnit(Number(event.target.value))}>
+            <Select value={unit} onValueChange={(selectedValue) => setUnit(Number(selectedValue))}>
               <option value={60}>Minutes</option>
               <option value={3600}>Hours</option>
               <option value={86400}>Days</option>
-            </select>
+            </Select>
           </label>
         </div>
       )}

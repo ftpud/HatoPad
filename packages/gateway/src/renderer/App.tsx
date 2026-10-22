@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowUpCircle,
@@ -1006,11 +1007,11 @@ export function ProvisioningLog({
       </header>
       <div className="provisioning-toolbar">
         <label htmlFor="provisioning-workspace">Workspace</label>
-        <select
+        <Select
           id="provisioning-workspace"
           value={workspace?.id ?? ""}
           disabled={!workspaces.length}
-          onChange={(event) => onSelect(event.target.value)}
+          onValueChange={(selectedValue) => onSelect(selectedValue)}
         >
           {!workspaces.length && <option value="">No workspaces</option>}
           {workspaces.map((item) => (
@@ -1018,7 +1019,7 @@ export function ProvisioningLog({
               {item.name}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <pre
         ref={output}
@@ -1443,8 +1444,9 @@ function useDialogKeyboard(onClose: () => void, accessibleName: string) {
     dialog?.setAttribute("aria-label", accessibleName);
     dialog?.querySelector<HTMLElement>("header button")?.setAttribute("aria-label", `Close ${accessibleName}`);
     (
-      dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled])") ??
-      dialog?.querySelector<HTMLElement>("button:not([disabled])")
+      dialog?.querySelector<HTMLElement>(
+        'input:not([disabled]):not([aria-hidden]), [role="combobox"]:not([disabled])',
+      ) ?? dialog?.querySelector<HTMLElement>("button:not([disabled])")
     )?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1455,7 +1457,7 @@ function useDialogKeyboard(onClose: () => void, accessibleName: string) {
       if (event.key !== "Tab") return;
       const focusable = [
         ...(dialog?.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+          "button:not([disabled]), input:not([disabled]):not([aria-hidden]), [role=combobox]:not([disabled]), [tabindex]:not([tabindex='-1'])",
         ) ?? []),
       ];
       if (!focusable.length) return;
@@ -1645,14 +1647,14 @@ export function ConnectionDialog({
         {!form.id && (
           <label>
             Connection type
-            <select
+            <Select
               aria-label="Connection type"
               value={form.kind ?? "ssh"}
-              onChange={(event) => setForm({ ...form, kind: event.target.value as "ssh" | "local" })}
+              onValueChange={(selectedValue) => setForm({ ...form, kind: selectedValue as "ssh" | "local" })}
             >
               <option value="ssh">SSH host</option>
               {allowLocal && <option value="local">This Mac</option>}
-            </select>
+            </Select>
           </label>
         )}
         <label>
@@ -1702,16 +1704,16 @@ export function ConnectionDialog({
             </label>
             <label>
               Authentication
-              <select
+              <Select
                 value={form.authenticationMethod ?? "password"}
-                onChange={(e) =>
-                  setForm({ ...form, authenticationMethod: e.target.value as "password" | "privateKey" | "agent" })
+                onValueChange={(selectedValue) =>
+                  setForm({ ...form, authenticationMethod: selectedValue as "password" | "privateKey" | "agent" })
                 }
               >
                 <option value="password">Password</option>
                 <option value="privateKey">Private key</option>
                 <option value="agent">SSH agent</option>
-              </select>
+              </Select>
             </label>
             {keyAuthentication ? (
               <>
@@ -1869,10 +1871,10 @@ export function WorkspaceDialog({
         {directories.length > 0 && (
           <label>
             Discovered workspaces
-            <select
+            <Select
               aria-label="Discovered workspaces"
               value={directories.includes(form.directory ?? "") ? form.directory : ""}
-              onChange={(event) => chooseDirectory(event.target.value)}
+              onValueChange={(selectedValue) => chooseDirectory(selectedValue)}
             >
               <option value="">Select a remote folder…</option>
               {directories.map((directory) => (
@@ -1880,7 +1882,7 @@ export function WorkspaceDialog({
                   {directory}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         )}
         <label>

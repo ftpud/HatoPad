@@ -1,3 +1,4 @@
+import { Select } from "../../../Select";
 import { useEffect, useId, useRef, useState } from "react";
 import { Copy, Plus, Trash2, X } from "lucide-react";
 import type {
@@ -415,10 +416,10 @@ export function JavaConfigurationDialog({ client, running, onClose, onSaved }: P
                     <fieldset disabled={busy}>
                       <legend>{tab === "launch" ? "Launch profiles" : "Profile environment"}</legend>
                       <div className="java-config-profile-actions">
-                        <select
+                        <Select
                           aria-label="Edit launch profile"
                           value={profile?.id ?? ""}
-                          onChange={(event) => setProfileId(event.target.value)}
+                          onValueChange={(selectedValue) => setProfileId(selectedValue)}
                         >
                           {!options.runConfigurations.length && <option value="">No profiles yet</option>}
                           {options.runConfigurations.map((item) => (
@@ -426,7 +427,7 @@ export function JavaConfigurationDialog({ client, running, onClose, onSaved }: P
                               {item.name || "Unnamed profile"}
                             </option>
                           ))}
-                        </select>
+                        </Select>
                         <button type="button" title="Add launch profile" onClick={() => addProfile()}>
                           <Plus size={14} />
                           Add

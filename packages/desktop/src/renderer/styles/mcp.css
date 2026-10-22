@@ -336,7 +336,7 @@
   font-size: 0.8462rem;
 }
 .mcp-dialog input,
-.mcp-dialog select {
+.mcp-dialog .select-trigger {
   font-size: 0.9231rem;
 }
 .mcp-dialog textarea {

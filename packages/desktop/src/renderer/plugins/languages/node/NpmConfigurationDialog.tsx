@@ -1,3 +1,4 @@
+import { Select } from "../../../Select";
 import { useEffect, useId, useRef, useState } from "react";
 import { Copy, Plus, Trash2, X } from "lucide-react";
 import type { FileRevision, LanguageExtra, LanguageRunTarget, LanguageToolCheck } from "@hatopad/protocol";
@@ -264,10 +265,10 @@ export function NpmConfigurationDialog({ client, running, onClose, onSaved }: Pr
                 <fieldset disabled={busy || running}>
                   <legend className="visually-hidden">npm project settings</legend>
                   <div className="npm-config-profile-actions">
-                    <select
+                    <Select
                       aria-label="Edit npm configuration"
                       value={profile?.id ?? ""}
-                      onChange={(event) => setProfileId(event.target.value)}
+                      onValueChange={(selectedValue) => setProfileId(selectedValue)}
                     >
                       {!options.runConfigurations.length && <option value="">No configurations yet</option>}
                       {options.runConfigurations.map((item) => (
@@ -275,7 +276,7 @@ export function NpmConfigurationDialog({ client, running, onClose, onSaved }: Pr
                           {item.name || "Unnamed configuration"}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                     <button
                       type="button"
                       title="Add configuration"
@@ -311,19 +312,19 @@ export function NpmConfigurationDialog({ client, running, onClose, onSaved }: Pr
                     <>
                       <label>
                         Package manager
-                        <select
+                        <Select
                           value={options.packageManager}
-                          onChange={(event) =>
+                          onValueChange={(selectedValue) =>
                             setOptions({
                               ...options,
-                              packageManager: event.target.value as NpmProjectOptions["packageManager"],
+                              packageManager: selectedValue as NpmProjectOptions["packageManager"],
                             })
                           }
                         >
                           <option value="npm">npm</option>
                           <option value="pnpm">pnpm</option>
                           <option value="yarn">Yarn</option>
-                        </select>
+                        </Select>
                       </label>
                       <label>
                         Package manager executable (optional)
@@ -363,9 +364,9 @@ export function NpmConfigurationDialog({ client, running, onClose, onSaved }: Pr
                           </label>
                           <label>
                             Script
-                            <select
+                            <Select
                               value={profile.script}
-                              onChange={(event) => updateProfile({ script: event.target.value })}
+                              onValueChange={(selectedValue) => updateProfile({ script: selectedValue })}
                             >
                               <option value="" disabled>
                                 Choose a script
@@ -380,7 +381,7 @@ export function NpmConfigurationDialog({ client, running, onClose, onSaved }: Pr
                                   {item.id}
                                 </option>
                               ))}
-                            </select>
+                            </Select>
                           </label>
                           <div className="npm-command-preview">
                             <code>

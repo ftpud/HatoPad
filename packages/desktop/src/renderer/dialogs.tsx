@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
@@ -94,7 +95,7 @@ function RequestDialog({
     ),
   );
   const [touched, setTouched] = useState(false);
-  const first = useRef<HTMLInputElement & HTMLSelectElement>(null);
+  const first = useRef<HTMLInputElement & HTMLButtonElement>(null);
   const confirmButton = useRef<HTMLButtonElement>(null);
   const finish = useRef(onFinish);
   finish.current = onFinish;
@@ -104,7 +105,7 @@ function RequestDialog({
       if (first.current instanceof HTMLInputElement) first.current.select();
     } else confirmButton.current?.focus();
     const key = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !document.querySelector("[data-select-popup]")) {
         event.preventDefault();
         event.stopPropagation();
         finish.current(undefined);
@@ -160,17 +161,17 @@ function RequestDialog({
             <label className="app-request-field" key={field.id}>
               <span>{field.label}</span>
               {field.choices ? (
-                <select
+                <Select
                   ref={index === 0 ? first : undefined}
                   value={values[field.id]}
-                  onChange={(event) => setValues((current) => ({ ...current, [field.id]: event.target.value }))}
+                  onValueChange={(selectedValue) => setValues((current) => ({ ...current, [field.id]: selectedValue }))}
                 >
                   {field.choices.map((choice) => (
                     <option key={choice.value} value={choice.value}>
                       {choice.label}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <input
                   ref={index === 0 ? first : undefined}

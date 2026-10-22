@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import { Spline, Settings2, Trash2, X } from "lucide-react";
 import type { HarnessBlock } from "@hatopad/protocol";
 import { ModelPicker } from "../ModelPicker";
@@ -90,18 +91,18 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
           </label>
           <label>
             Type
-            <select
+            <Select
               aria-label="Block type"
               value={block.type}
-              onChange={(event) =>
+              onValueChange={(selectedValue) =>
                 updateBlock({
-                  type: event.target.value as HarnessBlock["type"],
+                  type: selectedValue as HarnessBlock["type"],
                   seconds: 60,
-                  ...(["mcp", "terminal_control", "meeting"].includes(event.target.value)
+                  ...(["mcp", "terminal_control", "meeting"].includes(selectedValue)
                     ? { prompt: "", agent: undefined }
                     : {}),
-                  ...(event.target.value === "task_controls" ? { agent: undefined, prompt: "" } : {}),
-                  ...(event.target.value === "run_app"
+                  ...(selectedValue === "task_controls" ? { agent: undefined, prompt: "" } : {}),
+                  ...(selectedValue === "run_app"
                     ? { app: block.app ?? { actions: ["start" as const], name: "app" } }
                     : {}),
                   watchdog: undefined,
@@ -109,8 +110,8 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                   routing: undefined,
                   review: undefined,
                   verification: undefined,
-                  ...(event.target.value !== "skill" ? { skillId: undefined } : {}),
-                  ...(event.target.value !== "mcp" ? { mcp: undefined } : {}),
+                  ...(selectedValue !== "skill" ? { skillId: undefined } : {}),
+                  ...(selectedValue !== "mcp" ? { mcp: undefined } : {}),
                 })
               }
             >
@@ -120,18 +121,18 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                   {blockTypeLabels[type]}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           {["ai", "chatbox", "task_controls", "prompt", "task", "review"].includes(block.type) && (
             <>
               <div className="harness-fields">
                 <label>
                   Provider
-                  <select
+                  <Select
                     value={block.provider ?? ""}
-                    onChange={(event) =>
+                    onValueChange={(selectedValue) =>
                       updateBlock({
-                        provider: event.target.value || undefined,
+                        provider: selectedValue || undefined,
                         model: undefined,
                         reasoning: undefined,
                       })
@@ -143,7 +144,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                         {provider.name}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <ModelPicker
                   models={blockModels}
@@ -167,10 +168,10 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                 <>
                   <label>
                     Agent preset
-                    <select
+                    <Select
                       value={block.agent ? `${block.agent.scope}:${block.agent.name}` : ""}
-                      onChange={(event) => {
-                        const agent = agents.find((item) => `${item.scope}:${item.name}` === event.target.value);
+                      onValueChange={(selectedValue) => {
+                        const agent = agents.find((item) => `${item.scope}:${item.name}` === selectedValue);
                         updateBlock({ agent: agent ? { scope: agent.scope, name: agent.name } : undefined });
                       }}
                     >
@@ -180,7 +181,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                           {item.agent.name}
                         </option>
                       ))}
-                    </select>
+                    </Select>
                   </label>
                   <small>
                     {block.type === "chatbox"
@@ -203,11 +204,11 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
             <>
               <label>
                 MCP server
-                <select
+                <Select
                   aria-label="Workflow MCP server"
                   value={block.mcp?.serverId ?? ""}
-                  onChange={(event) =>
-                    updateBlock({ mcp: event.target.value ? { serverId: event.target.value } : undefined })
+                  onValueChange={(selectedValue) =>
+                    updateBlock({ mcp: selectedValue ? { serverId: selectedValue } : undefined })
                   }
                 >
                   <option value="">Choose a server</option>
@@ -219,19 +220,19 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                       {server.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               <label>
                 Connection
-                <select
+                <Select
                   aria-label="Workflow MCP connection"
                   value={block.mcp?.connectionId ?? ""}
                   disabled={!block.mcp}
-                  onChange={(event) =>
+                  onValueChange={(selectedValue) =>
                     updateBlock({
                       mcp: {
                         serverId: block.mcp!.serverId,
-                        ...(event.target.value ? { connectionId: event.target.value } : {}),
+                        ...(selectedValue ? { connectionId: selectedValue } : {}),
                       },
                     })
                   }
@@ -244,7 +245,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                         {connection.name}
                       </option>
                     ))}
-                </select>
+                </Select>
               </label>
               <p>
                 Connect an AI Agent or Chatbox to this block with a Use connection. It can discover and call this
@@ -256,11 +257,11 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
             <>
               <label>
                 Existing skill
-                <select
+                <Select
                   aria-label="Existing skill"
                   value={block.skillId ?? ""}
-                  onChange={(event) => {
-                    const selected = skillCatalog?.skills.find((skill) => skill.id === event.target.value);
+                  onValueChange={(selectedValue) => {
+                    const selected = skillCatalog?.skills.find((skill) => skill.id === selectedValue);
                     updateBlock(
                       selected
                         ? {
@@ -282,7 +283,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                       {skill.title} ({skill.scope})
                     </option>
                   ))}
-                </select>
+                </Select>
               </label>
               {onRefreshSkills && (
                 <button
@@ -631,17 +632,17 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
           </header>
           <label>
             Type
-            <select
+            <Select
               aria-label="Connection type"
               value={selectedEdge.type ?? "follow"}
-              onChange={(event) =>
+              onValueChange={(selectedValue) =>
                 setDraft({
                   ...draft,
                   edges: draft.edges.map((edge) =>
                     edge.id === selectedEdge.id
                       ? {
                           ...edge,
-                          type: event.target.value as "use" | "follow" | "path",
+                          type: selectedValue as "use" | "follow" | "path",
                           loop: undefined,
                           execution: undefined,
                           timeoutMs: undefined,
@@ -658,7 +659,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                   <option value="path">Path</option>
                 </>
               )}
-            </select>
+            </Select>
           </label>
           {(selectedEdge.type === "use" || blockById.get(selectedEdge.from)?.type === "chatbox") && (
             <label>

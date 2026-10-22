@@ -347,8 +347,8 @@
   color: var(--text-muted);
   font-size: 0.7692rem;
 }
-.ai-toolbar select,
-.ai-settings select,
+.ai-toolbar .select-trigger,
+.ai-settings .select-trigger,
 .ai-settings input[type="number"],
 .ai-settings input[type="text"] {
   min-width: 0;
@@ -381,12 +381,12 @@
   background: var(--surface-hover);
   color: var(--text-primary);
 }
-.ai-toolbar select:focus,
-.ai-settings select:focus,
+.ai-toolbar .select-trigger:focus,
+.ai-settings .select-trigger:focus,
 .ai-settings input:focus {
   border-color: var(--accent);
 }
-.ai-toolbar > button {
+.ai-toolbar > button:not(.select-trigger) {
   height: 29px;
   display: flex;
   align-items: center;
@@ -398,24 +398,24 @@
   color: var(--text-secondary);
   cursor: pointer;
 }
-.ai-toolbar > button:hover:not(:disabled),
-.ai-toolbar > button.active {
+.ai-toolbar > button:not(.select-trigger):hover:not(:disabled),
+.ai-toolbar > button:not(.select-trigger).active {
   background: var(--surface-hover);
   color: var(--text-primary);
 }
-.ai-toolbar > button.ai-clear:hover:not(:disabled) {
+.ai-toolbar > button:not(.select-trigger).ai-clear:hover:not(:disabled) {
   background: var(--danger-soft);
   color: var(--danger);
 }
-.ai-toolbar > button.ai-interrupt {
+.ai-toolbar > button:not(.select-trigger).ai-interrupt {
   background: var(--danger-soft);
   color: var(--danger);
 }
-.ai-toolbar > button.ai-interrupt:hover {
+.ai-toolbar > button:not(.select-trigger).ai-interrupt:hover {
   background: var(--danger-soft);
   color: var(--text-primary);
 }
-.ai-toolbar > button:disabled {
+.ai-toolbar > button:not(.select-trigger):disabled {
   opacity: 0.35;
   cursor: default;
 }
@@ -458,7 +458,7 @@
 .ai-settings-chevron {
   transition: transform 0.15s ease;
 }
-.ai-toolbar > button.active .ai-settings-chevron {
+.ai-toolbar > button:not(.select-trigger).active .ai-settings-chevron {
   transform: rotate(180deg);
 }
 .ai-settings {
@@ -612,7 +612,7 @@
   display: flex;
   justify-content: flex-end;
 }
-.ai-setting-control select,
+.ai-setting-control .select-trigger,
 .ai-setting-control input {
   width: 100%;
 }

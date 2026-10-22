@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -101,7 +102,7 @@ describe("Gateway dialogs", () => {
     const discovered = await screen.findByRole("combobox", { name: "Discovered workspaces" });
     expect(window.gateway.discoverWorkspaceDirectories).toHaveBeenCalledWith("connection-1");
     expect(screen.queryByRole("option", { name: "/home/dev/projects/configured" })).toBeNull();
-    fireEvent.change(discovered, { target: { value: "/home/dev/projects/api" } });
+    chooseSelect(discovered, "/home/dev/projects/api");
     expect((screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe("api");
     expect((screen.getByRole("textbox", { name: "Remote directory" }) as HTMLInputElement).value).toBe(
       "/home/dev/projects/api",
@@ -158,7 +159,7 @@ describe("Gateway dialogs", () => {
         onSave={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByRole("combobox", { name: "Connection type" }), { target: { value: "local" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Connection type" }), "local");
     expect(screen.getByText(/run Core and HatoPad directly on this Mac/)).toBeTruthy();
     expect(screen.queryByRole("textbox", { name: "Host" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Test connection" })).toBeNull();
@@ -476,6 +477,7 @@ describe("Early Access Gateway", () => {
         onSave={vi.fn()}
       />,
     );
+    fireEvent.click(screen.getByRole("combobox", { name: "Connection type" }));
     expect(screen.queryByRole("option", { name: "This Mac" })).toBeNull();
     expect(screen.getByRole("option", { name: "SSH host" })).toBeTruthy();
   });

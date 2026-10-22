@@ -1,16 +1,16 @@
 /* Workflow tools stay compact in narrow sidebars; the map belongs to the viewport. */
-.harness-picker > select {
+.harness-picker > .select-trigger {
   flex: 1 1 160px;
   width: 0;
 }
 .harness-create > input,
-.harness-create > select {
+.harness-create > .select-trigger {
   min-width: 0;
   flex: 1 1 160px;
 }
-.harness-create > select,
-.harness-view-summary select,
-.harness-zoom select {
+.harness-create > .select-trigger,
+.harness-view-summary .select-trigger,
+.harness-zoom .select-trigger {
   padding: 6px 7px;
   border: 1px solid var(--border-strong);
   border-radius: 5px;
@@ -24,11 +24,11 @@
   flex: 1 1 100%;
   overflow-wrap: anywhere;
 }
-.harness-view-summary > select {
+.harness-view-summary > .select-trigger {
   flex: 1 1 180px;
   width: 0;
 }
-.harness-view-summary > button {
+.harness-view-summary > button:not(.select-trigger) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -40,7 +40,7 @@
   font: inherit;
   cursor: pointer;
 }
-.harness-view-summary > button:disabled {
+.harness-view-summary > button:not(.select-trigger):disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -48,7 +48,7 @@
   flex: 1 1 160px;
   width: 0;
 }
-.harness-toolbar > select {
+.harness-toolbar > .select-trigger {
   flex: 1 1 130px;
   min-width: 0;
 }
@@ -73,7 +73,7 @@
 }
 .harness-panel input:focus-visible,
 .harness-panel textarea:focus-visible,
-.harness-panel select:focus-visible {
+.harness-panel .select-trigger:focus-visible {
   border-color: var(--accent);
   outline: 1px solid var(--accent);
 }
@@ -428,7 +428,7 @@
   margin-bottom: 9px;
   flex-wrap: wrap;
 }
-.workflow-run-meta select {
+.workflow-run-meta .select-trigger {
   flex: 1;
   min-width: 0;
   max-width: 100%;

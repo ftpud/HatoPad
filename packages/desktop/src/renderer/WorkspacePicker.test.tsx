@@ -11,52 +11,58 @@ afterEach(cleanup);
 describe("WorkspacePicker", () => {
   it("keeps the title label and switches through a searchable custom menu", () => {
     const onChange = vi.fn();
-    render(<WorkspacePicker roots={roots} value="one" projectName="My project" onChange={onChange} />);
-    const trigger = screen.getByRole("button", { name: "Switch workspace" });
+    const { container } = render(
+      <WorkspacePicker roots={roots} value="one" projectName="My project" onChange={onChange} />,
+    );
+    const trigger = screen.getByRole("combobox", { name: "Switch workspace" });
     expect(trigger.textContent).toBe("My project");
-    expect(screen.queryByRole("combobox")).toBeNull();
+    expect(container.querySelector("select")).toBeNull();
     fireEvent.click(trigger);
-    expect(screen.getByRole("menuitemradio", { name: /First project/ }).getAttribute("aria-checked")).toBe("true");
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "/work/second" } });
-    expect(screen.queryByRole("menuitemradio", { name: /First project/ })).toBeNull();
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /Second project/ }));
+    expect(screen.getByRole("option", { name: /First project/ }).getAttribute("aria-selected")).toBe("true");
+    fireEvent.change(screen.getByRole("combobox", { name: "Search Switch workspace" }), {
+      target: { value: "/work/second" },
+    });
+    expect(screen.queryByRole("option", { name: /First project/ })).toBeNull();
+    fireEvent.click(screen.getByRole("option", { name: /Second project/ }));
     expect(onChange).toHaveBeenCalledWith("two");
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
 
   it("supports keyboard selection and Escape with focus restoration", () => {
     const onChange = vi.fn();
     render(<WorkspacePicker roots={roots} value="one" onChange={onChange} />);
-    const trigger = screen.getByRole("button", { name: "Workspace root" });
+    const trigger = screen.getByRole("combobox", { name: "Workspace root" });
     fireEvent.keyDown(trigger, { key: "ArrowDown" });
-    expect(document.activeElement).toBe(screen.getByRole("textbox"));
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "ArrowUp" });
-    const second = screen.getByRole("menuitemradio", { name: /Second project/ });
-    expect(document.activeElement).toBe(second);
-    fireEvent.click(second);
+    const search = screen.getByRole("combobox", { name: "Search Workspace root" });
+    expect(document.activeElement).toBe(search);
+    fireEvent.keyDown(search, { key: "ArrowUp" });
+    expect(document.getElementById(search.getAttribute("aria-activedescendant")!)?.textContent).toContain(
+      "Second project",
+    );
+    fireEvent.keyDown(search, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith("two");
     fireEvent.click(trigger);
-    fireEvent.keyDown(screen.getByRole("textbox"), { key: "Escape" });
-    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.keyDown(screen.getByRole("combobox", { name: "Search Workspace root" }), { key: "Escape" });
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
 
   it("dismisses outside the portal, ignores the current root, and closes when disabled", () => {
     const onChange = vi.fn();
     const { rerender } = render(<WorkspacePicker roots={roots} value="one" onChange={onChange} />);
-    const trigger = screen.getByRole("button", { name: "Workspace root" });
+    const trigger = screen.getByRole("combobox", { name: "Workspace root" });
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("menuitemradio", { name: /First project/ }));
+    fireEvent.click(screen.getByRole("option", { name: /First project/ }));
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.click(trigger);
     fireEvent.pointerDown(document.body);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
     fireEvent.click(trigger);
-    fireEvent.change(screen.getByRole("textbox"), { target: { value: "missing" } });
-    expect(screen.getByText("No workspaces match your search.")).toBeTruthy();
+    fireEvent.change(screen.getByRole("combobox", { name: "Search Workspace root" }), { target: { value: "missing" } });
+    expect(screen.getByText("No matching options")).toBeTruthy();
     rerender(<WorkspacePicker roots={roots} value="one" disabled onChange={onChange} />);
-    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("listbox")).toBeNull();
     expect((trigger as HTMLButtonElement).disabled).toBe(true);
   });
 });

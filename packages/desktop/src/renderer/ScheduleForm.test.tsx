@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ScheduleInput } from "@hatopad/protocol";
@@ -37,14 +38,17 @@ function setup() {
 describe("schedule creation", () => {
   it("creates a recurring prompt with the selected task's agent and an ISO time", async () => {
     const { onCreate, onCancel, onLoadAgents } = setup();
-    fireEvent.change(screen.getByLabelText("Session"), { target: { value: "new" } });
+    chooseSelect(screen.getByLabelText("Session"), "new");
+    await waitFor(() => expect(screen.getByLabelText("Agent preset")).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByLabelText("Agent preset"));
     await screen.findByRole("option", { name: "Reviewer task-a (workspace)" });
+    fireEvent.keyDown(screen.getByLabelText("Agent preset"), { key: "Escape" });
     expect(onLoadAgents).toHaveBeenCalledWith("task-a");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Review daily" } });
-    fireEvent.change(screen.getByLabelText("Agent preset"), { target: { value: "workspace:task-a-reviewer.md" } });
+    chooseSelect(screen.getByLabelText("Agent preset"), "workspace:task-a-reviewer.md");
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Review changes" } });
-    fireEvent.change(screen.getByLabelText("Schedule"), { target: { value: "repeat" } });
-    fireEvent.change(screen.getByLabelText("Interval unit"), { target: { value: "86400" } });
+    chooseSelect(screen.getByLabelText("Schedule"), "repeat");
+    chooseSelect(screen.getByLabelText("Interval unit"), "86400");
     fireEvent.submit(screen.getByRole("form", { name: "New schedule" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
     expect(onCreate).toHaveBeenCalledWith(
@@ -67,14 +71,20 @@ describe("schedule creation", () => {
 
   it("loads presets for a changed target and creates a one-time workflow", async () => {
     const { onCreate, onLoadAgents } = setup();
-    fireEvent.change(screen.getByLabelText("Session"), { target: { value: "new" } });
+    chooseSelect(screen.getByLabelText("Session"), "new");
+    await waitFor(() => expect(screen.getByLabelText("Agent preset")).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByLabelText("Agent preset"));
     await screen.findByRole("option", { name: "Reviewer task-a (workspace)" });
-    fireEvent.change(screen.getByLabelText("Target task"), { target: { value: "task-b" } });
+    fireEvent.keyDown(screen.getByLabelText("Agent preset"), { key: "Escape" });
+    chooseSelect(screen.getByLabelText("Target task"), "task-b");
+    await waitFor(() => expect(screen.getByLabelText("Agent preset")).toHaveProperty("disabled", false));
+    fireEvent.click(screen.getByLabelText("Agent preset"));
     await screen.findByRole("option", { name: "Reviewer task-b (workspace)" });
     expect(onLoadAgents).toHaveBeenLastCalledWith("task-b");
     expect(screen.queryByRole("option", { name: "Reviewer task-a (workspace)" })).toBeNull();
+    fireEvent.keyDown(screen.getByLabelText("Agent preset"), { key: "Escape" });
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Release" } });
-    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "workflow" } });
+    chooseSelect(screen.getByLabelText("Action"), "workflow");
     fireEvent.change(screen.getByLabelText("Workflow input"), { target: { value: "Prepare release" } });
     fireEvent.submit(screen.getByRole("form", { name: "New schedule" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledOnce());
@@ -112,8 +122,8 @@ describe("schedule creation", () => {
       />,
     );
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Release schedule" } });
-    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "workflow" } });
-    fireEvent.change(screen.getByLabelText("Start block"), { target: { value: "release" } });
+    chooseSelect(screen.getByLabelText("Action"), "workflow");
+    chooseSelect(screen.getByLabelText("Start block"), "release");
     fireEvent.change(screen.getByLabelText("Workflow input"), { target: { value: "Release v1" } });
     fireEvent.submit(screen.getByRole("form", { name: "New schedule" }));
     await waitFor(() =>

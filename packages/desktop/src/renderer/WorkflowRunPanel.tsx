@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { WorkflowError } from "./WorkflowError";
 import { forwardRef, useImperativeHandle, useEffect, useId, useMemo, useRef, useState } from "react";
 import {
@@ -371,11 +372,11 @@ function WorkflowCard({
           ) : run ? (
             <>
               <div className="workflow-run-meta">
-                <select
+                <Select
                   aria-label={`Run for ${workflow.name}`}
                   value={run.id}
-                  onChange={(event) => {
-                    setSelectedRunId(event.target.value);
+                  onValueChange={(selectedValue) => {
+                    setSelectedRunId(selectedValue);
                     setSelectedBlockId(undefined);
                   }}
                 >
@@ -384,7 +385,7 @@ function WorkflowCard({
                       {statusLabel(item.status)} · {new Date(item.createdAt).toLocaleString()}
                     </option>
                   ))}
-                </select>
+                </Select>
                 <span title={run.binding?.workspace ?? run.workspace}>
                   {run.binding?.taskName ??
                     run.binding?.taskId ??

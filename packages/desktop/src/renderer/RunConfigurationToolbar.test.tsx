@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { RunConfigurationToolbar } from "./RunConfigurationToolbar";
@@ -45,9 +46,7 @@ it("uses the title bar to select, edit and run project configurations", () => {
   const props = actions();
   const view = render(<RunConfigurationToolbar {...props} />);
   expect(screen.queryByRole("button", { name: "Debug selected configuration" })).toBeNull();
-  fireEvent.change(screen.getByLabelText("Run configuration"), {
-    target: { value: runConfigurationKey("java", "app") },
-  });
+  chooseSelect(screen.getByLabelText("Run configuration"), runConfigurationKey("java", "app"));
   expect(props.onSelect).toHaveBeenCalledWith("java", "app");
   view.rerender(<RunConfigurationToolbar {...props} selectedLanguage="java" />);
   fireEvent.click(screen.getByRole("button", { name: "Debug selected configuration" }));

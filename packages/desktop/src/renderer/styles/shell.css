@@ -30,7 +30,7 @@ body,
 }
 button,
 input,
-select,
+.select-trigger,
 textarea {
   font: inherit;
   letter-spacing: 0;
@@ -52,7 +52,7 @@ button {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible,
+.select-trigger:focus-visible,
 textarea:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
@@ -526,7 +526,7 @@ textarea:focus-visible,
 .panel-header .git-rollback-selected:hover:not(:disabled) {
   background: var(--danger-soft);
 }
-.panel-header button:disabled {
+.panel-header button:not(.select-trigger):disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -540,8 +540,8 @@ textarea:focus-visible,
     justify-content: center;
   }
 }
-.panel-header button,
-.titlebar-actions > button,
+.panel-header button:not(.select-trigger),
+.titlebar-actions > button:not(.select-trigger),
 .save-button {
   width: 28px;
   height: 27px;
@@ -552,8 +552,8 @@ textarea:focus-visible,
   border-radius: var(--radius-control);
   cursor: pointer;
 }
-.panel-header button:hover,
-.titlebar-actions > button:hover,
+.panel-header button:not(.select-trigger):hover,
+.titlebar-actions > button:not(.select-trigger):hover,
 .save-button:hover:not(:disabled) {
   background: var(--surface-hover);
   color: var(--text-primary);

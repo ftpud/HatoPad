@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useEffect, useState } from "react";
 import type { AiModel } from "@hatopad/protocol";
 
@@ -62,11 +63,11 @@ export function ActionModelFields({
       />
       <label>
         Reasoning effort
-        <select
+        <Select
           aria-label="Reasoning effort"
           value={reasoning}
           disabled={loading || levels.length === 0}
-          onChange={(event) => onChange({ model, reasoning: event.target.value })}
+          onValueChange={(selectedValue) => onChange({ model, reasoning: selectedValue })}
         >
           <option value="">Session default</option>
           {levels.map((level) => (
@@ -74,7 +75,7 @@ export function ActionModelFields({
               {level}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       {model && (
         <button type="button" onClick={() => onChange({ model: "", reasoning: "" })}>

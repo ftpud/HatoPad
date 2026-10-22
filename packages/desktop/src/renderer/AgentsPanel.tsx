@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { Bot, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import type { AgentFile, AgentFileScope } from "@hatopad/protocol";
@@ -57,13 +58,13 @@ export function AgentPicker({
   onChange(value: string): void;
 }) {
   return (
-    <select
+    <Select
       className="ai-agent-picker"
       aria-label="AI agent"
       title="Agent preset"
       value={value}
       disabled={disabled}
-      onChange={(event) => onChange(event.target.value)}
+      onValueChange={(selectedValue) => onChange(selectedValue)}
     >
       <option value="">No agent</option>
       {(["global", "local", "workspace"] as const).map((scope) => {
@@ -78,7 +79,7 @@ export function AgentPicker({
           </optgroup>
         ) : null;
       })}
-    </select>
+    </Select>
   );
 }
 

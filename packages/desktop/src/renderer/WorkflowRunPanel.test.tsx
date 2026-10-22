@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -481,9 +482,7 @@ describe("Workflow run library", () => {
     render(<WorkflowRunPanel {...callbacks} runs={[run, historical]} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
     expect(screen.queryByRole("button", { name: "Rerun" })).toBeNull();
-    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), {
-      target: { value: "historical" },
-    });
+    chooseSelect(screen.getByRole("combobox", { name: "Run for Workspace check" }), "historical");
     const newRun = screen.getByRole("button", { name: "New run" });
     const rerun = screen.getByRole("button", { name: "Rerun" });
     const promptRow = document.querySelector(".workflow-run-prompt-row")!;
@@ -575,9 +574,7 @@ describe("Workflow run library", () => {
     const callbacks = { ...props(), onCancelRun };
     const view = render(<WorkflowRunPanel {...callbacks} runs={[run, otherRun, completedRun]} />);
     fireEvent.click(screen.getByRole("button", { name: "Show Workspace check" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Run for Workspace check" }), {
-      target: { value: "completed" },
-    });
+    chooseSelect(screen.getByRole("combobox", { name: "Run for Workspace check" }), "completed");
     const controls = document.querySelector<HTMLElement>(".workflow-run-controls")!;
     const stop = within(controls).getByRole("button", { name: "Stop run run" });
     const otherStop = within(controls).getByRole("button", { name: "Stop run other" });

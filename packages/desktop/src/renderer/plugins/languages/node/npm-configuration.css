@@ -77,7 +77,7 @@
   margin: 13px 0;
 }
 .npm-config-body input,
-.npm-config-body select,
+.npm-config-body .select-trigger,
 .npm-config-body textarea {
   width: 100%;
   min-height: 32px;
@@ -105,11 +105,11 @@
   align-items: center;
   gap: 6px;
 }
-.npm-config-profile-actions select {
+.npm-config-profile-actions .select-trigger {
   flex: 1;
   min-width: 0;
 }
-.npm-config-profile-actions button {
+.npm-config-profile-actions button:not(.select-trigger) {
   padding: 7px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);

@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import { WorkspacePicker } from "../WorkspacePicker";
 import { runningTaskFlowCount } from "../workflow-context";
 import { TaskRow, formatAiStatus } from "../TaskRow";
@@ -375,16 +376,18 @@ export function LeftWorkspaceSidebar({ context }: { context: AppViewContext }) {
                           label="Filter tasks"
                           onChange={setTaskFilter}
                         />
-                        <select
+                        <Select
                           aria-label="Task lifecycle filter"
                           value={taskLifecycleFilter}
-                          onChange={(event) => setTaskLifecycleFilter(event.target.value as typeof taskLifecycleFilter)}
+                          onValueChange={(selectedValue) =>
+                            setTaskLifecycleFilter(selectedValue as typeof taskLifecycleFilter)
+                          }
                         >
                           <option value="active">Active</option>
                           <option value="finished">Finished</option>
                           <option value="archived">Archived</option>
                           <option value="all">All</option>
-                        </select>
+                        </Select>
                       </div>
                       <div className="tasks-list">
                         {showRootTask && (

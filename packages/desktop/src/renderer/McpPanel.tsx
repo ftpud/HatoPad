@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useEffect, useRef, useState } from "react";
 import {
   KeyRound,
@@ -446,12 +447,12 @@ export function McpPanel({
                     </label>
                     <label>
                       Authentication
-                      <select
+                      <Select
                         aria-label={`Authentication for ${connection.name}`}
                         value={connection.authType}
-                        onChange={(event) =>
+                        onValueChange={(selectedValue) =>
                           updateConnection(connection.id, {
-                            authType: event.target.value as "token" | "oauth",
+                            authType: selectedValue as "token" | "oauth",
                             token: "",
                             headersText: "{}",
                             hasCredentials: false,
@@ -460,7 +461,7 @@ export function McpPanel({
                       >
                         <option value="token">Bearer token / headers</option>
                         <option value="oauth">OAuth (browser sign-in)</option>
-                      </select>
+                      </Select>
                     </label>
                   </div>
                   {connection.authType === "oauth" ? (
