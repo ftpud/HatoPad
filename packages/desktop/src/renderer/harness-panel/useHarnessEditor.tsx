@@ -751,7 +751,7 @@ export function useHarnessEditor({
     setConnectionType("follow");
     setConnectFrom((current) => (current === id ? undefined : id));
   };
-  const keyboardActivate = (event: ReactKeyboardEvent<HTMLButtonElement>, action: () => void) => {
+  const keyboardActivate = (event: ReactKeyboardEvent<Element>, action: () => void) => {
     if (event.key !== "Enter" && event.key !== " ") return;
     event.preventDefault();
     event.stopPropagation();

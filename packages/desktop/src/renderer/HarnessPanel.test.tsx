@@ -1592,7 +1592,7 @@ describe("HarnessPanel", () => {
     );
   });
 
-  it("selects and deletes an individual connection", async () => {
+  it.each(["click", "Enter", " "])("selects and deletes an individual connection with %j", async (activation) => {
     const harness: HarnessDefinition = {
       id: "harness-1",
       name: "Flow",
@@ -1621,7 +1621,9 @@ describe("HarnessPanel", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Select connection: Plan then Build" }));
+    const connection = await screen.findByRole("button", { name: "Select connection: Plan then Build" });
+    if (activation === "click") fireEvent.click(connection);
+    else fireEvent.keyDown(connection, { key: activation });
     expect(screen.getByRole("region", { name: "Connection settings" }).textContent).toContain("Plan → Build");
     fireEvent.keyDown(window, { key: "Delete" });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
