@@ -1772,9 +1772,25 @@ export function useAppOrchestration() {
               }));
               continue;
             }
-            if ((selfWriteUntil.current.get(openTab.path) ?? 0) > Date.now()) continue;
+            const selfWriteEnds = selfWriteUntil.current.get(openTab.path) ?? 0;
+            if (selfWriteEnds > Date.now()) {
+              // An external write inside the self-write window must still be reconciled once it closes.
+              setTimeout(
+                () => {
+                  if (clientRef.current === client)
+                    client.onServerEvent?.({
+                      ...event,
+                      payload: { ...event.payload, paths: [openTab.path], overflow: false },
+                    });
+                },
+                selfWriteEnds - Date.now() + 50,
+              );
+              continue;
+            }
             try {
               const result = await client.request("filesystem.readFile", { path: openTab.path });
+              const latest = layoutRef.current.editorGroups[0]?.tabs.find((tab) => tab.id === openTab.id);
+              if (latest?.revision && JSON.stringify(latest.revision) === JSON.stringify(result.revision)) continue;
               if (openTab.dirty)
                 setExternalConflict({
                   tabId: openTab.id,
