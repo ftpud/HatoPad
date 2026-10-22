@@ -22,6 +22,13 @@ export function PluginsPanel({ client, onClose }: { client: CoreClient; onClose:
       current = false;
     };
   }, [client]);
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [onClose]);
   return createPortal(
     <div
       className="dialog-overlay install-panel-overlay"

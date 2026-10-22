@@ -20,6 +20,13 @@ export function GitCompareDialog({ client, reference, label, path, onClose }: Pr
     y: Math.max(35, (window.innerHeight - Math.min(760, window.innerHeight - 70)) / 2),
   }));
   useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !event.defaultPrevented) onClose();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [onClose]);
+  useEffect(() => {
     void client
       .request("git.compareFiles", { ref: reference, ...(path ? { path } : {}) })
       .then((result) => {
@@ -100,23 +107,11 @@ export function GitCompareDialog({ client, reference, label, path, onClose }: Pr
             {error && <div className="git-log-error">{error}</div>}
             {selected && diff ? (
               <>
-                <DiffEditor
+                <ModelSafeDiffEditor
+                  editorRef={diffEditorRef}
                   original={diff.originalContent}
                   modified={diff.modifiedContent}
                   language={languageFor(selected.path)}
-                  beforeMount={configureMonacoThemes}
-                  theme={monacoTheme()}
-                  onMount={(instance) => {
-                    diffEditorRef.current = instance;
-                  }}
-                  options={{
-                    automaticLayout: true,
-                    readOnly: true,
-                    renderSideBySide: false,
-                    minimap: { enabled: false },
-                    fontSize: 12,
-                    scrollBeyondLastLine: false,
-                  }}
                 />
                 <DiffNavigation editorRef={diffEditorRef} />
               </>
@@ -127,6 +122,52 @@ export function GitCompareDialog({ client, reference, label, path, onClose }: Pr
         </div>
       </section>
     </div>
+  );
+}
+
+/**
+ * The Monaco wrapper disposes its text models while the diff widget still
+ * references them. Resetting the widget's model first, in a cleanup that runs
+ * before the wrapper's own, avoids "TextModel got disposed before
+ * DiffEditorWidget model got reset".
+ */
+function ModelSafeDiffEditor({
+  editorRef,
+  original,
+  modified,
+  language,
+}: {
+  editorRef: React.MutableRefObject<editor.IStandaloneDiffEditor | undefined>;
+  original: string;
+  modified: string;
+  language: string;
+}) {
+  useEffect(
+    () => () => {
+      editorRef.current?.setModel(null);
+      editorRef.current = undefined;
+    },
+    [editorRef],
+  );
+  return (
+    <DiffEditor
+      original={original}
+      modified={modified}
+      language={language}
+      beforeMount={configureMonacoThemes}
+      theme={monacoTheme()}
+      onMount={(instance) => {
+        editorRef.current = instance;
+      }}
+      options={{
+        automaticLayout: true,
+        readOnly: true,
+        renderSideBySide: false,
+        minimap: { enabled: false },
+        fontSize: 12,
+        scrollBeyondLastLine: false,
+      }}
+    />
   );
 }
 
