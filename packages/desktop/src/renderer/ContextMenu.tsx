@@ -16,6 +16,24 @@ export function ContextMenu({ children, onKeyDown, ...props }: HTMLAttributes<HT
       }
       menu.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
     }
+    // A submenu only has a size once its trigger is hovered or focused, so it is placed then:
+    // flipped to the left of its parent and shifted up when it would leave the window.
+    const trigger = nested ? menu.closest(".context-submenu-trigger") : null;
+    const place = () => {
+      menu.style.left = "";
+      menu.style.right = "";
+      menu.style.top = "";
+      const rect = menu.getBoundingClientRect();
+      if (!rect.width || !rect.height) return;
+      if (rect.right > window.innerWidth - 8) {
+        menu.style.left = "auto";
+        menu.style.right = "calc(100% - 2px)";
+      }
+      const overflow = rect.bottom - (window.innerHeight - 8);
+      if (overflow > 0) menu.style.top = `${-4 - Math.min(overflow, Math.max(0, rect.top - 8 + 4))}px`;
+    };
+    trigger?.addEventListener("mouseenter", place);
+    trigger?.addEventListener("focusin", place);
     const escape = (event: globalThis.KeyboardEvent) => {
       if (event.key !== "Escape" || nested) return;
       event.preventDefault();
@@ -25,6 +43,8 @@ export function ContextMenu({ children, onKeyDown, ...props }: HTMLAttributes<HT
     document.addEventListener("keydown", escape);
     return () => {
       document.removeEventListener("keydown", escape);
+      trigger?.removeEventListener("mouseenter", place);
+      trigger?.removeEventListener("focusin", place);
       if (!nested && menu.contains(document.activeElement) && owner?.isConnected) owner.focus();
     };
   }, []);

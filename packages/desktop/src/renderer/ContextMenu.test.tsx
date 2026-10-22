@@ -34,3 +34,29 @@ it("dismisses through the owning overlay and restores keyboard focus", () => {
   expect(document.activeElement).toBe(owner);
   owner.remove();
 });
+it("flips a submenu left and shifts it up when it would leave the window", () => {
+  Object.assign(window, { innerWidth: 1280, innerHeight: 800 });
+  render(
+    <ContextMenu className="context-menu">
+      <div className="context-submenu-trigger">
+        <button>Color</button>
+        <ContextMenu className="context-menu context-submenu">
+          <button>Red</button>
+        </ContextMenu>
+      </div>
+    </ContextMenu>,
+  );
+  const [, submenu] = screen.getAllByRole("menu");
+  vi.spyOn(submenu!, "getBoundingClientRect").mockReturnValue({
+    left: 1206,
+    right: 1406,
+    top: 645,
+    bottom: 905,
+    width: 200,
+    height: 260,
+  } as DOMRect);
+  fireEvent.mouseEnter(submenu!.parentElement!);
+  expect(submenu!.style.right).toBe("calc(100% - 2px)");
+  expect(submenu!.style.left).toBe("auto");
+  expect(submenu!.style.top).toBe("-117px");
+});
