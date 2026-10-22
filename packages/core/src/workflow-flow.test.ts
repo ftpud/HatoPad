@@ -983,6 +983,31 @@ describe("typed workflows", () => {
     expect((await finished()).status).toBe("succeeded");
   });
 
+  it("waits for every branch of an All join and runs the shared target once", async () => {
+    const { runner, definition, finished } = await setup(
+      [
+        block("start", "text"),
+        block("left", "script", { command: "left" }),
+        block("right", "script", { command: "right" }),
+        block("join", "script", { command: "join", join: "all" }),
+      ],
+      [edge("start", "left"), edge("start", "right"), edge("left", "join"), edge("right", "join")],
+      4,
+    );
+    const joinInputs: string[] = [];
+    const dispatch = vi.fn(async (item: HarnessBlock, input: string) => {
+      if (item.id === "right") await new Promise((resolve) => setTimeout(resolve, 100));
+      if (item.id === "join") joinInputs.push(input);
+      return session(item.id.toUpperCase());
+    });
+    await runner.start(definition.id, "seed", dispatch, "codex");
+    const run = await finished();
+    expect(run.status).toBe("succeeded");
+    expect(joinInputs).toHaveLength(1);
+    expect(joinInputs[0]).toContain("LEFT");
+    expect(joinInputs[0]).toContain("RIGHT");
+  });
+
   it("tests an unsaved draft block without running followers or changing the saved definition", async () => {
     const { runner, definition, store, finished } = await setup(
       [block("script", "script", { command: "saved" }), block("next", "text")],
