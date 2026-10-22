@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("desktop", {
     type: "file" | "useful";
     path: string;
     scope?: "global" | "local";
+    rootId?: string;
+    taskId?: string;
   }): void {
     ipcRenderer.send("editor:open-window", options);
   },

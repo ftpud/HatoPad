@@ -2205,6 +2205,8 @@ export function useAppOrchestration() {
     refreshAgents,
     scheduleJavaCheck,
     layout,
+    selectedRootIdRef,
+    selectedTaskIdRef,
   });
   const {
     switchAiProvider,

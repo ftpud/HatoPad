@@ -23,6 +23,8 @@ export interface EditorTabActionsDeps {
   ) => Promise<void>;
   scheduleJavaCheck: () => void;
   layout: LayoutModel;
+  selectedRootIdRef: React.MutableRefObject<string>;
+  selectedTaskIdRef: React.MutableRefObject<string | undefined>;
 }
 
 /** Moved from App; statement bodies are unchanged. */
@@ -33,6 +35,8 @@ export function useEditorTabActions(deps: EditorTabActionsDeps) {
     setTabContextMenu,
     host,
     port,
+    selectedRootIdRef,
+    selectedTaskIdRef,
     draggedTabId,
     setDraggedTabId,
     clientRef,
@@ -87,13 +91,25 @@ export function useEditorTabActions(deps: EditorTabActionsDeps) {
     )
       return;
     if (tab.dirty) await saveFileTab(tab);
-    const options = {
+    const options: {
+      host: string;
+      port: string;
+      type: "file" | "useful";
+      path: string;
+      scope?: "global" | "local";
+      rootId?: string;
+      taskId?: string;
+    } = {
       host,
       port,
       type: tab.type,
       path: tab.path,
       ...(tab.type === "useful" ? { scope: tab.usefulScope } : {}),
-    } as const;
+      ...(tab.type === "file" && tab.rootId ? { rootId: tab.rootId } : {}),
+      ...(tab.type === "file" && (!tab.rootId || tab.rootId === selectedRootIdRef.current) && selectedTaskIdRef.current
+        ? { taskId: selectedTaskIdRef.current }
+        : {}),
+    };
     if (window.desktop?.openEditorWindow) window.desktop.openEditorWindow(options);
     else {
       const url = new URL(window.location.href);
@@ -104,6 +120,8 @@ export function useEditorTabActions(deps: EditorTabActionsDeps) {
       url.searchParams.set("type", tab.type);
       url.searchParams.set("path", tab.path);
       if (tab.type === "useful" && tab.usefulScope) url.searchParams.set("scope", tab.usefulScope);
+      if (options.rootId) url.searchParams.set("rootId", options.rootId);
+      if (options.taskId) url.searchParams.set("taskId", options.taskId);
       window.open(url.toString(), "_blank", "popup,width=1000,height=720");
     }
   };

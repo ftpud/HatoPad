@@ -52,8 +52,15 @@ export function DetachedEditor() {
       .connect(options.get("host") ?? "127.0.0.1", Number(options.get("port") ?? "7331"))
       .then(async () => {
         await client.request("workspace.open", {});
-        const tasks = await client.request("tasks.list", {});
-        await client.request("tasks.switch", { ...(tasks.selectedTaskId ? { taskId: tasks.selectedTaskId } : {}) });
+        // Bind to the originating tab's root and task instead of the defaults.
+        const rootId = options.get("rootId");
+        if (rootId) await client.request("workspace.selectRoot", { rootId, includeTree: false });
+        const taskId = options.get("taskId");
+        if (taskId) await client.request("tasks.switch", { taskId, includeTree: false });
+        else {
+          const tasks = await client.request("tasks.list", {});
+          await client.request("tasks.switch", { ...(tasks.selectedTaskId ? { taskId: tasks.selectedTaskId } : {}) });
+        }
         if (type === "useful") {
           const result = await client.request("useful.read", { scope: scope!, name: path });
           if (current) {

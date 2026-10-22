@@ -170,7 +170,9 @@ onIpc("editor:open-window", (_event, options: unknown) => {
     typeof value.port !== "string" ||
     (value.type !== "file" && value.type !== "useful") ||
     typeof value.path !== "string" ||
-    value.path.length > 1000
+    value.path.length > 1000 ||
+    (value.rootId !== undefined && (typeof value.rootId !== "string" || value.rootId.length > 200)) ||
+    (value.taskId !== undefined && (typeof value.taskId !== "string" || value.taskId.length > 200))
   )
     return;
   createWindow({
@@ -180,6 +182,8 @@ onIpc("editor:open-window", (_event, options: unknown) => {
     type: value.type,
     path: value.path,
     ...(value.scope === "global" || value.scope === "local" ? { scope: value.scope } : {}),
+    ...(typeof value.rootId === "string" ? { rootId: value.rootId } : {}),
+    ...(typeof value.taskId === "string" ? { taskId: value.taskId } : {}),
   });
 });
 

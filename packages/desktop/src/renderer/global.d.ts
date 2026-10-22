@@ -10,6 +10,8 @@ interface Window {
       type: "file" | "useful";
       path: string;
       scope?: "global" | "local";
+      rootId?: string;
+      taskId?: string;
     }): void;
     readClipboard(): Promise<string>;
     restoreInputFocus?(): Promise<void>;
