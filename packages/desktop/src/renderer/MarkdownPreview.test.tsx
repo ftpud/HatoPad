@@ -50,7 +50,27 @@ describe("MarkdownPreview task checkboxes", () => {
   });
 
   it("only changes the task marker on the selected source line", () => {
-    expect(toggleMarkdownTask("- [ ] parent\n  1. [X] nested", 1, false)).toBe("- [ ] parent\n  1. [ ] nested");
+    expect(toggleMarkdownTask("- [ ] parent\n  1. [X] nested", 15, false)).toBe("- [ ] parent\n  1. [ ] nested");
+  });
+
+  it("ignores fenced examples and preserves blockquote prefixes", () => {
+    const onChange = vi.fn();
+    const fenced = "```text\n- [ ] example only\n```\n\n- [ ] real task";
+    const view = render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>
+        {fenced}
+      </MarkdownPreview>,
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(onChange).toHaveBeenLastCalledWith("```text\n- [ ] example only\n```\n\n- [x] real task");
+    view.unmount();
+    render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>
+        {"> - [ ] quoted task\n\n- [ ] regular task"}
+      </MarkdownPreview>,
+    );
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    expect(onChange).toHaveBeenLastCalledWith("> - [x] quoted task\n\n- [ ] regular task");
   });
 });
 

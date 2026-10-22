@@ -66,16 +66,13 @@ function markdownUrlTransform(url: string, key: string): string {
   return /^(?:[a-z][a-z+.-]*:)/i.test(url) && !/^(?:https?|ircs?|mailto|xmpp):/i.test(url) ? "" : url;
 }
 
-export function toggleMarkdownTask(source: string, taskIndex: number, checked: boolean): string {
-  const lines = source.split("\n");
-  let seen = 0;
-  const index = lines.findIndex((line) => {
-    if (!/^(\s*(?:(?:[-+*])|(?:\d+[.)]))\s+)\[[ xX]\]/.test(line)) return false;
-    return seen++ === taskIndex;
-  });
-  if (index < 0) return source;
-  lines[index] = lines[index]!.replace(/^(\s*(?:(?:[-+*])|(?:\d+[.)]))\s+)\[[ xX]\]/, `$1[${checked ? "x" : " "}]`);
-  return lines.join("\n");
+const taskMarker = /^((?:[-+*]|\d+[.)])\s+)\[[ xX]\]/;
+
+/** Toggles the task whose list item starts at `itemOffset` in `source` (a Markdown AST source offset). */
+export function toggleMarkdownTask(source: string, itemOffset: number, checked: boolean): string {
+  const rest = source.slice(itemOffset);
+  if (!taskMarker.test(rest)) return source;
+  return source.slice(0, itemOffset) + rest.replace(taskMarker, `$1[${checked ? "x" : " "}]`);
 }
 
 export function MarkdownPreview({
@@ -95,7 +92,8 @@ export function MarkdownPreview({
   onOpenExternal(url: string): void;
   onChange?(content: string): void;
 }) {
-  let taskIndex = 0;
+  // React renders depth-first, so a task checkbox always belongs to the last rendered list item.
+  let itemOffset: number | undefined;
   const followLink = (event: MouseEvent<HTMLAnchorElement>, href?: string) => {
     event.preventDefault();
     if (!href) return;
@@ -116,16 +114,20 @@ export function MarkdownPreview({
             {label}
           </a>
         ),
+        li: ({ node, ...props }) => {
+          itemOffset = node?.position?.start.offset;
+          return <li {...props} />;
+        },
         input: ({ node: _node, ...props }) => {
           if (props.type !== "checkbox" || !onChange) return <input {...props} />;
-          const index = taskIndex;
-          taskIndex += 1;
+          const offset = itemOffset;
           return (
             <input
               {...props}
               disabled={false}
               onChange={(event: ChangeEvent<HTMLInputElement>) => {
-                const content = toggleMarkdownTask(children, index, event.target.checked);
+                if (offset === undefined) return;
+                const content = toggleMarkdownTask(children, offset, event.target.checked);
                 if (content !== children) onChange(content);
               }}
             />
