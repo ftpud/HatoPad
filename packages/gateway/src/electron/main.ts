@@ -298,7 +298,9 @@ app.on("before-quit", (event) => {
   quitRequested = true;
   void stateStore.flush().finally(() => {
     stateFlushedForQuit = true;
-    app.quit();
+    // Quit on a later turn: an already-settled flush would otherwise re-enter app.quit() while Electron is
+    // still handling this prevented quit, which closes the window but leaves the app running on macOS.
+    setImmediate(() => app.quit());
   });
 });
 function encrypt(password: string): string {
