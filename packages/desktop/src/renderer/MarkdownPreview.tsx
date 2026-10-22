@@ -1,4 +1,4 @@
-import type { ChangeEvent, MouseEvent } from "react";
+import { Children, isValidElement, type ChangeEvent, type MouseEvent, type ReactNode } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -66,6 +66,27 @@ function markdownUrlTransform(url: string, key: string): string {
   return /^(?:[a-z][a-z+.-]*:)/i.test(url) && !/^(?:https?|ircs?|mailto|xmpp):/i.test(url) ? "" : url;
 }
 
+function nodeText(node: ReactNode): string {
+  return Children.toArray(node)
+    .map((child) =>
+      typeof child === "string" || typeof child === "number"
+        ? String(child)
+        : isValidElement<{ children?: ReactNode }>(child)
+          ? nodeText(child.props.children)
+          : "",
+    )
+    .join("");
+}
+
+/** GitHub-style heading anchor: lower-cased, punctuation removed, spaces as hyphens. */
+export function headingSlug(text: string): string {
+  return text
+    .trim()
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s_-]/gu, "")
+    .replace(/\s/g, "-");
+}
+
 const taskMarker = /^((?:[-+*]|\d+[.)])\s+)\[[ xX]\]/;
 
 /** Toggles the task whose list item starts at `itemOffset` in `source` (a Markdown AST source offset). */
@@ -94,6 +115,19 @@ export function MarkdownPreview({
 }) {
   // React renders depth-first, so a task checkbox always belongs to the last rendered list item.
   let itemOffset: number | undefined;
+  const headingIds = new Map<string, number>();
+  const heading = (Tag: "h1" | "h2" | "h3" | "h4" | "h5" | "h6") =>
+    function Heading({ node: _node, children: content, ...props }: { node?: unknown; children?: ReactNode }) {
+      const base = headingSlug(nodeText(content));
+      const seen = headingIds.get(base) ?? 0;
+      headingIds.set(base, seen + 1);
+      const id = base ? (seen ? `${base}-${seen}` : base) : undefined;
+      return (
+        <Tag {...props} id={id}>
+          {content}
+        </Tag>
+      );
+    };
   const followLink = (event: MouseEvent<HTMLAnchorElement>, href?: string) => {
     event.preventDefault();
     if (!href) return;
@@ -109,6 +143,12 @@ export function MarkdownPreview({
       urlTransform={markdownUrlTransform}
       components={{
         ...(renderPre ? { pre: renderPre } : {}),
+        h1: heading("h1"),
+        h2: heading("h2"),
+        h3: heading("h3"),
+        h4: heading("h4"),
+        h5: heading("h5"),
+        h6: heading("h6"),
         a: ({ href, children: label, ...props }) => (
           <a {...props} href={href} onClick={(event) => followLink(event, href)}>
             {label}

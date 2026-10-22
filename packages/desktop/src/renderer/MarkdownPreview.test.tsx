@@ -74,6 +74,22 @@ describe("MarkdownPreview task checkboxes", () => {
   });
 });
 
+describe("MarkdownPreview headings", () => {
+  it("gives headings stable ids so fragment links have a target", () => {
+    const scroll = vi.fn();
+    render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()}>
+        {"[Jump](#target-heading)\n\n## Target heading\n\n## Target heading\n\n### `Code` & More!"}
+      </MarkdownPreview>,
+    );
+    const headings = screen.getAllByRole("heading");
+    expect(headings.map((item) => item.id)).toEqual(["target-heading", "target-heading-1", "code--more"]);
+    headings[0]!.scrollIntoView = scroll;
+    fireEvent.click(screen.getByRole("link", { name: "Jump" }));
+    expect(scroll).toHaveBeenCalledOnce();
+  });
+});
+
 describe("MarkdownPreview link clicks", () => {
   it("resolves skill references and their sibling links relative to the skill bundle", () => {
     const openFile = vi.fn();
