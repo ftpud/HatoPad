@@ -150,4 +150,18 @@ describe("WorkspaceSearch", () => {
     expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("done\n");
     expect(await readFile(path.join(root, "b.txt"), "utf8")).toBe("changed externally\n");
   });
+
+  it("keeps original offsets when lower-casing expands characters", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "hatopad-search-"));
+    await writeFile(path.join(root, "a.txt"), "\u0130x\n");
+    const filesystem = new WorkspaceFileSystem();
+    await filesystem.open(root);
+    const search = new WorkspaceSearch(filesystem);
+    const result = await search.search("x", "", false);
+    expect(result.matches[0]?.column).toBe(2);
+    const preview = await search.previewReplace("x", "Y", "", false);
+    expect(preview.files[0]?.occurrences[0]?.after).toBe("\u0130Y");
+    await search.applyReplace(preview.id, true);
+    expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("\u0130Y\n");
+  });
 });
