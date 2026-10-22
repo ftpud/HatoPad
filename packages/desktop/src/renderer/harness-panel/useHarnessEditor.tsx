@@ -194,6 +194,7 @@ export function useHarnessEditor({
     positions: Map<string, HarnessBlock["position"]>;
     grabX: number;
     grabY: number;
+    historyRecorded: boolean;
   }>();
   const ignoreNextBlockClick = useRef(false);
   const selected = harnesses.find((item) => item.id === selectedId);
@@ -770,10 +771,15 @@ export function useHarnessEditor({
   const pointerDown = (event: ReactPointerEvent, item: HarnessBlock) => {
     if (mode !== "edit" || event.button !== 0) return;
     const target = event.currentTarget as HTMLElement;
-    target.setPointerCapture(event.pointerId);
-    const bounds = target.getBoundingClientRect();
     const ids = selectBlock(item.id, event.ctrlKey || event.metaKey);
     ignoreNextBlockClick.current = true;
+    // Ctrl-clicking a selected block only deselects it; there is nothing to drag.
+    if (!ids.includes(item.id)) {
+      drag.current = undefined;
+      return;
+    }
+    target.setPointerCapture(event.pointerId);
+    const bounds = target.getBoundingClientRect();
     drag.current = {
       id: item.id,
       ids,
@@ -782,6 +788,7 @@ export function useHarnessEditor({
       ),
       grabX: (event.clientX - bounds.left) / zoom,
       grabY: (event.clientY - bounds.top) / zoom,
+      historyRecorded: false,
     };
   };
   const pointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -801,7 +808,7 @@ export function useHarnessEditor({
     );
     const origin = item.positions.get(item.id)!;
     const delta = { x: position.x - origin.x, y: position.y - origin.y };
-    setDraft({
+    const next = {
       ...draft,
       blocks: draft.blocks.map((block) => {
         const start = item.positions.get(block.id);
@@ -809,7 +816,15 @@ export function useHarnessEditor({
           ? { ...block, position: { x: Math.max(8, start.x + delta.x), y: Math.max(8, start.y + delta.y) } }
           : block;
       }),
-    });
+    };
+    if (JSON.stringify(next) === JSON.stringify(draft)) return;
+    // One drag gesture is one undoable edit: record the pre-drag definition once.
+    if (!item.historyRecorded) {
+      item.historyRecorded = true;
+      setUndoStack((current) => [...current.slice(-49), structuredClone(draft)]);
+      setRedoStack([]);
+    }
+    setDraftState(next);
   };
   const moveViewportFromMinimap = (event: ReactMouseEvent<HTMLButtonElement>) => {
     const canvas = canvasRef.current;
