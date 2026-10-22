@@ -17,6 +17,15 @@ const STATE_FILES = new Set([
   "refs",
 ]);
 
+async function isOutsideGitRepository(workspace: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["-C", workspace, "rev-parse", "--git-dir"], { encoding: "utf8" });
+    return false;
+  } catch (error) {
+    return /not a git repository/i.test(String((error as { stderr?: unknown }).stderr ?? ""));
+  }
+}
+
 /**
  * Watches a workspace's Git state (including task worktrees, whose refs live in
  * the common directory) and reports changes in batches. `objects/` and lock
@@ -27,11 +36,18 @@ export async function watchGitState(
   onChange: () => void,
   delayMs = 250,
 ): Promise<ReturnType<typeof chokidar.watch>> {
-  const { stdout } = await execFileAsync(
-    "git",
-    ["-C", workspace, "rev-parse", "--git-path", "index", "--git-path", "packed-refs"],
-    { encoding: "utf8" },
-  );
+  let stdout: string;
+  try {
+    ({ stdout } = await execFileAsync(
+      "git",
+      ["-C", workspace, "rev-parse", "--git-path", "index", "--git-path", "packed-refs"],
+      { encoding: "utf8" },
+    ));
+  } catch (error) {
+    // A plain project directory has no Git state to watch; editing must still work.
+    if (!(await isOutsideGitRepository(workspace))) throw error;
+    return chokidar.watch([], { ignoreInitial: true });
+  }
   const [index, packedRefs] = stdout
     .trim()
     .split("\n")
