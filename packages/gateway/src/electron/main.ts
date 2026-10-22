@@ -1,3 +1,10 @@
+import { readGatewayPins, updateGatewayPins, type GatewayPins } from "./gateway-pins.js";
+import {
+  migrationScript,
+  parseMigrationResult,
+  parseWorkspaceMigrations,
+  migrationFailure,
+} from "./workspace-migration.js";
 import { CloudPortTunnel } from "./cloud-port-tunnel.js";
 import { matchLocalCloudCore } from "./managed-local-core.js";
 import { LocalCoreReleases } from "./local-core-release.js";
@@ -134,6 +141,8 @@ type StoredConnection = {
   hostKeyFingerprint?: string;
 };
 type State = {
+  pins?: GatewayPins;
+  workspaceMigrations?: Record<string, { source: string; destination: string }>;
   connections: StoredConnection[];
   workspaces: Workspace[];
   portTunnels: PortTunnel[];
@@ -141,6 +150,7 @@ type State = {
   coreReleases?: Record<string, string>;
 };
 type PublicState = {
+  pins: GatewayPins;
   connections: {
     id: string;
     kind: "ssh" | "local";
@@ -152,7 +162,7 @@ type PublicState = {
     privateKeyPath?: string;
     hostKeyFingerprint?: string;
   }[];
-  workspaces: Workspace[];
+  workspaces: (Workspace & { migrationDestination?: string })[];
   portTunnels: PortTunnel[];
 };
 type Runtime = {
@@ -249,6 +259,8 @@ function decodeState(text: string): State {
   if (state.portTunnels !== undefined && !Array.isArray(state.portTunnels))
     throw new Error("Gateway port tunnels must be an array");
   return {
+    pins: readGatewayPins(state.pins),
+    workspaceMigrations: parseWorkspaceMigrations(state.workspaceMigrations),
     connections: (state.connections ?? []).map(normalizeStoredAuthentication),
     workspaces: state.workspaces ?? [],
     portTunnels: state.portTunnels ?? [],
@@ -302,6 +314,7 @@ function decrypt(password: string): string {
 }
 function publicState(state: State): PublicState {
   return {
+    pins: readGatewayPins(state.pins),
     connections: state.connections.map((connection) => {
       const item = normalizeStoredAuthentication(connection);
       return {
@@ -316,7 +329,12 @@ function publicState(state: State): PublicState {
         ...(item.hostKeyFingerprint ? { hostKeyFingerprint: item.hostKeyFingerprint } : {}),
       };
     }),
-    workspaces: state.workspaces,
+    workspaces: state.workspaces.map((workspace) => ({
+      ...workspace,
+      ...(state.workspaceMigrations?.[workspace.id]
+        ? { migrationDestination: state.workspaceMigrations[workspace.id]!.destination }
+        : {}),
+    })),
     portTunnels: state.portTunnels,
   };
 }
@@ -459,6 +477,13 @@ async function selectedLocalRelease(workspaceId: string): Promise<string | undef
   const value = (await readFile(localSelectionFile(workspaceId), "utf8").catch(() => "")).trim();
   return localReleaseName.test(value) ? value : undefined;
 }
+async function assertNoWorkspaceMigration(workspaceId: string): Promise<void> {
+  const pending = (await readState()).workspaceMigrations?.[workspaceId];
+  if (pending)
+    throw Error(
+      `Project migration needs to finish first. Open workspace settings and retry migration to ${pending.destination}`,
+    );
+}
 async function startLocalServer(
   workspaceId: string,
   expectedCommit?: string,
@@ -466,6 +491,7 @@ async function startLocalServer(
   useBundle = false,
   compatibility?: Compatibility,
 ): Promise<{ remotePort: number }> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
   if (useBundle) await rm(localSelectionFile(workspaceId), { force: true });
   const selectedRelease = useBundle || expectedCommit ? undefined : await selectedLocalRelease(workspaceId);
@@ -794,6 +820,7 @@ async function startServer(
   repository?: RepositorySettings,
   compatibility?: Compatibility,
 ): Promise<{ remotePort: number }> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace, connection } = await withWorkspace(workspaceId);
   runtime(
     workspaceId,
@@ -991,6 +1018,7 @@ function stopPortTunnel(tunnelId: string, notify = true): void {
   if (notify) portTunnelRuntime(tunnelId, "idle", "Stopped");
 }
 async function startClient(workspaceId: string): Promise<void> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace, connection } = await withWorkspace(workspaceId);
   runtime(workspaceId, "working", "Checking remote client build...");
   let observedHostKey = connection.hostKeyFingerprint;
@@ -1927,8 +1955,17 @@ handleIpc(
     return result;
   },
 );
+handleIpc("gateway:setPinned", async (_event, kind: unknown, id: unknown, pinned: unknown) => {
+  const { result } = await updateState((state) => {
+    state.pins = updateGatewayPins(state.pins, kind, id, pinned);
+    return publicState(state);
+  });
+  return result;
+});
 handleIpc("gateway:deleteConnection", async (_event, connectionId: string) => {
   const { result } = await updateState((state) => {
+    if (state.workspaces.some((item) => item.connectionId === connectionId && state.workspaceMigrations?.[item.id]))
+      throw Error("Finish pending project migrations before deleting this connection.");
     for (const workspace of state.workspaces.filter((item) => item.connectionId === connectionId)) {
       localServers.get(workspace.id)?.kill();
       localServers.delete(workspace.id);
@@ -1959,12 +1996,131 @@ handleIpc("gateway:pickWorkspaceDirectory", async () => {
   });
   return selected.canceled ? undefined : selected.filePaths[0];
 });
+async function runWorkspaceMigration(
+  workspace: Workspace,
+  local: boolean,
+  destination: string,
+  migrate: boolean,
+  state?: State,
+) {
+  const script = migrationScript(workspace.directory, destination, migrate, workspace.remotePort);
+  if (local) {
+    const { coreMain, node, env } = await localArtifactPaths();
+    try {
+      const { stdout } = await promisify(execFile)(node, ["--input-type=module", "-e", script], {
+        cwd: path.resolve(path.dirname(coreMain), "../../.."),
+        env,
+        maxBuffer: 1024 * 1024,
+      });
+      return parseMigrationResult(stdout);
+    } catch (error) {
+      throw migrationFailure(error);
+    }
+  }
+  const client = await connect(await credentials(workspace.connectionId, state));
+  try {
+    const command = `set -eu
+${workspaceReleaseDirectory(workspace.id)}
+if [ -x "$release_directory/bin/node" ]; then export PATH="$release_directory/bin:$PATH"; else
+${remoteNodeEnvironment}
+fi
+cd "$release_directory"
+node --input-type=module -e ${shell(script)}`;
+    const result = parseMigrationResult(await execute(client, `bash -lc ${shell(command)}`));
+    if (migrate) {
+      try {
+        await execute(client, workspaceRegistrationCommand(result.destination));
+        await execute(client, workspaceUnregistrationCommand(workspace.directory));
+      } catch (error) {
+        console.warn("Project moved, but workspace discovery registration needs refreshing:", error);
+      }
+    }
+    return result;
+  } catch (error) {
+    throw migrationFailure(error);
+  } finally {
+    client.end();
+  }
+}
+async function migrationTarget(workspaceId: string, destination: string) {
+  if (typeof destination !== "string" || !destination.trim() || /[\0\r\n]/.test(destination))
+    throw Error("Enter a destination directory.");
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  const state = await readState();
+  const pending = state.workspaceMigrations?.[workspaceId];
+  if (pending && pending.destination !== destination.trim())
+    throw Error(`A migration is pending. Retry with the same destination: ${pending.destination}`);
+  if (
+    state.workspaces.some(
+      (item) =>
+        item.id !== workspaceId &&
+        item.connectionId === workspace.connectionId &&
+        (item.directory === workspace.directory || item.directory === destination.trim()),
+    )
+  )
+    throw Error(
+      "Another Gateway workspace uses the source or destination directory. Resolve that duplicate before migrating.",
+    );
+  return { workspace, local: connection.kind === "local", destination: destination.trim() };
+}
+handleIpc("gateway:previewWorkspaceMigration", async (_event, workspaceId: string, destination: string) =>
+  workspaceOperations.run(workspaceId, "preview-migration", async () => {
+    const target = await migrationTarget(workspaceId, destination);
+    return runWorkspaceMigration(target.workspace, target.local, target.destination, false);
+  }),
+);
+handleIpc("gateway:migrateWorkspace", async (_event, workspaceId: string, destination: string) =>
+  workspaceOperations.run(workspaceId, "migrate-project", async () => {
+    const target = await migrationTarget(workspaceId, destination);
+    try {
+      // Validate before interrupting the user's running workspace.
+      await runWorkspaceMigration(target.workspace, target.local, target.destination, false);
+      await updateState((state) => {
+        const current = state.workspaces.find((item) => item.id === workspaceId);
+        if (!current || current.directory !== target.workspace.directory)
+          throw Error("Workspace settings changed. Reopen settings and try again.");
+        (state.workspaceMigrations ??= {})[workspaceId] = {
+          source: target.workspace.directory,
+          destination: target.destination,
+        };
+      });
+      runtime(workspaceId, "working", "Stopping Core for project migration…");
+      if (target.local) {
+        await stopLocalServer(workspaceId);
+        await stopOrphanedLocalCore(target.workspace.remotePort, target.workspace.directory);
+      } else await stopServer(workspaceId);
+      runtime(workspaceId, "working", "Moving project and HatoPad state…");
+      // Hold the state store queue so edits/deletion cannot race with the offline move.
+      const { result } = await updateState(async (state) => {
+        const workspace = state.workspaces.find((item) => item.id === workspaceId);
+        if (!workspace || workspace.directory !== target.workspace.directory)
+          throw Error("Workspace settings changed. Reopen the settings and try again.");
+        const moved = await runWorkspaceMigration(workspace, target.local, target.destination, true, state);
+        workspace.directory = moved.destination;
+        delete state.workspaceMigrations?.[workspaceId];
+        return publicState(state);
+      });
+      runtime(workspaceId, "idle", "Project migrated. Start Core to reopen it.");
+      return result;
+    } catch (error) {
+      if ((error as { restored?: boolean }).restored) {
+        await updateState((state) => {
+          delete state.workspaceMigrations?.[workspaceId];
+        });
+        runtime(workspaceId, "idle", "Migration cancelled. The original project and state were restored.");
+      } else runtime(workspaceId, "error", "Migration did not finish. Retry the same destination to recover.");
+      throw error;
+    }
+  }),
+);
 handleIpc("gateway:saveWorkspace", async (_event, input: Omit<Workspace, "id"> & { id?: string }) => {
   const directory = input.directory.trim();
   if (!input.name.trim()) throw new Error("Workspace name is required");
   if (!Number.isInteger(input.remotePort) || input.remotePort < 1024 || input.remotePort > 65535)
     throw new Error("Core port must be between 1024 and 65535");
   const { result } = await updateState(async (state) => {
+    if (input.id && state.workspaceMigrations?.[input.id])
+      throw Error("Finish the pending migration before changing workspace settings.");
     const previous = input.id ? state.workspaces.find((item) => item.id === input.id) : undefined;
     const storedConnection = state.connections.find((item) => item.id === input.connectionId);
     if (!storedConnection) throw new Error("Connection was not found");
@@ -2014,6 +2170,8 @@ handleIpc("gateway:saveWorkspace", async (_event, input: Omit<Workspace, "id"> &
 });
 handleIpc("gateway:deleteWorkspace", async (_event, workspaceId: string) => {
   const { state, result: workspace } = await updateState((state) => {
+    if (state.workspaceMigrations?.[workspaceId])
+      throw Error("Finish the pending migration before deleting this workspace.");
     const workspace = state.workspaces.find((item) => item.id === workspaceId);
     localServers.get(workspaceId)?.kill();
     localServers.delete(workspaceId);

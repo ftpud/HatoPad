@@ -98,6 +98,8 @@ HatoPad is a remote-workspace IDE: an Electron/React/Monaco desktop client talki
 
 - Add/edit/delete SSH connections with password, private-key/passphrase, or OS SSH-agent authentication; test connections and explicitly trust pinned SHA-256 host-key fingerprints.
 - Remote workspace definitions, directory discovery, connection health, and copyable diagnostics.
+- A dedicated right sidebar for Cloud servers, separate from saved local/SSH connections. Pin connections, Cloud servers, and local or Cloud workspaces to the top of their lists; pins persist across Gateway restarts.
+- Project migration from Gateway workspace settings for local and SSH workspaces: destination review, offline folder moves on the same filesystem, preservation of task worktrees and path-keyed HatoPad state, rollback on failure, and saved recovery status after interrupted responses.
 - **This Mac** connections launch local Core/Desktop from the existing build without SSH.
 - Credentials encrypted at rest via Electron `safeStorage`.
 - **Start server**: connects over SSH, clones the configured repository/branch under `~/.hatopad-deploy` (default `https://github.com/ftpud/HatoPad`, `main`), updating it when auto-update is enabled, rebuilds dependencies/artifacts only when the Git revision changed or artifacts are missing, runs Core on remote loopback with per-workspace PID/log files, and auto-selects a free port if the preferred one is taken.

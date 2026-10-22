@@ -94,7 +94,7 @@ h2 {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr) 240px;
   gap: 24px;
   padding: 16px 24px 16px 16px;
   background: var(--shell-background);
@@ -164,7 +164,7 @@ h2 {
   overscroll-behavior: contain;
   padding: 0 8px 12px;
 }
-.connection-list > button {
+.connection-row > .connection-select {
   width: 100%;
   min-height: 62px;
   height: auto;
@@ -178,15 +178,15 @@ h2 {
   border-radius: 10px;
   background: transparent;
 }
-.connection-list > button.selected {
+.connection-row > .connection-select.selected {
   border-color: var(--border-subtle);
   background: var(--selection);
   color: var(--accent);
 }
-.connection-list > button > svg {
+.connection-row > .connection-select > svg {
   flex-shrink: 0;
 }
-.connection-list > button > span {
+.connection-row > .connection-select > span {
   min-width: 0;
   display: grid;
   gap: 4px;
@@ -845,7 +845,7 @@ button.stop:hover:not(:disabled) {
 }
 @media (max-width: 1180px) {
   .gateway-shell {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 188px minmax(0, 1fr) 208px;
     gap: 18px;
     padding: 14px;
   }
@@ -881,7 +881,7 @@ button.stop:hover:not(:disabled) {
 }
 @media (max-width: 900px) {
   .gateway-shell {
-    grid-template-columns: 176px minmax(0, 1fr);
+    grid-template-columns: 164px minmax(0, 1fr) 180px;
     gap: 14px;
     padding: 12px;
   }
@@ -930,7 +930,7 @@ button.stop:hover:not(:disabled) {
   .status-dot {
     border: 1px solid ButtonText;
   }
-  .connection-list > button.selected {
+  .connection-row > .connection-select.selected {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
@@ -1001,7 +1001,7 @@ a,
   background: transparent;
 }
 .cloud-connections {
-  flex: 0 1 auto;
+  flex: 1;
   min-height: 60px;
 }
 .cloud-list-label {
@@ -1095,4 +1095,302 @@ a,
   flex: none;
   max-height: none;
   margin-top: 16px;
+}
+
+.workspace-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.workspace-migration {
+  margin-top: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  overflow: hidden;
+}
+.migration-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px;
+}
+.migration-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-radius: 10px;
+}
+.migration-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.migration-heading strong,
+.migration-success strong {
+  color: var(--text-heading);
+  font-size: 12px;
+}
+.migration-heading p,
+.migration-success p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.6;
+}
+.migration-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+}
+.migration-content {
+  padding: 0 15px 15px;
+}
+.migration-location {
+  margin: 0 0 15px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  background: var(--input);
+}
+.migration-location > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.migration-location code,
+.migration-route code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+.migration-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+  margin: -5px 0 14px;
+}
+.migration-review {
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  padding: 12px;
+  margin: 12px 0;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-panel));
+}
+.migration-route {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.migration-route svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.migration-preserved {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+.migration-preserved svg {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.migration-review p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 10px 0 0;
+}
+.migration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+}
+.migration-actions > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100%;
+  min-height: 16px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.migration-error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.migration-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 15px 15px;
+  padding: 12px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+.migration-success > svg {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.migration-spinner {
+  animation: migration-spin 1s linear infinite;
+}
+@keyframes migration-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .migration-spinner {
+    animation: none;
+  }
+}
+.migration-save-hint {
+  padding: 0 15px 12px;
+  margin: 0;
+}
+
+/* Saved hosts and Cloud servers frame the active workspace in separate columns. */
+.gateway-cloud-sidebar {
+  overflow: hidden;
+}
+.cloud-sidebar-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 24px 16px 18px;
+}
+.cloud-sidebar-heading .page-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+}
+.cloud-sidebar-heading h2 {
+  margin: 7px 0 0;
+  color: var(--text-heading);
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+.cloud-sidebar-heading p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.cloud-sidebar-heading > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--accent);
+}
+.cloud-sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 12px;
+  padding: 28px 12px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 12px;
+}
+.cloud-sidebar-empty > svg {
+  color: var(--text-muted);
+  opacity: 0.65;
+  margin-bottom: 14px;
+}
+.cloud-sidebar-empty strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.cloud-sidebar-empty p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 8px 0 0;
+}
+.connection-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 3px 0;
+  border-radius: 10px;
+}
+.connection-row > .connection-select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding-right: 32px;
+}
+.connection-row > .pin-button {
+  position: absolute;
+  right: 5px;
+}
+.pin-button {
+  width: 25px;
+  min-width: 25px;
+  min-height: 25px;
+  padding: 0;
+  color: var(--text-muted);
+  border-color: transparent;
+  background: transparent;
+  opacity: 0.55;
+}
+.pin-button.is-pinned {
+  opacity: 1;
+  color: var(--accent);
+}
+.connection-row:hover .pin-button,
+.connection-row:focus-within .pin-button,
+.workspace-info:hover .pin-button,
+.pin-button:focus-visible {
+  opacity: 1;
+}
+.workspace-title-row > .pin-button {
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .cloud-sidebar-heading {
+    padding: 22px 12px 16px;
+  }
+  .cloud-sidebar-heading > svg {
+    display: none;
+  }
+  .cloud-sidebar-heading h2 {
+    font-size: 14px;
+  }
+  .connection-row > .connection-select {
+    padding-left: 8px;
+    gap: 6px;
+  }
+  .cloud-account {
+    margin-inline: 6px;
+    padding-inline: 2px;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .cloud-account > span {
+    min-width: 72px;
+  }
 }

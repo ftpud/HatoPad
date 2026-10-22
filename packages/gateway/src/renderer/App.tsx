@@ -1,3 +1,5 @@
+import { PinButton, pinnedFirst, cloudPinKey } from "./PinButton";
+import { WorkspaceMigration } from "./WorkspaceMigration";
 import { Select } from "./Select";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
@@ -161,7 +163,7 @@ export function App() {
         setRuntimes(result.runtimes);
         setTunnelRuntimes(result.tunnelRuntimes);
         setConnectionRuntimes(result.connectionRuntimes);
-        setSelected(result.state.connections[0]?.id);
+        setSelected(pinnedFirst(result.state.connections, (item) => item.id, result.state.pins?.connections)[0]?.id);
       })
       .catch(showError);
     if (window.gateway.cloudGet)
@@ -196,11 +198,19 @@ export function App() {
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
     };
   }, [showError]);
+  const setPinned = async (kind: "connection" | "workspace", id: string, pinned: boolean) => {
+    setState(await window.gateway.setPinned(kind, id, pinned));
+  };
   const cloudCore = cloud?.cores.find((item) => `cloud:${item.id}` === selected);
   const connection = state.connections.find((item) => item.id === selected);
   const workspaces = useMemo(
-    () => state.workspaces.filter((item) => item.connectionId === selected),
-    [state.workspaces, selected],
+    () =>
+      pinnedFirst(
+        state.workspaces.filter((item) => item.connectionId === selected),
+        (item) => item.id,
+        state.pins?.workspaces,
+      ),
+    [state.workspaces, state.pins, selected],
   );
   const connectionTunnels = useMemo(
     () => state.portTunnels.filter((item) => item.connectionId === selected),
@@ -403,55 +413,6 @@ export function App() {
             <span>Workspace launcher</span>
           </div>
         </div>
-        <div className="cloud-account">
-          <Cloud size={16} aria-hidden="true" />
-          <span title={cloud ? `${cloud.user.email} · ${cloud.origin}` : cloudUrl || "Cloud"}>
-            {cloud?.user.name ?? "Cloud"}
-          </span>
-          <div>
-            {cloud ? (
-              <>
-                <button
-                  className="icon-button"
-                  title="Cloud settings"
-                  aria-label="Cloud settings"
-                  disabled={cloudBusy || Boolean(addingToCloud)}
-                  onClick={() => setCloudDialog(true)}
-                >
-                  <Settings size={14} />
-                </button>
-                <button
-                  className="icon-button"
-                  title="Refresh cloud"
-                  aria-label="Refresh cloud"
-                  disabled={cloudBusy}
-                  onClick={() => void refreshCloud()}
-                >
-                  <RefreshCw size={14} />
-                </button>
-                <button
-                  className="icon-button"
-                  title="Disconnect cloud"
-                  aria-label="Disconnect"
-                  disabled={cloudBusy || Boolean(addingToCloud)}
-                  onClick={() => void disconnectCloud()}
-                >
-                  <LogOut size={14} />
-                </button>
-              </>
-            ) : (
-              <button
-                className="icon-button"
-                title="Connect to cloud"
-                aria-label="Connect to cloud"
-                disabled={!bridgeReady}
-                onClick={() => setCloudDialog(true)}
-              >
-                <PlugZap size={15} />
-              </button>
-            )}
-          </div>
-        </div>
         <header>
           <div>
             <Network size={17} />
@@ -475,53 +436,38 @@ export function App() {
           </button>
         </header>
         <div className="connection-list" aria-label="Connections">
-          {state.connections.map((item) => {
+          {pinnedFirst(state.connections, (item) => item.id, state.pins?.connections).map((item) => {
             const current = connectionRuntimes[item.id] ?? { status: "unknown" };
             const local = item.kind === "local";
             return (
-              <button
-                key={item.id}
-                className={item.id === selected ? "selected" : ""}
-                aria-pressed={item.id === selected}
-                aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`}
-                onClick={() => {
-                  clearError();
-                  setSelected(item.id);
-                }}
-              >
-                <div className={`status-dot connection-${current.status}`} aria-hidden="true" />
-                {local ? <HardDrive size={16} /> : <Server size={16} />}
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small>
-                </span>
-              </button>
+              <div className="connection-row" role="group" aria-label={item.name} key={item.id}>
+                <button
+                  className={`connection-select ${item.id === selected ? "selected" : ""}`}
+                  aria-pressed={item.id === selected}
+                  aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`}
+                  onClick={() => {
+                    clearError();
+                    setSelected(item.id);
+                  }}
+                >
+                  <div className={`status-dot connection-${current.status}`} aria-hidden="true" />
+                  {local ? <HardDrive size={16} /> : <Server size={16} />}
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small>
+                  </span>
+                </button>
+                <PinButton
+                  pinned={Boolean(state.pins?.connections.includes(item.id))}
+                  kind="connection"
+                  name={item.name}
+                  onToggle={(pinned) => setPinned("connection", item.id, pinned)}
+                  onFailure={showError}
+                />
+              </div>
             );
           })}
         </div>
-        {cloud && (
-          <div className="connection-list cloud-connections" aria-label="Cloud servers">
-            <strong className="cloud-list-label">Cloud servers</strong>
-            {cloud.cores.map((item) => (
-              <button
-                key={item.id}
-                className={selected === `cloud:${item.id}` ? "selected" : ""}
-                aria-pressed={selected === `cloud:${item.id}`}
-                onClick={() => {
-                  clearError();
-                  setSelected(`cloud:${item.id}`);
-                }}
-              >
-                <Server size={16} />
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>Cloud · {item.status}</small>
-                </span>
-              </button>
-            ))}
-            {!cloud.cores.length && <small>No cloud servers configured.</small>}
-          </div>
-        )}
         {distribution === "source" && (
           <div className="gateway-sidebar-footer">
             <button
@@ -553,6 +499,12 @@ export function App() {
           <CloudServerView
             key={`${cloud!.origin}/${cloudCore.id}`}
             core={cloudCore}
+            rootPins={(cloudLists[cloudCore.id]?.roots ?? [])
+              .filter((root) => state.pins?.workspaces.includes(cloudPinKey(cloud!.origin, cloudCore.id, root.id)))
+              .map((root) => root.id)}
+            onPinRoot={(root, pinned) =>
+              setPinned("workspace", cloudPinKey(cloud!.origin, cloudCore.id, root.id), pinned)
+            }
             list={cloudLists[cloudCore.id]}
             update={cloudUpdates[cloudCore.id]}
             onUpdated={(info) =>
@@ -707,6 +659,13 @@ export function App() {
                             <div className="workspace-title-row">
                               <h2>{workspace.name}</h2>
                               <div className="workspace-management">
+                                <PinButton
+                                  pinned={Boolean(state.pins?.workspaces.includes(workspace.id))}
+                                  kind="workspace"
+                                  name={workspace.name}
+                                  onToggle={(pinned) => setPinned("workspace", workspace.id, pinned)}
+                                  onFailure={showError}
+                                />
                                 <button
                                   className="icon-button"
                                   title="Edit workspace"
@@ -881,6 +840,105 @@ export function App() {
           </section>
         )}
       </main>
+      <aside className="gateway-sidebar gateway-cloud-sidebar" aria-label="Cloud servers panel">
+        <div className="cloud-sidebar-heading">
+          <div>
+            <span className="page-eyebrow">HATOPAD CLOUD</span>
+            <h2>Cloud servers</h2>
+            <p>Your servers, available anywhere.</p>
+          </div>
+          <Cloud size={22} />
+        </div>
+        <div className="cloud-account">
+          <Cloud size={16} aria-hidden="true" />
+          <span title={cloud ? `${cloud.user.email} · ${cloud.origin}` : cloudUrl || "Cloud"}>
+            {cloud?.user.name ?? "Cloud"}
+          </span>
+          <div>
+            {cloud ? (
+              <>
+                <button
+                  className="icon-button"
+                  title="Cloud settings"
+                  aria-label="Cloud settings"
+                  disabled={cloudBusy || Boolean(addingToCloud)}
+                  onClick={() => setCloudDialog(true)}
+                >
+                  <Settings size={14} />
+                </button>
+                <button
+                  className="icon-button"
+                  title="Refresh cloud"
+                  aria-label="Refresh cloud"
+                  disabled={cloudBusy}
+                  onClick={() => void refreshCloud()}
+                >
+                  <RefreshCw size={14} />
+                </button>
+                <button
+                  className="icon-button"
+                  title="Disconnect cloud"
+                  aria-label="Disconnect"
+                  disabled={cloudBusy || Boolean(addingToCloud)}
+                  onClick={() => void disconnectCloud()}
+                >
+                  <LogOut size={14} />
+                </button>
+              </>
+            ) : (
+              <button
+                className="icon-button"
+                title="Connect to cloud"
+                aria-label="Connect to cloud"
+                disabled={!bridgeReady}
+                onClick={() => setCloudDialog(true)}
+              >
+                <PlugZap size={15} />
+              </button>
+            )}
+          </div>
+        </div>
+        {cloud && (
+          <div className="connection-list cloud-connections" aria-label="Cloud servers">
+            {pinnedFirst(cloud.cores, (item) => cloudPinKey(cloud.origin, item.id), state.pins?.connections).map(
+              (item) => (
+                <div className="connection-row" role="group" aria-label={item.name} key={item.id}>
+                  <button
+                    className={`connection-select ${selected === `cloud:${item.id}` ? "selected" : ""}`}
+                    aria-pressed={selected === `cloud:${item.id}`}
+                    onClick={() => {
+                      clearError();
+                      setSelected(`cloud:${item.id}`);
+                    }}
+                  >
+                    <Server size={16} />
+                    <span>
+                      <strong>{item.name}</strong>
+                      <small>Cloud · {item.status}</small>
+                    </span>
+                  </button>
+                  <PinButton
+                    pinned={Boolean(state.pins?.connections.includes(cloudPinKey(cloud.origin, item.id)))}
+                    kind="server"
+                    name={item.name}
+                    onToggle={(pinned) => setPinned("connection", cloudPinKey(cloud.origin, item.id), pinned)}
+                    onFailure={showError}
+                  />
+                </div>
+              ),
+            )}
+            {!cloud.cores.length && <small>No cloud servers configured.</small>}
+          </div>
+        )}
+
+        {!cloud && (
+          <div className="cloud-sidebar-empty">
+            <Cloud size={30} />
+            <strong>Your cloud starts here</strong>
+            <p>Connect to cloud above to access your remote servers and workspaces.</p>
+          </div>
+        )}
+      </aside>
       {bridgeReady && cloudDialog && (
         <CloudDialog onClose={closeCloudDialog}>
           <form className="dialog" onSubmit={(event) => void connectCloud(event)}>
@@ -947,6 +1005,14 @@ export function App() {
           configuredDirectories={workspaces.map((item) => item.directory)}
           onClose={() => setWorkspaceDialog(undefined)}
           onFailure={showError}
+          onMigrate={async (destination) => {
+            const next = await window.gateway.migrateWorkspace(workspaceDialog.id!, destination);
+            setState(next);
+            const migrated = next.workspaces.find((item) => item.id === workspaceDialog.id)!;
+            setWorkspaceDialog(migrated);
+            clearError();
+            return migrated;
+          }}
           onSave={async (value) => {
             setState(await window.gateway.saveWorkspace(value));
             setWorkspaceDialog(undefined);
@@ -1086,6 +1152,8 @@ export function DiagnosticsCopyButton({
 
 function CloudServerView({
   core,
+  rootPins,
+  onPinRoot,
   list,
   update,
   cloudBusy,
@@ -1095,6 +1163,8 @@ function CloudServerView({
   ports,
 }: {
   core: GatewayCloudCore;
+  rootPins: string[];
+  onPinRoot(root: GatewayCloudRoot, pinned: boolean): Promise<void>;
   ports?: ReactNode;
   list?: CloudCoreList;
   update?: CloudCoreUpdate;
@@ -1229,12 +1299,21 @@ function CloudServerView({
           ) : roots.length === 0 ? (
             <div className="workspace-empty">No Cores available on this server.</div>
           ) : (
-            roots.map((root) => (
+            pinnedFirst(roots, (root) => root.id, rootPins).map((root) => (
               <article key={root.id}>
                 <div className="workspace-info">
                   <HardDrive size={17} />
                   <div>
-                    <h2>{root.alias}</h2>
+                    <div className="workspace-title-row">
+                      <h2>{root.alias}</h2>
+                      <PinButton
+                        pinned={rootPins.includes(root.id)}
+                        kind="workspace"
+                        name={root.alias}
+                        onToggle={(pinned) => onPinRoot(root, pinned)}
+                        onFailure={onFailure}
+                      />
+                    </div>
                     <code>{root.path}</code>
                   </div>
                   <button
@@ -1792,6 +1871,7 @@ export function WorkspaceDialog({
   onClose,
   onSave,
   onFailure,
+  onMigrate,
 }: {
   value: Partial<GatewayWorkspace>;
   connectionId: string;
@@ -1803,13 +1883,20 @@ export function WorkspaceDialog({
     value: Partial<GatewayWorkspace> & { connectionId: string; name: string; directory: string; remotePort: number },
   ): Promise<void>;
   onFailure(reason: unknown): void;
+  onMigrate?(destination: string): Promise<GatewayWorkspace>;
 }) {
   const [form, setForm] = useState(value);
+  const [migrating, setMigrating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [directories, setDirectories] = useState<string[]>([]);
+  const closeLocked = useRef(false);
+  closeLocked.current = saving || migrating;
+  const close = useCallback(() => {
+    if (!closeLocked.current) onClose();
+  }, [onClose]);
   useDialogKeyboard(
-    onClose,
+    close,
     form.id ? `Edit ${local ? "local" : "remote"} workspace` : `New ${local ? "local" : "remote"} workspace`,
   );
   const discover = useCallback(async () => {
@@ -1864,92 +1951,108 @@ export function WorkspaceDialog({
           <strong>
             {form.id ? `Edit ${local ? "local" : "remote"} workspace` : `New ${local ? "local" : "remote"} workspace`}
           </strong>
-          <button type="button" onClick={onClose} disabled={saving || discovering}>
+          <button type="button" onClick={onClose} disabled={saving || discovering || migrating}>
             <X size={15} />
           </button>
         </header>
-        {directories.length > 0 && (
+        <fieldset className="workspace-fields" disabled={saving || migrating}>
+          {directories.length > 0 && (
+            <label>
+              Discovered workspaces
+              <Select
+                aria-label="Discovered workspaces"
+                value={directories.includes(form.directory ?? "") ? form.directory : ""}
+                onValueChange={(selectedValue) => chooseDirectory(selectedValue)}
+              >
+                <option value="">Select a remote folder…</option>
+                {directories.map((directory) => (
+                  <option key={directory} value={directory}>
+                    {directory}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
           <label>
-            Discovered workspaces
-            <Select
-              aria-label="Discovered workspaces"
-              value={directories.includes(form.directory ?? "") ? form.directory : ""}
-              onValueChange={(selectedValue) => chooseDirectory(selectedValue)}
-            >
-              <option value="">Select a remote folder…</option>
-              {directories.map((directory) => (
-                <option key={directory} value={directory}>
-                  {directory}
-                </option>
-              ))}
-            </Select>
-          </label>
-        )}
-        <label>
-          Name
-          <input
-            required
-            value={form.name ?? ""}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Backend API"
-          />
-        </label>
-        <label>
-          {local ? "Local project directory" : "Remote directory"}
-          <div className={local ? "file-picker" : undefined}>
+            Name
             <input
-              aria-label={local ? "Local project directory" : "Remote directory"}
               required
-              value={form.directory ?? ""}
-              onChange={(e) => setForm({ ...form, directory: e.target.value })}
-              placeholder={local ? "/Users/me/Projects/api" : "/home/user/projects/api"}
+              value={form.name ?? ""}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Backend API"
             />
-            {local && (
-              <button type="button" aria-label="Choose local project directory" onClick={() => void browse()}>
-                Choose…
-              </button>
-            )}
-          </div>
-        </label>
-        {local && (
-          <p className="dialog-help">
-            Enter an absolute path or choose an existing project. Missing folders, including parent folders, are created
-            when you save. Empty workspace folders are initialized as Git repositories.
-          </p>
-        )}
-        {!local && (
-          <>
-            <button
-              className="discover-workspaces"
-              type="button"
-              onClick={() => void discover()}
-              disabled={saving || discovering}
-            >
-              {discovering ? "Discovering…" : directories.length ? "Discover again" : "Discover folders"}
-            </button>
+          </label>
+          <label>
+            {local ? "Local project directory" : "Remote directory"}
+            <div className={local ? "file-picker" : undefined}>
+              <input
+                aria-label={local ? "Local project directory" : "Remote directory"}
+                required
+                value={form.directory ?? ""}
+                onChange={(e) => setForm({ ...form, directory: e.target.value })}
+                placeholder={local ? "/Users/me/Projects/api" : "/home/user/projects/api"}
+              />
+              {local && (
+                <button type="button" aria-label="Choose local project directory" onClick={() => void browse()}>
+                  Choose…
+                </button>
+              )}
+            </div>
+          </label>
+          {local && (
             <p className="dialog-help">
-              Lists folders in common project locations under the remote SSH user’s home. Already configured workspaces
-              are omitted. Enter any absolute path to create a new workspace. Missing folders, including parent folders,
-              are created when you save. Empty workspace folders are initialized as Git repositories.
+              Enter an absolute path or choose an existing project. Missing folders, including parent folders, are
+              created when you save. Empty workspace folders are initialized as Git repositories.
             </p>
-          </>
-        )}
-        <label>
-          Core port
-          <input
-            required
-            type="number"
-            min="1024"
-            max="65535"
-            value={form.remotePort ?? 7331}
-            onChange={(e) => setForm({ ...form, remotePort: Number(e.target.value) })}
-          />
-        </label>
+          )}
+          {!local && (
+            <>
+              <button
+                className="discover-workspaces"
+                type="button"
+                onClick={() => void discover()}
+                disabled={saving || discovering || migrating}
+              >
+                {discovering ? "Discovering…" : directories.length ? "Discover again" : "Discover folders"}
+              </button>
+              <p className="dialog-help">
+                Lists folders in common project locations under the remote SSH user’s home. Already configured
+                workspaces are omitted. Enter any absolute path to create a new workspace. Missing folders, including
+                parent folders, are created when you save. Empty workspace folders are initialized as Git repositories.
+              </p>
+            </>
+          )}
+          <label>
+            Core port
+            <input
+              required
+              type="number"
+              min="1024"
+              max="65535"
+              value={form.remotePort ?? 7331}
+              onChange={(e) => setForm({ ...form, remotePort: Number(e.target.value) })}
+            />
+          </label>
+          {form.id && onMigrate && (
+            <WorkspaceMigration
+              workspace={value as GatewayWorkspace}
+              local={local}
+              onBusy={setMigrating}
+              disabled={
+                form.name !== value.name || form.directory !== value.directory || form.remotePort !== value.remotePort
+              }
+              onMigrate={async (destination) => {
+                const updated = await onMigrate(destination);
+                setForm(updated);
+              }}
+            />
+          )}
+        </fieldset>
         <footer>
-          <button type="button" onClick={onClose} disabled={saving || discovering}>
+          <button type="button" onClick={onClose} disabled={saving || discovering || migrating}>
             Cancel
           </button>
-          <button className="primary" disabled={saving || discovering}>
+          <button className="primary" disabled={saving || discovering || migrating}>
             {saving ? "Saving..." : "Save workspace"}
           </button>
         </footer>
