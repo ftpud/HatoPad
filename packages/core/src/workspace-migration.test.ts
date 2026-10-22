@@ -108,6 +108,34 @@ describe("offline workspace migration", () => {
     expect((await exec("git", ["-C", newTask, "status", "--porcelain"])).stdout).toContain("uncommitted.txt");
   });
 
+  it("moves bridge responses and user-owned JSON verbatim rather than parsing them as metadata", async () => {
+    const options = await fixture();
+    const state = options.stateDirectory;
+    const sourceKey = key(options.source),
+      destinationKey = key(options.destination);
+    const opaque = '{"ok":true}\n {"another":"record"}\n';
+    const relativeFiles = [
+      `${sourceKey}-responses/old-response.json`,
+      `${sourceKey}-commands/old-command.json`,
+      `${sourceKey}-events/old-event.json`,
+      `${sourceKey}-unknown-store/data.json`,
+      `skills/local/${sourceKey}/my-skill/reference.json`,
+      `useful-files/local/${sourceKey}/notes.json`,
+      `harnesses/${sourceKey}/quarantine/runs.json.broken.json`,
+    ];
+    for (const relative of relativeFiles) {
+      const file = path.join(state, relative);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, opaque);
+    }
+    await new WorkspaceStateStore(options.source, state).save({ openFiles: ["project.json"] });
+    await migrateWorkspace(options);
+    for (const relative of relativeFiles) {
+      expect(await readFile(path.join(state, relative.replace(sourceKey, destinationKey)), "utf8")).toBe(opaque);
+    }
+    expect((await new WorkspaceStateStore(options.destination, state).load()).openFiles).toEqual(["project.json"]);
+  });
+
   it("rolls back the directory and all state changes if metadata cannot be migrated", async () => {
     const options = await fixture();
     const file = path.join(options.stateDirectory, `${key(options.source)}.json`);
@@ -116,11 +144,17 @@ describe("offline workspace migration", () => {
     const badFile = path.join(options.stateDirectory, "harnesses", key(options.source), "runs.json");
     await mkdir(path.dirname(badFile), { recursive: true });
     await writeFile(badFile, "corrupt metadata");
-    await expect(migrateWorkspace(options)).rejects.toThrow("original project and state were restored");
+    const failure = await migrateWorkspace(options).catch((error: Error) => error);
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).message).toContain("original project and state were restored");
+    expect((failure as Error).message).toContain(badFile);
     expect(await readFile(file, "utf8")).toBe(original);
     expect(await readFile(badFile, "utf8")).toBe("corrupt metadata");
     await expect(access(path.join(options.source, "project.json"))).resolves.toBeUndefined();
     await expect(access(options.destination)).rejects.toThrow();
+    await json(badFile, { runs: [] });
+    await migrateWorkspace(options);
+    await expect(access(options.destination)).resolves.toBeUndefined();
   });
 
   it("rejects occupied destinations and conflicting saved state without moving files", async () => {

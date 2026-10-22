@@ -28,7 +28,7 @@ export type WorkspaceMigrationPreview = {
 class RestoredMigrationError extends Error {
   readonly restored = true;
 }
-type Move = { from: string; to: string };
+type Move = { from: string; to: string; metadata?: boolean };
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const exists = async (file: string) => {
   try {
@@ -48,6 +48,16 @@ const names = async (directory: string) => {
   }
 };
 const within = (parent: string, child: string) => child === parent || child.startsWith(parent + path.sep);
+
+function parseMetadataJson(content: string, file: string): any {
+  try {
+    return JSON.parse(content);
+  } catch {
+    throw Error(
+      `Cannot parse HatoPad metadata file ${file}. Fix its JSON or restore the file before retrying migration.`,
+    );
+  }
+}
 
 async function planMigration(options: WorkspaceMigrationOptions): Promise<{
   source: string;
@@ -107,7 +117,7 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
   const groups = options.stateDirectory || process.env.HATOPAD_STATE_DIR ? state : path.join(home, "workspace-groups");
   const groupFile = path.join(groups, `roots-${hash(source).slice(0, 20)}.json`);
   if (await exists(groupFile)) {
-    const group = JSON.parse(await readFile(groupFile, "utf8"));
+    const group = parseMetadataJson(await readFile(groupFile, "utf8"), groupFile);
     for (const root of group.roots ?? []) {
       if (typeof root.path === "string" && root.path !== source && within(source, root.path))
         paths.push({ from: root.path, to: destination + root.path.slice(source.length) });
@@ -150,6 +160,11 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
         const move = {
           from: path.join(container, name),
           to: path.join(container, hash(entry.to) + name.slice(key.length)),
+          // Bridge traffic, user files and unknown stores move verbatim, even when named .json.
+          metadata:
+            container === state
+              ? /\.json(?:\.bak)?$/.test(name) || /-(sessions|tasks|task-history)$/.test(name)
+              : container === path.join(state, "harnesses") || container === path.join(state, "mcp"),
         };
         if (await exists(move.to)) throw Error(`Saved state already exists for the destination: ${move.to}`);
         moves.push(move);
@@ -160,7 +175,7 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
   const destinationGroupFile = path.join(groups, `roots-${hash(destination).slice(0, 20)}.json`);
   if (await exists(destinationGroupFile))
     throw Error(`Saved state already exists for the destination: ${destinationGroupFile}`);
-  if (await exists(groupFile)) moves.push({ from: groupFile, to: destinationGroupFile });
+  if (await exists(groupFile)) moves.push({ from: groupFile, to: destinationGroupFile, metadata: true });
   for (const move of moves)
     if (await exists(move.to)) throw Error(`Saved state already exists for the destination: ${move.to}`);
   return {
@@ -241,12 +256,14 @@ export async function migrateWorkspace(options: WorkspaceMigrationOptions): Prom
     if (info.isSymbolicLink()) return;
     if (info.isDirectory()) {
       for (const name of await names(target)) {
-        if (["workspace", "blobs", "objects", ".git"].includes(name)) continue;
+        if (["workspace", "blobs", "objects", ".git", "quarantine"].includes(name)) continue;
         await metadata(path.join(target, name));
       }
     } else if (info.isFile() && /\.json(?:\.bak)?$/.test(target)) {
       const original = await readFile(target, "utf8");
-      const parsed = JSON.parse(original);
+      const owner = moves.find((move) => within(move.to, target));
+      const originalPath = owner ? owner.from + target.slice(owner.to.length) : target;
+      const parsed = parseMetadataJson(original, originalPath);
       const updated = rewrite(parsed);
       if (JSON.stringify(parsed) !== JSON.stringify(updated))
         await edit(target, JSON.stringify(updated, null, 2) + "\n");
@@ -280,7 +297,7 @@ export async function migrateWorkspace(options: WorkspaceMigrationOptions): Prom
         throw error;
       }
     }
-    for (const move of moves) if (!within(path.join(plan.state, "trash"), move.to)) await metadata(move.to);
+    for (const move of moves) if (move.metadata) await metadata(move.to);
     for (const root of paths.filter((entry) => within(source, entry.from))) await gitPointers(root.to);
     for (const entry of paths.filter(
       (entry) => entry.from.endsWith(path.sep + "workspace") && !within(source, entry.from),
