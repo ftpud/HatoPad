@@ -12,7 +12,8 @@ Each task has its own workspace with files, terminals, AI conversations, and not
 
 This is an actively developed experiment. Expect rough edges and breaking changes; it currently runs from source.
 
-<img width="1498" height="952" alt="Screenshot 2026-10-20 at 16 30 04" src="https://github.com/user-attachments/assets/83ddd6b8-b853-493c-9989-967fa7dc6c99" />
+<img width="1326" height="846" alt="image" src="https://github.com/user-attachments/assets/8ae4960c-25e3-47bb-bf83-32b389fea929" />
+
 
 ## First run
 
