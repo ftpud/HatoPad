@@ -160,3 +160,22 @@ describe("task timer context actions", () => {
     expect(screen.getByText("Archived")).toBeTruthy();
   });
 });
+
+it("shows a small flow indicator independently of AI activity and removes it when flows stop", () => {
+  const props = {
+    icon: null,
+    name: "Task",
+    summary: { ...summary, status: "idle" as const, waitingUntil: undefined, preview: "Latest response" },
+    selected: false,
+    disabled: false,
+    onClick: vi.fn(),
+  };
+  const { rerender } = render(<TaskRow {...props} runningFlows={1} />);
+  expect(screen.getByRole("img", { name: "Flow running" })).toBeTruthy();
+  expect(screen.getByText("Latest response")).toBeTruthy();
+  rerender(<TaskRow {...props} summary={{ ...props.summary, pendingPermission: true }} runningFlows={2} />);
+  expect(screen.getByRole("img", { name: "2 flows running" })).toBeTruthy();
+  expect(screen.getByText("Permission needed")).toBeTruthy();
+  rerender(<TaskRow {...props} runningFlows={0} />);
+  expect(screen.queryByRole("img")).toBeNull();
+});

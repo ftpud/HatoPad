@@ -1,3 +1,4 @@
+import { runningTaskFlowCount } from "../workflow-context";
 import { McpPanel } from "../McpPanel";
 import { TaskCheckpointHistory } from "../TaskCheckpointHistory";
 import { TaskRow, formatAiStatus } from "../TaskRow";
@@ -68,6 +69,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
     setTaskLifecycleFilter,
     showRootTask,
     aiStatuses,
+    harnessRuns,
     openTask,
     timerAction,
     filteredTasks,
@@ -739,6 +741,10 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                           icon={<Folder size={15} />}
                           name="Root workspace"
                           summary={aiStatuses.root}
+                          runningFlows={runningTaskFlowCount(
+                            harnessRuns,
+                            workspaceRoots.find((root) => root.id === selectedRootId)?.path,
+                          )}
                           selected={selectedTaskId === undefined}
                           disabled={taskSwitching}
                           onClick={() => openTask(undefined, aiStatuses.root.pendingPermission)}
@@ -755,6 +761,11 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                             name={task.name}
                             branch={task.branch}
                             summary={summary}
+                            runningFlows={runningTaskFlowCount(
+                              harnessRuns,
+                              workspaceRoots.find((root) => root.id === selectedRootId)?.path,
+                              task.id,
+                            )}
                             finished={task.status === "finished"}
                             archived={task.archived}
                             selected={selectedTaskId === task.id}

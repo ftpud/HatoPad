@@ -1210,3 +1210,19 @@
 .task-ai-status.waiting {
   color: var(--purple);
 }
+
+.task-flow-indicator {
+  flex: 0 0 auto;
+  color: var(--accent);
+  animation: task-flow-pulse 1.5s ease-in-out infinite;
+}
+@keyframes task-flow-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-flow-indicator {
+    animation: none;
+  }
+}
