@@ -109,7 +109,11 @@ export const EditorStatusBar = forwardRef<EditorStatusBarHandle, { active: boole
       <button
         type="button"
         title="Go to Line (Ctrl+G)"
-        onClick={() => editorRef.current?.trigger("editor-status-bar", "editor.action.gotoLine", null)}
+        onClick={() => {
+          // Monaco's quick input needs a focused editor.
+          editorRef.current?.focus();
+          editorRef.current?.trigger("editor-status-bar", "editor.action.gotoLine", null);
+        }}
       >
         Ln {status.line}, Col {status.column}
       </button>
