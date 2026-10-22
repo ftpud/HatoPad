@@ -1,6 +1,7 @@
 import type { HttpResponse, LanguageDebugState, JavaDebugState, GitStatusEntry } from "@hatopad/protocol";
 import { selectedLineRange, gitHunkDecorations, ParsedHttpRequest, parseHttpRequests } from "./editor-helpers";
 import { type Monaco } from "@monaco-editor/react";
+import { useRef } from "react";
 import type { FileTreeNode, GitDiffHunk, RootedJavaLspLocation, SearchResult } from "@hatopad/protocol";
 import type { editor } from "monaco-editor";
 import { CoreClient } from "./client";
@@ -102,6 +103,9 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
     refreshGit,
     refreshTree,
   } = deps;
+  // Editor mouse handlers outlive renders; they must see Git entries that appear after the editor mounted.
+  const gitEntriesRef = useRef(gitEntries);
+  gitEntriesRef.current = gitEntries;
 
   const navigateHistory = async (direction: "back" | "forward") => {
     const location = direction === "back" ? navigationHistory.current.back() : navigationHistory.current.forward();
@@ -114,10 +118,13 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
   const runHttpRequest = async (request: ParsedHttpRequest) => {
     if (!clientRef.current) return;
     setHttpResult({ request, loading: true });
+    // A late completion only updates the panel while this request is still the open, current one.
+    const settle = (result: { response?: HttpResponse; error?: string }) =>
+      setHttpResult((current) => (current?.request === request ? { request, ...result, loading: false } : current));
     try {
-      setHttpResult({ request, response: await clientRef.current.request("http.execute", request), loading: false });
+      settle({ response: await clientRef.current.request("http.execute", request) });
     } catch (error) {
-      setHttpResult({ request, error: error instanceof Error ? error.message : "HTTP request failed", loading: false });
+      settle({ error: error instanceof Error ? error.message : "HTTP request failed" });
     }
   };
 
@@ -188,7 +195,7 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
                   line <= Math.max(1, item.modifiedStart) + Math.max(1, item.modifiedLines) - 1,
               )
             : undefined;
-          const entry = gitEntries.find((item) => item.path === filePath);
+          const entry = gitEntriesRef.current.find((item) => item.path === filePath);
           if (!hunk || !entry) return;
           void openGitHunkDialog(filePath, hunk, event.event.posx, event.event.posy);
         }),

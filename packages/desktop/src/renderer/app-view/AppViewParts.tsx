@@ -2,7 +2,7 @@ import { SidebarExtentButton } from "../SidebarExtentButton";
 
 import { openWorkflowEditor } from "../workflow-tabs";
 
-import { Bookmark, GraduationCap, Bot } from "lucide-react";
+import { Bookmark, GraduationCap, Bot, Plug } from "lucide-react";
 import type { HarnessDefinition } from "@hatopad/protocol";
 import { workflowRunsForContext } from "../workflow-context";
 
@@ -22,6 +22,8 @@ import type { AppViewModel } from "../use-app-orchestration";
 
 export function createAppViewParts(model: AppViewModel) {
   const {
+    mcpServers,
+    refreshMcps,
     harnessRuns,
     workspaceRoots,
     selectedRootId,
@@ -459,6 +461,7 @@ export function createAppViewParts(model: AppViewModel) {
   const workflowDesignPanel = (
     <HarnessPanel
       onOpenWorkflow={openWorkflowTab}
+      mcpServers={mcpServers}
       skillCatalog={skillCatalog}
       onRefreshSkills={refreshSkills}
       designOnly
@@ -682,6 +685,17 @@ export function createAppViewParts(model: AppViewModel) {
         >
           <Bookmark size={15} />
           <span>Useful</span>
+        </button>
+        <button
+          className={`tool-stripe-button right ${rightPanels.mcp ? "active" : ""}`}
+          title={rightPanels.mcp ? "Hide MCP servers" : "Show MCP servers"}
+          onClick={() => {
+            setRightPanels((current) => ({ ...current, mcp: !current.mcp }));
+            void refreshMcps();
+          }}
+        >
+          <Plug size={15} />
+          <span>MCP</span>
         </button>
         <button
           className={`tool-stripe-button right ${rightPanels.agents ? "active" : ""}`}

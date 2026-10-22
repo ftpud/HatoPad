@@ -44,6 +44,18 @@ On macOS, you can try it locally instead: choose **This Mac**, select a local pr
 
 To use AI agents, authenticate your chosen provider on the machine running the workspace. See [AI provider setup](docs/TECHNICAL_GUIDE.md#optional-capabilities).
 
+## Security
+
+By default, Core opens only an internal port on `127.0.0.1` (loopback), which is reachable only from the machine running it. It does not open a public port or provide direct access from the internet.
+
+```text
+Your computer                     Remote machine
+HatoPad → local tunnel → SSH → 127.0.0.1:internal-port → Core
+                         encrypted connection
+```
+
+Gateway sets up the tunnel using SSH: SSH encrypts the traffic and checks your login, and Gateway checks the server fingerprint you have trusted. Core also requires a private session token. Files and commands stay under your operating-system user's permissions. Remote access therefore uses the machine's existing SSH access and user permissions. See [deployment security details](docs/RELEASE_OPERATIONS.md#core-session-credentials-and-origins).
+
 ## More
 
 - [Technical guide](docs/TECHNICAL_GUIDE.md): detailed setup, troubleshooting, development commands, architecture, and security.

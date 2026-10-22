@@ -32,6 +32,52 @@ function renderEditor(ui: Parameters<typeof render>[0]) {
 }
 
 describe("HarnessPanel", () => {
+  it("configures an MCP block with a library server and named connection", async () => {
+    const harness: HarnessDefinition = {
+      id: "mcp",
+      name: "MCP",
+      version: 1,
+      createdAt: "now",
+      updatedAt: "now",
+      blocks: [],
+      edges: [],
+    };
+    const onSave = vi.fn(async (definition: HarnessDefinition) => definition);
+    renderEditor(
+      <HarnessPanel
+        harnesses={[harness]}
+        runs={[]}
+        providers={[]}
+        agents={[]}
+        mcpServers={[
+          {
+            id: "github",
+            name: "GitHub",
+            url: "https://example.test/mcp",
+            defaultConnectionId: "bot",
+            connections: [{ id: "bot", name: "Bot", hasCredentials: true }],
+          },
+        ]}
+        onCreate={vi.fn()}
+        onSave={onSave}
+        onDelete={vi.fn()}
+        onRun={vi.fn()}
+        onCancelRun={vi.fn()}
+        onError={vi.fn()}
+      />,
+    );
+    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "mcp" } });
+    fireEvent.change(screen.getByLabelText("Workflow MCP server"), { target: { value: "github" } });
+    expect(screen.getByLabelText("Workflow MCP connection")).toHaveProperty("value", "");
+    fireEvent.change(screen.getByLabelText("Workflow MCP connection"), { target: { value: "bot" } });
+    fireEvent.click(screen.getByTitle("Save workflow"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
+    expect(onSave.mock.calls[0]![0].blocks[0]).toMatchObject({
+      type: "mcp",
+      mcp: { serverId: "github", connectionId: "bot" },
+    });
+  });
+
   it.each(["ai", "chatbox"] as const)(
     "exposes reasoning in %s block configuration and saves explicit or default effort",
     async (type) => {
@@ -886,6 +932,28 @@ describe("HarnessPanel", () => {
     expect(canvas.scrollLeft).toBe(250);
   });
 
+  it("undoes a whole block drag in one step and ignores Ctrl-dragging a selected block", () => {
+    const { canvas } = renderZoomHarness();
+    const block = screen.getByLabelText("First response preview").closest<HTMLElement>(".harness-block")!;
+    block.setPointerCapture = vi.fn();
+    const before = { left: block.style.left, top: block.style.top };
+    fireEvent.pointerDown(block, { button: 0, pointerId: 3, clientX: 300, clientY: 200 });
+    fireEvent.pointerMove(canvas, { pointerId: 3, clientX: 320, clientY: 210 });
+    fireEvent.pointerMove(canvas, { pointerId: 3, clientX: 380, clientY: 250 });
+    fireEvent.pointerUp(canvas, { pointerId: 3 });
+    expect(block.style.left).not.toBe(before.left);
+    fireEvent.click(screen.getByRole("button", { name: "Undo workflow edit" }));
+    expect(block.style.left).toBe(before.left);
+    expect(block.style.top).toBe(before.top);
+
+    const moved = { left: block.style.left, top: block.style.top };
+    fireEvent.pointerDown(block, { button: 0, pointerId: 4, clientX: 300, clientY: 200, ctrlKey: true });
+    fireEvent.pointerMove(canvas, { pointerId: 4, clientX: 340, clientY: 240 });
+    fireEvent.pointerUp(canvas, { pointerId: 4 });
+    expect(block.style.left).toBe(moved.left);
+    expect(block.style.top).toBe(moved.top);
+  });
+
   it.each(["pointerCancel", "lostPointerCapture", "blur"])("ends canvas panning on %s", (eventName) => {
     const { canvas } = renderZoomHarness();
     canvas.setPointerCapture = vi.fn();
@@ -1524,7 +1592,7 @@ describe("HarnessPanel", () => {
     );
   });
 
-  it("selects and deletes an individual connection", async () => {
+  it.each(["click", "Enter", " "])("selects and deletes an individual connection with %j", async (activation) => {
     const harness: HarnessDefinition = {
       id: "harness-1",
       name: "Flow",
@@ -1553,7 +1621,9 @@ describe("HarnessPanel", () => {
       />,
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Select connection: Plan then Build" }));
+    const connection = await screen.findByRole("button", { name: "Select connection: Plan then Build" });
+    if (activation === "click") fireEvent.click(connection);
+    else fireEvent.keyDown(connection, { key: activation });
     expect(screen.getByRole("region", { name: "Connection settings" }).textContent).toContain("Plan → Build");
     fireEvent.keyDown(window, { key: "Delete" });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));

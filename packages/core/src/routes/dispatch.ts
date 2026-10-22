@@ -1,3 +1,4 @@
+import { handleMcpRequest } from "./mcp.js";
 import { type Request } from "@hatopad/protocol";
 import { CoreError } from "../errors.js";
 import { TerminalSessionHost } from "../process-manager.js";
@@ -153,6 +154,16 @@ export async function handleRequest(
     case "timers.fire":
     case "timers.cancelAll":
       return handleTimersRequest(context, request);
+    case "mcp.list":
+    case "mcp.save":
+    case "mcp.delete":
+    case "mcp.oauth.start":
+    case "mcp.oauth.finish":
+    case "mcp.oauth.cancel":
+    case "mcp.oauth.disconnect":
+    case "mcp.actions":
+    case "ai.mcp":
+      return handleMcpRequest(context, request);
     case "skills.list":
     case "skills.read":
     case "skills.write":

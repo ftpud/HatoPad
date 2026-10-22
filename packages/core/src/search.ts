@@ -61,9 +61,11 @@ export class WorkspaceSearch {
       let fileMatched = false;
       for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
         const line = lines[lineIndex]!;
-        const haystack = matchCase ? line : line.toLocaleLowerCase();
-        let column = haystack.indexOf(needle);
-        while (column >= 0) {
+        const folded = matchCase ? undefined : foldCase(line);
+        const haystack = folded ? folded.lower : line;
+        let index = haystack.indexOf(needle);
+        while (index >= 0) {
+          const column = folded ? folded.starts[index]! : index;
           const preview = line.trim();
           matches.push({
             path: relativePath,
@@ -78,7 +80,7 @@ export class WorkspaceSearch {
             fileMatched = true;
             break;
           }
-          column = haystack.indexOf(needle, column + needle.length);
+          index = haystack.indexOf(needle, index + needle.length);
         }
         if (fileMatched) break;
       }
@@ -106,7 +108,8 @@ export class WorkspaceSearch {
       const occurrences = matches.map((match) => {
         const before = lines[match.line - 1] ?? "";
         const start = match.column - 1;
-        const after = `${before.slice(0, start)}${replacement}${before.slice(start + query.length)}`;
+        const end = matchCase ? start + query.length : originalEnd(before, start, query);
+        const after = `${before.slice(0, start)}${replacement}${before.slice(end)}`;
         return {
           line: match.line,
           column: match.column,
@@ -116,7 +119,7 @@ export class WorkspaceSearch {
       });
       const content = matchCase
         ? file.content.split(query).join(replacement)
-        : replaceInsensitive(file.content, query.toLocaleLowerCase(), query.length, replacement);
+        : replaceInsensitive(file.content, query.toLocaleLowerCase(), replacement);
       files.push({ path: filePath, revision: file.revision, occurrences });
       stored.push({ path: filePath, revision: file.revision, content });
     }
@@ -212,15 +215,38 @@ export class WorkspaceSearch {
     return files;
   }
 }
-function replaceInsensitive(content: string, needle: string, length: number, replacement: string): string {
-  const lower = content.toLocaleLowerCase();
+/** Lower-cases per code point, keeping each lowered UTF-16 unit mapped to its original offsets. */
+function foldCase(text: string): { lower: string; starts: number[]; ends: number[] } {
+  let lower = "";
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (let offset = 0; offset < text.length;) {
+    const point = String.fromCodePoint(text.codePointAt(offset)!);
+    const folded = point.toLocaleLowerCase();
+    for (let unit = 0; unit < folded.length; unit += 1) {
+      starts.push(offset);
+      ends.push(offset + point.length);
+    }
+    lower += folded;
+    offset += point.length;
+  }
+  return { lower, starts, ends };
+}
+function originalEnd(text: string, start: number, query: string): number {
+  const folded = foldCase(text);
+  const index = folded.starts.indexOf(start);
+  const last = index + query.toLocaleLowerCase().length - 1;
+  return index >= 0 && last < folded.ends.length ? folded.ends[last]! : start + query.length;
+}
+function replaceInsensitive(content: string, needle: string, replacement: string): string {
+  const folded = foldCase(content);
   let output = "";
   let cursor = 0;
-  let found = lower.indexOf(needle);
+  let found = folded.lower.indexOf(needle);
   while (found >= 0) {
-    output += content.slice(cursor, found) + replacement;
-    cursor = found + length;
-    found = lower.indexOf(needle, cursor);
+    output += content.slice(cursor, folded.starts[found]!) + replacement;
+    cursor = folded.ends[found + needle.length - 1]!;
+    found = folded.lower.indexOf(needle, found + needle.length);
   }
   return output + content.slice(cursor);
 }

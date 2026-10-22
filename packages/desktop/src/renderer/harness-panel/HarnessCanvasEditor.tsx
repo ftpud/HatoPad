@@ -312,6 +312,16 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
                                   }
                                 : undefined
                             }
+                            onKeyDown={
+                              mode === "edit"
+                                ? (event) =>
+                                    keyboardActivate(event, () => {
+                                      setSelectedEdgeId(edge.id);
+                                      setSelectedBlockId(undefined);
+                                      setSelectedBlockIds([]);
+                                    })
+                                : undefined
+                            }
                           >
                             <title>{title}</title>
                           </path>

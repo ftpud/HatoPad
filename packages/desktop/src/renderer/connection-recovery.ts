@@ -106,8 +106,21 @@ export async function reconnectWorkspace(
   const roots = await client.request("workspace.roots", {});
   check();
   if (roots.selectedRootId !== expected.rootId) throw new Error("Saved workspace root is unavailable");
-  const workspace = await client.request("workspace.open", { includeIgnored });
+  let workspace = await client.request("workspace.open", { includeIgnored });
   check();
+  if (workspace.workspace !== expected.workspace) {
+    // A new socket starts from the durable default task, which another window may have changed.
+    // Restore this window's own selection instead of adopting that default.
+    const known = await client.request("tasks.list", {});
+    check();
+    if (expected.taskId && !known.tasks.some((task) => task.id === expected.taskId))
+      throw new Error(`Saved task selection is unavailable: ${expected.taskId}`);
+    workspace = await client.request("tasks.switch", {
+      ...(expected.taskId ? { taskId: expected.taskId } : {}),
+      includeIgnored,
+    });
+    check();
+  }
   if (workspace.workspace !== expected.workspace)
     throw new Error(`Saved workspace is unavailable: expected ${expected.workspace}, received ${workspace.workspace}`);
   const tasks = await client.request("tasks.list", {});

@@ -1,3 +1,5 @@
+import { useMcpLibrary } from "./use-mcp-library";
+import type { McpSelection } from "@hatopad/protocol";
 import { usePanelActions } from "./use-panel-actions";
 import { useProjectFileActions } from "./use-project-file-actions";
 import { useTerminalActions } from "./use-terminal-actions";
@@ -560,6 +562,8 @@ export function useAppOrchestration() {
     [],
   );
   const clientRef = useRef<CoreClient>();
+  const { mcpServers, setMcpServers, refreshMcps, mcpActions, mcpLibraryAvailable, mcpUnavailableReason } =
+    useMcpLibrary(clientRef);
   useEffect(() => startPresenceReporting(() => clientRef.current), []);
   const recoveryRef = useRef<ConnectionRecovery>();
   const invalidationRefreshes = useRef<InvalidationRefreshes>();
@@ -1043,6 +1047,22 @@ export function useAppOrchestration() {
     },
     [agents, selectedAgentKey, aiSession.id, aiToken, applyAiSession],
   );
+  const selectMcps = useCallback(
+    async (selections: McpSelection[], editorEnabled: boolean) => {
+      const client = clientRef.current;
+      if (!client || !aiSession.id) return;
+      const token = aiToken();
+      if (!client.supports("mcp.library")) throw new Error("Update Core to use chat MCP controls.");
+      const { session } = await client.request("ai.mcp", {
+        provider: token.provider,
+        sessionId: aiSession.id,
+        selections,
+        editorEnabled,
+      });
+      applyAiSession(session, token);
+    },
+    [aiSession.id, aiToken, applyAiSession],
+  );
   const skillActions: SkillsActions = {
     movePolicyToLocal: async () => {
       if (!clientRef.current) throw new Error("Backend is disconnected");
@@ -1358,6 +1378,7 @@ export function useAppOrchestration() {
     setUsefulFiles([]);
     setRunConfigs([]);
     setSkillCatalog({ skills: [], policy: { allowed: [], defaults: [] } });
+    setMcpServers([]);
     setAiStatuses({ root: emptyAiSummary, tasks: {} });
     setActiveTimers([]);
     setSchedules([]);
@@ -1426,7 +1447,11 @@ export function useAppOrchestration() {
         recoverySelection = undefined;
         showStatus("Backend connection restored", "success");
         startBackgroundLoading(
-          [() => refreshAiSessions(client, stillCurrent), () => refreshHarnessRuns(client, stillCurrent)],
+          [
+            () => refreshAiSessions(client, stillCurrent),
+            () => refreshHarnessRuns(client, stillCurrent),
+            () => refreshMcps(client, stillCurrent),
+          ],
           stillCurrent,
           () => showStatus("Session history could not load. Refresh the panel to retry.", "error"),
         );
@@ -1477,6 +1502,7 @@ export function useAppOrchestration() {
       },
       {
         configuration: [
+          (canApply) => refreshMcps(client, canApply),
           (canApply) => refreshAgents(client, selectedTaskIdRef.current, canApply),
           (canApply) => refreshUsefulFiles(client, canApply),
           (canApply) => refreshHarnesses(client, canApply),
@@ -1746,9 +1772,25 @@ export function useAppOrchestration() {
               }));
               continue;
             }
-            if ((selfWriteUntil.current.get(openTab.path) ?? 0) > Date.now()) continue;
+            const selfWriteEnds = selfWriteUntil.current.get(openTab.path) ?? 0;
+            if (selfWriteEnds > Date.now()) {
+              // An external write inside the self-write window must still be reconciled once it closes.
+              setTimeout(
+                () => {
+                  if (clientRef.current === client)
+                    client.onServerEvent?.({
+                      ...event,
+                      payload: { ...event.payload, paths: [openTab.path], overflow: false },
+                    });
+                },
+                selfWriteEnds - Date.now() + 50,
+              );
+              continue;
+            }
             try {
               const result = await client.request("filesystem.readFile", { path: openTab.path });
+              const latest = layoutRef.current.editorGroups[0]?.tabs.find((tab) => tab.id === openTab.id);
+              if (latest?.revision && JSON.stringify(latest.revision) === JSON.stringify(result.revision)) continue;
               if (openTab.dirty)
                 setExternalConflict({
                   tabId: openTab.id,
@@ -1950,6 +1992,7 @@ export function useAppOrchestration() {
               }),
             () => refreshAiSessions(client, canApply),
             () => refreshAiStatuses(client, canApply),
+            () => refreshMcps(client, canApply),
             () => refreshUsefulFiles(client, canApply),
             () => refreshRunConfigs(client, canApply),
             () => refreshAgents(client, taskResult.selectedTaskId, canApply),
@@ -2178,6 +2221,8 @@ export function useAppOrchestration() {
     refreshAgents,
     scheduleJavaCheck,
     layout,
+    selectedRootIdRef,
+    selectedTaskIdRef,
   });
   const {
     switchAiProvider,
@@ -2744,6 +2789,7 @@ export function useAppOrchestration() {
     rightPanels.useful ||
     rightPanels.agents ||
     rightPanels.skills ||
+    rightPanels.mcp ||
     ((rightPanels.taskGit || rightPanels.promptHistory) && Boolean(selectedTaskId)) ||
     (rightPanels.java && Boolean(javaOptions));
   useEffect(() => {
@@ -3068,6 +3114,12 @@ export function useAppOrchestration() {
   });
 
   return {
+    mcpLibraryAvailable,
+    mcpUnavailableReason,
+    mcpServers,
+    refreshMcps,
+    mcpActions,
+    selectMcps,
     harnessRuns,
     workspaceRoots,
     selectedRootId,

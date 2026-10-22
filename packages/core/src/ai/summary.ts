@@ -1,4 +1,4 @@
-import type { AiSession, AiStatus } from "@hatopad/protocol";
+import type { AiMessage, AiSession, AiStatus } from "@hatopad/protocol";
 
 export function summarizeAiSessions(sessions: AiSession[]): {
   status: AiStatus;
@@ -9,9 +9,17 @@ export function summarizeAiSessions(sessions: AiSession[]): {
   const latest = [...sessions].sort((left, right) => lastTimestamp(right).localeCompare(lastTimestamp(left)))[0];
   const session = active ?? latest;
   if (!session) return { status: "idle", preview: "", pendingPermission: false };
+  const messages = sessions.flatMap((item) => item.messages);
+  const latestMessage = (candidates: AiMessage[]) =>
+    candidates.reduce<AiMessage | undefined>(
+      (latest, message) =>
+        !latest || Date.parse(message.timestamp) >= Date.parse(latest.timestamp) ? message : latest,
+      undefined,
+    );
   const message =
-    [...session.messages].reverse().find((item) => item.role === "assistant" || item.role === "activity") ??
-    session.messages.at(-1);
+    latestMessage(messages.filter((item) => item.role === "assistant" && item.text.trim())) ??
+    latestMessage(messages.filter((item) => item.role === "activity" && item.text.trim())) ??
+    latestMessage(messages);
   return {
     status: session.status,
     preview: message?.text.replace(/\s+/g, " ").trim().slice(0, 180) ?? "",

@@ -28,6 +28,9 @@ export class SshTunnel {
   private stopped = true;
   private attempt = 0;
   private boundPort = 0;
+  private startRun = 0;
+  /** Destroys one forwarded connection (its local socket and SSH channel). */
+  private readonly connections = new Set<() => void>();
 
   constructor(private readonly options: SshTunnelOptions) {
     this.reconnectDelayMs = options.reconnectDelayMs ?? 1_000;
@@ -39,8 +42,12 @@ export class SshTunnel {
 
   async start(): Promise<number> {
     this.stopped = false;
+    const run = ++this.startRun;
+    const cancelled = () => this.stopped || run !== this.startRun;
     this.options.onStatus?.("connecting", this.options.localPort);
     await this.connectTransport(true);
+    // stop() (or a newer start) during SSH setup must not leave a listener behind.
+    if (cancelled()) throw new Error("Tunnel startup was cancelled");
 
     const server = createServer((socket) => this.forward(socket));
     this.server = server;
@@ -67,6 +74,10 @@ export class SshTunnel {
       this.stop();
       throw error;
     }
+    if (cancelled()) {
+      server.close();
+      throw new Error("Tunnel startup was cancelled");
+    }
 
     const address = server.address();
     if (!address || typeof address === "string") {
@@ -85,6 +96,7 @@ export class SshTunnel {
     const previous = this.ssh;
     this.ssh = undefined;
     this.attempt += 1;
+    this.closeConnections();
     previous?.end();
     this.options.onStatus?.("reconnecting", this.boundPort || this.options.localPort);
     void this.connectTransport(false);
@@ -94,7 +106,9 @@ export class SshTunnel {
     if (this.stopped) return;
     this.stopped = true;
     this.attempt += 1;
+    this.startRun += 1;
     this.clearReconnectTimer();
+    this.closeConnections();
     const server = this.server;
     const ssh = this.ssh;
     this.server = undefined;
@@ -128,6 +142,7 @@ export class SshTunnel {
   private transportFailed(ssh: Client, reason?: unknown): void {
     if (this.stopped || this.ssh !== ssh) return;
     this.ssh = undefined;
+    this.closeConnections();
     ssh.end();
     this.options.onStatus?.(
       "reconnecting",
@@ -151,27 +166,43 @@ export class SshTunnel {
     this.reconnectTimer = undefined;
   }
 
+  private closeConnections(): void {
+    for (const close of [...this.connections]) close();
+    this.connections.clear();
+  }
+
   private forward(socket: Socket): void {
     const ssh = this.ssh;
     if (!ssh) {
       socket.destroy();
       return;
     }
-    socket.on("error", () => socket.destroy());
-    ssh.forwardOut("127.0.0.1", socket.remotePort ?? 0, "127.0.0.1", this.options.remotePort, (error, stream) => {
+    let stream: ClientChannel | undefined;
+    let closed = false;
+    const close = () => {
+      if (closed) return;
+      closed = true;
+      this.connections.delete(close);
+      socket.destroy();
+      stream?.destroy();
+    };
+    this.connections.add(close);
+    socket.on("error", close);
+    socket.on("close", close);
+    ssh.forwardOut("127.0.0.1", socket.remotePort ?? 0, "127.0.0.1", this.options.remotePort, (error, channel) => {
       if (error) {
-        socket.destroy();
+        close();
         return;
       }
-      this.pipe(socket, stream);
+      stream = channel;
+      if (closed) {
+        channel.destroy();
+        return;
+      }
+      // A channel destroyed without end or error would otherwise leave the local socket hanging.
+      channel.on("error", close);
+      channel.on("close", close);
+      socket.pipe(channel).pipe(socket);
     });
-  }
-
-  private pipe(socket: Socket, stream: ClientChannel): void {
-    const closeSocket = () => socket.destroy();
-    const closeStream = () => stream.destroy();
-    socket.on("error", closeStream);
-    stream.on("error", closeSocket);
-    socket.pipe(stream).pipe(socket);
   }
 }

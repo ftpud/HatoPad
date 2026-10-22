@@ -127,6 +127,8 @@ export type AiSession = {
   availableCommands?: AiCommand[];
   pendingPermission?: AiPermissionRequest;
   pendingQuestion?: AiQuestionRequest;
+  mcpSelections?: { serverId: string; connectionId?: string }[];
+  editorMcpEnabled?: boolean;
   skillIds?: string[];
   /** Whether prior turns received HatoPad skill instructions. */ skillContext?: boolean;
   /** Catalogue already delivered to this provider conversation. */ skillCatalogue?: AiSkillCatalogue;
@@ -322,6 +324,14 @@ export abstract class AcpProvider {
     _agentPreset?: AiAgentPreset | null,
   ): Promise<AiSession> {
     throw new Error("This provider does not support skills");
+  }
+  async setMcp(
+    _workspace: string,
+    _selections: NonNullable<AiSession["mcpSelections"]>,
+    _editorEnabled: boolean,
+    _sessionId: string,
+  ): Promise<AiSession> {
+    throw new Error("This provider does not support MCP selection");
   }
   abstract send(workspace: string, request: AcpSendRequest): Promise<AiSession>;
   abstract interrupt(workspace: string): Promise<AiSession>;

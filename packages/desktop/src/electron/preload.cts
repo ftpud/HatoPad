@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld("desktop", {
     type: "file" | "useful";
     path: string;
     scope?: "global" | "local";
+    rootId?: string;
+    taskId?: string;
   }): void {
     ipcRenderer.send("editor:open-window", options);
   },
@@ -35,6 +37,15 @@ contextBridge.exposeInMainWorld("desktop", {
   },
   writeClipboard(text: string): Promise<void> {
     return ipcRenderer.invoke("desktop:clipboard-write", text);
+  },
+  mcpOAuthPrepare(port?: number): Promise<{ id: string; redirectUri: string }> {
+    return ipcRenderer.invoke("mcp-oauth:prepare", port);
+  },
+  mcpOAuthWait(id: string, state: string): Promise<string> {
+    return ipcRenderer.invoke("mcp-oauth:wait", id, state);
+  },
+  mcpOAuthCancel(id: string): Promise<void> {
+    return ipcRenderer.invoke("mcp-oauth:cancel", id);
   },
   openExternal(url: string): Promise<void> {
     return ipcRenderer.invoke("desktop:open-external", url);

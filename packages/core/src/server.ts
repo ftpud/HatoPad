@@ -1,3 +1,5 @@
+import { closeMcpConnections } from "./mcp-client.js";
+import { McpLibrary, executeWorkflowMcp } from "./mcp-library.js";
 import { handleRequest } from "./routes/dispatch.js";
 import type { SessionServices } from "./routes/context.js";
 import {
@@ -980,6 +982,7 @@ export async function createServer(
         const workspace = (
           await resolveWorkflowBinding(run, undefined, { tasks, rootWorkspace, workspacePath: rootWorkspace })
         ).workspace;
+        if (block.type === "mcp") return executeWorkflowMcp(block, prompt, rootWorkspace, runtime.assertActive);
         if (block.type === "skill" && block.skillId)
           return executeWorkflowSkill(block, new SkillsStore(undefined, rootWorkspace), workspace, runtime);
         if (block.type === "script")
@@ -1336,6 +1339,20 @@ export async function createServer(
           command.name,
           command.args,
         );
+      if (["mcp_library_actions", "mcp_library_call"].includes(command.name)) {
+        const library = new McpLibrary(root.path);
+        const selection = {
+          serverId: String(command.args.serverId ?? ""),
+          ...(typeof command.args.connectionId === "string" ? { connectionId: command.args.connectionId } : {}),
+        };
+        await library.validateSelections([selection]);
+        if (command.name === "mcp_library_actions") return { tools: await library.actions(selection) };
+        return library.call(
+          selection,
+          String(command.args.name ?? ""),
+          command.args.arguments as Record<string, unknown>,
+        );
+      }
       const workflow =
         command.workflowRunId && command.workflowBlockId
           ? {
@@ -1587,6 +1604,7 @@ export async function createServer(
             ...sessionCleanups,
             cleanupServices(),
             flushWorkspaceStateWrites(),
+            closeMcpConnections(),
             ...[...harnessRunners.values()].map((runner) => runner.drain()),
           ]);
           const failures = [...suspended, ...providerResults, ...cleanupResults].filter(

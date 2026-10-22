@@ -34,6 +34,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
     blockModels,
     selectedBlockModel,
     agents,
+    mcpServers,
     skillCatalog,
     onRefreshSkills,
     onError,
@@ -96,7 +97,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                 updateBlock({
                   type: event.target.value as HarnessBlock["type"],
                   seconds: 60,
-                  ...(["terminal_control", "meeting"].includes(event.target.value)
+                  ...(["mcp", "terminal_control", "meeting"].includes(event.target.value)
                     ? { prompt: "", agent: undefined }
                     : {}),
                   ...(event.target.value === "task_controls" ? { agent: undefined, prompt: "" } : {}),
@@ -109,6 +110,7 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
                   review: undefined,
                   verification: undefined,
                   ...(event.target.value !== "skill" ? { skillId: undefined } : {}),
+                  ...(event.target.value !== "mcp" ? { mcp: undefined } : {}),
                 })
               }
             >
@@ -196,6 +198,59 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
               unpushed commit). Commit-message actions take a task_id and message. Prompts use the provider, model, and
               reasoning above. Direct runs accept a JSON object, for example {'{"action":"status"}'}.
             </small>
+          )}
+          {block.type === "mcp" && (
+            <>
+              <label>
+                MCP server
+                <select
+                  aria-label="Workflow MCP server"
+                  value={block.mcp?.serverId ?? ""}
+                  onChange={(event) =>
+                    updateBlock({ mcp: event.target.value ? { serverId: event.target.value } : undefined })
+                  }
+                >
+                  <option value="">Choose a server</option>
+                  {block.mcp && !mcpServers.some((server) => server.id === block.mcp?.serverId) && (
+                    <option value={block.mcp.serverId}>Unavailable server</option>
+                  )}
+                  {mcpServers.map((server) => (
+                    <option key={server.id} value={server.id}>
+                      {server.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Connection
+                <select
+                  aria-label="Workflow MCP connection"
+                  value={block.mcp?.connectionId ?? ""}
+                  disabled={!block.mcp}
+                  onChange={(event) =>
+                    updateBlock({
+                      mcp: {
+                        serverId: block.mcp!.serverId,
+                        ...(event.target.value ? { connectionId: event.target.value } : {}),
+                      },
+                    })
+                  }
+                >
+                  <option value="">Default connection</option>
+                  {mcpServers
+                    .find((server) => server.id === block.mcp?.serverId)
+                    ?.connections.map((connection) => (
+                      <option key={connection.id} value={connection.id}>
+                        {connection.name}
+                      </option>
+                    ))}
+                </select>
+              </label>
+              <p>
+                Connect an AI Agent or Chatbox to this block with a Use connection. It can discover and call this
+                server’s actions.
+              </p>
+            </>
           )}
           {block.type === "skill" && (
             <>
@@ -422,9 +477,16 @@ export function HarnessInspector({ context }: { context: HarnessViewContext }) {
             </>
           )}
           {!(block.type === "skill" && block.skillId) &&
-            !["task_controls", "terminal_control", "meeting", "timer", "script", "run_app", "start_input"].includes(
-              block.type,
-            ) && (
+            ![
+              "mcp",
+              "task_controls",
+              "terminal_control",
+              "meeting",
+              "timer",
+              "script",
+              "run_app",
+              "start_input",
+            ].includes(block.type) && (
               <label>
                 {block.type === "markdown"
                   ? "Markdown (blank uses input)"

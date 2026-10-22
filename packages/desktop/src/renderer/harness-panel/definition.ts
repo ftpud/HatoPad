@@ -74,6 +74,8 @@ export function availabilityIssues(
 }
 
 export function executionBehavior(block: HarnessBlock, edges: HarnessDefinition["edges"]): string {
+  if (block.type === "mcp")
+    return 'Connected agents discover tools with input {"action":"list"} and invoke them with {"action":"call","name":"tool","arguments":{}}. Calls use the selected connection and pulse the Use connection.';
   if (block.type === "meeting")
     return "Connect agents and chatboxes with Use to share a discussion. Publish adds an attributed message; tail reads recent messages; diff reads messages since each participant’s last read; wait holds until new messages arrive. Publishing does not invoke participants.";
   if (block.type === "task_controls")

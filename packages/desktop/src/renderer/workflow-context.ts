@@ -45,3 +45,23 @@ export function workflowRunsForContext(
       : run.workspace === workspace,
   );
 }
+
+/** Workflow history is root-scoped; each binding identifies its owning task. */
+export function runningTaskFlowCount(runs: HarnessRun[], rootWorkspace: string | undefined, taskId?: string): number {
+  return runs.filter(
+    (run) =>
+      (run.binding
+        ? run.binding.rootWorkspace === rootWorkspace && run.binding.taskId === taskId
+        : taskId === undefined && run.workspace === rootWorkspace) &&
+      !run.paused &&
+      [
+        "queued",
+        "running",
+        "waiting",
+        "awaiting_permission",
+        "awaiting_user_input",
+        "waiting_timer",
+        "retry_scheduled",
+      ].includes(run.status),
+  ).length;
+}

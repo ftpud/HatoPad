@@ -983,6 +983,31 @@ describe("typed workflows", () => {
     expect((await finished()).status).toBe("succeeded");
   });
 
+  it("waits for every branch of an All join and runs the shared target once", async () => {
+    const { runner, definition, finished } = await setup(
+      [
+        block("start", "text"),
+        block("left", "script", { command: "left" }),
+        block("right", "script", { command: "right" }),
+        block("join", "script", { command: "join", join: "all" }),
+      ],
+      [edge("start", "left"), edge("start", "right"), edge("left", "join"), edge("right", "join")],
+      4,
+    );
+    const joinInputs: string[] = [];
+    const dispatch = vi.fn(async (item: HarnessBlock, input: string) => {
+      if (item.id === "right") await new Promise((resolve) => setTimeout(resolve, 100));
+      if (item.id === "join") joinInputs.push(input);
+      return session(item.id.toUpperCase());
+    });
+    await runner.start(definition.id, "seed", dispatch, "codex");
+    const run = await finished();
+    expect(run.status).toBe("succeeded");
+    expect(joinInputs).toHaveLength(1);
+    expect(joinInputs[0]).toContain("LEFT");
+    expect(joinInputs[0]).toContain("RIGHT");
+  });
+
   it("tests an unsaved draft block without running followers or changing the saved definition", async () => {
     const { runner, definition, store, finished } = await setup(
       [block("script", "script", { command: "saved" }), block("next", "text")],
@@ -1993,6 +2018,30 @@ describe("typed workflows", () => {
     expect(run.status).toBe("failed");
     expect(run.error).toContain("limit of 2 iterations");
     expect(run.blocks.map((state) => state.blockId)).toEqual(["a", "b"]);
+  });
+
+  it("enforces block-attempt and retained-output limits for typed Script blocks", async () => {
+    const attempts = await setup(
+      [block("start", "text"), block("script", "script", { command: "x" }), block("again", "text")],
+      [edge("start", "script"), edge("script", "again"), edge("again", "script")],
+    );
+    await attempts.store.update({ ...attempts.definition, settings: { maxBlockAttempts: 1, maxLoopCount: 5 } });
+    const dispatch = vi.fn(async () => session("next"));
+    await attempts.runner.start(attempts.definition.id, "go", dispatch, "codex");
+    const failed = await attempts.finished();
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("limit of 1 attempts");
+    expect(dispatch).toHaveBeenCalledTimes(1);
+
+    const retained = await setup(
+      [block("start", "text"), block("script", "script", { command: "x" })],
+      [edge("start", "script")],
+    );
+    await retained.store.update({ ...retained.definition, settings: { outputLimitChars: 1000 } });
+    await retained.runner.start(retained.definition.id, "go", async () => session("X".repeat(5000)), "codex");
+    const run = await retained.finished();
+    expect(run.status).toBe("succeeded");
+    expect(run.blocks.find((state) => state.blockId === "script")?.output).toHaveLength(1000);
   });
 
   it("rejects recursive tool calls to an AI block that is still active", async () => {

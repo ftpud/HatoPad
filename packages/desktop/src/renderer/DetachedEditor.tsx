@@ -1,6 +1,7 @@
 import Editor from "@monaco-editor/react";
 import { useEffect, useRef, useState } from "react";
 import { CoreClient } from "./client";
+import { ConnectionRecovery, reconnectWorkspace, type RecoverySelection } from "./connection-recovery";
 import { configureMonacoThemes, monacoTheme } from "./theme";
 import type { FileRevision } from "@hatopad/protocol";
 
@@ -32,6 +33,7 @@ export function DetachedEditor() {
   const [revision, setRevision] = useState<FileRevision>();
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
+  const [offline, setOffline] = useState(false);
   const clientRef = useRef<CoreClient>();
   const dirty = content !== saved;
   useEffect(() => {
@@ -40,6 +42,12 @@ export function DetachedEditor() {
   useEffect(() => {
     window.desktop?.setDirtyState(dirty);
   }, [dirty]);
+  const contentRef = useRef("");
+  const savedRef = useRef("");
+  const revisionRef = useRef<FileRevision>();
+  contentRef.current = content;
+  savedRef.current = saved;
+  revisionRef.current = revision;
   useEffect(() => {
     if (!path || (type !== "file" && type !== "useful")) {
       setError("Invalid detached editor request");
@@ -48,39 +56,74 @@ export function DetachedEditor() {
     const client = new CoreClient();
     clientRef.current = client;
     let current = true;
-    void client
-      .connect(options.get("host") ?? "127.0.0.1", Number(options.get("port") ?? "7331"))
-      .then(async () => {
-        await client.request("workspace.open", {});
-        const tasks = await client.request("tasks.list", {});
-        await client.request("tasks.switch", { ...(tasks.selectedTaskId ? { taskId: tasks.selectedTaskId } : {}) });
-        if (type === "useful") {
-          const result = await client.request("useful.read", { scope: scope!, name: path });
-          if (current) {
-            setContent(result.content);
-            setSaved(result.content);
-            setReady(true);
-          }
-        } else {
-          const result = await client.request("filesystem.readFile", { path });
-          if (current) {
-            setContent(result.content);
-            setSaved(result.content);
-            setRevision(result.revision);
-            setReady(true);
+    const host = options.get("host") ?? "127.0.0.1";
+    const port = Number(options.get("port") ?? "7331");
+    const rootId = options.get("rootId");
+    // Bind the request root to the originating tab's root; the client selects it on every (re)connect.
+    if (rootId) client.setRoot(rootId);
+    let selection: RecoverySelection | undefined;
+    const readCurrent = async () =>
+      type === "useful"
+        ? { ...(await client.request("useful.read", { scope: scope!, name: path })), revision: undefined }
+        : client.request("filesystem.readFile", { path });
+    const recovery = new ConnectionRecovery(
+      async (signal) => {
+        if (!selection) throw new Error("Detached editor is not initialised");
+        await reconnectWorkspace(client, host, port, false, signal, selection);
+        const latest = await readCurrent();
+        if (!current || signal.aborted) return;
+        const unchanged =
+          JSON.stringify(latest.revision) === JSON.stringify(revisionRef.current) &&
+          latest.content === savedRef.current;
+        if (!unchanged) {
+          if (contentRef.current === savedRef.current) {
+            setContent(latest.content);
+            setSaved(latest.content);
+            setRevision(latest.revision);
+          } else {
+            // Never replace unsaved text; saving stays blocked by the revision check until the user resolves it.
+            setError("The file changed outside the editor while disconnected. Your unsaved text was kept.");
           }
         }
+        setOffline(false);
+      },
+      () => undefined,
+    );
+    client.onDisconnected = () => {
+      if (!current) return;
+      setOffline(true);
+      recovery.start();
+    };
+    void client
+      .connect(host, port)
+      .then(async () => {
+        await client.request("workspace.open", {});
+        const taskId = options.get("taskId") ?? (await client.request("tasks.list", {})).selectedTaskId;
+        const target = await client.request("tasks.switch", { ...(taskId ? { taskId } : {}), includeTree: false });
+        selection = {
+          rootId: client.getRoot() ?? "",
+          workspace: target.workspace,
+          ...(taskId ? { taskId } : {}),
+        };
+        const result = await readCurrent();
+        if (!current) return;
+        setContent(result.content);
+        setSaved(result.content);
+        setRevision(result.revision);
+        setReady(true);
       })
       .catch((loadError: unknown) => {
         if (current) setError(loadError instanceof Error ? loadError.message : "Could not open editor");
       });
     return () => {
       current = false;
+      recovery.stop();
+      client.onDisconnected = undefined;
       client.disconnect();
     };
   }, [options, path, scope, type]);
   useEffect(() => {
-    if (!ready || !dirty || !clientRef.current) return;
+    if (!ready || offline || !dirty || !clientRef.current) return;
     const value = content;
     const timer = setTimeout(() => {
       if (type === "useful") {
@@ -99,10 +142,11 @@ export function DetachedEditor() {
       }
     }, 600);
     return () => clearTimeout(timer);
-  }, [content, dirty, path, ready, revision, scope, type]);
+  }, [content, dirty, offline, path, ready, revision, scope, type]);
   if (error && !ready) return <main className="detached-error">{error}</main>;
   return (
     <main className="detached-editor">
+      {offline && <div className="inline-error">Connection lost. Reconnecting; unsaved changes are kept…</div>}
       {error && <div className="inline-error">{error}</div>}
       {ready ? (
         <Editor

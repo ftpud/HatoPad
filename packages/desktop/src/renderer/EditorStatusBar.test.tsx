@@ -49,6 +49,7 @@ function fakeEditor() {
     onDidChangeConfiguration: subscribe,
     onDidChangeModelContent: subscribe,
     trigger: vi.fn(),
+    focus: vi.fn(),
   };
   return {
     instance: instance as unknown as editor.IStandaloneCodeEditor,
@@ -71,6 +72,10 @@ describe("EditorStatusBar", () => {
     act(() => fake.select());
     expect(screen.getByText("12 selected")).toBeTruthy();
     fireEvent.click(screen.getByRole("button"));
+    expect(fake.instance.focus).toHaveBeenCalledOnce();
+    expect(vi.mocked(fake.instance.focus).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(fake.instance.trigger).mock.invocationCallOrder[0]!,
+    );
     expect(fake.instance.trigger).toHaveBeenCalledWith("editor-status-bar", "editor.action.gotoLine", null);
   });
   it("renders nothing without an active editor", () => {

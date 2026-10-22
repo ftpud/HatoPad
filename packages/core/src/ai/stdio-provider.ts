@@ -1,3 +1,6 @@
+import { McpLibrary } from "../mcp-library.js";
+import { libraryMcpServer } from "../mcp-proxy.js";
+import { appToolServer } from "../app-tools.js";
 import { stateHome } from "../state-home.js";
 import { acpErrorText, cleanAcpDiagnostics, isOAuthRefreshContention, retryOAuthRefresh } from "./acp-errors.js";
 import { AcpAuthentication, isAuthenticationError, withoutEnv } from "./authentication.js";
@@ -537,6 +540,22 @@ export abstract class StdioAcpProvider extends AcpProvider {
     return this.get(workspace);
   }
 
+  async setMcp(
+    workspace: string,
+    selections: NonNullable<AiSession["mcpSelections"]>,
+    editorEnabled: boolean,
+    sessionId: string,
+  ): Promise<AiSession> {
+    const session = this.runtimes.get(workspace)?.session ?? (await this.get(workspace));
+    if (session.id !== sessionId)
+      throw new CoreError("INVALID_REQUEST", "MCP settings belong to a different conversation");
+    session.mcpSelections = selections;
+    session.editorMcpEnabled = editorEnabled;
+    await this.save(workspace, session);
+    this.onChanged(workspace);
+    return this.get(workspace);
+  }
+
   async get(workspace: string): Promise<AiSession> {
     const live = this.runtimes.get(workspace);
     if (live) return { ...live.session, messages: live.session.messages.slice(-1000) };
@@ -704,9 +723,31 @@ export abstract class StdioAcpProvider extends AcpProvider {
       session.threadId = undefined;
     // The override belongs to exactly one newly started turn. Steering an active
     // turn never consumes it; a failed runtime/prompt start leaves it queued.
-    const allowedServers = request.agent?.mcpServers
+    const workflow = request.mcpServers?.some(
+      (server) => (server.transport === "stdio" || !server.transport) && server.env?.HATOPAD_WORKFLOW_RUN_ID,
+    );
+    let allowedServers = request.agent?.mcpServers
       ? request.mcpServers?.filter((server) => request.agent!.mcpServers!.includes(server.name))
       : request.mcpServers;
+    if (!workflow && this.descriptor.capabilities.mcp) {
+      const root = await this.projectRoot(workspace);
+      const selections = await new McpLibrary(root, this.stateDirectory).validateSelections(
+        session.mcpSelections ?? [],
+      );
+      allowedServers = [
+        ...(allowedServers ?? []).filter((server) => server.name !== "hatopad" && !server.name.startsWith("library-")),
+        ...(session.editorMcpEnabled !== false
+          ? [appToolServer(root, workspace, this.descriptor.id, this.bridgeWorkspace)]
+          : []),
+        ...selections.map((selection) =>
+          libraryMcpServer(root, selection, this.stateDirectory, {
+            workspace,
+            provider: this.descriptor.id,
+            bridgeWorkspace: this.bridgeWorkspace,
+          }),
+        ),
+      ];
+    }
     const servers = this.descriptor.capabilities.skills
       ? [
           ...(allowedServers ?? []).filter((server) => server.name !== "hatopad-skills"),

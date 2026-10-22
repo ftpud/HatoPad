@@ -1,17 +1,62 @@
-# Internal MCP tools
+# MCP servers and tools
 
 The built-in `hatopad` MCP server lets an AI agent manage tasks and control its
 HatoPad session. Workflow agents can also call tools for connected blocks. Core
 owns the worktrees, processes, and saved state behind these tools.
 
-This page covers HatoPad's internal tools. For the Codex/Copilot abstraction and
-provider transport, see [ACP](ACP.md).
+The right sidebar **MCP** panel manages a project library shared by its task
+worktrees. Add a server URL, one or more named connections and a default
+connection. HTTP MCP endpoints use Streamable HTTP, with a fallback to legacy SSE
+for endpoints returning HTTP 404 or 405. Each connection accepts an optional bearer
+token and custom HTTP headers, or browser OAuth sign-in. OAuth is a generic MCP
+connection feature: Core discovers the server's authorization endpoints, uses
+PKCE, and registers a client automatically when the server supports registration.
+For servers requiring a pre-registered client, enter its client ID and optional
+client secret. Optional scopes control the requested grant. The connection dialog
+also accepts a fixed callback port for services that require an exact redirect URL;
+otherwise Desktop uses an available loopback port.
+
+**Save & sign in** opens the authorization page in your browser. Desktop receives
+the callback at `http://127.0.0.1:PORT/mcp/oauth/callback` and relays the authorization
+code to Core, so the same flow works with remote Core hosts. Codes, PKCE verifiers
+and sign-in states expire after five minutes and are not saved. Core stores OAuth
+tokens privately, refreshes expired tokens automatically, and serializes refreshes
+across chat and workflow calls. Reconnect starts a fresh grant; Disconnect forgets
+the saved tokens from Core (it does not revoke the grant at the external service).
+
+**Save & retrieve actions** discovers the selected connection's tools, descriptions and argument schemas.
+
+Core stores credentials outside the repository in owner-only state files (0600,
+inside a 0700 project directory). They are not encrypted at rest. Library listings,
+chat selections and workflow exports contain connection references, not secrets.
+Changing a server URL drops retained credentials; provide credentials for the new
+endpoint explicitly. Deleting a server invalidates references to it.
+
+The ordinary AI composer has an **MCP** picker with checkboxes, including
+**HatoPad editor**, and a connection selector for each external server. Selections
+belong to the conversation; changes take effect on the next turn. The default
+connection is used unless the conversation chooses another. External tool calls
+run through a local Core proxy, so tokens are not included in provider MCP launch
+configuration. Credential permissions determine the available account access;
+these toggles do not sandbox an agent with independent shell/credential access.
+
+In workflows, add an **MCP server** block and choose its server and connection.
+Connect an AI Agent or Chatbox to it with **Use**. The agent discovers tools using
+`workflow_use_block({block_id, input: '{"action":"list"}'})`, then calls a tool
+using `input: '{"action":"call","name":"tool_name","arguments":{}}'`.
+Calls show the normal block activity and connection pulses. Built-in editor tools
+remain available to all workflow AI Agents and Chatboxes without an MCP block.
+
+For the provider abstraction and transport, see [ACP](ACP.md). The remaining
+sections document HatoPad's internal tools.
 
 ## Enable the tools
 
-Select an agent preset whose `mcpServers` allowlist includes `hatopad`. An empty
-or omitted list does not enable the built-in server. Presets can be managed in the
-Desktop **Agents** panel or committed under `.agents/*.md`.
+Use the chat **MCP → HatoPad editor** checkbox to enable or disable built-in
+editor tools for that conversation. It is enabled by default, independently of
+the preset's allowlist. Workflows always supply their internal tools. The
+`mcpServers: [hatopad]` preset allowlist is also supported by existing task-launch
+paths. Presets can be managed in **Agents** or committed under `.agents/*.md`.
 
 ## Tool reference
 

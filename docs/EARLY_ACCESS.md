@@ -3,9 +3,10 @@
 Run **Actions → Bundle Create → Run workflow** on the commit or branch you want
 packaged. Packaging script, bundle workflow, and renderer navigation policy
 changes pushed to `main` also start Bundle Create automatically. The workflow
-uploads two artifact sets, `hatopad-early-access-macos-15`
-and `hatopad-early-access-windows-2025`. Download and extract the artifact wrapper;
-each contains a Gateway installer, a standalone Desktop ZIP, and JSON manifests
+temporarily builds macOS applications only and uploads `hatopad-early-access-macos-15`.
+Windows application bundles and release promotion are paused. Linux Core bundles
+are still built for remote hosts. Download and extract the artifact wrapper;
+it contains a Gateway installer, a standalone Desktop ZIP, and JSON manifests
 with their version, source commit and SHA-256 checksum. No GitHub release is
 published automatically. Change the root `package.json` version before building
 bundles for a new version.
@@ -20,15 +21,15 @@ Once the **Bundle Release** workflow is on the default branch:
    new tag matching the bundle version, for example `v0.1.0`, then run the workflow.
 
 The action publishes full GitHub releases and marks them **Latest**. The tag must
-match the version in both Gateway bundle manifests (taken from the root
+match the version in the macOS Gateway bundle manifest (taken from the root
 `package.json` when built). For each new release, bump the root `package.json`
 version (for example from `0.1.0` to `0.1.1`), build again, and publish `v0.1.1`.
 The applications remain Early Access; release notes retain that label and the
 signing information. Promoting a build preserves its embedded version and filenames.
 
-The action verifies the macOS Gateway DMG and Windows Gateway setup EXE against their manifests
+The action verifies the macOS Gateway DMG against its manifest
 and source commit, creates the tag at the build's commit, and publishes only
-those two Gateway installers and their JSON manifests on the repository's **Releases**
+the macOS Gateway installer and its JSON manifest on the repository's **Releases**
 page. Gateway includes the embedded Desktop; standalone Desktop bundles remain
 available as build artifacts. It promotes the existing files
 without rebuilding. The built-in GitHub token supplies the required permissions;

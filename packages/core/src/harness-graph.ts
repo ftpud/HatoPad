@@ -131,6 +131,7 @@ export function validateHarness(harness: HarnessDefinition): {
         "task_controls",
         "terminal_control",
         "meeting",
+        "mcp",
         "text",
         "timer",
         "script",
@@ -237,6 +238,13 @@ export function validateHarness(harness: HarnessDefinition): {
           message: "Run App tail lines must be an integer from 1 to 10000",
         });
     }
+    if (
+      block.type === "mcp" &&
+      (!block.mcp ||
+        !/^[a-zA-Z0-9_-]{1,100}$/.test(block.mcp.serverId) ||
+        (block.mcp.connectionId !== undefined && !/^[a-zA-Z0-9_-]{1,100}$/.test(block.mcp.connectionId)))
+    )
+      issues.push({ code: "invalid-gate", blockId: block.id, message: "Choose an MCP server and connection" });
     if (block.type === "script" && !block.command?.trim())
       issues.push({ code: "invalid-gate", blockId: block.id, message: "Script execution needs a command" });
     for (const [name, schema] of [
@@ -409,6 +417,7 @@ export function isHarnessFlow(harness: Pick<HarnessDefinition, "blocks" | "edges
         "task_controls",
         "terminal_control",
         "meeting",
+        "mcp",
         "text",
         "timer",
         "script",

@@ -159,6 +159,23 @@ describe("WorkspaceTaskStore", () => {
     await store.delete(task.id);
   });
 
+  it("creates a task worktree while a FIFO exists in the workspace", async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-fifo-root-"));
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-fifo-state-"));
+    await execFileAsync("git", ["init", root]);
+    await execFileAsync("git", ["-C", root, "config", "user.name", "Test"]);
+    await execFileAsync("git", ["-C", root, "config", "user.email", "test@example.com"]);
+    await writeFile(path.join(root, "tracked.txt"), "root\n");
+    await execFileAsync("git", ["-C", root, "add", "tracked.txt"]);
+    await execFileAsync("git", ["-C", root, "commit", "-m", "initial"]);
+    await execFileAsync("mkfifo", [path.join(root, "input.fifo")]);
+    const store = new WorkspaceTaskStore(root, state);
+    const task = await store.create("feature/fifo", false, false, false);
+    expect(await readFile(path.join(store.taskPath(task.id), "tracked.txt"), "utf8")).toBe("root\n");
+    await expect(lstat(path.join(store.taskPath(task.id), "input.fifo"))).rejects.toMatchObject({ code: "ENOENT" });
+    await store.delete(task.id);
+  });
+
   it("persists a display-name rename and archives without removing the worktree or branch", async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-lifecycle-root-"));
     const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-task-lifecycle-state-"));

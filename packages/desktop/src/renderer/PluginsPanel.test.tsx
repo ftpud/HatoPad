@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CoreClient } from "./client";
 import { PluginsPanel } from "./PluginsPanel";
@@ -33,4 +33,12 @@ it("lists loaded and failed plugins with their contributions", async () => {
 it("explains that plugins are opt-in on the Core host", async () => {
   render(<PluginsPanel client={client({ enabled: false, plugins: [] })} onClose={vi.fn()} />);
   expect(await screen.findByText("Plugins are not enabled on this Core host.")).toBeTruthy();
+});
+
+it("closes on Escape", async () => {
+  const onClose = vi.fn();
+  render(<PluginsPanel client={client({ enabled: false, plugins: [] })} onClose={onClose} />);
+  await screen.findByText("Plugins are not enabled on this Core host.");
+  fireEvent.keyDown(document.body, { key: "Escape" });
+  expect(onClose).toHaveBeenCalledOnce();
 });

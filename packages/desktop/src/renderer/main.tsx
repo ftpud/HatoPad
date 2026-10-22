@@ -6,6 +6,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "@fontsource/jetbrains-mono/400-italic.css";
 import "@fontsource/jetbrains-mono/700-italic.css";
+import "./monaco-local";
 import { App } from "./App";
 import { readSetting, readSettingNumber } from "./settings";
 import { DetachedEditor } from "./DetachedEditor";

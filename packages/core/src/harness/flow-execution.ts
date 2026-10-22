@@ -48,6 +48,81 @@ export async function harnessExecuteFlow(
     }
   const timers = new Map<string, string>();
   let steps = 0;
+  const outputLimit = run.definition?.settings?.outputLimitChars ?? 200_000;
+  const maxBlockAttempts = run.definition?.settings?.maxBlockAttempts ?? 100;
+  // AI-backed blocks enforce this inside executeBlock; every other block type runs here.
+  const typedExecutions = new Map<string, number>();
+  // Converging forward connections honour the target's join policy instead of
+  // invoking the shared target once per branch.
+  const flowEdge = (edge: (typeof edges)[number]) => edge.type === "follow" || !edge.type || edge.type === "path";
+  const reaches = (from: string, to: string): boolean => {
+    const seen = new Set<string>();
+    const stack = [from];
+    while (stack.length) {
+      const current = stack.pop()!;
+      if (current === to) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      for (const edge of edges) if (edge.from === current) stack.push(edge.to);
+    }
+    return false;
+  };
+  // Connections that close a cycle are loop returns, not join inputs.
+  const forwardEdge = (edge: (typeof edges)[number]) => !edge.loop && flowEdge(edge) && !reaches(edge.to, edge.from);
+  const joins = new Map<
+    string,
+    { resolved: Set<string>; active: Set<string>; outputs: Map<string, string>; fired: boolean }
+  >();
+  const resolveEdge = (
+    edge: (typeof edges)[number],
+    active: boolean,
+    output: string,
+    path: string[],
+    visited = new Set<string>(),
+  ): Promise<void>[] => {
+    const target = edge.to;
+    const incoming = edges.filter((item) => item.to === target && forwardEdge(item));
+    const outgoing = () => edges.filter((item) => item.from === target && forwardEdge(item));
+    if (incoming.length < 2) {
+      if (active) return [invoke(target, output, path).then(() => undefined)];
+      if (visited.has(target)) return [];
+      visited.add(target);
+      return outgoing().flatMap((next) => resolveEdge(next, false, "", [...path, target], visited));
+    }
+    let entry = joins.get(target);
+    if (!entry) {
+      entry = { resolved: new Set(), active: new Set(), outputs: new Map(), fired: false };
+      joins.set(target, entry);
+    }
+    entry.resolved.add(edge.id);
+    if (active) {
+      entry.active.add(edge.id);
+      entry.outputs.set(edge.from, output);
+    }
+    const complete = incoming.every((item) => entry.resolved.has(item.id));
+    const results: Promise<void>[] = [];
+    if (
+      !entry.fired &&
+      entry.active.size > 0 &&
+      (complete || blocks.find((item) => item.id === target)?.join === "any")
+    ) {
+      entry.fired = true;
+      const activeEdges = incoming.filter((item) => entry.active.has(item.id));
+      const input =
+        activeEdges.length === 1
+          ? entry.outputs.get(activeEdges[0]!.from)!
+          : connectedInput(target, run.input, blocks, activeEdges, entry.outputs);
+      results.push(invoke(target, input, path).then(() => undefined));
+    }
+    if (complete) {
+      joins.delete(target);
+      if (!entry.fired && !visited.has(target)) {
+        visited.add(target);
+        for (const next of outgoing()) results.push(...resolveEdge(next, false, "", [...path, target], visited));
+      }
+    }
+    return results;
+  };
   const invoke = async (id: string, input: string, ancestors: string[] = []): Promise<string> => {
     await host.schedulingReady(run.id);
     const prior = run.blocks.find((state) => state.blockId === id);
@@ -102,6 +177,15 @@ export async function harnessExecuteFlow(
     await host.update(run);
     let output = input;
     try {
+      if (!["ai", "chatbox", "prompt", "task", "review", "verification"].includes(block.type)) {
+        const executions = (typedExecutions.get(id) ?? 0) + 1;
+        typedExecutions.set(id, executions);
+        if (executions > maxBlockAttempts)
+          throw new CoreError(
+            "INVALID_REQUEST",
+            `Block '${block.label}' reached its limit of ${maxBlockAttempts} attempts`,
+          );
+      }
       const prompt =
         block.type === "skill" && block.skillId ? "" : renderHarnessPrompt(block.prompt, input, execution.outputs);
       if (!["ai", "chatbox"].includes(block.type)) {
@@ -214,6 +298,7 @@ export async function harnessExecuteFlow(
         host.log(state, "lifecycle", `Timer armed for ${state.waitingUntil}`);
         return `Timer armed for ${state.waitingUntil}`;
       } else if (
+        block.type === "mcp" ||
         block.type === "script" ||
         block.type === "run_app" ||
         block.type === "terminal_control" ||
@@ -236,7 +321,7 @@ export async function harnessExecuteFlow(
         state.structuredOutput = parseHarnessData(output, block.outputSchema, `${block.label} output`);
       host.assertActive(run.id);
       host.log(state, "response", output);
-      state.output = output.slice(-200_000);
+      state.output = output.slice(-outputLimit);
       execution.outputs.set(id, output);
       state.status = "succeeded";
       state.completedAt = new Date().toISOString();
@@ -264,6 +349,11 @@ export async function harnessExecuteFlow(
       });
     // Every outgoing connection starts at once; a block connected to several followers does not run them one after another.
     const followers: Promise<unknown>[] = [];
+    if (block.type !== "chatbox")
+      for (const edge of edges.filter(
+        (edge) => edge.from === id && edge.type === "path" && edge.label !== state.selectedRoute && forwardEdge(edge),
+      ))
+        followers.push(...resolveEdge(edge, false, "", [...ancestors, id]));
     for (const edge of edges.filter(
       (edge) =>
         block.type !== "chatbox" &&
@@ -290,10 +380,12 @@ export async function harnessExecuteFlow(
           );
         execution.loopInvocations.set(edge.id, count);
       }
+      const back = ancestors.includes(edge.to) || edge.to === id;
       followers.push(
         (async () => {
           await host.traceConnection(run, edge, "forward", "succeeded", output.length);
-          await invoke(edge.to, output, [...ancestors, id]);
+          if (back || !forwardEdge(edge)) await invoke(edge.to, output, [...ancestors, id]);
+          else await Promise.all(resolveEdge(edge, true, output, [...ancestors, id]));
         })(),
       );
     }
@@ -342,7 +434,7 @@ export async function harnessExecuteFlow(
     if (block.seconds! > 0) steps = 0;
     const state = run.blocks.find((state) => state.blockId === id)!;
     state.structuredOutput = parseHarnessData(input, block.outputSchema, `${block.label} output`);
-    state.output = input.slice(-200_000);
+    state.output = input.slice(-outputLimit);
     execution.outputs.set(id, input);
     state.status = "succeeded";
     state.completedAt = new Date().toISOString();

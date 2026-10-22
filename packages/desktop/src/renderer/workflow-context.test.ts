@@ -1,6 +1,6 @@
 import { expect, it } from "vitest";
 import type { HarnessRun } from "@hatopad/protocol";
-import { mergeWorkflowHistory, workflowRunsForContext } from "./workflow-context";
+import { mergeWorkflowHistory, runningTaskFlowCount, workflowRunsForContext } from "./workflow-context";
 
 it("keeps live cancellation and new runs when an older history response arrives", () => {
   const running = { id: "run", status: "running" } as HarnessRun;
@@ -44,4 +44,24 @@ it("retains hydrated details on a summary refresh and replaces them when lifecyc
     blocks: [{ blockId: "chat", status: "succeeded" }],
   } as HarnessRun;
   expect(mergeWorkflowHistory([full], [completed], [full])).toEqual([completed]);
+});
+
+it("counts ongoing task flows independently of provider activity, excluding paused and finished runs", () => {
+  const run = {
+    id: "flow",
+    status: "running",
+    binding: { rootWorkspace: "/root", workspace: "/task-a", taskId: "a" },
+  } as HarnessRun;
+  const runs = [
+    run,
+    { ...run, id: "waiting", status: "waiting_timer" },
+    { ...run, id: "done", status: "succeeded" },
+    { ...run, id: "failed", status: "failed" },
+    { ...run, id: "paused", paused: true },
+    { ...run, id: "root", binding: { rootWorkspace: "/root", workspace: "/root" } },
+    { ...run, id: "other-root", binding: { ...run.binding!, rootWorkspace: "/other" } },
+  ] as HarnessRun[];
+  expect(runningTaskFlowCount(runs, "/root", "a")).toBe(2);
+  expect(runningTaskFlowCount(runs, "/root", "b")).toBe(0);
+  expect(runningTaskFlowCount(runs, "/root")).toBe(1);
 });

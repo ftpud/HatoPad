@@ -10,10 +10,15 @@ interface Window {
       type: "file" | "useful";
       path: string;
       scope?: "global" | "local";
+      rootId?: string;
+      taskId?: string;
     }): void;
     readClipboard(): Promise<string>;
     restoreInputFocus?(): Promise<void>;
     writeClipboard(text: string): Promise<void>;
+    mcpOAuthPrepare?(port?: number): Promise<{ id: string; redirectUri: string }>;
+    mcpOAuthWait?(id: string, state: string): Promise<string>;
+    mcpOAuthCancel?(id: string): Promise<void>;
     openExternal(url: string): Promise<void>;
     chooseUpload(): Promise<{ id: string; name: string; size: number } | undefined>;
     chooseDownload(name: string): Promise<{ id: string; name: string } | undefined>;

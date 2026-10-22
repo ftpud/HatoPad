@@ -1053,7 +1053,7 @@ textarea::placeholder {
 .dialog-overlay button.primary,
 .connection-form .primary,
 .git-commit-panel footer button:not(.git-amend-button),
-.ai-composer-actions button:last-child {
+.ai-composer-actions > button:last-child {
   background: var(--accent);
   color: var(--on-accent);
   border-color: transparent;
@@ -1141,7 +1141,7 @@ textarea::placeholder {
 }
 .ai-composer {
   min-width: 0;
-  min-height: 104px;
+  min-height: 128px;
   display: flex;
   flex-direction: column;
   padding: 9px;
@@ -1185,10 +1185,10 @@ textarea::placeholder {
   align-items: center;
   gap: 4px;
 }
-.ai-composer-actions > button:first-of-type {
-  margin-right: auto;
+.ai-composer-spacer {
+  flex: 1;
 }
-.ai-composer-actions button {
+.ai-composer-actions > button {
   flex: 0 0 31px;
   width: 31px;
   height: 31px;
@@ -1592,7 +1592,7 @@ button:disabled {
   border: 0;
 }
 .primary,
-.ai-composer-actions button:last-child,
+.ai-composer-actions > button:last-child,
 .git-commit-panel footer button:not(.git-amend-button) {
   background: var(--accent);
   color: var(--on-accent);
@@ -3774,12 +3774,6 @@ button.danger:hover:not(:disabled) {
   font-size: 0.7692rem;
   line-height: 1.4;
   font-weight: 400;
-}
-.ai-composer-actions.with-skills > button:first-of-type {
-  margin-right: 0;
-}
-.ai-composer-actions.with-skills > .skill-chat-controls {
-  margin-right: auto;
 }
 .ai-composer-actions .skill-chat-controls .skill-chat-trigger {
   flex: 0 0 auto;

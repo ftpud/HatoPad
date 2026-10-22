@@ -13,6 +13,49 @@ const session = (id: string, prompt: string): AiSession => ({
   messages: [{ id: `${id}-message`, role: "user", text: prompt, timestamp: "2026-08-30T12:00:00.000Z" }],
 });
 
+it("places the MCP selector directly next to Skills in the chat tools row", () => {
+  render(
+    <AiPanel
+      provider="example"
+      providers={[
+        {
+          id: "example",
+          name: "Example",
+          description: "",
+          settings: { title: "", description: "", sections: [] },
+          options: [],
+          capabilities: { mcp: true, skills: true, models: false, usage: false, agents: false, contextWindow: false },
+        },
+      ]}
+      session={session("one", "Hello")}
+      sessions={[]}
+      models={[]}
+      attachments={[]}
+      permissionOwner={{ provider: "example" }}
+      skills={[]}
+      onSkillsChange={vi.fn()}
+      onOpenSkills={vi.fn()}
+      mcpServers={[]}
+      onMcpChange={vi.fn()}
+      onOpenMcps={vi.fn()}
+      onProviderChange={vi.fn()}
+      onConfigurationChange={vi.fn()}
+      onAttachmentsChange={vi.fn()}
+      onSend={vi.fn()}
+      onSteer={vi.fn()}
+      onInterrupt={vi.fn()}
+      onNewSession={vi.fn()}
+      onSwitchSession={vi.fn()}
+      onRemoveSession={vi.fn()}
+      onResolvePermission={vi.fn()}
+    />,
+  );
+  const row = screen.getByRole("group", { name: "Chat tools" });
+  expect(row.querySelectorAll(".skill-chat-controls")).toHaveLength(2);
+  expect(row.querySelectorAll(".skill-chat-trigger")[0]?.textContent).toContain("Skills");
+  expect(row.querySelectorAll(".skill-chat-trigger")[1]?.textContent).toContain("MCP");
+});
+
 describe("chat links", () => {
   it("resolves workspace files with line locations and rejects paths outside the workspace", () => {
     expect(resolveAiLink("/work/project/src/App.tsx:42:7", "/work/project")).toEqual({

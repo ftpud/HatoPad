@@ -53,7 +53,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir bundles
-          for artifact in hatopad-early-access-macos-15 hatopad-early-access-windows-2025; do
+          for artifact in hatopad-early-access-macos-15; do
             gh run download "$RUN_ID" --name "$artifact" --dir bundles
           done
 
@@ -66,13 +66,13 @@ jobs:
           from pathlib import Path
 
           bundles = Path('bundles')
-          manifests = sorted([*bundles.glob('hatopad-gateway-*.dmg.json'), *bundles.glob('hatopad-gateway-*-setup.exe.json')])
-          if len(manifests) != 2:
+          manifests = sorted(bundles.glob('hatopad-gateway-*.dmg.json'))
+          if len(manifests) != 1:
               found = ', '.join(sorted(p.name for p in bundles.iterdir())) or '(no files)'
               raise SystemExit(
-                  'Expected macOS Gateway .dmg and Windows Gateway -setup.exe with JSON manifests. '
+                  'Expected macOS Gateway .dmg with a JSON manifest. '
                   'ZIP-only builds predate installer packaging and cannot be promoted. '
-                  'Run Bundle Create on current main, wait for both OS jobs to succeed, '
+                  'Run Bundle Create on current main, wait for the macOS job to succeed, '
                   'then use that new run ID. Downloaded files: ' + found
               )
           versions = set()
@@ -96,7 +96,7 @@ jobs:
           version = versions.pop()
           assert re.fullmatch(r'(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)', version), 'Expected a major.minor.patch bundle version'
           assert os.environ['TAG'] == 'v' + version, 'Release tag must match the bundle version: v' + version
-          for suffix in ('darwin-arm64.dmg', 'win32-x64-setup.exe'):
+          for suffix in ('darwin-arm64.dmg',):
               assert f'hatopad-gateway-{version}-{suffix}' in expected
           assets = Path('assets')
           assets.mkdir()
@@ -104,9 +104,9 @@ jobs:
               shutil.copyfile(bundles / filename, assets / filename)
           assert {p.name for p in assets.iterdir()} == expected, 'Unexpected release files'
           Path('signing-note.txt').write_text(
-              'Early Access release. macOS is Developer ID signed and notarized; Windows is unsigned.\n'
+              'Early Access release. macOS is Developer ID signed and notarized.\n'
               if mac_signed else
-              'Early Access release. Applications are unsigned; macOS uses ad-hoc signing.\n'
+              'Early Access release. macOS uses ad-hoc signing.\n'
           )
 
       - name: Publish release with existing bundles

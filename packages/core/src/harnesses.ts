@@ -807,6 +807,7 @@ function isHarness(value: unknown): value is HarnessDefinition {
           "ai",
           "chatbox",
           "skill",
+          "mcp",
           "task_controls",
           "terminal_control",
           "meeting",
@@ -827,6 +828,10 @@ function isHarness(value: unknown): value is HarnessDefinition {
         typeof block.label === "string" &&
         (block.description === undefined || typeof block.description === "string") &&
         (block.skillId === undefined || typeof block.skillId === "string") &&
+        (block.mcp === undefined ||
+          (isRecord(block.mcp) &&
+            typeof block.mcp.serverId === "string" &&
+            (block.mcp.connectionId === undefined || typeof block.mcp.connectionId === "string"))) &&
         typeof block.prompt === "string" &&
         (block.seconds === undefined || (typeof block.seconds === "number" && Number.isFinite(block.seconds))) &&
         (block.command === undefined || typeof block.command === "string") &&

@@ -50,7 +50,43 @@ describe("MarkdownPreview task checkboxes", () => {
   });
 
   it("only changes the task marker on the selected source line", () => {
-    expect(toggleMarkdownTask("- [ ] parent\n  1. [X] nested", 1, false)).toBe("- [ ] parent\n  1. [ ] nested");
+    expect(toggleMarkdownTask("- [ ] parent\n  1. [X] nested", 15, false)).toBe("- [ ] parent\n  1. [ ] nested");
+  });
+
+  it("ignores fenced examples and preserves blockquote prefixes", () => {
+    const onChange = vi.fn();
+    const fenced = "```text\n- [ ] example only\n```\n\n- [ ] real task";
+    const view = render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>
+        {fenced}
+      </MarkdownPreview>,
+    );
+    fireEvent.click(screen.getByRole("checkbox"));
+    expect(onChange).toHaveBeenLastCalledWith("```text\n- [ ] example only\n```\n\n- [x] real task");
+    view.unmount();
+    render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()} onChange={onChange}>
+        {"> - [ ] quoted task\n\n- [ ] regular task"}
+      </MarkdownPreview>,
+    );
+    fireEvent.click(screen.getAllByRole("checkbox")[0]!);
+    expect(onChange).toHaveBeenLastCalledWith("> - [x] quoted task\n\n- [ ] regular task");
+  });
+});
+
+describe("MarkdownPreview headings", () => {
+  it("gives headings stable ids so fragment links have a target", () => {
+    const scroll = vi.fn();
+    render(
+      <MarkdownPreview sourcePath="a.md" onOpenFile={vi.fn()} onOpenExternal={vi.fn()}>
+        {"[Jump](#target-heading)\n\n## Target heading\n\n## Target heading\n\n### `Code` & More!"}
+      </MarkdownPreview>,
+    );
+    const headings = screen.getAllByRole("heading");
+    expect(headings.map((item) => item.id)).toEqual(["target-heading", "target-heading-1", "code--more"]);
+    headings[0]!.scrollIntoView = scroll;
+    fireEvent.click(screen.getByRole("link", { name: "Jump" }));
+    expect(scroll).toHaveBeenCalledOnce();
   });
 });
 

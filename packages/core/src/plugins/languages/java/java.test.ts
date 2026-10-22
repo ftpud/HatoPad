@@ -338,3 +338,23 @@ it("waits for the initial suspended thread prompt before issuing debugger comman
   debuggerService.invalidateDebugInspection();
   await rejected;
 });
+
+it("reports each compiler diagnostic once when Maven repeats it in the failure summary", async () => {
+  const { root, service } = await createMavenWorkspace();
+  await service.loadMavenProject("pom.xml");
+  const file = path.join(root, "src", "main", "java", "com", "example", "App.java");
+  const line = `[ERROR] ${file}:[4,15] not a statement`;
+  vi.spyOn(service as unknown as { capture(): Promise<string> }, "capture").mockResolvedValue(
+    [line, "[ERROR] BUILD FAILURE", "[ERROR] COMPILATION ERROR :", line].join("\n"),
+  );
+  const diagnostics = await service.check();
+  expect(diagnostics).toEqual([
+    {
+      path: "src/main/java/com/example/App.java",
+      line: 4,
+      column: 15,
+      severity: "error",
+      message: "not a statement",
+    },
+  ]);
+});

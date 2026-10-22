@@ -80,6 +80,17 @@ export interface GitActionsDeps {
 }
 
 /** Moved from App; statement bodies are unchanged. */
+/** Splits into lines that keep their terminators, so a missing or present final newline survives a rollback. */
+const terminatedLines = (text: string) => text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+
+export function rollbackHunkContent(originalContent: string, modifiedContent: string, hunk: GitDiffHunk): string {
+  const start = Math.max(0, hunk.originalStart - 1);
+  const originalLines = terminatedLines(originalContent).slice(start, start + hunk.originalLines);
+  const nextLines = terminatedLines(modifiedContent);
+  nextLines.splice(Math.max(0, hunk.modifiedStart - 1), hunk.modifiedLines, ...originalLines);
+  return nextLines.join("");
+}
+
 export function useGitActions(deps: GitActionsDeps) {
   const {
     setGitRollbackMenu,
@@ -297,7 +308,7 @@ export function useGitActions(deps: GitActionsDeps) {
     setGitRollbackMenu(undefined);
     try {
       await clientRef.current!.request("git.ignore", { path: entry.path });
-      await refreshGit();
+      await Promise.all([refreshGit(), refreshTree()]);
       showStatus(`Added ${entry.path} to .gitignore`, "success");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Could not update .gitignore");
@@ -505,12 +516,7 @@ export function useGitActions(deps: GitActionsDeps) {
     )
       return;
     const { path, hunk, originalContent, modifiedContent } = gitHunkDialog;
-    const originalLines = originalContent
-      .split("\n")
-      .slice(Math.max(0, hunk.originalStart - 1), Math.max(0, hunk.originalStart - 1) + hunk.originalLines);
-    const nextLines = modifiedContent.split("\n");
-    nextLines.splice(Math.max(0, hunk.modifiedStart - 1), hunk.modifiedLines, ...originalLines);
-    const content = nextLines.join("\n");
+    const content = rollbackHunkContent(originalContent, modifiedContent, hunk);
     try {
       selfWriteUntil.current.set(path, Date.now() + 1500);
       await clientRef.current.request("filesystem.writeFile", { path, content });

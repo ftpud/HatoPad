@@ -870,7 +870,12 @@ export class WorkspaceTaskStore {
       recursive: true,
       force: true,
       verbatimSymlinks: true,
-      filter: (item) => item !== path.join(source, ".git") && !isNodeModulesPath(source, item),
+      filter: async (item) => {
+        if (item === path.join(source, ".git") || isNodeModulesPath(source, item)) return false;
+        // FIFOs, sockets and devices (such as trigger pipes) cannot be copied and belong to the root only.
+        const info = await lstat(item).catch(() => undefined);
+        return Boolean(info && (info.isFile() || info.isDirectory() || info.isSymbolicLink()));
+      },
     });
     for (const relative of deleted) await rm(path.join(destination, relative), { recursive: true, force: true });
     if (!stagedPatch.length) return;

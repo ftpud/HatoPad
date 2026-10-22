@@ -33,6 +33,7 @@ export function SkillChatChips(props: SkillSelectionProps) {
     <div className="skill-chat-enabled" role="group" aria-label="Enabled chat skills">
       {enabled.map((skill) => (
         <button
+          type="button"
           className="skill-chip"
           key={skill.id}
           aria-label={`Disable ${skill.title}`}
@@ -75,6 +76,7 @@ export function SkillChatControls({
       }}
     >
       <button
+        type="button"
         className={`skill-chat-trigger${open ? " active" : ""}`}
         aria-label={`Skills · ${enabled.length} active`}
         title={`${enabled.length} skills enabled`}
@@ -123,7 +125,9 @@ export function SkillChatControls({
               {error}
             </span>
           )}
-          <button onClick={onOpen}>Manage skills</button>
+          <button type="button" onClick={onOpen}>
+            Manage skills
+          </button>
         </div>
       )}
     </div>

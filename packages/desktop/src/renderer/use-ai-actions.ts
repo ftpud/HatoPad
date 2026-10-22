@@ -78,6 +78,7 @@ export interface AiActionsDeps {
       useful: boolean;
       agents: boolean;
       skills: boolean;
+      mcp: boolean;
     }>
   >;
   setWorkspaceOptionsReady: React.Dispatch<React.SetStateAction<boolean>>;

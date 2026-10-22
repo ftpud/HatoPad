@@ -1,3 +1,5 @@
+import { McpChatControls } from "./McpChatControls";
+import type { McpLibraryServer, McpSelection } from "@hatopad/protocol";
 import { AiAuthentication } from "./AiAuthentication";
 import {
   Check,
@@ -94,6 +96,9 @@ export function resolveAiLink(href: string, workspacePath = ""): AiLink {
 }
 
 export function AiPanel({
+  mcpServers = [],
+  onMcpChange,
+  onOpenMcps,
   skills = [],
   onSkillsChange,
   onOpenSkills,
@@ -126,6 +131,9 @@ export function AiPanel({
   onOpenFile = () => undefined,
   onOpenExternal = () => undefined,
 }: {
+  mcpServers?: McpLibraryServer[];
+  onMcpChange?(selections: McpSelection[], editorEnabled: boolean): Promise<void>;
+  onOpenMcps?(): void;
   skills?: SkillFile[];
   onSkillsChange?(ids: string[]): Promise<void>;
   onOpenSkills?(): void;
@@ -176,7 +184,7 @@ export function AiPanel({
   const [model, setModel] = useState(session.model);
   const [reasoning, setReasoning] = useState(session.reasoning);
   const [configuration, setConfiguration] = useState<AiConfiguration>(session.configuration ?? {});
-  const [composerHeight, setComposerHeight] = useState(104);
+  const [composerHeight, setComposerHeight] = useState(128);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const contextId = useId();
@@ -366,7 +374,7 @@ export function AiPanel({
     const startHeight = composerHeight;
     const move = (moveEvent: PointerEvent) =>
       setComposerHeight(
-        Math.max(104, Math.min(Math.min(420, window.innerHeight * 0.55), startHeight + startY - moveEvent.clientY)),
+        Math.max(128, Math.min(Math.min(420, window.innerHeight * 0.55), startHeight + startY - moveEvent.clientY)),
       );
     const end = () => {
       window.removeEventListener("pointermove", move);
@@ -806,21 +814,36 @@ export function AiPanel({
             }}
           />
         </div>
-        <div className={`ai-composer-actions${skillsAvailable ? " with-skills" : ""}`}>
+        <div className="ai-composer-actions">
           <input ref={fileInputRef} type="file" multiple onChange={(event) => void addFiles(event.target.files)} />
           <button type="button" title="Attach files" disabled={busy} onClick={() => fileInputRef.current?.click()}>
             <Paperclip size={15} />
           </button>
-          {skillsAvailable && onSkillsChange && onOpenSkills && (
-            <SkillChatControls
-              skills={skills}
-              selected={session.skillIds ?? []}
-              running={running}
-              disabled={submitting || permissionActionsDisabled}
-              onChange={onSkillsChange}
-              onOpen={onOpenSkills}
-            />
+          {(skillsAvailable || (descriptor?.capabilities.mcp && onMcpChange && onOpenMcps)) && (
+            <div className="ai-composer-tools" role="group" aria-label="Chat tools">
+              {skillsAvailable && onSkillsChange && onOpenSkills && (
+                <SkillChatControls
+                  skills={skills}
+                  selected={session.skillIds ?? []}
+                  running={running}
+                  disabled={submitting || permissionActionsDisabled}
+                  onChange={onSkillsChange}
+                  onOpen={onOpenSkills}
+                />
+              )}
+              {descriptor?.capabilities.mcp && onMcpChange && onOpenMcps && (
+                <McpChatControls
+                  servers={mcpServers}
+                  selected={session.mcpSelections ?? []}
+                  editorEnabled={session.editorMcpEnabled !== false}
+                  disabled={submitting || permissionActionsDisabled || sessionChangesDisabled}
+                  onChange={onMcpChange}
+                  onOpen={onOpenMcps}
+                />
+              )}
+            </div>
           )}
+          <span className="ai-composer-spacer" />
           {onSendAsTask && (
             <button
               type="button"

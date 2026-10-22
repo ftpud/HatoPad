@@ -296,7 +296,9 @@ allowed. Commit workspace skill folders to share them with the team and task wor
 Policy stays on Core; edits apply to every task of the root project. Global and local skill contents stay on Core and are not committed;
 each Core host needs its own copy of global skills referenced by the policy.
 
-The chatbox's **Skills** checklist and removable chips change the current chat's
+The chatbox's **Skills** checklist opens above the composer so its checkboxes stay
+visible. Opening it, managing skills, or removing a skill chip preserves the draft
+without sending it. The checklist and removable chips change the current chat's
 selection. Core persists this selection with the session, including archived
 sessions; changing project defaults does not modify existing chats. New chats
 use the current defaults. Creating a task from the chat copies its selection;

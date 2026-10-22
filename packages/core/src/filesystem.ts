@@ -680,13 +680,27 @@ export class WorkspaceFileSystem {
     budget: TreeBudget,
     depth: number,
   ): Promise<FileTreeNode[]> {
-    const entries = await opendir(absoluteDir);
     const nodes: FileTreeNode[] = [];
+    let entries: Awaited<ReturnType<typeof opendir>>;
+    try {
+      entries = await opendir(absoluteDir);
+    } catch (error) {
+      // A directory removed during the scan (for example a Git lock directory) is simply absent.
+      if (isVanished(error) && depth > 1) return nodes;
+      throw error;
+    }
     for await (const entry of entries) {
       if (!relativeDir && entry.name === TRASH_DIRECTORY) continue;
       const relative = path.posix.join(relativeDir.split(path.sep).join(path.posix.sep), entry.name);
       const absolute = path.join(absoluteDir, entry.name);
-      const info = await lstat(absolute);
+      let info: Awaited<ReturnType<typeof lstat>>;
+      try {
+        info = await lstat(absolute);
+      } catch (error) {
+        // Transient files (Git lock files, editor swap files) may disappear mid-scan.
+        if (isVanished(error)) continue;
+        throw error;
+      }
       if (info.isSymbolicLink()) {
         try {
           const resolved = await realpath(absolute);
@@ -720,6 +734,11 @@ export class WorkspaceFileSystem {
         await this.collectChildren(path.join(absolute, entry.name), childRelative, output);
     }
   }
+}
+
+function isVanished(error: unknown): boolean {
+  const code = (error as NodeJS.ErrnoException).code;
+  return code === "ENOENT" || code === "ENOTDIR";
 }
 
 async function listGitPaths(root: string, limits: WorkspaceTreeLimits): Promise<string[] | undefined> {

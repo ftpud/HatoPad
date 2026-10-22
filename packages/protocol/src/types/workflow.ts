@@ -74,6 +74,7 @@ export type HarnessBlock = {
     | "ai"
     | "chatbox"
     | "skill"
+    | "mcp"
     | "task_controls"
     | "terminal_control"
     | "meeting"
@@ -97,6 +98,7 @@ export type HarnessBlock = {
   label: string;
   description?: string;
   skillId?: string;
+  mcp?: { serverId: string; connectionId?: string };
   prompt: string;
   inputSchema?: HarnessDataSchema;
   outputSchema?: HarnessDataSchema;

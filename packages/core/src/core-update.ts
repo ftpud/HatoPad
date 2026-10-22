@@ -99,7 +99,7 @@ export class CoreUpdates {
       else if (current !== this.options.runningCommit)
         reason = "Installation changed since Core started. Restart it through the launcher.";
       else if (dirty) reason = "The installation has local changes. Commit or remove them before updating.";
-      else {
+      else if (!release) {
         try {
           await this.git("merge-base", "--is-ancestor", current, latest);
         } catch {
@@ -122,7 +122,11 @@ export class CoreUpdates {
         ...(reason ? { reason } : {}),
       };
     } catch {
-      return { ...base, reason: "Unable to check installation updates. Check Git access on the Core machine." };
+      return {
+        ...base,
+        available: true,
+        reason: "Unable to check installation updates. Check Git access on the Core machine.",
+      };
     }
   }
   async apply(

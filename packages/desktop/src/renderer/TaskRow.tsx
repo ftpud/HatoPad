@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Square,
   Trash2,
+  Workflow,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import type { AiStatus, AiTaskSummary } from "@hatopad/protocol";
@@ -31,6 +32,7 @@ export function TaskRow({
   name,
   branch,
   summary,
+  runningFlows = 0,
   finished = false,
   archived = false,
   selected,
@@ -48,6 +50,7 @@ export function TaskRow({
   name: string;
   branch?: string;
   summary: AiTaskSummary;
+  runningFlows?: number;
   finished?: boolean;
   archived?: boolean;
   selected: boolean;
@@ -113,6 +116,16 @@ export function TaskRow({
                 <small>+{summary.additions}</small>
                 <small>-{summary.deletions}</small>
               </span>
+            )}
+            {runningFlows > 0 && (
+              <Workflow
+                className="task-flow-indicator"
+                size={13}
+                role="img"
+                aria-label={runningFlows === 1 ? "Flow running" : `${runningFlows} flows running`}
+              >
+                <title>{runningFlows === 1 ? "Flow running" : `${runningFlows} flows running`}</title>
+              </Workflow>
             )}
             {summary.pendingPermission ? (
               <small className="task-ai-status permission">
