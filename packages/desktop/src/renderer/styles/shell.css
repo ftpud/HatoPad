@@ -662,10 +662,13 @@ textarea:focus-visible,
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.workspace-name select {
+.workspace-name .workspace-picker-trigger {
   width: 0;
   flex: 1 1 auto;
   min-width: 0;
+  display: flex;
+  gap: 6px;
+  padding: 0 5px;
   border: 0;
   background: transparent;
   color: inherit;

@@ -1,0 +1,121 @@
+/* Title remains visually identical to the workspace identity label. */
+.titlebar-actions > .workspace-picker-title {
+  display: flex;
+  width: auto;
+  height: auto;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.titlebar-actions > .workspace-picker-title:hover,
+.titlebar-actions > .workspace-picker-title:active {
+  background: transparent;
+  color: var(--text-heading);
+}
+.workspace-name .workspace-picker-trigger:hover {
+  background: var(--surface-hover);
+}
+.workspace-picker-trigger > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.workspace-picker-trigger > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.workspace-picker-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-panel);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-popover);
+  font-size: 12px;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+.workspace-picker-menu > strong {
+  color: var(--text-heading);
+  font-size: 13px;
+}
+.workspace-picker-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--text-muted);
+}
+.workspace-picker-search input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+.workspace-picker-list {
+  min-height: 0;
+  overflow-y: auto;
+}
+.workspace-picker-list button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.workspace-picker-list button:hover,
+.workspace-picker-list button:focus-visible {
+  background: var(--surface-hover);
+}
+.workspace-picker-list button[aria-checked="true"] {
+  color: var(--accent);
+}
+.workspace-picker-list button > svg {
+  flex-shrink: 0;
+}
+.workspace-picker-list button > span {
+  flex: 1;
+  min-width: 0;
+}
+.workspace-picker-list button span span,
+.workspace-picker-list small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workspace-picker-list small {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.workspace-picker-list p {
+  padding: 8px;
+  color: var(--text-muted);
+}

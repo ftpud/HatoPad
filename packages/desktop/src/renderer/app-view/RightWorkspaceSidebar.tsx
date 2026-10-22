@@ -1,3 +1,4 @@
+import { WorkspacePicker } from "../WorkspacePicker";
 import { runningTaskFlowCount } from "../workflow-context";
 import { McpPanel } from "../McpPanel";
 import { TaskCheckpointHistory } from "../TaskCheckpointHistory";
@@ -260,18 +261,12 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                         onContentSearchChange={setProjectContentFilter}
                       />
                       <div className="workspace-name">
-                        <select
-                          aria-label="Workspace root"
+                        <WorkspacePicker
+                          roots={workspaceRoots}
                           value={selectedRootId}
                           disabled={taskSwitching}
-                          onChange={(event) => void selectWorkspaceRoot(event.target.value)}
-                        >
-                          {workspaceRoots.map((root) => (
-                            <option key={root.id} value={root.id}>
-                              {root.alias}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(rootId) => void selectWorkspaceRoot(rootId)}
+                        />
                         <button title="Add remote workspace root" onClick={() => setWorkspaceRootDialogOpen(true)}>
                           <Plus size={13} />
                         </button>

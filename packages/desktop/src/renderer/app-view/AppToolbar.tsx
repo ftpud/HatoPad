@@ -1,3 +1,4 @@
+import { WorkspacePicker } from "../WorkspacePicker";
 import { FocusModeButton } from "../FocusModeButton";
 import { BranchPicker } from "../BranchPicker";
 import { ConnectionMenu } from "../ConnectionMenu";
@@ -14,6 +15,10 @@ import type { AppViewContext } from "./view-types";
 export function AppToolbar({ context }: { context: AppViewContext }) {
   const {
     activeWorkspace,
+    workspaceRoots,
+    selectedRootId,
+    taskSwitching,
+    selectWorkspaceRoot,
     sideLayout,
     status,
     clientRef,
@@ -71,10 +76,13 @@ export function AppToolbar({ context }: { context: AppViewContext }) {
   } = context;
   return (
     <header className="titlebar-actions" aria-label="Workspace toolbar">
-      <div className="workspace-identity" title={activeWorkspace}>
-        <span className="branding-mark titlebar-branding" aria-hidden="true" />
-        <span>{projectName}</span>
-      </div>
+      <WorkspacePicker
+        roots={workspaceRoots}
+        value={selectedRootId}
+        projectName={projectName}
+        disabled={taskSwitching}
+        onChange={(rootId) => void selectWorkspaceRoot(rootId)}
+      />
       <BranchPicker
         current={gitBranch}
         menu={branchMenu}
