@@ -123,7 +123,15 @@ export function ProjectPathDialog({
               value={name}
               disabled={saving}
               maxLength={240}
-              placeholder={mode === "file" ? (parentPath ? "new-file.ts" : "src/new-file.ts") : mode === "directory" ? "components" : "new-name"}
+              placeholder={
+                mode === "file"
+                  ? parentPath
+                    ? "new-file.ts"
+                    : "src/new-file.ts"
+                  : mode === "directory"
+                    ? "components"
+                    : "new-name"
+              }
               onChange={(event) => setName(event.target.value)}
             />
           </label>

@@ -220,7 +220,7 @@ function foldCase(text: string): { lower: string; starts: number[]; ends: number
   let lower = "";
   const starts: number[] = [];
   const ends: number[] = [];
-  for (let offset = 0; offset < text.length; ) {
+  for (let offset = 0; offset < text.length;) {
     const point = String.fromCodePoint(text.codePointAt(offset)!);
     const folded = point.toLocaleLowerCase();
     for (let unit = 0; unit < folded.length; unit += 1) {
