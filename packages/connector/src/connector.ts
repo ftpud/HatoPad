@@ -212,9 +212,24 @@ export class CoreConnector {
         return;
       case "pong":
         return;
-      case "error":
+      case "error": {
         this.diagnostic(`hub error ${frame.code}`);
+        // An unscoped authentication or compatibility error is final even though the Hub stays connected.
+        if (frame.channel !== undefined) return;
+        const reason =
+          frame.code === "unauthenticated" || frame.code === "revoked" || frame.code === "unauthorized"
+            ? "revoked"
+            : frame.code === "incompatible"
+              ? "incompatible"
+              : undefined;
+        if (!reason) return;
+        this.stopped = true;
+        clearTimeout(this.retryTimer);
+        this.retryTimer = undefined;
+        this.teardown(true);
+        this.options.onStatus?.({ state: "stopped", reason });
         return;
+      }
       case "channel.open": {
         const check = table.open(frame.channel, frame.generation);
         if (!check.ok) {

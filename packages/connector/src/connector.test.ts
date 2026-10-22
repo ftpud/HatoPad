@@ -182,6 +182,38 @@ describe("connector against test relay and fake Core", () => {
     expect(statuses.at(-1)).toEqual({ state: "stopped", reason: "revoked" });
   });
 
+  it.each(["revoked", "unauthenticated", "unauthorized", "incompatible"] as const)(
+    "stops without retrying on an unscoped %s error after going online, even if the hub stays open",
+    async (code) => {
+      const { connector, statuses, hub } = await setup();
+      connector.start();
+      await until(() => statuses.some((s) => s.state === "online"), "online");
+      const socket = hub()!;
+      socket.send(JSON.stringify({ type: "error", code }));
+      await until(() => statuses.some((s) => s.state === "stopped"), "stopped");
+      expect(statuses.at(-1)).toEqual({
+        state: "stopped",
+        reason: code === "incompatible" ? "incompatible" : "revoked",
+      });
+      await until(
+        () => socket.readyState === WebSocket.CLOSED || socket.readyState === WebSocket.CLOSING,
+        "hub closed",
+      );
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(statuses.filter((s) => s.state === "connecting")).toHaveLength(1);
+      expect(statuses.some((s) => s.state === "offline")).toBe(false);
+    },
+  );
+
+  it("keeps the connector online for a channel-scoped error", async () => {
+    const { connector, statuses, hub } = await setup();
+    connector.start();
+    await until(() => statuses.some((s) => s.state === "online"), "online");
+    hub()!.send(JSON.stringify({ type: "error", code: "revoked", channel: "c1", generation: 1 }));
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(statuses.some((s) => s.state === "stopped")).toBe(false);
+  });
+
   it("reconnects with fresh channels after the hub link drops", async () => {
     const { relay, connector, statuses, hub } = await setup();
     connector.start();
