@@ -114,10 +114,13 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
   const runHttpRequest = async (request: ParsedHttpRequest) => {
     if (!clientRef.current) return;
     setHttpResult({ request, loading: true });
+    // A late completion only updates the panel while this request is still the open, current one.
+    const settle = (result: { response?: HttpResponse; error?: string }) =>
+      setHttpResult((current) => (current?.request === request ? { request, ...result, loading: false } : current));
     try {
-      setHttpResult({ request, response: await clientRef.current.request("http.execute", request), loading: false });
+      settle({ response: await clientRef.current.request("http.execute", request) });
     } catch (error) {
-      setHttpResult({ request, error: error instanceof Error ? error.message : "HTTP request failed", loading: false });
+      settle({ error: error instanceof Error ? error.message : "HTTP request failed" });
     }
   };
 

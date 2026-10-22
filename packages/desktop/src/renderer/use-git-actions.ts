@@ -308,7 +308,7 @@ export function useGitActions(deps: GitActionsDeps) {
     setGitRollbackMenu(undefined);
     try {
       await clientRef.current!.request("git.ignore", { path: entry.path });
-      await refreshGit();
+      await Promise.all([refreshGit(), refreshTree()]);
       showStatus(`Added ${entry.path} to .gitignore`, "success");
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Could not update .gitignore");
