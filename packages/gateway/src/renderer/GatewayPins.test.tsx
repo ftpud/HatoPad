@@ -74,7 +74,7 @@ describe("Gateway layout and pins", () => {
     bridge();
     render(<App />);
     const heading = await screen.findByRole("heading", { name: "First project" });
-    fireEvent.click(within(heading.closest("article")!).getByRole("button", { name: "Open workspace" }));
+    fireEvent.click(within(heading.closest("article")!).getByRole("button", { name: "Open workspace one" }));
     await waitFor(() => expect(window.gateway.openWorkspaceRoot).toHaveBeenCalledWith("one"));
   });
   it("pins connections without switching them and restores ordering after reopening Gateway", async () => {

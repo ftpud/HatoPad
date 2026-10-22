@@ -52,6 +52,7 @@ describe("cloud port tunneling", () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith(9000, 5000));
     expect(screen.getByText("localhost:8080")).toBeTruthy();
     expect(screen.getByText("→ Core localhost:3000")).toBeTruthy();
+    expect(screen.getAllByText("Stopped")).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: "Run" }));
     expect(action).toHaveBeenCalledWith(item, "startPortTunnel");
     fireEvent.click(screen.getByRole("button", { name: "Delete cloud tunnel on port 8080" }));
@@ -377,6 +378,7 @@ describe("Gateway workspace page", () => {
     const list = await screen.findByRole("region", { name: "Workspaces" });
     expect(within(list).getAllByRole("article")).toHaveLength(40);
     expect(within(list).queryByText(/FIRST OUTPUT/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Provisioning log/ }));
     expect(screen.getByRole("region", { name: "Provisioning output for Project 0" }).textContent).toContain("line 999");
     fireEvent.click(screen.getByRole("button", { name: "View provisioning log for Project 39" }));
     expect(screen.getByRole("region", { name: "Provisioning output for Project 39" }).textContent).toBe("LAST OUTPUT");
@@ -411,32 +413,18 @@ describe("Gateway workspace page", () => {
   it("preserves the reader's scroll position when new log lines arrive", () => {
     const workspace = { id: "w", connectionId: "c", name: "Project", directory: "/project", remotePort: 7331 };
     const runtime = { status: "working" as const, message: "Installing", logs: ["first"] };
-    const view = render(
-      <ProvisioningLog workspace={workspace} workspaces={[workspace]} runtime={runtime} onSelect={vi.fn()} />,
-    );
+    const view = render(<ProvisioningLog workspace={workspace} runtime={runtime} />);
     const output = screen.getByRole("region", { name: "Provisioning output for Project" });
     Object.defineProperty(output, "scrollHeight", { configurable: true, value: 1000 });
     Object.defineProperty(output, "clientHeight", { configurable: true, value: 200 });
     output.scrollTop = 100;
     fireEvent.scroll(output);
-    view.rerender(
-      <ProvisioningLog
-        workspace={workspace}
-        workspaces={[workspace]}
-        runtime={{ ...runtime, logs: ["first", "second"] }}
-        onSelect={vi.fn()}
-      />,
-    );
+    view.rerender(<ProvisioningLog workspace={workspace} runtime={{ ...runtime, logs: ["first", "second"] }} />);
     expect(output.scrollTop).toBe(100);
     output.scrollTop = 800;
     fireEvent.scroll(output);
     view.rerender(
-      <ProvisioningLog
-        workspace={workspace}
-        workspaces={[workspace]}
-        runtime={{ ...runtime, logs: ["first", "second", "third"] }}
-        onSelect={vi.fn()}
-      />,
+      <ProvisioningLog workspace={workspace} runtime={{ ...runtime, logs: ["first", "second", "third"] }} />,
     );
     expect(output.scrollTop).toBe(1000);
   });
@@ -524,9 +512,32 @@ describe("Gateway cloud", () => {
       onConnectionStatus: () => () => undefined,
     } as unknown as Window["gateway"];
   }
+  it("keeps the provisioning log collapsed until opened", async () => {
+    bridge(account);
+    render(<App />);
+    const toggle = await screen.findByRole("button", { name: /Provisioning log/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("region", { name: /Provisioning output/ })).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("region", { name: /Provisioning output/ })).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("region", { name: /Provisioning output/ })).toBeNull();
+  });
+  it("collapses the cloud panel while signed out and expands on demand", async () => {
+    bridge();
+    render(<App />);
+    const toggle = await screen.findByRole("button", { name: "Expand cloud panel" });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("button", { name: "Connect to cloud" })).toBeNull();
+    fireEvent.click(toggle);
+    expect(screen.getByRole("button", { name: "Collapse cloud panel" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Connect to cloud" })).toBeTruthy();
+  });
   it("connects to cloud, adds cloud servers beside saved connections, and opens one", async () => {
     bridge();
     render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Expand cloud panel" }));
     fireEvent.click(await screen.findByRole("button", { name: "Connect to cloud" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://hub.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -566,6 +577,7 @@ describe("Gateway cloud", () => {
       cancel();
     });
     render(<App />);
+    fireEvent.click(await screen.findByRole("button", { name: "Expand cloud panel" }));
     fireEvent.click(screen.getByRole("button", { name: "Connect to cloud" }));
     fireEvent.change(screen.getByRole("textbox", { name: "Cloud URL" }), { target: { value: "https://hub.example" } });
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
@@ -730,6 +742,7 @@ describe("Gateway cloud", () => {
     });
     render(<App />);
     await waitFor(() => expect(window.gateway.get).toHaveBeenCalled());
+    fireEvent.click(await screen.findByRole("button", { name: "Expand cloud panel" }));
     fireEvent.click(screen.getByRole("button", { name: "Connect to cloud" }));
     await waitFor(() =>
       expect((screen.getByRole("textbox", { name: "Cloud URL" }) as HTMLInputElement).value).toBe(

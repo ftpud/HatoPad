@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { OtherWorkspaces } from "./OtherWorkspaces";
+import { CoreWorkspaceList, OtherWorkspaces } from "./OtherWorkspaces";
 const owner = {
   id: "core-one",
   connectionId: "server",
@@ -11,7 +11,7 @@ const owner = {
 const main = { id: "main", alias: "HatoPad", path: owner.directory, primary: true };
 const extra = { id: "hub", alias: "VibeHub", path: "/projects/VibeHub", primary: false };
 afterEach(cleanup);
-function setup() {
+function setup(view: "links" | "migrate" = "migrate") {
   const state: GatewayState = { connections: [], workspaces: [owner], portTunnels: [] };
   window.gateway = {
     listWorkspaceRoots: vi.fn(async () => [main, extra]),
@@ -25,17 +25,32 @@ function setup() {
     openWorkspaceRoot: vi.fn(async () => undefined),
   } as unknown as Window["gateway"];
   const onMigrated = vi.fn();
-  render(<OtherWorkspaces owner={owner} local={false} disabled={false} onMigrated={onMigrated} />);
-  return { onMigrated, state };
+  const onOpen = vi.fn(async () => undefined);
+  render(
+    view === "links" ? (
+      <CoreWorkspaceList owner={owner} disabled={false} onOpen={onOpen} />
+    ) : (
+      <OtherWorkspaces owner={owner} local={false} disabled={false} onMigrated={onMigrated} />
+    ),
+  );
+  return { onMigrated, onOpen, state };
 }
 describe("additional Core workspaces", () => {
-  it("shows registered folders and opens a selected folder using its original Core", async () => {
+  it("lists the primary and registered folders as equal rows that open through their Core", async () => {
+    const { onOpen } = setup("links");
+    const hub = await screen.findByRole("button", { name: "Open workspace VibeHub" });
+    expect(hub.getAttribute("title")).toContain(extra.path);
+    expect(screen.queryByRole("button", { name: /Migrate/ })).toBeNull();
+    fireEvent.click(hub);
+    await waitFor(() => expect(onOpen).toHaveBeenCalledWith("hub"));
+    fireEvent.click(screen.getByRole("button", { name: "Open workspace HatoPad" }));
+    await waitFor(() => expect(onOpen).toHaveBeenLastCalledWith(undefined));
+  });
+  it("keeps migration in workspace options without quick-open buttons", async () => {
     setup();
     await screen.findByText("VibeHub");
     expect(screen.getByText(extra.path)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Open workspace VibeHub" }));
-    await waitFor(() => expect(window.gateway.openWorkspaceRoot).toHaveBeenCalledWith("core-one", "hub"));
-    expect(window.gateway.migrateWorkspace).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Open workspace VibeHub" })).toBeNull();
   });
   it("reviews and migrates the additional folder without replacing the primary workspace", async () => {
     const { onMigrated, state } = setup();
@@ -54,8 +69,8 @@ describe("additional Core workspaces", () => {
     expect(state.workspaces[0]?.directory).toBe(owner.directory);
   });
   it("refreshes available workspaces when returning to Gateway", async () => {
-    setup();
-    await screen.findByText("VibeHub");
+    setup("links");
+    await screen.findByRole("button", { name: "Open workspace VibeHub" });
     vi.mocked(window.gateway.listWorkspaceRoots).mockResolvedValue([
       main,
       extra,
