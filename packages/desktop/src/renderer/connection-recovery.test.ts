@@ -77,7 +77,8 @@ it("fails restoration explicitly for unavailable saved workspace/task selections
       request: vi.fn().mockImplementation(async (type: string) => {
         if (type === "workspace.roots") return { selectedRootId: "root-a", roots: [] };
         if (type === "workspace.open") return { workspace: mismatch === "workspace" ? "/root" : "/task-a" };
-        if (type === "tasks.list") return { tasks: [], selectedTaskId: undefined };
+        if (type === "tasks.list") return { tasks: [{ id: "task-a" }], selectedTaskId: undefined };
+        if (type === "tasks.switch") return { workspace: "/root" };
       }),
     } as unknown as import("./client").CoreClient;
     await expect(
@@ -222,4 +223,36 @@ it("shows actionable paused feedback for snapshot limits and progress for transi
     kind: "progress",
     message: "Offline; retrying…",
   });
+});
+
+it("restores this window's saved task when the new socket starts on another default", async () => {
+  const { reconnectWorkspace } = await import("./connection-recovery");
+  let selected: string | undefined = "task-b";
+  const client = {
+    connect: vi.fn().mockResolvedValue(undefined),
+    request: vi.fn().mockImplementation(async (type: string, payload: { taskId?: string }) => {
+      if (type === "workspace.roots") return { selectedRootId: "root-a", roots: [] };
+      if (type === "workspace.open") return { workspace: `/${selected ?? "root"}` };
+      if (type === "tasks.list")
+        return { tasks: [{ id: "task-a" }, { id: "task-b" }], ...(selected ? { selectedTaskId: selected } : {}) };
+      if (type === "tasks.switch") {
+        selected = payload.taskId;
+        return { workspace: `/${selected ?? "root"}` };
+      }
+    }),
+  } as unknown as import("./client").CoreClient;
+  const signal = new AbortController().signal;
+  await expect(
+    reconnectWorkspace(client, "host", 7331, false, signal, {
+      rootId: "root-a",
+      workspace: "/task-a",
+      taskId: "task-a",
+    }),
+  ).resolves.toMatchObject({ workspace: { workspace: "/task-a" } });
+  await expect(
+    reconnectWorkspace(client, "host", 7331, false, signal, { rootId: "root-a", workspace: "/root" }),
+  ).resolves.toMatchObject({ workspace: { workspace: "/root" } });
+  await expect(
+    reconnectWorkspace(client, "host", 7331, false, signal, { rootId: "root-a", workspace: "/gone", taskId: "gone" }),
+  ).rejects.toThrow("Saved task selection is unavailable");
 });
