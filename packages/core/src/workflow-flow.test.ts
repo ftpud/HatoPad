@@ -2020,6 +2020,30 @@ describe("typed workflows", () => {
     expect(run.blocks.map((state) => state.blockId)).toEqual(["a", "b"]);
   });
 
+  it("enforces block-attempt and retained-output limits for typed Script blocks", async () => {
+    const attempts = await setup(
+      [block("start", "text"), block("script", "script", { command: "x" }), block("again", "text")],
+      [edge("start", "script"), edge("script", "again"), edge("again", "script")],
+    );
+    await attempts.store.update({ ...attempts.definition, settings: { maxBlockAttempts: 1, maxLoopCount: 5 } });
+    const dispatch = vi.fn(async () => session("next"));
+    await attempts.runner.start(attempts.definition.id, "go", dispatch, "codex");
+    const failed = await attempts.finished();
+    expect(failed.status).toBe("failed");
+    expect(failed.error).toContain("limit of 1 attempts");
+    expect(dispatch).toHaveBeenCalledTimes(1);
+
+    const retained = await setup(
+      [block("start", "text"), block("script", "script", { command: "x" })],
+      [edge("start", "script")],
+    );
+    await retained.store.update({ ...retained.definition, settings: { outputLimitChars: 1000 } });
+    await retained.runner.start(retained.definition.id, "go", async () => session("X".repeat(5000)), "codex");
+    const run = await retained.finished();
+    expect(run.status).toBe("succeeded");
+    expect(run.blocks.find((state) => state.blockId === "script")?.output).toHaveLength(1000);
+  });
+
   it("rejects recursive tool calls to an AI block that is still active", async () => {
     const { runner, definition, finished } = await setup(
       [block("start", "start_input"), block("a", "ai"), block("b", "ai")],
