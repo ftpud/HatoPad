@@ -7,16 +7,20 @@ export function WorkspaceMigration({
   workspace,
   local,
   disabled = false,
+  sourceDirectory,
+  expandedByDefault = false,
   onBusy,
   onMigrate,
 }: {
   workspace: GatewayWorkspace;
   local: boolean;
   disabled?: boolean;
+  sourceDirectory?: string;
+  expandedByDefault?: boolean;
   onBusy(busy: boolean): void;
   onMigrate(destination: string): Promise<void>;
 }) {
-  const [expanded, setExpanded] = useState(Boolean(workspace.migrationDestination));
+  const [expanded, setExpanded] = useState(Boolean(workspace.migrationDestination) || expandedByDefault);
   const [destination, setDestination] = useState(workspace.migrationDestination ?? "");
   const [preview, setPreview] = useState<Preview>();
   const [phase, setPhase] = useState<"idle" | "checking" | "moving" | "done">("idle");
@@ -32,7 +36,11 @@ export function WorkspaceMigration({
     setFailure("");
     onBusy(true);
     try {
-      setPreview(await window.gateway.previewWorkspaceMigration(workspace.id, destination.trim()));
+      setPreview(
+        await (sourceDirectory
+          ? window.gateway.previewWorkspaceMigration(workspace.id, destination.trim(), sourceDirectory)
+          : window.gateway.previewWorkspaceMigration(workspace.id, destination.trim())),
+      );
     } catch (error) {
       setFailure(gatewayErrorMessage(error));
     } finally {

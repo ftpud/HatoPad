@@ -1,3 +1,4 @@
+import { OtherWorkspaces } from "./OtherWorkspaces";
 import { PinButton, pinnedFirst, cloudPinKey } from "./PinButton";
 import { WorkspaceMigration } from "./WorkspaceMigration";
 import { Select } from "./Select";
@@ -227,7 +228,7 @@ export function App() {
 
   const action = async (
     workspace: GatewayWorkspace,
-    operation: "startServer" | "repairServer" | "stopServer" | "startClient",
+    operation: "startServer" | "repairServer" | "stopServer" | "startClient" | "openWorkspaceRoot",
   ) => {
     clearError();
     setLogWorkspaceId(workspace.id);
@@ -717,8 +718,12 @@ export function App() {
                               <RefreshCw size={14} /> Repair
                             </button>
                           )}
-                          <button disabled={busy} onClick={() => void action(workspace, "startClient")}>
-                            <Laptop size={14} /> Start client
+                          <button
+                            className="primary"
+                            disabled={busy}
+                            onClick={() => void action(workspace, "openWorkspaceRoot")}
+                          >
+                            <Laptop size={14} /> Open workspace
                           </button>
                           <button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}>
                             <CircleStop size={14} /> Stop server
@@ -750,6 +755,12 @@ export function App() {
                             <SquareTerminal size={14} /> Logs
                           </button>
                         </div>
+                        <OtherWorkspaces
+                          owner={workspace}
+                          local={connection.kind === "local"}
+                          disabled={busy}
+                          onMigrated={setState}
+                        />
                       </article>
                     );
                   })}
@@ -998,7 +1009,11 @@ export function App() {
       )}
       {bridgeReady && workspaceDialog && connection && (
         <WorkspaceDialog
-          value={workspaceDialog}
+          value={
+            workspaceDialog.migrationSource && workspaceDialog.migrationSource !== workspaceDialog.directory
+              ? { ...workspaceDialog, migrationDestination: undefined }
+              : workspaceDialog
+          }
           connectionId={connection.id}
           local={connection.kind === "local"}
           discoverOnOpen={discoverWorkspaceOnOpen}
@@ -1514,7 +1529,7 @@ function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): vo
   return <div className="dialog-layer">{children}</div>;
 }
 
-function useDialogKeyboard(onClose: () => void, accessibleName: string) {
+export function useDialogKeyboard(onClose: () => void, accessibleName: string) {
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     const dialog = document.querySelector<HTMLFormElement>(".dialog-layer:last-of-type .dialog");

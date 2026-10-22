@@ -41,6 +41,7 @@ function bridge() {
       connectionRuntimes: {},
       distribution: "bundled",
     })),
+    openWorkspaceRoot: vi.fn(async () => undefined),
     cloudGet: vi.fn(async () => account),
     cloudListCores: vi.fn(async () => [
       { id: "root-a", alias: "First root", path: "/first", primary: true },
@@ -68,6 +69,13 @@ describe("Gateway layout and pins", () => {
     const left = document.querySelector(".gateway-shell > aside")!;
     expect(left.querySelector(".cloud-account")).toBeNull();
     expect(within(left as HTMLElement).getByRole("button", { name: "Alpha, local Mac" })).toBeTruthy();
+  });
+  it("opens a primary workspace with one action", async () => {
+    bridge();
+    render(<App />);
+    const heading = await screen.findByRole("heading", { name: "First project" });
+    fireEvent.click(within(heading.closest("article")!).getByRole("button", { name: "Open workspace" }));
+    await waitFor(() => expect(window.gateway.openWorkspaceRoot).toHaveBeenCalledWith("one"));
   });
   it("pins connections without switching them and restores ordering after reopening Gateway", async () => {
     bridge();

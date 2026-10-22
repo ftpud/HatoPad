@@ -1,3 +1,4 @@
+import { WorkspaceRootRegistry } from "./workspace-roots.js";
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access, symlink, readlink } from "node:fs/promises";
 import path from "node:path";
@@ -5,7 +6,7 @@ import os from "node:os";
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { migrateWorkspace, previewWorkspaceMigration } from "./workspace-migration.js";
+import { migrateWorkspace, previewWorkspaceMigration, listMigrationWorkspaces } from "./workspace-migration.js";
 import { WorkspaceTaskStore } from "./tasks.js";
 import { WorkspaceStateStore } from "./workspace-state.js";
 
@@ -106,6 +107,74 @@ describe("offline workspace migration", () => {
     await migrateWorkspace({ ...options, source: destination, destination: source });
     await migrateWorkspace(options);
     expect((await exec("git", ["-C", newTask, "status", "--porcelain"])).stdout).toContain("uncommitted.txt");
+  });
+
+  it("migrates an additional workspace and updates its owning Core's registry and workflow references", async () => {
+    const options = await fixture();
+    const owner = options.source;
+    const source = path.join(path.dirname(owner), "VibeHub");
+    const destination = path.join(path.dirname(owner), "HatoHub");
+    const sibling = path.join(path.dirname(owner), "VibeLand");
+    await mkdir(source);
+    await mkdir(sibling);
+    await writeFile(path.join(source, "keep.txt"), "uncommitted project content");
+    const registry = await WorkspaceRootRegistry.open(owner, options.stateDirectory);
+    const root = await registry.add(source, "Hub");
+    await registry.add(sibling, "Landing page");
+    const nested = path.join(source, "nested");
+    await mkdir(nested);
+    await registry.add(nested, "Nested root");
+    await new WorkspaceStateStore(nested, options.stateDirectory).save({ openFiles: ["nested.txt"] });
+    const workflow = path.join(options.stateDirectory, "harnesses", key(owner), "runs.json");
+    await json(workflow, { runs: [{ binding: { rootWorkspace: source, workspace: source }, rootId: root.id }] });
+    const before = await listMigrationWorkspaces(owner, options.stateDirectory);
+    expect(before.map((item) => item.path)).toContain(source);
+    await migrateWorkspace({ ...options, source, destination, ownerWorkspace: owner });
+    const after = await listMigrationWorkspaces(owner, options.stateDirectory);
+    expect(after.find((item) => item.primary)?.path).toBe(owner);
+    expect(after.find((item) => item.alias === "Hub")?.path).toBe(destination);
+    expect(after.find((item) => item.alias === "Hub")?.id).not.toBe(root.id);
+    expect(after.find((item) => item.alias === "Landing page")?.path).toBe(sibling);
+    expect(after.find((item) => item.alias === "Nested root")?.path).toBe(path.join(destination, "nested"));
+    expect(
+      (await new WorkspaceStateStore(path.join(destination, "nested"), options.stateDirectory).load()).openFiles,
+    ).toEqual(["nested.txt"]);
+    expect(await readFile(path.join(destination, "keep.txt"), "utf8")).toBe("uncommitted project content");
+    const saved = JSON.parse(await readFile(workflow, "utf8"));
+    expect(saved.runs[0].binding.workspace).toBe(destination);
+    expect(saved.runs[0].rootId).toBe(`root_${key(destination).slice(0, 16)}`);
+    expect((await exec("git", ["-C", owner, "status", "--porcelain"])).stdout).toBe("");
+  });
+
+  it("restores the owning Core registry if a later Git repair fails", async () => {
+    const options = await fixture();
+    const child = await fixture();
+    const registry = await WorkspaceRootRegistry.open(options.source, options.stateDirectory);
+    await registry.add(child.source, "Child");
+    const task = await new WorkspaceTaskStore(child.source, options.stateDirectory).create("child-task");
+    const pointer = path.join(new WorkspaceTaskStore(child.source, options.stateDirectory).taskPath(task.id), ".git");
+    await writeFile(pointer, "broken Git pointer");
+    await expect(
+      migrateWorkspace({
+        ...options,
+        source: child.source,
+        destination: child.destination,
+        ownerWorkspace: options.source,
+      }),
+    ).rejects.toThrow("original project and state were restored");
+    const restored = await listMigrationWorkspaces(options.source, options.stateDirectory);
+    expect(restored.find((root) => root.alias === "Child")?.path).toBe(child.source);
+    expect(await readFile(pointer, "utf8")).toBe("broken Git pointer");
+    await expect(access(child.destination)).rejects.toThrow();
+  });
+
+  it("rejects migration of a folder that is not registered with the selected owning Core", async () => {
+    const options = await fixture();
+    const owner = path.join(path.dirname(options.source), "owner");
+    await mkdir(owner);
+    await expect(migrateWorkspace({ ...options, ownerWorkspace: owner })).rejects.toThrow("no longer registered");
+    await expect(access(options.source)).resolves.toBeUndefined();
+    await expect(access(options.destination)).rejects.toThrow();
   });
 
   it("moves bridge responses and user-owned JSON verbatim rather than parsing them as metadata", async () => {

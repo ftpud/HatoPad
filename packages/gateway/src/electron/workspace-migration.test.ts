@@ -5,6 +5,8 @@ import {
   parseMigrationResult,
   parseWorkspaceMigrations,
   migrationFailure,
+  openRegisteredWorkspace,
+  parseWorkspaceRoots,
 } from "./workspace-migration.js";
 
 test("migration results require explicit confirmation and preserve the confirmed destination", () => {
@@ -36,4 +38,58 @@ test("migration errors show the Core message and only clear pending state after 
   assert.equal(error.message, "Original project restored");
   assert.equal(error.restored, true);
   assert.equal(migrationFailure(new Error("SSH interrupted")).restored, undefined);
+});
+
+test("registered workspaces open on their existing Core without starting another one", async () => {
+  const roots = [{ id: "root-one", alias: "One", path: "/one", primary: false }];
+  const calls: string[] = [];
+  await openRegisteredWorkspace("root-one", roots, {
+    portOpen: async () => true,
+    startCore: async () => {
+      calls.push("start");
+    },
+    openClient: async (rootId) => {
+      calls.push(rootId ?? "primary");
+    },
+  });
+  assert.deepEqual(calls, ["root-one"]);
+  calls.length = 0;
+  await openRegisteredWorkspace("root-one", roots, {
+    portOpen: async () => false,
+    startCore: async () => {
+      calls.push("start");
+    },
+    openClient: async (rootId) => {
+      calls.push(rootId ?? "primary");
+    },
+  });
+  assert.deepEqual(calls, ["start", "root-one"]);
+  calls.length = 0;
+  await openRegisteredWorkspace(undefined, [], {
+    portOpen: async () => true,
+    startCore: async () => {
+      calls.push("unexpected restart");
+    },
+    openClient: async (rootId) => {
+      calls.push(rootId ?? "primary");
+    },
+  });
+  assert.deepEqual(calls, ["primary"]);
+  await assert.rejects(
+    openRegisteredWorkspace("unknown", roots, {
+      portOpen: async () => {
+        throw Error("must not check port");
+      },
+      startCore: async () => {},
+      openClient: async () => {},
+    }),
+    /no longer registered/,
+  );
+});
+test("Core workspace discovery validates root records and additional migration keeps the owner explicit", () => {
+  const roots = [{ id: "r", alias: "Hub", path: "/hub", primary: false }];
+  assert.deepEqual(parseWorkspaceRoots("HATOPAD_WORKSPACES:" + JSON.stringify(roots)), roots);
+  assert.throws(() => parseWorkspaceRoots("HATOPAD_WORKSPACES:[{}]"), /invalid workspace list/);
+  const command = migrationScript("/hub", "/new-hub", true, 7331, "/core-one");
+  assert.ok(command.includes('"ownerWorkspace":"/core-one"'));
 });

@@ -1,3 +1,4 @@
+import { WorkspaceRootRegistry } from "./workspace-roots.js";
 import { createHash, randomUUID } from "node:crypto";
 import {
   lstat,
@@ -17,7 +18,13 @@ import {
 import path from "node:path";
 import { stateHome } from "./state-home.js";
 
-export type WorkspaceMigrationOptions = { source: string; destination: string; stateDirectory?: string; home?: string };
+export type WorkspaceMigrationOptions = {
+  source: string;
+  destination: string;
+  ownerWorkspace?: string;
+  stateDirectory?: string;
+  home?: string;
+};
 export type WorkspaceMigrationPreview = {
   source: string;
   destination: string;
@@ -59,12 +66,23 @@ function parseMetadataJson(content: string, file: string): any {
   }
 }
 
+export async function listMigrationWorkspaces(workspace: string, stateDirectory?: string) {
+  return (await WorkspaceRootRegistry.open(workspace, stateDirectory)).list();
+}
+
+function isMigrationMetadata(container: string, state: string, name: string): boolean {
+  return container === state
+    ? /\.json(?:\.bak)?$/.test(name) || /-(sessions|tasks|task-history)$/.test(name)
+    : container === path.join(state, "harnesses") || container === path.join(state, "mcp");
+}
+
 async function planMigration(options: WorkspaceMigrationOptions): Promise<{
   source: string;
   destination: string;
   state: string;
   receipt: string;
   moves: Move[];
+  references: string[];
   paths: Move[];
   preview: WorkspaceMigrationPreview;
 }> {
@@ -92,6 +110,7 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
       destination,
       state,
       receipt,
+      references: [],
       moves: [] as Move[],
       paths: [] as Move[],
       preview: { ...result, completed: true },
@@ -113,13 +132,33 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
 
   if (within(state, source) || within(home, source))
     throw Error("Projects inside HatoPad's state directory cannot be migrated.");
-  const paths: Move[] = [{ from: source, to: destination }];
+  const references: string[] = [];
+  const owner = options.ownerWorkspace ? await realpath(options.ownerWorkspace) : undefined;
+  const ownerRoots = owner ? await listMigrationWorkspaces(owner, options.stateDirectory) : [];
+  if (owner) {
+    if (!ownerRoots.some((root) => !root.primary && root.path === source))
+      throw Error(
+        "This folder is no longer registered with the selected Core. Refresh its workspaces before migrating.",
+      );
+    if (within(source, owner)) throw Error("An additional workspace cannot contain its owning Core workspace.");
+  }
+  const paths: Move[] = [
+    { from: source, to: destination },
+    ...ownerRoots
+      .filter((root) => root.path !== source && within(source, root.path))
+      .map((root) => ({ from: root.path, to: destination + root.path.slice(source.length) })),
+  ];
   const groups = options.stateDirectory || process.env.HATOPAD_STATE_DIR ? state : path.join(home, "workspace-groups");
   const groupFile = path.join(groups, `roots-${hash(source).slice(0, 20)}.json`);
   if (await exists(groupFile)) {
     const group = parseMetadataJson(await readFile(groupFile, "utf8"), groupFile);
     for (const root of group.roots ?? []) {
-      if (typeof root.path === "string" && root.path !== source && within(source, root.path))
+      if (
+        typeof root.path === "string" &&
+        root.path !== source &&
+        within(source, root.path) &&
+        !paths.some((entry) => entry.from === root.path)
+      )
         paths.push({ from: root.path, to: destination + root.path.slice(source.length) });
     }
   }
@@ -151,6 +190,11 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
   ];
   for (const container of containers) {
     for (const name of await names(container)) {
+      if (owner && isMigrationMetadata(container, state, name)) {
+        const ownerKey = hash(owner);
+        if (name === ownerKey || name.startsWith(ownerKey + "-") || name.startsWith(ownerKey + "."))
+          references.push(path.join(container, name));
+      }
       for (const entry of paths) {
         const destinationKey = hash(entry.to);
         if (name === destinationKey || name.startsWith(destinationKey + "-") || name.startsWith(destinationKey + "."))
@@ -161,16 +205,17 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
           from: path.join(container, name),
           to: path.join(container, hash(entry.to) + name.slice(key.length)),
           // Bridge traffic, user files and unknown stores move verbatim, even when named .json.
-          metadata:
-            container === state
-              ? /\.json(?:\.bak)?$/.test(name) || /-(sessions|tasks|task-history)$/.test(name)
-              : container === path.join(state, "harnesses") || container === path.join(state, "mcp"),
+          metadata: isMigrationMetadata(container, state, name),
         };
         if (await exists(move.to)) throw Error(`Saved state already exists for the destination: ${move.to}`);
         moves.push(move);
         break;
       }
     }
+  }
+  if (owner) {
+    const ownerGroupFile = path.join(groups, `roots-${hash(owner).slice(0, 20)}.json`);
+    if (await exists(ownerGroupFile)) references.push(ownerGroupFile);
   }
   const destinationGroupFile = path.join(groups, `roots-${hash(destination).slice(0, 20)}.json`);
   if (await exists(destinationGroupFile))
@@ -185,7 +230,8 @@ async function planMigration(options: WorkspaceMigrationOptions): Promise<{
     receipt,
     paths,
     moves,
-    preview: { source, destination, stateEntries: moves.length, taskWorkspaces },
+    references,
+    preview: { source, destination, stateEntries: moves.length + references.length, taskWorkspaces },
   };
 }
 
@@ -298,6 +344,7 @@ export async function migrateWorkspace(options: WorkspaceMigrationOptions): Prom
       }
     }
     for (const move of moves) if (move.metadata) await metadata(move.to);
+    for (const target of plan.references) await metadata(target);
     for (const root of paths.filter((entry) => within(source, entry.from))) await gitPointers(root.to);
     for (const entry of paths.filter(
       (entry) => entry.from.endsWith(path.sep + "workspace") && !within(source, entry.from),

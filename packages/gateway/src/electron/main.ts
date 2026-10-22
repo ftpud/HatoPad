@@ -4,6 +4,10 @@ import {
   parseMigrationResult,
   parseWorkspaceMigrations,
   migrationFailure,
+  workspaceRootsScript,
+  parseWorkspaceRoots,
+  openRegisteredWorkspace,
+  workspacePortScript,
 } from "./workspace-migration.js";
 import { CloudPortTunnel } from "./cloud-port-tunnel.js";
 import { matchLocalCloudCore } from "./managed-local-core.js";
@@ -162,7 +166,7 @@ type PublicState = {
     privateKeyPath?: string;
     hostKeyFingerprint?: string;
   }[];
-  workspaces: (Workspace & { migrationDestination?: string })[];
+  workspaces: (Workspace & { migrationDestination?: string; migrationSource?: string })[];
   portTunnels: PortTunnel[];
 };
 type Runtime = {
@@ -332,7 +336,10 @@ function publicState(state: State): PublicState {
     workspaces: state.workspaces.map((workspace) => ({
       ...workspace,
       ...(state.workspaceMigrations?.[workspace.id]
-        ? { migrationDestination: state.workspaceMigrations[workspace.id]!.destination }
+        ? {
+            migrationDestination: state.workspaceMigrations[workspace.id]!.destination,
+            migrationSource: state.workspaceMigrations[workspace.id]!.source,
+          }
         : {}),
     })),
     portTunnels: state.portTunnels,
@@ -638,7 +645,7 @@ async function startLocalServer(
   child.unref();
   return { remotePort: workspace.remotePort };
 }
-async function startLocalClient(workspaceId: string): Promise<void> {
+async function startLocalClient(workspaceId: string, rootId?: string): Promise<void> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
   const { desktopRoot } = await localArtifactPaths();
   const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
@@ -652,7 +659,14 @@ async function startLocalClient(workspaceId: string): Promise<void> {
   const desktop = desktopCommand(desktopMain);
   const child = spawn(
     desktop.command,
-    [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)],
+    [
+      ...desktop.args,
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(workspace.remotePort),
+      ...(rootId ? ["--root-id", rootId] : []),
+    ],
     {
       cwd: desktopRoot,
       env: {
@@ -1017,7 +1031,7 @@ function stopPortTunnel(tunnelId: string, notify = true): void {
   active?.stop();
   if (notify) portTunnelRuntime(tunnelId, "idle", "Stopped");
 }
-async function startClient(workspaceId: string): Promise<void> {
+async function startClient(workspaceId: string, rootId?: string): Promise<void> {
   await assertNoWorkspaceMigration(workspaceId);
   const { workspace, connection } = await withWorkspace(workspaceId);
   runtime(workspaceId, "working", "Checking remote client build...");
@@ -1059,7 +1073,7 @@ async function startClient(workspaceId: string): Promise<void> {
       });
       // Any other release (for example a Hub-updated Git release) takes the compatibility check below.
       if (matchesBundle) {
-        await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken);
+        await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken, rootId);
         return;
       }
     }
@@ -1090,7 +1104,7 @@ async function startClient(workspaceId: string): Promise<void> {
       /* A compatible downloaded Desktop can still be selected below. */
     }
     if (localDesktopCompatible) {
-      await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken);
+      await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken, rootId);
       return;
     }
     const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
@@ -1155,7 +1169,7 @@ async function startClient(workspaceId: string): Promise<void> {
         });
         if (choice.response === 1) {
           client.end();
-          await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken);
+          await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken, rootId);
           return;
         }
         if (choice.response === 2) {
@@ -1217,7 +1231,7 @@ async function startClient(workspaceId: string): Promise<void> {
       client.end();
       runtime(workspaceId, "working", "Reusing local client build...");
     }
-    await launchClient(workspaceId, workspace, connection, clientRoot, clientBuilt, sessionToken);
+    await launchClient(workspaceId, workspace, connection, clientRoot, clientBuilt, sessionToken, rootId);
   } finally {
     client.end();
   }
@@ -1229,6 +1243,7 @@ async function launchClient(
   clientRoot: string,
   clientBuilt: boolean,
   sessionToken?: string,
+  rootId?: string,
 ): Promise<void> {
   const localIcon = bundle ? undefined : process.env.HATOPAD_DESKTOP_ICON;
   if (localIcon) {
@@ -1243,6 +1258,7 @@ async function launchClient(
     ...connection,
     kind: "ssh",
     remotePort: workspace.remotePort,
+    ...(rootId ? { rootId } : {}),
     ...(sessionToken ? { sessionToken } : {}),
     ...(connection.authenticationMethod === "agent" ? { agentSocket: process.env.SSH_AUTH_SOCK } : {}),
   });
@@ -1996,23 +2012,35 @@ handleIpc("gateway:pickWorkspaceDirectory", async () => {
   });
   return selected.canceled ? undefined : selected.filePaths[0];
 });
-async function runWorkspaceMigration(
+async function runWorkspaceCoreScript(
   workspace: Workspace,
   local: boolean,
-  destination: string,
-  migrate: boolean,
+  script: string,
   state?: State,
-) {
-  const script = migrationScript(workspace.directory, destination, migrate, workspace.remotePort);
+): Promise<string> {
   if (local) {
-    const { coreMain, node, env } = await localArtifactPaths();
+    const saved = state ?? (await readState());
+    const selected = await selectedLocalRelease(workspace.id);
+    const commit = saved.coreReleases?.[workspace.id];
+    const artifacts = await localArtifactPaths(Boolean(selected || commit));
+    // Inspect the workspace's selected Core, including updates newer than Gateway's bundle.
+    const coreMain = selected
+      ? path.join(coreReleasesDirectory(), selected, "packages/core/dist/index.js")
+      : commit
+        ? path.join(
+            await localCoreReleases.installed(commit, artifacts.node, artifacts.env),
+            "packages/core/dist/index.js",
+          )
+        : artifacts.coreMain;
+    await access(coreMain);
+    const { node, env } = artifacts;
     try {
       const { stdout } = await promisify(execFile)(node, ["--input-type=module", "-e", script], {
         cwd: path.resolve(path.dirname(coreMain), "../../.."),
         env,
         maxBuffer: 1024 * 1024,
       });
-      return parseMigrationResult(stdout);
+      return stdout;
     } catch (error) {
       throw migrationFailure(error);
     }
@@ -2026,92 +2054,163 @@ ${remoteNodeEnvironment}
 fi
 cd "$release_directory"
 node --input-type=module -e ${shell(script)}`;
-    const result = parseMigrationResult(await execute(client, `bash -lc ${shell(command)}`));
-    if (migrate) {
-      try {
-        await execute(client, workspaceRegistrationCommand(result.destination));
-        await execute(client, workspaceUnregistrationCommand(workspace.directory));
-      } catch (error) {
-        console.warn("Project moved, but workspace discovery registration needs refreshing:", error);
-      }
-    }
-    return result;
+    return await execute(client, `bash -lc ${shell(command)}`);
   } catch (error) {
     throw migrationFailure(error);
   } finally {
     client.end();
   }
 }
-async function migrationTarget(workspaceId: string, destination: string) {
+async function runWorkspaceMigration(
+  workspace: Workspace,
+  local: boolean,
+  destination: string,
+  migrate: boolean,
+  state?: State,
+  source = workspace.directory,
+) {
+  const ownerWorkspace = source === workspace.directory ? undefined : workspace.directory;
+  const script = migrationScript(source, destination, migrate, workspace.remotePort, ownerWorkspace);
+  const result = parseMigrationResult(await runWorkspaceCoreScript(workspace, local, script, state));
+  if (migrate && !local && !ownerWorkspace) {
+    const client = await connect(await credentials(workspace.connectionId, state));
+    try {
+      await execute(client, workspaceRegistrationCommand(result.destination));
+      await execute(client, workspaceUnregistrationCommand(source));
+    } catch (error) {
+      console.warn("Project moved, but workspace discovery registration needs refreshing:", error);
+    } finally {
+      client.end();
+    }
+  }
+  return result;
+}
+handleIpc("gateway:listWorkspaceRoots", async (_event, workspaceId: string) => {
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  return parseWorkspaceRoots(
+    await runWorkspaceCoreScript(workspace, connection.kind === "local", workspaceRootsScript(workspace.directory)),
+  );
+});
+handleIpc("gateway:openWorkspaceRoot", async (_event, workspaceId: string, rootId?: string) =>
+  workspaceOperations.run(workspaceId, `open-root:${rootId ?? "primary"}`, async () => {
+    await assertNoWorkspaceMigration(workspaceId);
+    const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+    const local = connection.kind === "local";
+    const roots =
+      rootId === undefined
+        ? []
+        : parseWorkspaceRoots(
+            await runWorkspaceCoreScript(workspace, local, workspaceRootsScript(workspace.directory)),
+          );
+    await openRegisteredWorkspace(rootId, roots, {
+      portOpen: async () => {
+        const output = await runWorkspaceCoreScript(workspace, local, workspacePortScript(workspace.remotePort));
+        if (output.includes("HATOPAD_CORE_PORT:open")) return true;
+        if (output.includes("HATOPAD_CORE_PORT:closed")) return false;
+        throw Error("Could not check whether this Core is running.");
+      },
+      startCore: async () => {
+        if (local) await startLocalServer(workspaceId);
+        else await startServer(workspaceId);
+      },
+      openClient: async (selectedRootId) => {
+        if (local) await startLocalClient(workspaceId, selectedRootId);
+        else await startClient(workspaceId, selectedRootId);
+      },
+    });
+  }),
+);
+async function migrationTarget(workspaceId: string, destination: string, sourceDirectory?: string) {
   if (typeof destination !== "string" || !destination.trim() || /[\0\r\n]/.test(destination))
     throw Error("Enter a destination directory.");
   const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
   const state = await readState();
+  const source = sourceDirectory === undefined ? workspace.directory : sourceDirectory;
+  if (typeof source !== "string" || !source.trim() || /[\0\r\n]/.test(source))
+    throw Error("Invalid workspace directory.");
   const pending = state.workspaceMigrations?.[workspaceId];
-  if (pending && pending.destination !== destination.trim())
+  if (pending && (pending.destination !== destination.trim() || pending.source !== source))
     throw Error(`A migration is pending. Retry with the same destination: ${pending.destination}`);
   if (
     state.workspaces.some(
       (item) =>
         item.id !== workspaceId &&
         item.connectionId === workspace.connectionId &&
-        (item.directory === workspace.directory || item.directory === destination.trim()),
+        (item.directory === workspace.directory || item.directory === source || item.directory === destination.trim()),
     )
   )
     throw Error(
       "Another Gateway workspace uses the source or destination directory. Resolve that duplicate before migrating.",
     );
-  return { workspace, local: connection.kind === "local", destination: destination.trim() };
+  return { workspace, local: connection.kind === "local", destination: destination.trim(), source };
 }
-handleIpc("gateway:previewWorkspaceMigration", async (_event, workspaceId: string, destination: string) =>
-  workspaceOperations.run(workspaceId, "preview-migration", async () => {
-    const target = await migrationTarget(workspaceId, destination);
-    return runWorkspaceMigration(target.workspace, target.local, target.destination, false);
-  }),
+handleIpc(
+  "gateway:previewWorkspaceMigration",
+  async (_event, workspaceId: string, destination: string, sourceDirectory?: string) =>
+    workspaceOperations.run(workspaceId, "preview-migration", async () => {
+      const target = await migrationTarget(workspaceId, destination, sourceDirectory);
+      return runWorkspaceMigration(target.workspace, target.local, target.destination, false, undefined, target.source);
+    }),
 );
-handleIpc("gateway:migrateWorkspace", async (_event, workspaceId: string, destination: string) =>
-  workspaceOperations.run(workspaceId, "migrate-project", async () => {
-    const target = await migrationTarget(workspaceId, destination);
-    try {
-      // Validate before interrupting the user's running workspace.
-      await runWorkspaceMigration(target.workspace, target.local, target.destination, false);
-      await updateState((state) => {
-        const current = state.workspaces.find((item) => item.id === workspaceId);
-        if (!current || current.directory !== target.workspace.directory)
-          throw Error("Workspace settings changed. Reopen settings and try again.");
-        (state.workspaceMigrations ??= {})[workspaceId] = {
-          source: target.workspace.directory,
-          destination: target.destination,
-        };
-      });
-      runtime(workspaceId, "working", "Stopping Core for project migration…");
-      if (target.local) {
-        await stopLocalServer(workspaceId);
-        await stopOrphanedLocalCore(target.workspace.remotePort, target.workspace.directory);
-      } else await stopServer(workspaceId);
-      runtime(workspaceId, "working", "Moving project and HatoPad state…");
-      // Hold the state store queue so edits/deletion cannot race with the offline move.
-      const { result } = await updateState(async (state) => {
-        const workspace = state.workspaces.find((item) => item.id === workspaceId);
-        if (!workspace || workspace.directory !== target.workspace.directory)
-          throw Error("Workspace settings changed. Reopen the settings and try again.");
-        const moved = await runWorkspaceMigration(workspace, target.local, target.destination, true, state);
-        workspace.directory = moved.destination;
-        delete state.workspaceMigrations?.[workspaceId];
-        return publicState(state);
-      });
-      runtime(workspaceId, "idle", "Project migrated. Start Core to reopen it.");
-      return result;
-    } catch (error) {
-      if ((error as { restored?: boolean }).restored) {
+handleIpc(
+  "gateway:migrateWorkspace",
+  async (_event, workspaceId: string, destination: string, sourceDirectory?: string) =>
+    workspaceOperations.run(workspaceId, "migrate-project", async () => {
+      const target = await migrationTarget(workspaceId, destination, sourceDirectory);
+      try {
+        // Validate before interrupting the user's running workspace.
+        await runWorkspaceMigration(
+          target.workspace,
+          target.local,
+          target.destination,
+          false,
+          undefined,
+          target.source,
+        );
         await updateState((state) => {
-          delete state.workspaceMigrations?.[workspaceId];
+          const current = state.workspaces.find((item) => item.id === workspaceId);
+          if (!current || current.directory !== target.workspace.directory)
+            throw Error("Workspace settings changed. Reopen settings and try again.");
+          (state.workspaceMigrations ??= {})[workspaceId] = {
+            source: target.source,
+            destination: target.destination,
+          };
         });
-        runtime(workspaceId, "idle", "Migration cancelled. The original project and state were restored.");
-      } else runtime(workspaceId, "error", "Migration did not finish. Retry the same destination to recover.");
-      throw error;
-    }
-  }),
+        runtime(workspaceId, "working", "Stopping Core for project migration…");
+        if (target.local) {
+          await stopLocalServer(workspaceId);
+          await stopOrphanedLocalCore(target.workspace.remotePort, target.workspace.directory);
+        } else await stopServer(workspaceId);
+        runtime(workspaceId, "working", "Moving project and HatoPad state…");
+        // Hold the state store queue so edits/deletion cannot race with the offline move.
+        const { result } = await updateState(async (state) => {
+          const workspace = state.workspaces.find((item) => item.id === workspaceId);
+          if (!workspace || workspace.directory !== target.workspace.directory)
+            throw Error("Workspace settings changed. Reopen the settings and try again.");
+          const moved = await runWorkspaceMigration(
+            workspace,
+            target.local,
+            target.destination,
+            true,
+            state,
+            target.source,
+          );
+          if (target.source === workspace.directory) workspace.directory = moved.destination;
+          delete state.workspaceMigrations?.[workspaceId];
+          return publicState(state);
+        });
+        runtime(workspaceId, "idle", "Project migrated. Start Core to reopen it.");
+        return result;
+      } catch (error) {
+        if ((error as { restored?: boolean }).restored) {
+          await updateState((state) => {
+            delete state.workspaceMigrations?.[workspaceId];
+          });
+          runtime(workspaceId, "idle", "Migration cancelled. The original project and state were restored.");
+        } else runtime(workspaceId, "error", "Migration did not finish. Retry the same destination to recover.");
+        throw error;
+      }
+    }),
 );
 handleIpc("gateway:saveWorkspace", async (_event, input: Omit<Workspace, "id"> & { id?: string }) => {
   const directory = input.directory.trim();
