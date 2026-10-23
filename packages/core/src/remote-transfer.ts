@@ -16,6 +16,8 @@ type Entry = {
   maxBytes: number;
   overwrite: boolean;
   mode: number;
+  /** Device and inode of the approved download; the opened descriptor must be this same file. */
+  identity?: { dev: number; ino: number };
   expiresAt: number;
   socket?: WebSocket;
   partial?: string;
@@ -46,11 +48,13 @@ export class RemoteTransferService {
     const target = path.resolve(workspace, relative);
     await rejectSymlinkPath(workspace, target, input.direction === "upload");
     let size: number;
+    let identity: Entry["identity"];
     if (input.direction === "download") {
       const info = await safeLstat(target, "The requested workspace file does not exist");
       if (!info.isFile() || info.isSymbolicLink())
         throw new CoreError("INVALID_REQUEST", "Only regular, non-symlink workspace files can be downloaded");
       size = info.size;
+      identity = { dev: info.dev, ino: info.ino };
     } else {
       if (!Number.isSafeInteger(input.size) || input.size! < 0)
         throw new CoreError("INVALID_REQUEST", "Upload size must be a non-negative integer");
@@ -84,6 +88,7 @@ export class RemoteTransferService {
       maxBytes: this.maxBytes,
       overwrite: Boolean(input.overwrite),
       mode,
+      ...(identity ? { identity } : {}),
       expiresAt,
       cancelled: false,
     });
@@ -173,7 +178,14 @@ export class RemoteTransferService {
     try {
       handle = await open(entry.target, constants.O_RDONLY | constants.O_NOFOLLOW);
       const current = await handle.stat();
-      if (!current.isFile() || current.size !== entry.size)
+      // Parent directories may have been replaced (for example by a symlink) since approval; comparing the
+      // opened descriptor with the approved file identity makes the ticket disclose only that file.
+      if (
+        !current.isFile() ||
+        current.size !== entry.size ||
+        current.dev !== entry.identity?.dev ||
+        current.ino !== entry.identity?.ino
+      )
         throw new Error("Workspace file changed after the transfer was approved");
     } catch {
       await handle?.close();
