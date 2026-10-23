@@ -5,7 +5,19 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, lstat, mkdir, realpath, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  realpath,
+  readFile,
+  readlink,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import type {
   AiProvider,
   TaskCheckpoint,
@@ -306,6 +318,11 @@ export class TaskCheckpointStore {
     const oldCurrent = oldPath === change.path ? current : await this.live(oldPath);
     const equal = (a?: SnapshotEntry, b?: SnapshotEntry) =>
       a?.hash === b?.hash && a?.mode === b?.mode && a?.symlink === b?.symlink;
+    const unavailable = () =>
+      result.conflicts.push({
+        path: change.path,
+        message: "The checkpoint content for this file is unavailable; the current file was left unchanged.",
+      });
     if (change.status === "R") {
       if (!equal(oldCurrent, base) || current) {
         result.conflicts.push({
@@ -314,7 +331,7 @@ export class TaskCheckpointStore {
         });
         return;
       }
-      await this.writeEntry(change.path, target!);
+      if (!(await this.writeEntry(change.path, target!))) return void unavailable();
       await rm(await this.checkedTarget(oldPath), { force: true });
       result.applied.push(change.path);
       return;
@@ -330,8 +347,9 @@ export class TaskCheckpointStore {
       });
       return;
     }
-    if (target) await this.writeEntry(change.path, target);
-    else await rm(await this.checkedTarget(change.path), { force: true });
+    if (target) {
+      if (!(await this.writeEntry(change.path, target))) return void unavailable();
+    } else await rm(await this.checkedTarget(change.path), { force: true });
     result.applied.push(change.path);
   }
   private async live(file: string): Promise<SnapshotEntry | undefined> {
@@ -352,17 +370,40 @@ export class TaskCheckpointStore {
       throw error;
     }
   }
-  private async writeEntry(file: string, entry: SnapshotEntry): Promise<void> {
+  /**
+   * Publishes a snapshot entry only after its blob is read and verified; the replacement is staged beside the
+   * destination and renamed over it, so a missing blob or failed write leaves the live file intact.
+   * Returns false when the checkpoint content is unavailable.
+   */
+  private async writeEntry(file: string, entry: SnapshotEntry): Promise<boolean> {
+    let content: Buffer;
+    try {
+      content = await this.blob(entry.hash);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    if (crypto.createHash("sha256").update(content).digest("hex") !== entry.hash) return false;
     const destination = await this.checkedTarget(file);
     await mkdir(path.dirname(destination), { recursive: true });
     await this.checkedTarget(file);
-    await rm(destination, { force: true });
-    const content = await this.blob(entry.hash);
-    if (entry.symlink) await symlink(content.toString("utf8"), destination);
-    else {
-      await writeFile(destination, content);
-      await chmod(destination, entry.mode & 0o777);
+    const staged = path.join(
+      path.dirname(destination),
+      `.${path.basename(destination)}.hatopad-${crypto.randomUUID()}`,
+    );
+    try {
+      if (entry.symlink) await symlink(content.toString("utf8"), staged);
+      else {
+        await writeFile(staged, content, { flag: "wx", mode: 0o600 });
+        await chmod(staged, entry.mode & 0o777);
+      }
+      await this.checkedTarget(file);
+      await rename(staged, destination);
+    } catch (error) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw error;
     }
+    return true;
   }
 
   private async capture(): Promise<Record<string, SnapshotEntry>> {

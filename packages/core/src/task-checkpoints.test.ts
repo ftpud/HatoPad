@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -191,4 +192,25 @@ it("never follows replaced parent symlinks or removes a directory when applying 
   await writeFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "keep");
   expect(await store.restore(id)).toMatchObject({ applied: [], conflicts: [{ path: "parent/file.txt" }] });
   expect(await readFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "utf8")).toBe("keep");
+});
+
+it("keeps the live file when a checkpoint blob is missing or damaged during revert", async () => {
+  const { workspace, store } = await fixture();
+  const state = path.join(path.dirname(workspace), "state");
+  const id = await store.begin("codex", "Edit tracked");
+  await writeFile(path.join(workspace, "tracked.txt"), "after\n");
+  await store.complete(id, "completed");
+  const blobs = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+    "blobs",
+  );
+  const beforeHash = createHash("sha256").update("before\n").digest("hex");
+  await rm(path.join(blobs, beforeHash));
+  expect(await store.revert(id)).toMatchObject({ applied: [], conflicts: [{ path: "tracked.txt" }] });
+  expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("after\n");
+  await writeFile(path.join(blobs, beforeHash), "tampered\n");
+  expect(await store.revert(id)).toMatchObject({ applied: [], conflicts: [{ path: "tracked.txt" }] });
+  expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("after\n");
+  expect((await readdir(workspace)).filter((name) => name.includes(".hatopad-"))).toEqual([]);
 });
