@@ -40,6 +40,7 @@ type StoredCheckpoint = Omit<TaskCheckpoint, "files"> & {
 export class TaskCheckpointStore {
   private readonly root: string;
   private queue: Promise<unknown> = Promise.resolve();
+  private secured?: Promise<void>;
 
   constructor(
     private readonly workspace: string,
@@ -415,8 +416,8 @@ export class TaskCheckpointStore {
         if (!stat.isFile() && !stat.isSymbolicLink()) continue;
         const content = stat.isSymbolicLink() ? Buffer.from(await readlink(full)) : await readFile(full);
         const hash = crypto.createHash("sha256").update(content).digest("hex");
-        await mkdir(path.join(this.root, "blobs"), { recursive: true });
-        await writeFile(path.join(this.root, "blobs", hash), content, { flag: "wx" }).catch(
+        await this.directory("blobs");
+        await writeFile(path.join(this.root, "blobs", hash), content, { flag: "wx", mode: 0o600 }).catch(
           (error: NodeJS.ErrnoException) => {
             if (error.code !== "EEXIST") throw error;
           },
@@ -487,6 +488,34 @@ export class TaskCheckpointStore {
       throw new CoreError("INVALID_REQUEST", "Invalid checkpoint path");
     return target;
   }
+  /**
+   * Snapshot payloads can hold private workspace files, so history is owner-only regardless of the source mode
+   * or umask. The first use also repairs state written by older Cores with default permissions.
+   */
+  private async directory(name: "blobs" | "checkpoints"): Promise<void> {
+    this.secured ??= this.secure().catch((error: unknown) => {
+      this.secured = undefined;
+      throw error;
+    });
+    await this.secured;
+    await mkdir(path.join(this.root, name), { recursive: true, mode: 0o700 });
+  }
+  private async secure(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await chmod(this.root, 0o700);
+    for (const name of ["blobs", "checkpoints"]) {
+      const directory = path.join(this.root, name);
+      let entries: string[];
+      try {
+        await chmod(directory, 0o700);
+        entries = await readdir(directory);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const entry of entries) await chmod(path.join(directory, entry), 0o600).catch(() => undefined);
+    }
+  }
   private blob(hash: string): Promise<Buffer> {
     return readFile(path.join(this.root, "blobs", hash));
   }
@@ -504,8 +533,8 @@ export class TaskCheckpointStore {
     }
   }
   private async write(value: StoredCheckpoint): Promise<void> {
-    await mkdir(path.join(this.root, "checkpoints"), { recursive: true });
-    await writeFile(this.file(value.id), JSON.stringify(value), "utf8");
+    await this.directory("checkpoints");
+    await writeFile(this.file(value.id), JSON.stringify(value), { encoding: "utf8", mode: 0o600 });
   }
   private async all(): Promise<StoredCheckpoint[]> {
     try {
