@@ -533,33 +533,66 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
       if (savedCursor) modifiedEditor.setPosition(savedCursor);
       modifiedEditor.onDidChangeCursorPosition((event) => cursorPositions.update(activeTab, event.position));
     }
-    instance.getModifiedEditor().onDidChangeModelContent(() => {
-      if (diffRollbackTimer.current) clearTimeout(diffRollbackTimer.current);
-      diffRollbackTimer.current = setTimeout(async () => {
-        const current = layoutRef.current.editorGroups[0];
-        const tab = current?.tabs.find((item) => item.id === current.activeTabId);
-        if (!tab || tab.type !== "diff" || !clientRef.current) return;
-        const content = instance.getModifiedEditor().getValue();
-        const untracked = gitEntries.some(
-          (entry) => entry.path === tab.path && entry.indexStatus === "?" && entry.worktreeStatus === "?",
-        );
-        try {
-          if (untracked && !content) await clientRef.current.request("git.rollback", { path: tab.path });
-          else {
-            selfWriteUntil.current.set(tab.path, Date.now() + 1500);
-            await clientRef.current.request("filesystem.writeFile", { path: tab.path, content });
+    // The pending write is bound to the tab, root and model that produced it; tab, root or task switches
+    // cannot redirect it to another file, and the write is revision-checked against the content the diff showed.
+    const originTabId = activeTab?.type === "diff" ? activeTab.id : undefined;
+    const originRoot = selectedRootIdRef.current;
+    let pending: string | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const cancelTimer = () => {
+      if (timer) clearTimeout(timer);
+      if (diffRollbackTimer.current === timer) diffRollbackTimer.current = undefined;
+      timer = undefined;
+    };
+    const flush = async () => {
+      cancelTimer();
+      const content = pending;
+      pending = undefined;
+      if (content === undefined || !originTabId) return;
+      const tab = layoutRef.current.editorGroups[0]?.tabs.find((item) => item.id === originTabId);
+      const client = clientRef.current;
+      // Task and checkpoint diffs show a non-workspace side; only working-tree diffs are writable.
+      if (!tab || tab.type !== "diff" || tab.diffRef || tab.path.startsWith("task-checkpoint:") || !client) return;
+      if ((tab.rootId ?? originRoot) !== originRoot || selectedRootIdRef.current !== originRoot) {
+        setStatusMessage(`Discarded diff edit for ${tab.path}: the workspace changed before it was saved`);
+        return;
+      }
+      const untracked = gitEntriesRef.current.some(
+        (entry) => entry.path === tab.path && entry.indexStatus === "?" && entry.worktreeStatus === "?",
+      );
+      try {
+        if (untracked && !content) await client.request("git.rollback", { path: tab.path });
+        else {
+          const current = await client.request("filesystem.readFile", { path: tab.path });
+          if (current.content !== tab.savedContent) {
+            setStatusMessage(`${tab.path} changed outside the diff; reopen the diff before editing it`);
+            return;
           }
-          updateGroup((tabs, active) => ({
-            tabs: tabs.map((item) =>
-              item.id === tab.id ? { ...item, content, savedContent: content, dirty: false } : item,
-            ),
-            activeTabId: active,
-          }));
-          await Promise.all([refreshGit(), refreshTree()]);
-        } catch (error) {
-          setStatusMessage(error instanceof Error ? error.message : "Could not rollback change block");
+          selfWriteUntil.current.set(tab.path, Date.now() + 1500);
+          await client.request("filesystem.writeFile", { path: tab.path, content, expectedRevision: current.revision });
         }
-      }, 200);
+        if (selectedRootIdRef.current !== originRoot) return;
+        updateGroup((tabs, active) => ({
+          tabs: tabs.map((item) =>
+            item.id === tab.id ? { ...item, content, savedContent: content, dirty: false } : item,
+          ),
+          activeTabId: active,
+        }));
+        await Promise.all([refreshGit(), refreshTree()]);
+      } catch (error) {
+        setStatusMessage(error instanceof Error ? error.message : "Could not rollback change block");
+      }
+    };
+    const modified = instance.getModifiedEditor();
+    modified.onDidChangeModelContent(() => {
+      if (!originTabId) return;
+      pending = modified.getValue();
+      cancelTimer();
+      timer = diffRollbackTimer.current = setTimeout(() => void flush(), 200);
+    });
+    // Closing or switching away from the diff saves the pending edit for its own tab immediately.
+    modified.onDidDispose(() => {
+      if (pending !== undefined) void flush();
     });
   };
   return { navigateHistory, runHttpRequest, mountEditor, mountWorkingDiff };

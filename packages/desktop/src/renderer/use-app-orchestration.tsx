@@ -1714,6 +1714,7 @@ export function useAppOrchestration() {
                         ...item,
                         originalContent: result.originalContent,
                         content: result.modifiedContent,
+                        savedContent: result.modifiedContent,
                         error: undefined,
                       }
                     : item,
