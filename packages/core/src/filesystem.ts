@@ -4,6 +4,7 @@ import os from "node:os";
 import { constants } from "node:fs";
 import {
   access,
+  copyFile,
   cp,
   lstat,
   mkdir,
@@ -245,13 +246,25 @@ export class WorkspaceFileSystem {
         throw new CoreError("FILE_CHANGED", `File changed outside the editor: ${relativePath}`);
       }
       await access(target, constants.W_OK);
+      // The original is copied aside before the in-place write (which keeps the file's identity). If the write
+      // fails partway (for example disk full), renaming the copy back needs no free space, so the previous
+      // complete contents survive even when rewriting them would fail too.
+      const backup = path.join(path.dirname(target), `.${path.basename(target)}.hatopad-save-${randomUUID()}`);
+      await copyFile(target, backup, constants.COPYFILE_EXCL);
       try {
         await writeFile(target, content, "utf8");
       } catch (error) {
-        // A partial write (for example disk full) must not leave a truncated file behind.
-        await writeFile(target, current).catch(() => undefined);
+        try {
+          await rename(backup, target);
+        } catch {
+          throw new CoreError(
+            "WRITE_FAILED",
+            `Could not write file: ${relativePath}; its previous contents are preserved in ${path.basename(backup)}`,
+          );
+        }
         throw error;
       }
+      await rm(backup, { force: true });
       const updated = await stat(target);
       return { bytesWritten: bytes, revision: this.revision(updated, Buffer.from(content, "utf8")) };
     } catch (error) {

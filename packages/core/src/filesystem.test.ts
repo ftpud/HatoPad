@@ -99,6 +99,28 @@ describe("WorkspaceFileSystem", () => {
     }
   });
 
+  it("keeps the previous contents when a save and every rewrite of the file fail", async () => {
+    await fs.open(root);
+    const target = path.join(root, "src", "index.ts");
+    await writeFile(target, "ORIGINAL_KEEP\n");
+    const opened = await fs.read("src/index.ts");
+    const realWrite = fileOperations.writeFile;
+    const write = vi.spyOn(fileOperations, "writeFile").mockImplementation(async (file, ...rest) => {
+      if (file !== target) return realWrite(file, ...rest);
+      await realWrite(target, "partial");
+      throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+    });
+    await expect(fs.write("src/index.ts", "replacement\n", opened.revision)).rejects.toMatchObject({
+      code: "WRITE_FAILED",
+    });
+    write.mockRestore();
+    expect(await readFile(target, "utf8")).toBe("ORIGINAL_KEEP\n");
+    expect((await readdir(path.join(root, "src"))).filter((name) => name.includes("hatopad-save"))).toEqual([]);
+    const saved = await fs.write("src/index.ts", "after recovery\n", (await fs.read("src/index.ts")).revision);
+    expect(saved.bytesWritten).toBeGreaterThan(0);
+    expect(await readFile(target, "utf8")).toBe("after recovery\n");
+  });
+
   it("creates files and directories and renames them within the workspace", async () => {
     await fs.open(root);
     await fs.createDirectory("src/components");
