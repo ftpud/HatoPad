@@ -175,6 +175,35 @@ describe("WorkspaceFileSystem", () => {
     await expect(access(path.join(root, "Readme.md"))).resolves.toBeUndefined();
   });
 
+  it("treats a differently cased existing file as a collision on case-sensitive filesystems", async () => {
+    await fs.open(root);
+    await writeFile(path.join(root, "name.txt"), "source\n");
+    await writeFile(path.join(root, "NAME.txt"), "other\n");
+    if ((await readFile(path.join(root, "name.txt"), "utf8")) !== "source\n") return; // case-insensitive host
+    const request = [{ source: "name.txt", destination: "NAME.txt" }];
+    const preview = await fs.transferPreflight("move", request);
+    expect(preview.items[0]).toMatchObject({ collision: true, overwrite: false, caseOnlyRename: false });
+    await expect(fs.transferApply("move", request, [], [], [], true)).rejects.toMatchObject({ code: "WRITE_FAILED" });
+    expect(await readFile(path.join(root, "NAME.txt"), "utf8")).toBe("other\n");
+    expect(await readFile(path.join(root, "name.txt"), "utf8")).toBe("source\n");
+  });
+
+  it("does not overwrite a destination created after the transfer preflight", async () => {
+    await fs.open(root);
+    await writeFile(path.join(root, "a.txt"), "source\n");
+    const request = [{ source: "a.txt", destination: "b.txt" }];
+    const preflight = fs.transferPreflight.bind(fs);
+    vi.spyOn(fs, "transferPreflight").mockImplementation(async (...args) => {
+      const preview = await preflight(...args);
+      await writeFile(path.join(root, "b.txt"), "late\n");
+      return preview;
+    });
+    const result = await fs.transferApply("move", request, [], [], [], true);
+    expect(result.completed).toEqual([]);
+    expect(await readFile(path.join(root, "b.txt"), "utf8")).toBe("late\n");
+    expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("source\n");
+  });
+
   it("previews, trashes, and restores a directory without exposing trash in the tree", async () => {
     await fs.open(root);
     const preview = await fs.previewDelete("src");

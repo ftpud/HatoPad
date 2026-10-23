@@ -225,6 +225,16 @@ export class WorkspaceFileSystem {
     }
   }
 
+  private async exists(target: string): Promise<boolean> {
+    try {
+      await lstat(target);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+  }
+
   private revision(info: Awaited<ReturnType<typeof stat>>, content: Buffer): FileRevision {
     return { identity: `${info.dev}:${info.ino}`, version: createHash("sha256").update(content).digest("hex") };
   }
@@ -325,18 +335,20 @@ export class WorkspaceFileSystem {
       const destination = this.validateRelative(request.destination);
       const parentName = path.posix.dirname(request.destination);
       const parent = parentName === "." ? this.getWorkspace() : await this.resolveExisting(parentName);
-      let collision = false;
+      let existing: Awaited<ReturnType<typeof lstat>> | undefined;
       try {
-        await lstat(destination);
-        collision = true;
+        existing = await lstat(destination);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
+      // Only a destination that is the source itself (a case-insensitive alias) is a case-only rename; on a
+      // case-sensitive filesystem a differently cased name is a separate entry and a real collision.
       const caseOnlyRename =
         kind === "move" &&
         request.source.toLocaleLowerCase() === request.destination.toLocaleLowerCase() &&
-        request.source !== request.destination;
-      if (caseOnlyRename) collision = false;
+        request.source !== request.destination &&
+        (!existing || (existing.dev === info.dev && existing.ino === info.ino));
+      const collision = Boolean(existing) && !caseOnlyRename;
       const affected = (candidate: string) =>
         candidate === request.source || (info.isDirectory() && candidate.startsWith(`${request.source}/`));
       items.push({
@@ -408,6 +420,9 @@ export class WorkspaceFileSystem {
         if (item.caseOnlyRename) {
           await rename(source, temporary);
           try {
+            // With the source moved aside, any entry still at the destination is a different file.
+            if (await this.exists(destination))
+              throw new CoreError("WRITE_FAILED", `A file or directory already exists at: ${item.destination}`);
             await rename(temporary, destination);
           } catch (error) {
             await rename(temporary, source).catch(() => undefined);
@@ -418,6 +433,8 @@ export class WorkspaceFileSystem {
         }
         await cp(source, temporary, { recursive: item.type === "directory", errorOnExist: true, force: false });
         if (item.collision) await rename(destination, backup);
+        else if (await this.exists(destination))
+          throw new CoreError("WRITE_FAILED", `A file or directory appeared at: ${item.destination}`);
         try {
           await rename(temporary, destination);
         } catch (error) {
