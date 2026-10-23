@@ -194,7 +194,7 @@
   align-items: center;
   gap: 5px;
 }
-.settings-control > select {
+.settings-control > .select-trigger {
   width: 112px;
   height: 27px;
   padding: 0 7px;
@@ -305,7 +305,7 @@
 .font-setting label {
   color: var(--text-primary);
 }
-.font-setting select,
+.font-setting .select-trigger,
 .font-setting input {
   height: 27px;
   border: 1px solid var(--border-strong);
@@ -314,7 +314,7 @@
   background: var(--surface-panel);
   color: var(--text-primary);
 }
-.font-setting select {
+.font-setting .select-trigger {
   width: 156px;
   padding: 0 7px;
 }
@@ -323,7 +323,7 @@
   padding: 0 7px;
   text-align: right;
 }
-.font-setting select:focus,
+.font-setting .select-trigger:focus,
 .font-setting input:focus {
   border-color: var(--accent);
 }
@@ -333,20 +333,20 @@
   align-items: center;
   gap: 3px;
 }
-.top-java-run button:first-child {
+.top-java-run button:not(.select-trigger):first-child {
   color: var(--success);
 }
-.top-java-run button:nth-child(2) {
+.top-java-run button:not(.select-trigger):nth-child(2) {
   color: var(--warning);
 }
-.top-java-run button:nth-child(3) {
+.top-java-run button:not(.select-trigger):nth-child(3) {
   color: var(--danger);
 }
-.top-java-run button:disabled {
+.top-java-run button:not(.select-trigger):disabled {
   opacity: 0.35;
   cursor: default;
 }
-.top-java-run select {
+.top-java-run .select-trigger {
   width: min(240px, 28vw);
   min-width: 120px;
   height: 25px;
@@ -358,7 +358,7 @@
   color: var(--text-primary);
   font: inherit;
 }
-.top-java-run select:focus {
+.top-java-run .select-trigger:focus {
   border-color: var(--accent);
 }
 .connection-dot {

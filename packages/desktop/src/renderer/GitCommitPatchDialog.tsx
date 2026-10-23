@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { editor } from "monaco-editor";
 import { X } from "lucide-react";
@@ -195,12 +196,12 @@ export function GitCommitPatchDialog({ client, hash, label, onClose, onApplied }
         <div className="commit-patch-toolbar">
           <label>
             File{" "}
-            <select
+            <Select
               aria-label="Result file"
               disabled={busy || loading}
               value={fileIndex}
-              onChange={(event) => {
-                setFileIndex(Number(event.target.value));
+              onValueChange={(selectedValue) => {
+                setFileIndex(Number(selectedValue));
                 setBlockIndex(0);
                 setError("");
               }}
@@ -211,7 +212,7 @@ export function GitCommitPatchDialog({ client, hash, label, onClose, onApplied }
                   {item.path}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <span>{position >= 0 ? `Block ${position + 1} of ${blocks.length}` : "No incoming blocks"}</span>
           <button disabled={busy || position <= 0} onClick={() => navigate(-1)}>

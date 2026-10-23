@@ -1,3 +1,14 @@
+import { readGatewayPins, updateGatewayPins, type GatewayPins } from "./gateway-pins.js";
+import {
+  migrationScript,
+  parseMigrationResult,
+  parseWorkspaceMigrations,
+  migrationFailure,
+  workspaceRootsScript,
+  parseWorkspaceRoots,
+  openRegisteredWorkspace,
+  workspacePortScript,
+} from "./workspace-migration.js";
 import { CloudPortTunnel } from "./cloud-port-tunnel.js";
 import { matchLocalCloudCore } from "./managed-local-core.js";
 import { LocalCoreReleases } from "./local-core-release.js";
@@ -134,6 +145,8 @@ type StoredConnection = {
   hostKeyFingerprint?: string;
 };
 type State = {
+  pins?: GatewayPins;
+  workspaceMigrations?: Record<string, { source: string; destination: string }>;
   connections: StoredConnection[];
   workspaces: Workspace[];
   portTunnels: PortTunnel[];
@@ -141,6 +154,7 @@ type State = {
   coreReleases?: Record<string, string>;
 };
 type PublicState = {
+  pins: GatewayPins;
   connections: {
     id: string;
     kind: "ssh" | "local";
@@ -152,7 +166,7 @@ type PublicState = {
     privateKeyPath?: string;
     hostKeyFingerprint?: string;
   }[];
-  workspaces: Workspace[];
+  workspaces: (Workspace & { migrationDestination?: string; migrationSource?: string })[];
   portTunnels: PortTunnel[];
 };
 type Runtime = {
@@ -249,6 +263,8 @@ function decodeState(text: string): State {
   if (state.portTunnels !== undefined && !Array.isArray(state.portTunnels))
     throw new Error("Gateway port tunnels must be an array");
   return {
+    pins: readGatewayPins(state.pins),
+    workspaceMigrations: parseWorkspaceMigrations(state.workspaceMigrations),
     connections: (state.connections ?? []).map(normalizeStoredAuthentication),
     workspaces: state.workspaces ?? [],
     portTunnels: state.portTunnels ?? [],
@@ -282,7 +298,9 @@ app.on("before-quit", (event) => {
   quitRequested = true;
   void stateStore.flush().finally(() => {
     stateFlushedForQuit = true;
-    app.quit();
+    // Quit on a later turn: an already-settled flush would otherwise re-enter app.quit() while Electron is
+    // still handling this prevented quit, which closes the window but leaves the app running on macOS.
+    setImmediate(() => app.quit());
   });
 });
 function encrypt(password: string): string {
@@ -302,6 +320,7 @@ function decrypt(password: string): string {
 }
 function publicState(state: State): PublicState {
   return {
+    pins: readGatewayPins(state.pins),
     connections: state.connections.map((connection) => {
       const item = normalizeStoredAuthentication(connection);
       return {
@@ -316,7 +335,15 @@ function publicState(state: State): PublicState {
         ...(item.hostKeyFingerprint ? { hostKeyFingerprint: item.hostKeyFingerprint } : {}),
       };
     }),
-    workspaces: state.workspaces,
+    workspaces: state.workspaces.map((workspace) => ({
+      ...workspace,
+      ...(state.workspaceMigrations?.[workspace.id]
+        ? {
+            migrationDestination: state.workspaceMigrations[workspace.id]!.destination,
+            migrationSource: state.workspaceMigrations[workspace.id]!.source,
+          }
+        : {}),
+    })),
     portTunnels: state.portTunnels,
   };
 }
@@ -459,6 +486,13 @@ async function selectedLocalRelease(workspaceId: string): Promise<string | undef
   const value = (await readFile(localSelectionFile(workspaceId), "utf8").catch(() => "")).trim();
   return localReleaseName.test(value) ? value : undefined;
 }
+async function assertNoWorkspaceMigration(workspaceId: string): Promise<void> {
+  const pending = (await readState()).workspaceMigrations?.[workspaceId];
+  if (pending)
+    throw Error(
+      `Project migration needs to finish first. Open workspace settings and retry migration to ${pending.destination}`,
+    );
+}
 async function startLocalServer(
   workspaceId: string,
   expectedCommit?: string,
@@ -466,6 +500,7 @@ async function startLocalServer(
   useBundle = false,
   compatibility?: Compatibility,
 ): Promise<{ remotePort: number }> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
   if (useBundle) await rm(localSelectionFile(workspaceId), { force: true });
   const selectedRelease = useBundle || expectedCommit ? undefined : await selectedLocalRelease(workspaceId);
@@ -612,7 +647,7 @@ async function startLocalServer(
   child.unref();
   return { remotePort: workspace.remotePort };
 }
-async function startLocalClient(workspaceId: string): Promise<void> {
+async function startLocalClient(workspaceId: string, rootId?: string): Promise<void> {
   const { workspace } = await workspaceAndStoredConnection(workspaceId);
   const { desktopRoot } = await localArtifactPaths();
   const desktopMain = path.join(desktopRoot, "dist-electron/main.js");
@@ -626,7 +661,14 @@ async function startLocalClient(workspaceId: string): Promise<void> {
   const desktop = desktopCommand(desktopMain);
   const child = spawn(
     desktop.command,
-    [...desktop.args, "--host", "127.0.0.1", "--port", String(workspace.remotePort)],
+    [
+      ...desktop.args,
+      "--host",
+      "127.0.0.1",
+      "--port",
+      String(workspace.remotePort),
+      ...(rootId ? ["--root-id", rootId] : []),
+    ],
     {
       cwd: desktopRoot,
       env: {
@@ -794,6 +836,7 @@ async function startServer(
   repository?: RepositorySettings,
   compatibility?: Compatibility,
 ): Promise<{ remotePort: number }> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace, connection } = await withWorkspace(workspaceId);
   runtime(
     workspaceId,
@@ -990,7 +1033,8 @@ function stopPortTunnel(tunnelId: string, notify = true): void {
   active?.stop();
   if (notify) portTunnelRuntime(tunnelId, "idle", "Stopped");
 }
-async function startClient(workspaceId: string): Promise<void> {
+async function startClient(workspaceId: string, rootId?: string): Promise<void> {
+  await assertNoWorkspaceMigration(workspaceId);
   const { workspace, connection } = await withWorkspace(workspaceId);
   runtime(workspaceId, "working", "Checking remote client build...");
   let observedHostKey = connection.hostKeyFingerprint;
@@ -1031,7 +1075,7 @@ async function startClient(workspaceId: string): Promise<void> {
       });
       // Any other release (for example a Hub-updated Git release) takes the compatibility check below.
       if (matchesBundle) {
-        await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken);
+        await launchClient(workspaceId, workspace, connection, bundledDesktop!, true, sessionToken, rootId);
         return;
       }
     }
@@ -1062,7 +1106,7 @@ async function startClient(workspaceId: string): Promise<void> {
       /* A compatible downloaded Desktop can still be selected below. */
     }
     if (localDesktopCompatible) {
-      await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken);
+      await launchClient(workspaceId, workspace, connection, localDesktop, true, sessionToken, rootId);
       return;
     }
     const clientsDirectory = path.join(app.getPath("userData"), "clients", workspace.id);
@@ -1127,7 +1171,7 @@ async function startClient(workspaceId: string): Promise<void> {
         });
         if (choice.response === 1) {
           client.end();
-          await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken);
+          await launchClient(workspaceId, workspace, connection, rollback, true, sessionToken, rootId);
           return;
         }
         if (choice.response === 2) {
@@ -1189,7 +1233,7 @@ async function startClient(workspaceId: string): Promise<void> {
       client.end();
       runtime(workspaceId, "working", "Reusing local client build...");
     }
-    await launchClient(workspaceId, workspace, connection, clientRoot, clientBuilt, sessionToken);
+    await launchClient(workspaceId, workspace, connection, clientRoot, clientBuilt, sessionToken, rootId);
   } finally {
     client.end();
   }
@@ -1201,6 +1245,7 @@ async function launchClient(
   clientRoot: string,
   clientBuilt: boolean,
   sessionToken?: string,
+  rootId?: string,
 ): Promise<void> {
   const localIcon = bundle ? undefined : process.env.HATOPAD_DESKTOP_ICON;
   if (localIcon) {
@@ -1215,6 +1260,7 @@ async function launchClient(
     ...connection,
     kind: "ssh",
     remotePort: workspace.remotePort,
+    ...(rootId ? { rootId } : {}),
     ...(sessionToken ? { sessionToken } : {}),
     ...(connection.authenticationMethod === "agent" ? { agentSocket: process.env.SSH_AUTH_SOCK } : {}),
   });
@@ -1927,8 +1973,17 @@ handleIpc(
     return result;
   },
 );
+handleIpc("gateway:setPinned", async (_event, kind: unknown, id: unknown, pinned: unknown) => {
+  const { result } = await updateState((state) => {
+    state.pins = updateGatewayPins(state.pins, kind, id, pinned);
+    return publicState(state);
+  });
+  return result;
+});
 handleIpc("gateway:deleteConnection", async (_event, connectionId: string) => {
   const { result } = await updateState((state) => {
+    if (state.workspaces.some((item) => item.connectionId === connectionId && state.workspaceMigrations?.[item.id]))
+      throw Error("Finish pending project migrations before deleting this connection.");
     for (const workspace of state.workspaces.filter((item) => item.connectionId === connectionId)) {
       localServers.get(workspace.id)?.kill();
       localServers.delete(workspace.id);
@@ -1959,12 +2014,214 @@ handleIpc("gateway:pickWorkspaceDirectory", async () => {
   });
   return selected.canceled ? undefined : selected.filePaths[0];
 });
+async function runWorkspaceCoreScript(
+  workspace: Workspace,
+  local: boolean,
+  script: string,
+  state?: State,
+): Promise<string> {
+  if (local) {
+    const saved = state ?? (await readState());
+    const selected = await selectedLocalRelease(workspace.id);
+    const commit = saved.coreReleases?.[workspace.id];
+    const artifacts = await localArtifactPaths(Boolean(selected || commit));
+    // Inspect the workspace's selected Core, including updates newer than Gateway's bundle.
+    const coreMain = selected
+      ? path.join(coreReleasesDirectory(), selected, "packages/core/dist/index.js")
+      : commit
+        ? path.join(
+            await localCoreReleases.installed(commit, artifacts.node, artifacts.env),
+            "packages/core/dist/index.js",
+          )
+        : artifacts.coreMain;
+    await access(coreMain);
+    const { node, env } = artifacts;
+    try {
+      const { stdout } = await promisify(execFile)(node, ["--input-type=module", "-e", script], {
+        cwd: path.resolve(path.dirname(coreMain), "../../.."),
+        env,
+        maxBuffer: 1024 * 1024,
+      });
+      return stdout;
+    } catch (error) {
+      throw migrationFailure(error);
+    }
+  }
+  const client = await connect(await credentials(workspace.connectionId, state));
+  try {
+    const command = `set -eu
+${workspaceReleaseDirectory(workspace.id)}
+if [ -x "$release_directory/bin/node" ]; then export PATH="$release_directory/bin:$PATH"; else
+${remoteNodeEnvironment}
+fi
+cd "$release_directory"
+node --input-type=module -e ${shell(script)}`;
+    return await execute(client, `bash -lc ${shell(command)}`);
+  } catch (error) {
+    throw migrationFailure(error);
+  } finally {
+    client.end();
+  }
+}
+async function runWorkspaceMigration(
+  workspace: Workspace,
+  local: boolean,
+  destination: string,
+  migrate: boolean,
+  state?: State,
+  source = workspace.directory,
+) {
+  const ownerWorkspace = source === workspace.directory ? undefined : workspace.directory;
+  const script = migrationScript(source, destination, migrate, workspace.remotePort, ownerWorkspace);
+  const result = parseMigrationResult(await runWorkspaceCoreScript(workspace, local, script, state));
+  if (migrate && !local && !ownerWorkspace) {
+    const client = await connect(await credentials(workspace.connectionId, state));
+    try {
+      await execute(client, workspaceRegistrationCommand(result.destination));
+      await execute(client, workspaceUnregistrationCommand(source));
+    } catch (error) {
+      console.warn("Project moved, but workspace discovery registration needs refreshing:", error);
+    } finally {
+      client.end();
+    }
+  }
+  return result;
+}
+handleIpc("gateway:listWorkspaceRoots", async (_event, workspaceId: string) => {
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  return parseWorkspaceRoots(
+    await runWorkspaceCoreScript(workspace, connection.kind === "local", workspaceRootsScript(workspace.directory)),
+  );
+});
+handleIpc("gateway:openWorkspaceRoot", async (_event, workspaceId: string, rootId?: string) =>
+  workspaceOperations.run(workspaceId, `open-root:${rootId ?? "primary"}`, async () => {
+    await assertNoWorkspaceMigration(workspaceId);
+    const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+    const local = connection.kind === "local";
+    const roots =
+      rootId === undefined
+        ? []
+        : parseWorkspaceRoots(
+            await runWorkspaceCoreScript(workspace, local, workspaceRootsScript(workspace.directory)),
+          );
+    await openRegisteredWorkspace(rootId, roots, {
+      portOpen: async () => {
+        const output = await runWorkspaceCoreScript(workspace, local, workspacePortScript(workspace.remotePort));
+        if (output.includes("HATOPAD_CORE_PORT:open")) return true;
+        if (output.includes("HATOPAD_CORE_PORT:closed")) return false;
+        throw Error("Could not check whether this Core is running.");
+      },
+      startCore: async () => {
+        if (local) await startLocalServer(workspaceId);
+        else await startServer(workspaceId);
+      },
+      openClient: async (selectedRootId) => {
+        if (local) await startLocalClient(workspaceId, selectedRootId);
+        else await startClient(workspaceId, selectedRootId);
+      },
+    });
+  }),
+);
+async function migrationTarget(workspaceId: string, destination: string, sourceDirectory?: string) {
+  if (typeof destination !== "string" || !destination.trim() || /[\0\r\n]/.test(destination))
+    throw Error("Enter a destination directory.");
+  const { workspace, connection } = await workspaceAndStoredConnection(workspaceId);
+  const state = await readState();
+  const source = sourceDirectory === undefined ? workspace.directory : sourceDirectory;
+  if (typeof source !== "string" || !source.trim() || /[\0\r\n]/.test(source))
+    throw Error("Invalid workspace directory.");
+  const pending = state.workspaceMigrations?.[workspaceId];
+  if (pending && (pending.destination !== destination.trim() || pending.source !== source))
+    throw Error(`A migration is pending. Retry with the same destination: ${pending.destination}`);
+  if (
+    state.workspaces.some(
+      (item) =>
+        item.id !== workspaceId &&
+        item.connectionId === workspace.connectionId &&
+        (item.directory === workspace.directory || item.directory === source || item.directory === destination.trim()),
+    )
+  )
+    throw Error(
+      "Another Gateway workspace uses the source or destination directory. Resolve that duplicate before migrating.",
+    );
+  return { workspace, local: connection.kind === "local", destination: destination.trim(), source };
+}
+handleIpc(
+  "gateway:previewWorkspaceMigration",
+  async (_event, workspaceId: string, destination: string, sourceDirectory?: string) =>
+    workspaceOperations.run(workspaceId, "preview-migration", async () => {
+      const target = await migrationTarget(workspaceId, destination, sourceDirectory);
+      return runWorkspaceMigration(target.workspace, target.local, target.destination, false, undefined, target.source);
+    }),
+);
+handleIpc(
+  "gateway:migrateWorkspace",
+  async (_event, workspaceId: string, destination: string, sourceDirectory?: string) =>
+    workspaceOperations.run(workspaceId, "migrate-project", async () => {
+      const target = await migrationTarget(workspaceId, destination, sourceDirectory);
+      try {
+        // Validate before interrupting the user's running workspace.
+        await runWorkspaceMigration(
+          target.workspace,
+          target.local,
+          target.destination,
+          false,
+          undefined,
+          target.source,
+        );
+        await updateState((state) => {
+          const current = state.workspaces.find((item) => item.id === workspaceId);
+          if (!current || current.directory !== target.workspace.directory)
+            throw Error("Workspace settings changed. Reopen settings and try again.");
+          (state.workspaceMigrations ??= {})[workspaceId] = {
+            source: target.source,
+            destination: target.destination,
+          };
+        });
+        runtime(workspaceId, "working", "Stopping Core for project migration…");
+        if (target.local) {
+          await stopLocalServer(workspaceId);
+          await stopOrphanedLocalCore(target.workspace.remotePort, target.workspace.directory);
+        } else await stopServer(workspaceId);
+        runtime(workspaceId, "working", "Moving project and HatoPad state…");
+        // Hold the state store queue so edits/deletion cannot race with the offline move.
+        const { result } = await updateState(async (state) => {
+          const workspace = state.workspaces.find((item) => item.id === workspaceId);
+          if (!workspace || workspace.directory !== target.workspace.directory)
+            throw Error("Workspace settings changed. Reopen the settings and try again.");
+          const moved = await runWorkspaceMigration(
+            workspace,
+            target.local,
+            target.destination,
+            true,
+            state,
+            target.source,
+          );
+          if (target.source === workspace.directory) workspace.directory = moved.destination;
+          delete state.workspaceMigrations?.[workspaceId];
+          return publicState(state);
+        });
+        runtime(workspaceId, "idle", "Project migrated. Start Core to reopen it.");
+        return result;
+      } catch (error) {
+        if ((error as { restored?: boolean }).restored) {
+          await updateState((state) => {
+            delete state.workspaceMigrations?.[workspaceId];
+          });
+          runtime(workspaceId, "idle", "Migration cancelled. The original project and state were restored.");
+        } else runtime(workspaceId, "error", "Migration did not finish. Retry the same destination to recover.");
+        throw error;
+      }
+    }),
+);
 handleIpc("gateway:saveWorkspace", async (_event, input: Omit<Workspace, "id"> & { id?: string }) => {
   const directory = input.directory.trim();
   if (!input.name.trim()) throw new Error("Workspace name is required");
   if (!Number.isInteger(input.remotePort) || input.remotePort < 1024 || input.remotePort > 65535)
     throw new Error("Core port must be between 1024 and 65535");
   const { result } = await updateState(async (state) => {
+    if (input.id && state.workspaceMigrations?.[input.id])
+      throw Error("Finish the pending migration before changing workspace settings.");
     const previous = input.id ? state.workspaces.find((item) => item.id === input.id) : undefined;
     const storedConnection = state.connections.find((item) => item.id === input.connectionId);
     if (!storedConnection) throw new Error("Connection was not found");
@@ -2014,6 +2271,8 @@ handleIpc("gateway:saveWorkspace", async (_event, input: Omit<Workspace, "id"> &
 });
 handleIpc("gateway:deleteWorkspace", async (_event, workspaceId: string) => {
   const { state, result: workspace } = await updateState((state) => {
+    if (state.workspaceMigrations?.[workspaceId])
+      throw Error("Finish the pending migration before deleting this workspace.");
     const workspace = state.workspaces.find((item) => item.id === workspaceId);
     localServers.get(workspaceId)?.kill();
     localServers.delete(workspaceId);

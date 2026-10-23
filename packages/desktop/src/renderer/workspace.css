@@ -17,12 +17,12 @@ button:focus-visible,
 [tabindex]:focus-visible,
 input:focus-visible,
 textarea:focus-visible,
-select:focus-visible {
+.select-trigger:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 input,
-select,
+.select-trigger,
 textarea {
   accent-color: var(--accent);
 }
@@ -90,7 +90,16 @@ textarea::placeholder {
   -webkit-app-region: drag;
 }
 .titlebar-actions
-  :is(button, input, select, .settings-anchor, .branch-picker, .connection-menu, .top-java-run, .storage-overlay) {
+  :is(
+    button,
+    input,
+    .select-trigger,
+    .settings-anchor,
+    .branch-picker,
+    .connection-menu,
+    .top-java-run,
+    .storage-overlay
+  ) {
   -webkit-app-region: no-drag;
 }
 :root[data-native-window="true"][data-platform="mac"] .titlebar-actions {
@@ -149,7 +158,7 @@ textarea::placeholder {
   background: var(--glass);
   flex: 0 1 auto;
 }
-.titlebar-actions .top-java-run button {
+.titlebar-actions .top-java-run button:not(.select-trigger) {
   width: 32px;
   height: 32px;
   flex: 0 0 32px;
@@ -161,10 +170,10 @@ textarea::placeholder {
   background: transparent;
   line-height: 1;
 }
-.titlebar-actions .top-java-run button:hover:not(:disabled) {
+.titlebar-actions .top-java-run button:not(.select-trigger):hover:not(:disabled) {
   background: var(--surface-hover);
 }
-.titlebar-actions .top-java-run select {
+.titlebar-actions .top-java-run .select-trigger {
   width: 260px;
   min-width: 140px;
   max-width: 26vw;
@@ -602,12 +611,12 @@ textarea::placeholder {
 .panel-header-actions > button {
   flex-shrink: 0;
 }
-.panel-header button {
+.panel-header button:not(.select-trigger) {
   border-radius: 6px;
   background: transparent;
   color: var(--text-muted);
 }
-.panel-header button:hover {
+.panel-header button:not(.select-trigger):hover {
   background: var(--surface-hover);
   color: var(--accent);
 }
@@ -647,7 +656,7 @@ textarea::placeholder {
   padding: 8px 10px;
   gap: 7px;
 }
-.task-filters select {
+.task-filters .select-trigger {
   height: 32px;
   border-radius: 7px;
   border-color: var(--border-subtle);
@@ -1028,15 +1037,15 @@ textarea::placeholder {
   border-color: var(--border-subtle);
   background: var(--surface-base);
 }
-.dialog-overlay :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea),
-.ai-toolbar select,
+.dialog-overlay :is(input:not([type="checkbox"]):not([type="radio"]), .select-trigger, textarea),
+.ai-toolbar .select-trigger,
 .ai-model-trigger {
   border-radius: 7px;
   border-color: var(--border-subtle);
   background: var(--input);
   color: var(--text-primary);
 }
-.dialog-overlay :is(input:not([type="checkbox"]):not([type="radio"]), select) {
+.dialog-overlay :is(input:not([type="checkbox"]):not([type="radio"]), .select-trigger) {
   min-height: 31px;
 }
 .dialog-overlay button {
@@ -1100,7 +1109,7 @@ textarea::placeholder {
   font-size: 10px;
 }
 .settings-menu button,
-.settings-menu select,
+.settings-menu .select-trigger,
 .settings-menu input {
   border-radius: 7px;
   border-color: var(--border-subtle);
@@ -1346,7 +1355,7 @@ textarea::placeholder {
 .workflow-chatbox textarea,
 .harness-inspector textarea,
 .harness-inspector input,
-.harness-inspector select {
+.harness-inspector .select-trigger {
   border-color: var(--border-subtle);
   border-radius: 7px;
   background: var(--input);
@@ -1438,7 +1447,7 @@ textarea::placeholder {
   .branch-picker-trigger {
     max-width: 170px;
   }
-  .titlebar-actions .top-java-run select {
+  .titlebar-actions .top-java-run .select-trigger {
     width: 200px;
     max-width: 22vw;
   }
@@ -1453,7 +1462,7 @@ textarea::placeholder {
   .connection-menu-trigger > span:nth-child(2) {
     display: none;
   }
-  .titlebar-actions .top-java-run select {
+  .titlebar-actions .top-java-run .select-trigger {
     width: 160px;
     min-width: 100px;
     max-width: 20vw;
@@ -1529,7 +1538,7 @@ button:disabled {
   background: transparent;
 }
 .settings-menu input,
-.settings-menu select {
+.settings-menu .select-trigger {
   border: 1px solid var(--border-subtle);
   background: var(--input);
   padding: 6px 8px;
@@ -1544,7 +1553,7 @@ button:disabled {
   color: var(--accent);
 }
 .icon-button,
-.panel-header button,
+.panel-header button:not(.select-trigger),
 .tool-stripe-button,
 .tool-stripe-button.right,
 .branch-picker-checkout,
@@ -1684,7 +1693,7 @@ button.danger:hover:not(:disabled) {
   border-color: var(--border-strong);
 }
 :where(.harness-run-actions, .workflow-start-control, .workflow-chatbox) button[type="submit"],
-.harness-run button:not(.danger) {
+.harness-run button:not(.select-trigger):not(.danger) {
   background: var(--accent);
   color: var(--on-accent);
   border-color: transparent;
@@ -1698,7 +1707,7 @@ button.danger:hover:not(:disabled) {
     .timers-panel,
     .processes-panel
   )
-  :is(input, select, textarea) {
+  :is(input, .select-trigger, textarea) {
   border-radius: 7px;
   border-color: var(--border-subtle);
   background: var(--input);
@@ -2885,7 +2894,7 @@ button.danger:hover:not(:disabled) {
   font-weight: 550;
 }
 .app-request-field input,
-.app-request-field select {
+.app-request-field .select-trigger {
   width: 100%;
   height: 32px;
   padding: 0 9px;
@@ -2896,7 +2905,7 @@ button.danger:hover:not(:disabled) {
   font: inherit;
 }
 .app-request-field input:focus,
-.app-request-field select:focus {
+.app-request-field .select-trigger:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
   border-color: transparent;
@@ -3526,7 +3535,7 @@ button.danger:hover:not(:disabled) {
   font-size: 0.7692rem;
   font-weight: 550;
 }
-.harness-sidebar .harness-inspector :is(input:not([type="checkbox"]), select, textarea) {
+.harness-sidebar .harness-inspector :is(input:not([type="checkbox"]), .select-trigger, textarea) {
   width: 100%;
   min-height: 30px;
   box-sizing: border-box;

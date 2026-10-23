@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import { HarnessToolbar } from "./HarnessToolbar";
 import { HarnessCanvasEditor } from "./HarnessCanvasEditor";
 import { HarnessInspector } from "./HarnessInspector";
@@ -422,11 +423,11 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
             onChange={(event) => setCreateName(event.target.value)}
             placeholder="New Workflow"
           />
-          <select
+          <Select
             aria-label="Workflow template"
             value={createTemplate}
-            onChange={(event) => {
-              const template = event.target.value as typeof createTemplate;
+            onValueChange={(selectedValue) => {
+              const template = selectedValue as typeof createTemplate;
               setCreateTemplate(template);
               if (template && createName === "New Workflow")
                 setCreateName(
@@ -437,7 +438,7 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
             <option value="">Blank workflow</option>
             <option value="five-minute-check-in">Five-minute workspace check-in · all blocks</option>
             <option value="git-review-commit">Review, commit & ask to push · Git command blocks</option>
-          </select>
+          </Select>
           <button type="submit" disabled={!createName.trim()}>
             <Plus size={14} aria-hidden="true" /> Create
           </button>
@@ -447,11 +448,11 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
         </form>
       ) : (
         <div className="harness-picker">
-          <select
+          <Select
             aria-label="Selected workflow"
             value={selectedId ?? ""}
-            onChange={(event) => {
-              const nextId = event.target.value || undefined;
+            onValueChange={(selectedValue) => {
+              const nextId = selectedValue || undefined;
               if (nextId !== selectedId && discardDraft()) setSelectedId(nextId);
             }}
           >
@@ -461,7 +462,7 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
                 {item.name}
               </option>
             ))}
-          </select>
+          </Select>
           {onOpenWorkflow && (
             <button
               aria-label="Open workflow in editor tab"
@@ -537,10 +538,10 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
             <div className="harness-view-summary">
               <strong>{draft.name}</strong>
               {workflowRuns.length ? (
-                <select
+                <Select
                   aria-label="Selected workflow run"
                   value={run?.id ?? ""}
-                  onChange={(event) => setSelectedRunId(event.target.value)}
+                  onValueChange={(selectedValue) => setSelectedRunId(selectedValue)}
                 >
                   {workflowRuns.map((item) => (
                     <option key={item.id} value={item.id}>
@@ -548,7 +549,7 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
                       {item.status} · {new Date(item.createdAt).toLocaleString()} · {item.input.slice(0, 50)}
                     </option>
                   ))}
-                </select>
+                </Select>
               ) : (
                 <span>No runs yet</span>
               )}
@@ -591,10 +592,10 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
                 </button>
               )}
               {workflowRuns.length > 1 && (
-                <select
+                <Select
                   aria-label="Compare workflow run"
                   value={comparisonRun?.id ?? ""}
-                  onChange={(event) => setCompareRunId(event.target.value || undefined)}
+                  onValueChange={(selectedValue) => setCompareRunId(selectedValue || undefined)}
                 >
                   <option value="">Compare with…</option>
                   {workflowRuns
@@ -604,7 +605,7 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
                         {item.status} · {new Date(item.createdAt).toLocaleString()}
                       </option>
                     ))}
-                </select>
+                </Select>
               )}
               {activeRuns.length > 1 && <small>{activeRuns.length} active runs</small>}
             </div>
@@ -684,10 +685,10 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
           {mode === "edit" && editorSurface === "canvas" && connectFrom && (
             <div className="harness-connect-hint">
               Select an input port to connect from <strong>{blockById.get(connectFrom)?.label}</strong>.{" "}
-              <select
+              <Select
                 aria-label="New connection type"
                 value={connectionType}
-                onChange={(event) => setConnectionType(event.target.value as typeof connectionType)}
+                onValueChange={(selectedValue) => setConnectionType(selectedValue as typeof connectionType)}
               >
                 <option value="follow">Follow · pass output when done</option>
                 {blockById.get(connectFrom)?.type === "ai" && (
@@ -696,7 +697,7 @@ export function HarnessEditorView({ model }: { model: HarnessEditorModel }) {
                     <option value="path">Path · AI chooses</option>
                   </>
                 )}
-              </select>{" "}
+              </Select>{" "}
               <button onClick={() => setConnectFrom(undefined)}>Cancel</button>
             </div>
           )}

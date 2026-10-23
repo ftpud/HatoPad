@@ -5,7 +5,19 @@ import os from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { chmod, lstat, mkdir, realpath, readFile, readlink, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  lstat,
+  mkdir,
+  realpath,
+  readFile,
+  readlink,
+  readdir,
+  rename,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import type {
   AiProvider,
   TaskCheckpoint,
@@ -28,6 +40,7 @@ type StoredCheckpoint = Omit<TaskCheckpoint, "files"> & {
 export class TaskCheckpointStore {
   private readonly root: string;
   private queue: Promise<unknown> = Promise.resolve();
+  private secured?: Promise<void>;
 
   constructor(
     private readonly workspace: string,
@@ -306,6 +319,11 @@ export class TaskCheckpointStore {
     const oldCurrent = oldPath === change.path ? current : await this.live(oldPath);
     const equal = (a?: SnapshotEntry, b?: SnapshotEntry) =>
       a?.hash === b?.hash && a?.mode === b?.mode && a?.symlink === b?.symlink;
+    const unavailable = () =>
+      result.conflicts.push({
+        path: change.path,
+        message: "The checkpoint content for this file is unavailable; the current file was left unchanged.",
+      });
     if (change.status === "R") {
       if (!equal(oldCurrent, base) || current) {
         result.conflicts.push({
@@ -314,7 +332,7 @@ export class TaskCheckpointStore {
         });
         return;
       }
-      await this.writeEntry(change.path, target!);
+      if (!(await this.writeEntry(change.path, target!))) return void unavailable();
       await rm(await this.checkedTarget(oldPath), { force: true });
       result.applied.push(change.path);
       return;
@@ -330,8 +348,9 @@ export class TaskCheckpointStore {
       });
       return;
     }
-    if (target) await this.writeEntry(change.path, target);
-    else await rm(await this.checkedTarget(change.path), { force: true });
+    if (target) {
+      if (!(await this.writeEntry(change.path, target))) return void unavailable();
+    } else await rm(await this.checkedTarget(change.path), { force: true });
     result.applied.push(change.path);
   }
   private async live(file: string): Promise<SnapshotEntry | undefined> {
@@ -352,17 +371,40 @@ export class TaskCheckpointStore {
       throw error;
     }
   }
-  private async writeEntry(file: string, entry: SnapshotEntry): Promise<void> {
+  /**
+   * Publishes a snapshot entry only after its blob is read and verified; the replacement is staged beside the
+   * destination and renamed over it, so a missing blob or failed write leaves the live file intact.
+   * Returns false when the checkpoint content is unavailable.
+   */
+  private async writeEntry(file: string, entry: SnapshotEntry): Promise<boolean> {
+    let content: Buffer;
+    try {
+      content = await this.blob(entry.hash);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
+    }
+    if (crypto.createHash("sha256").update(content).digest("hex") !== entry.hash) return false;
     const destination = await this.checkedTarget(file);
     await mkdir(path.dirname(destination), { recursive: true });
     await this.checkedTarget(file);
-    await rm(destination, { force: true });
-    const content = await this.blob(entry.hash);
-    if (entry.symlink) await symlink(content.toString("utf8"), destination);
-    else {
-      await writeFile(destination, content);
-      await chmod(destination, entry.mode & 0o777);
+    const staged = path.join(
+      path.dirname(destination),
+      `.${path.basename(destination)}.hatopad-${crypto.randomUUID()}`,
+    );
+    try {
+      if (entry.symlink) await symlink(content.toString("utf8"), staged);
+      else {
+        await writeFile(staged, content, { flag: "wx", mode: 0o600 });
+        await chmod(staged, entry.mode & 0o777);
+      }
+      await this.checkedTarget(file);
+      await rename(staged, destination);
+    } catch (error) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw error;
     }
+    return true;
   }
 
   private async capture(): Promise<Record<string, SnapshotEntry>> {
@@ -374,8 +416,8 @@ export class TaskCheckpointStore {
         if (!stat.isFile() && !stat.isSymbolicLink()) continue;
         const content = stat.isSymbolicLink() ? Buffer.from(await readlink(full)) : await readFile(full);
         const hash = crypto.createHash("sha256").update(content).digest("hex");
-        await mkdir(path.join(this.root, "blobs"), { recursive: true });
-        await writeFile(path.join(this.root, "blobs", hash), content, { flag: "wx" }).catch(
+        await this.directory("blobs");
+        await writeFile(path.join(this.root, "blobs", hash), content, { flag: "wx", mode: 0o600 }).catch(
           (error: NodeJS.ErrnoException) => {
             if (error.code !== "EEXIST") throw error;
           },
@@ -446,6 +488,34 @@ export class TaskCheckpointStore {
       throw new CoreError("INVALID_REQUEST", "Invalid checkpoint path");
     return target;
   }
+  /**
+   * Snapshot payloads can hold private workspace files, so history is owner-only regardless of the source mode
+   * or umask. The first use also repairs state written by older Cores with default permissions.
+   */
+  private async directory(name: "blobs" | "checkpoints"): Promise<void> {
+    this.secured ??= this.secure().catch((error: unknown) => {
+      this.secured = undefined;
+      throw error;
+    });
+    await this.secured;
+    await mkdir(path.join(this.root, name), { recursive: true, mode: 0o700 });
+  }
+  private async secure(): Promise<void> {
+    await mkdir(this.root, { recursive: true, mode: 0o700 });
+    await chmod(this.root, 0o700);
+    for (const name of ["blobs", "checkpoints"]) {
+      const directory = path.join(this.root, name);
+      let entries: string[];
+      try {
+        await chmod(directory, 0o700);
+        entries = await readdir(directory);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      for (const entry of entries) await chmod(path.join(directory, entry), 0o600).catch(() => undefined);
+    }
+  }
   private blob(hash: string): Promise<Buffer> {
     return readFile(path.join(this.root, "blobs", hash));
   }
@@ -463,17 +533,45 @@ export class TaskCheckpointStore {
     }
   }
   private async write(value: StoredCheckpoint): Promise<void> {
-    await mkdir(path.join(this.root, "checkpoints"), { recursive: true });
-    await writeFile(this.file(value.id), JSON.stringify(value), "utf8");
+    await this.directory("checkpoints");
+    // Publish by rename so an interrupted write never damages the last complete manifest.
+    const destination = this.file(value.id);
+    const staged = `${destination}.${crypto.randomUUID()}.tmp`;
+    try {
+      await writeFile(staged, JSON.stringify(value), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      await rename(staged, destination);
+    } catch (error) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
   private async all(): Promise<StoredCheckpoint[]> {
     try {
-      const files = (await readdir(path.join(this.root, "checkpoints"))).filter((file) => file.endsWith(".json"));
-      return (await Promise.all(files.map((file) => this.read(file.slice(0, -5))))).sort((a, b) =>
-        b.startedAt.localeCompare(a.startedAt),
+      const files = (await readdir(path.join(this.root, "checkpoints"))).filter((file) =>
+        /^[0-9a-f-]{36}\.json$/i.test(file),
       );
+      const loaded = await Promise.all(files.map((file) => this.readOrQuarantine(file.slice(0, -5))));
+      return loaded
+        .filter((item): item is StoredCheckpoint => item !== undefined)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     } catch (error) {
       return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : Promise.reject(error);
+    }
+  }
+  /** A damaged record is moved aside with a diagnostic so the rest of the history stays available. */
+  private async readOrQuarantine(id: string): Promise<StoredCheckpoint | undefined> {
+    try {
+      const item = await this.read(id);
+      if (!item || typeof item !== "object" || typeof item.startedAt !== "string" || !item.before)
+        throw new SyntaxError("Checkpoint manifest is incomplete");
+      return item;
+    } catch (error) {
+      if (error instanceof CoreError) return undefined;
+      if (!(error instanceof SyntaxError)) throw error;
+      const quarantined = `${this.file(id)}.corrupt-${Date.now()}`;
+      await rename(this.file(id), quarantined).catch(() => undefined);
+      console.warn(`[core] Quarantined damaged task checkpoint ${id} at ${quarantined}: ${error.message}`);
+      return undefined;
     }
   }
   private async prune(): Promise<void> {

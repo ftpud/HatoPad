@@ -42,10 +42,17 @@ contextBridge.exposeInMainWorld("gateway", {
   pickPrivateKey: () => ipcRenderer.invoke("gateway:pickPrivateKey"),
   testConnection: (value: unknown) => ipcRenderer.invoke("gateway:testConnection", value),
   saveConnection: (value: unknown) => ipcRenderer.invoke("gateway:saveConnection", value),
+  setPinned: (kind: string, id: string, pinned: boolean) => ipcRenderer.invoke("gateway:setPinned", kind, id, pinned),
   deleteConnection: (id: string) => ipcRenderer.invoke("gateway:deleteConnection", id),
   discoverWorkspaceDirectories: (connectionId: string) =>
     ipcRenderer.invoke("gateway:discoverWorkspaceDirectories", connectionId),
   pickWorkspaceDirectory: () => ipcRenderer.invoke("gateway:pickWorkspaceDirectory"),
+  openWorkspaceRoot: (id: string, rootId?: string) => ipcRenderer.invoke("gateway:openWorkspaceRoot", id, rootId),
+  listWorkspaceRoots: (id: string) => ipcRenderer.invoke("gateway:listWorkspaceRoots", id),
+  previewWorkspaceMigration: (id: string, destination: string, sourceDirectory?: string) =>
+    ipcRenderer.invoke("gateway:previewWorkspaceMigration", id, destination, sourceDirectory),
+  migrateWorkspace: (id: string, destination: string, sourceDirectory?: string) =>
+    ipcRenderer.invoke("gateway:migrateWorkspace", id, destination, sourceDirectory),
   saveWorkspace: (value: unknown) => ipcRenderer.invoke("gateway:saveWorkspace", value),
   deleteWorkspace: (id: string) => ipcRenderer.invoke("gateway:deleteWorkspace", id),
   savePortTunnel: (value: unknown) => ipcRenderer.invoke("gateway:savePortTunnel", value),

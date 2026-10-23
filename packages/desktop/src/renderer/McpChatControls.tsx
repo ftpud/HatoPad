@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { useState } from "react";
 import type { McpLibraryServer, McpSelection } from "@hatopad/protocol";
 
@@ -85,15 +86,15 @@ export function McpChatControls({
                   />
                   {server.name}
                 </label>
-                <select
+                <Select
                   aria-label={`${server.name} connection`}
                   value={selection?.connectionId ?? ""}
                   disabled={!selection || saving || disabled}
-                  onChange={(event) =>
+                  onValueChange={(selectedValue) =>
                     void update(
                       selected.map((item) =>
                         item.serverId === server.id
-                          ? { serverId: server.id, ...(event.target.value ? { connectionId: event.target.value } : {}) }
+                          ? { serverId: server.id, ...(selectedValue ? { connectionId: selectedValue } : {}) }
                           : item,
                       ),
                     )
@@ -107,7 +108,7 @@ export function McpChatControls({
                       {connection.name}
                     </option>
                   ))}
-                </select>
+                </Select>
               </div>
             );
           })}

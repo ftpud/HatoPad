@@ -57,11 +57,11 @@
   gap: 6px;
   border-bottom: 1px solid var(--border-subtle);
 }
-.harness-picker select,
+.harness-picker .select-trigger,
 .harness-create input,
 .harness-toolbar input,
 .harness-inspector input,
-.harness-inspector select,
+.harness-inspector .select-trigger,
 .harness-inspector textarea,
 .harness-run textarea {
   min-width: 0;
@@ -74,11 +74,11 @@
   color: var(--text-primary);
   font: inherit;
 }
-.harness-picker button,
-.harness-create button,
-.harness-toolbar button,
+.harness-picker button:not(.select-trigger),
+.harness-create button:not(.select-trigger),
+.harness-toolbar button:not(.select-trigger),
 .harness-empty button,
-.harness-run button {
+.harness-run button:not(.select-trigger) {
   padding: 5px 8px;
   display: flex;
   align-items: center;
@@ -91,18 +91,18 @@
   font: inherit;
   cursor: pointer;
 }
-.harness-picker button:hover:not(:disabled),
-.harness-create button:hover:not(:disabled),
-.harness-toolbar button:hover:not(:disabled),
+.harness-picker button:not(.select-trigger):hover:not(:disabled),
+.harness-create button:not(.select-trigger):hover:not(:disabled),
+.harness-toolbar button:not(.select-trigger):hover:not(:disabled),
 .harness-empty button:hover,
-.harness-run button:hover:not(:disabled) {
+.harness-run button:not(.select-trigger):hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--text-primary);
 }
-.harness-picker button:disabled,
-.harness-create button:disabled,
-.harness-toolbar button:disabled,
-.harness-run button:disabled {
+.harness-picker button:not(.select-trigger):disabled,
+.harness-create button:not(.select-trigger):disabled,
+.harness-toolbar button:not(.select-trigger):disabled,
+.harness-run button:not(.select-trigger):disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -330,7 +330,7 @@
   gap: 5px;
   white-space: nowrap;
 }
-.harness-edge-controls select {
+.harness-edge-controls .select-trigger {
   padding: 3px 5px;
   border: 1px solid var(--purple-border);
   border-radius: var(--radius-control);
@@ -540,7 +540,7 @@
   color: var(--text-secondary);
 }
 .harness-list-editor li > button:last-child,
-.harness-list-connections > div > button {
+.harness-list-connections > div > button:not(.select-trigger) {
   padding: 4px 7px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
@@ -566,7 +566,7 @@
   color: var(--text-secondary);
   font-size: 0.7692rem;
 }
-.harness-list-connections select {
+.harness-list-connections .select-trigger {
   min-width: 100px;
   padding: 4px;
   border: 1px solid var(--border-strong);
@@ -925,7 +925,7 @@
 .harness-run small.error {
   color: var(--danger);
 }
-.harness-run button.danger {
+.harness-run button:not(.select-trigger).danger {
   background: var(--danger-soft);
   color: var(--danger);
 }
@@ -1021,7 +1021,7 @@
   min-width: 0;
   margin: 0;
 }
-.task-filters select {
+.task-filters .select-trigger {
   width: 96px;
   height: 31px;
   flex: 0 0 96px;

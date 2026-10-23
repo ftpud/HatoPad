@@ -1,7 +1,6 @@
 # Continuous integration
 
-The CI workflow runs on `ubuntu-latest` and `macos-latest` with Node.js 22 and 24. The root package declares Node `>=22.12.0`; Node 22 and 24 cover the
-supported runtime versions used for CI. Each platform performs a lockfile-based
+The CI workflow runs on `ubuntu-latest` and `macos-latest` with Node.js 24.22.1, matching `.nvmrc` and the bundle workflows. The root package still declares the compatibility minimum Node `>=22.12.0`; CI uses the pinned security release. Each platform performs a lockfile-based
 install (`npm ci`), formatting check, production build, root typecheck, separate Gateway
 typecheck, dependency audit, and the full workspace test suite (`npm test`).
 Java 21 is installed for Java service checks, and each job has a 30-minute limit.

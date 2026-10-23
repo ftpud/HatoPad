@@ -1,16 +1,28 @@
+import { CoreWorkspaceList, OtherWorkspaces } from "./OtherWorkspaces";
+import { PinButton, pinnedFirst, cloudPinKey } from "./PinButton";
+import { WorkspaceMigration } from "./WorkspaceMigration";
+import { Select } from "./Select";
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   ArrowUpCircle,
+  LoaderCircle,
+  FolderOpen,
+  CloudOff,
+  ArrowUpRight,
   Cable,
   Cloud,
   CloudUpload,
   LogOut,
   PlugZap,
   Check,
+  ChevronDown,
+  ChevronUp,
+  ChevronsLeft,
+  ChevronsRight,
   CircleStop,
   Copy,
+  FolderGit2,
   HardDrive,
-  Laptop,
   Network,
   Pencil,
   Play,
@@ -19,8 +31,10 @@ import {
   Search,
   Server,
   Settings,
+  Settings2,
   SquareTerminal,
   Trash2,
+  Wrench,
   X,
 } from "lucide-react";
 
@@ -56,6 +70,9 @@ export function GatewayErrorNotice({ message, onDismiss }: { message: string; on
 
 export function App() {
   const [cloud, setCloud] = useState<GatewayCloudAccount>();
+  // Follows the connection (open while connected) until the user toggles it by hand.
+  const [cloudPanelChoice, setCloudPanelChoice] = useState<boolean>();
+  const cloudPanelOpen = cloudPanelChoice ?? Boolean(cloud);
   const [cloudLists, setCloudLists] = useState<Record<string, CloudCoreList>>({});
   const cloudGeneration = useRef(0);
   const cloudListOrigin = useRef<string>();
@@ -129,6 +146,8 @@ export function App() {
   const [connectionDialog, setConnectionDialog] = useState<
     Partial<GatewayConnection> & { password: string; passphrase: string }
   >();
+  const [dockOpen, setDockOpen] = useState(false);
+  const [dockTab, setDockTab] = useState<"log" | "tunnels">("log");
   const [workspaceDialog, setWorkspaceDialog] = useState<Partial<GatewayWorkspace>>();
   const [discoverWorkspaceOnOpen, setDiscoverWorkspaceOnOpen] = useState(false);
   const [repositoryDialog, setRepositoryDialog] = useState<GatewayRepositorySettings>();
@@ -160,7 +179,7 @@ export function App() {
         setRuntimes(result.runtimes);
         setTunnelRuntimes(result.tunnelRuntimes);
         setConnectionRuntimes(result.connectionRuntimes);
-        setSelected(result.state.connections[0]?.id);
+        setSelected(pinnedFirst(result.state.connections, (item) => item.id, result.state.pins?.connections)[0]?.id);
       })
       .catch(showError);
     if (window.gateway.cloudGet)
@@ -195,16 +214,33 @@ export function App() {
       window.removeEventListener("unhandledrejection", onUnhandledRejection);
     };
   }, [showError]);
+  const setPinned = async (kind: "connection" | "workspace", id: string, pinned: boolean) => {
+    setState(await window.gateway.setPinned(kind, id, pinned));
+  };
   const cloudCore = cloud?.cores.find((item) => `cloud:${item.id}` === selected);
   const connection = state.connections.find((item) => item.id === selected);
   const workspaces = useMemo(
-    () => state.workspaces.filter((item) => item.connectionId === selected),
-    [state.workspaces, selected],
+    () =>
+      pinnedFirst(
+        state.workspaces.filter((item) => item.connectionId === selected),
+        (item) => item.id,
+        state.pins?.workspaces,
+      ),
+    [state.workspaces, state.pins, selected],
   );
   const connectionTunnels = useMemo(
     () => state.portTunnels.filter((item) => item.connectionId === selected),
     [state.portTunnels, selected],
   );
+  const runningTunnels = connectionTunnels.filter((item) => tunnelRuntimes[item.id]?.status === "running").length;
+  const activeDockTab = connection?.kind === "local" ? "log" : dockTab;
+  const toggleDock = (tab: "log" | "tunnels") => {
+    if (dockOpen && activeDockTab === tab) setDockOpen(false);
+    else {
+      setDockTab(tab);
+      setDockOpen(true);
+    }
+  };
   const connectionRuntime = connection
     ? (connectionRuntimes[connection.id] ?? { status: "unknown", message: "Not checked yet" })
     : undefined;
@@ -213,10 +249,15 @@ export function App() {
     workspaces.find((item) => item.id === logWorkspaceId) ??
     workspaces.find((item) => runtimes[item.id]?.logs?.length) ??
     workspaces[0];
+  const logRuntime = logWorkspace ? runtimes[logWorkspace.id] : undefined;
+  const runningWorkspaces = workspaces.filter((item) => {
+    const status = runtimes[item.id]?.status;
+    return status === "server" || status === "client";
+  }).length;
 
   const action = async (
     workspace: GatewayWorkspace,
-    operation: "startServer" | "repairServer" | "stopServer" | "startClient",
+    operation: "startServer" | "repairServer" | "stopServer" | "startClient" | "openWorkspaceRoot",
   ) => {
     clearError();
     setLogWorkspaceId(workspace.id);
@@ -229,6 +270,16 @@ export function App() {
             item.id === workspace.id ? { ...item, remotePort: result.remotePort } : item,
           ),
         }));
+    } catch (reason) {
+      showError(reason);
+    }
+  };
+  const openRoot = async (workspace: GatewayWorkspace, rootId: string | undefined) => {
+    if (rootId === undefined) return action(workspace, "openWorkspaceRoot");
+    clearError();
+    setLogWorkspaceId(workspace.id);
+    try {
+      await window.gateway.openWorkspaceRoot(workspace.id, rootId);
     } catch (reason) {
       showError(reason);
     }
@@ -392,63 +443,13 @@ export function App() {
   };
 
   return (
-    <div className="gateway-shell">
+    <div className={`gateway-shell ${cloudPanelOpen ? "" : "cloud-collapsed"}`}>
       <div className="gateway-window-drag" aria-hidden="true" />
       <aside className="gateway-sidebar">
         <div className="gateway-brand">
-          <img src={new URL("../../assets/app-icon.png", import.meta.url).href} alt="" />
           <div>
             <strong>HatoPad Gateway</strong>
             <span>Workspace launcher</span>
-          </div>
-        </div>
-        <div className="cloud-account">
-          <Cloud size={16} aria-hidden="true" />
-          <span title={cloud ? `${cloud.user.email} · ${cloud.origin}` : cloudUrl || "Cloud"}>
-            {cloud?.user.name ?? "Cloud"}
-          </span>
-          <div>
-            {cloud ? (
-              <>
-                <button
-                  className="icon-button"
-                  title="Cloud settings"
-                  aria-label="Cloud settings"
-                  disabled={cloudBusy || Boolean(addingToCloud)}
-                  onClick={() => setCloudDialog(true)}
-                >
-                  <Settings size={14} />
-                </button>
-                <button
-                  className="icon-button"
-                  title="Refresh cloud"
-                  aria-label="Refresh cloud"
-                  disabled={cloudBusy}
-                  onClick={() => void refreshCloud()}
-                >
-                  <RefreshCw size={14} />
-                </button>
-                <button
-                  className="icon-button"
-                  title="Disconnect cloud"
-                  aria-label="Disconnect"
-                  disabled={cloudBusy || Boolean(addingToCloud)}
-                  onClick={() => void disconnectCloud()}
-                >
-                  <LogOut size={14} />
-                </button>
-              </>
-            ) : (
-              <button
-                className="icon-button"
-                title="Connect to cloud"
-                aria-label="Connect to cloud"
-                disabled={!bridgeReady}
-                onClick={() => setCloudDialog(true)}
-              >
-                <PlugZap size={15} />
-              </button>
-            )}
           </div>
         </div>
         <header>
@@ -474,53 +475,38 @@ export function App() {
           </button>
         </header>
         <div className="connection-list" aria-label="Connections">
-          {state.connections.map((item) => {
+          {pinnedFirst(state.connections, (item) => item.id, state.pins?.connections).map((item) => {
             const current = connectionRuntimes[item.id] ?? { status: "unknown" };
             const local = item.kind === "local";
             return (
-              <button
-                key={item.id}
-                className={item.id === selected ? "selected" : ""}
-                aria-pressed={item.id === selected}
-                aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`}
-                onClick={() => {
-                  clearError();
-                  setSelected(item.id);
-                }}
-              >
-                <div className={`status-dot connection-${current.status}`} aria-hidden="true" />
-                {local ? <HardDrive size={16} /> : <Server size={16} />}
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small>
-                </span>
-              </button>
+              <div className="connection-row" role="group" aria-label={item.name} key={item.id}>
+                <button
+                  className={`connection-select ${item.id === selected ? "selected" : ""}`}
+                  aria-pressed={item.id === selected}
+                  aria-label={`${item.name}, ${local ? "local Mac" : `${connectionHealthName(current.status)}, ${item.username} at ${item.host}, port ${item.port}`}`}
+                  onClick={() => {
+                    clearError();
+                    setSelected(item.id);
+                  }}
+                >
+                  <div className={`status-dot connection-${current.status}`} aria-hidden="true" />
+                  {local ? <HardDrive size={16} /> : <Server size={16} />}
+                  <span>
+                    <strong>{item.name}</strong>
+                    <small>{local ? "This Mac" : `${item.username}@${item.host}:${item.port}`}</small>
+                  </span>
+                </button>
+                <PinButton
+                  pinned={Boolean(state.pins?.connections.includes(item.id))}
+                  kind="connection"
+                  name={item.name}
+                  onToggle={(pinned) => setPinned("connection", item.id, pinned)}
+                  onFailure={showError}
+                />
+              </div>
             );
           })}
         </div>
-        {cloud && (
-          <div className="connection-list cloud-connections" aria-label="Cloud servers">
-            <strong className="cloud-list-label">Cloud servers</strong>
-            {cloud.cores.map((item) => (
-              <button
-                key={item.id}
-                className={selected === `cloud:${item.id}` ? "selected" : ""}
-                aria-pressed={selected === `cloud:${item.id}`}
-                onClick={() => {
-                  clearError();
-                  setSelected(`cloud:${item.id}`);
-                }}
-              >
-                <Server size={16} />
-                <span>
-                  <strong>{item.name}</strong>
-                  <small>Cloud · {item.status}</small>
-                </span>
-              </button>
-            ))}
-            {!cloud.cores.length && <small>No cloud servers configured.</small>}
-          </div>
-        )}
         {distribution === "source" && (
           <div className="gateway-sidebar-footer">
             <button
@@ -552,6 +538,12 @@ export function App() {
           <CloudServerView
             key={`${cloud!.origin}/${cloudCore.id}`}
             core={cloudCore}
+            rootPins={(cloudLists[cloudCore.id]?.roots ?? [])
+              .filter((root) => state.pins?.workspaces.includes(cloudPinKey(cloud!.origin, cloudCore.id, root.id)))
+              .map((root) => root.id)}
+            onPinRoot={(root, pinned) =>
+              setPinned("workspace", cloudPinKey(cloud!.origin, cloudCore.id, root.id), pinned)
+            }
             list={cloudLists[cloudCore.id]}
             update={cloudUpdates[cloudCore.id]}
             onUpdated={(info) =>
@@ -659,38 +651,38 @@ export function App() {
                   </>
                 )}
               </div>
-              <div className="workspace-header-actions">
-                {connection.kind !== "local" && (
-                  <button
-                    className="secondary"
-                    onClick={() => {
-                      clearError();
-                      setDiscoverWorkspaceOnOpen(true);
-                      setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 });
-                    }}
-                  >
-                    <Search size={15} /> Discover workspaces
-                  </button>
-                )}
-                <button
-                  onClick={() => {
-                    clearError();
-                    setDiscoverWorkspaceOnOpen(false);
-                    setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 });
-                  }}
-                >
-                  <Plus size={15} /> Add workspace
-                </button>
-              </div>
             </header>
             <div className="gateway-content">
               <section className="workspace-collection">
-                <header className="section-heading">
-                  <div>
+                <header className="workspace-toolbar">
+                  <div className="workspace-toolbar-title">
                     <h2 id="workspace-list-heading">Workspaces</h2>
-                    <span>
-                      {workspaces.length} {workspaces.length === 1 ? "project" : "projects"}
-                    </span>
+                    <span className="count-badge">{workspaces.length}</span>
+                    {runningWorkspaces > 0 && <span className="running-summary">{runningWorkspaces} running</span>}
+                  </div>
+                  <div className="workspace-toolbar-actions">
+                    {connection.kind !== "local" && (
+                      <button
+                        className="ghost"
+                        onClick={() => {
+                          clearError();
+                          setDiscoverWorkspaceOnOpen(true);
+                          setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 });
+                        }}
+                      >
+                        <Search size={14} /> Discover
+                      </button>
+                    )}
+                    <button
+                      className="primary"
+                      onClick={() => {
+                        clearError();
+                        setDiscoverWorkspaceOnOpen(false);
+                        setWorkspaceDialog({ connectionId: connection.id, remotePort: 7331 });
+                      }}
+                    >
+                      <Plus size={14} /> Add workspace
+                    </button>
                   </div>
                 </header>
                 <div className="workspace-list" role="region" aria-label="Workspaces" tabIndex={0}>
@@ -698,188 +690,386 @@ export function App() {
                     const current = runtimes[workspace.id] ?? { status: "idle", message: "Not running" };
                     const busy = current.status === "working";
                     const serverRunning = current.status === "server" || current.status === "client";
+                    const logSelected = dockOpen && dockTab === "log" && logWorkspace?.id === workspace.id;
                     return (
-                      <article key={workspace.id}>
-                        <div className="workspace-info">
-                          <div className={`status-dot ${current.status}`} aria-hidden="true" />
-                          <div>
+                      <article key={workspace.id} className={`workspace-card ${current.status}`}>
+                        <div className="workspace-card-body">
+                          <div className={`workspace-glyph ${current.status}`} aria-hidden="true">
+                            <Server size={17} />
+                            <span className={`status-dot ${current.status}`} />
+                          </div>
+                          <div className="workspace-identity">
                             <div className="workspace-title-row">
                               <h2>{workspace.name}</h2>
-                              <div className="workspace-management">
-                                <button
-                                  className="icon-button"
-                                  title="Edit workspace"
-                                  aria-label={`Edit workspace ${workspace.name}`}
-                                  onClick={() => setWorkspaceDialog(workspace)}
-                                >
-                                  <Pencil size={14} />
-                                </button>
-                                <button
-                                  className="icon-button"
-                                  title="Delete workspace"
-                                  aria-label={`Delete workspace ${workspace.name}`}
-                                  onClick={() => void removeWorkspace(workspace)}
-                                >
-                                  <Trash2 size={14} />
-                                </button>
-                              </div>
-                            </div>
-                            <code>{workspace.directory}</code>
-                            <span>
-                              {connection.kind === "local" ? "Core" : "Remote"} port {workspace.remotePort}
-                            </span>
-                          </div>
-                          <div className="status" role="status" aria-live="polite">
-                            <strong>{statusName(current.status)}</strong>
-                            <small>{current.message}</small>
-                          </div>
-                        </div>
-                        <div className="workspace-buttons">
-                          <button
-                            title={serverRunning ? "Server is already running" : "Start server"}
-                            disabled={busy || serverRunning}
-                            onClick={() => void action(workspace, "startServer")}
-                          >
-                            <Play size={14} /> Start server
-                          </button>
-                          {busy && (
-                            <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}>
-                              <CircleStop size={14} /> Cancel
-                            </button>
-                          )}
-                          {current.status === "error" && current.retryable && (
-                            <button onClick={() => void action(workspace, "startServer")}>
-                              <RefreshCw size={14} /> Retry
-                            </button>
-                          )}
-                          {current.status === "error" && current.repairable && (
-                            <button onClick={() => void action(workspace, "repairServer")}>
-                              <RefreshCw size={14} /> Repair
-                            </button>
-                          )}
-                          <button disabled={busy} onClick={() => void action(workspace, "startClient")}>
-                            <Laptop size={14} /> Start client
-                          </button>
-                          <button className="stop" disabled={busy} onClick={() => void action(workspace, "stopServer")}>
-                            <CircleStop size={14} /> Stop server
-                          </button>
-                          {cloud && (
-                            <button
-                              disabled={busy || Boolean(addingToCloud) || !serverRunning}
-                              className="icon-button"
-                              aria-label={addingToCloud === workspace.id ? "Adding to cloud" : "Add to cloud"}
-                              title={
-                                !serverRunning
-                                  ? "Start the server before adding it to cloud"
-                                  : "Add this server to your cloud account"
-                              }
-                              onClick={() => void addToCloud(workspace)}
-                            >
-                              <CloudUpload
-                                size={14}
-                                className={addingToCloud === workspace.id ? "cloud-spinning" : undefined}
+                              <PinButton
+                                pinned={Boolean(state.pins?.workspaces.includes(workspace.id))}
+                                kind="workspace"
+                                name={workspace.name}
+                                onToggle={(pinned) => setPinned("workspace", workspace.id, pinned)}
+                                onFailure={showError}
                               />
-                            </button>
-                          )}
-                          <button
-                            className={`workspace-log-button${logWorkspace?.id === workspace.id ? " selected" : ""}`}
-                            aria-pressed={logWorkspace?.id === workspace.id}
-                            aria-label={`View provisioning log for ${workspace.name}`}
-                            onClick={() => setLogWorkspaceId(workspace.id)}
-                          >
-                            <SquareTerminal size={14} /> Logs
-                          </button>
-                        </div>
-                      </article>
-                    );
-                  })}
-                  {workspaces.length === 0 && (
-                    <div className="workspace-empty">No workspaces configured for this connection.</div>
-                  )}
-                </div>
-              </section>
-              <div className="gateway-inspector">
-                <ProvisioningLog
-                  workspace={logWorkspace}
-                  workspaces={workspaces}
-                  runtime={logWorkspace ? runtimes[logWorkspace.id] : undefined}
-                  onSelect={setLogWorkspaceId}
-                />
-                {connection.kind !== "local" && (
-                  <section className="tunnel-section">
-                    <header>
-                      <div>
-                        <Cable size={16} />
-                        <div>
-                          <h2>SSH port tunnels</h2>
-                          <p>Forward a local port to the same port on {connection.host}.</p>
-                        </div>
-                      </div>
-                      <form onSubmit={(event) => void addPortTunnel(event)}>
-                        <input
-                          aria-label="Tunnel port"
-                          required
-                          type="number"
-                          min="1"
-                          max="65535"
-                          value={newTunnelPort}
-                          onChange={(event) => setNewTunnelPort(event.target.value)}
-                          placeholder="Port"
-                        />
-                        <button className="primary">
-                          <Plus size={14} /> Add port
-                        </button>
-                      </form>
-                    </header>
-                    <div className="tunnel-list">
-                      {connectionTunnels.map((item) => {
-                        const current = tunnelRuntimes[item.id] ?? { status: "idle", message: "Stopped" };
-                        const busy = current.status === "working";
-                        const running = current.status === "running";
-                        return (
-                          <div className="tunnel-row" key={item.id}>
-                            <div className={`status-dot ${current.status}`} aria-hidden="true" />
-                            <div className="tunnel-address">
-                              <strong title={`localhost:${item.port}`}>localhost:{item.port}</strong>
-                              <small>→ remote localhost:{item.port}</small>
                             </div>
-                            <div className="tunnel-status" role="status" aria-live="polite">
-                              <strong>{tunnelStatusName(current.status)}</strong>
-                              <small>{current.message}</small>
+                            <div className="workspace-meta">
+                              <span>{connection.kind === "local" ? "Local Core" : "Core server"}</span>
+                              <span
+                                className="port-chip"
+                                title={`${connection.kind === "local" ? "Core" : "Remote"} port ${workspace.remotePort}`}
+                              >
+                                :{workspace.remotePort}
+                              </span>
                             </div>
+                          </div>
+                          <div className={`workspace-state ${current.status}`} role="status" aria-live="polite">
+                            <strong>{statusName(current.status)}</strong>
+                            <small title={current.message}>{current.message}</small>
+                          </div>
+                          <div className="workspace-actions">
+                            {busy ? (
+                              <button className="stop" onClick={() => void cancelProvisioning(workspace.id)}>
+                                <CircleStop size={14} /> Cancel
+                              </button>
+                            ) : serverRunning ? (
+                              <button className="stop" onClick={() => void action(workspace, "stopServer")}>
+                                <CircleStop size={14} /> Stop server
+                              </button>
+                            ) : current.status === "error" && current.retryable ? (
+                              <button onClick={() => void action(workspace, "startServer")}>
+                                <RefreshCw size={14} /> Retry
+                              </button>
+                            ) : (
+                              <button onClick={() => void action(workspace, "startServer")}>
+                                <Play size={14} /> Start server
+                              </button>
+                            )}
+                            {current.status === "error" && current.repairable && (
+                              <button onClick={() => void action(workspace, "repairServer")}>
+                                <Wrench size={14} /> Repair
+                              </button>
+                            )}
+                            <span className="workspace-actions-divider" aria-hidden="true" />
                             <button
-                              disabled={busy || running}
-                              onClick={() => void tunnelAction(item, "startPortTunnel")}
+                              className={`icon-button${logSelected ? " selected" : ""}`}
+                              aria-pressed={logSelected}
+                              title="Provisioning log"
+                              aria-label={`View provisioning log for ${workspace.name}`}
+                              onClick={() => {
+                                setLogWorkspaceId(workspace.id);
+                                setDockTab("log");
+                                setDockOpen(true);
+                              }}
                             >
-                              <Play size={14} /> Run
+                              <SquareTerminal size={14} />
+                            </button>
+                            {cloud && (
+                              <button
+                                disabled={busy || Boolean(addingToCloud) || !serverRunning}
+                                className="icon-button"
+                                aria-label={addingToCloud === workspace.id ? "Adding to cloud" : "Add to cloud"}
+                                title={
+                                  !serverRunning
+                                    ? "Start the server before adding it to cloud"
+                                    : "Add this server to your cloud account"
+                                }
+                                onClick={() => void addToCloud(workspace)}
+                              >
+                                <CloudUpload
+                                  size={14}
+                                  className={addingToCloud === workspace.id ? "cloud-spinning" : undefined}
+                                />
+                              </button>
+                            )}
+                            <button
+                              className="icon-button"
+                              title="Server options"
+                              aria-label={`Edit workspace ${workspace.name}`}
+                              onClick={() => setWorkspaceDialog(workspace)}
+                            >
+                              <Settings2 size={14} />
                             </button>
                             <button
-                              className="stop"
-                              disabled={busy || !running}
-                              onClick={() => void tunnelAction(item, "stopPortTunnel")}
-                            >
-                              <CircleStop size={14} /> Stop
-                            </button>
-                            <button
-                              title="Delete tunnel"
-                              aria-label={`Delete tunnel on port ${item.port}`}
-                              disabled={busy}
-                              onClick={() => void removePortTunnel(item)}
+                              className="icon-button danger"
+                              title="Remove server"
+                              aria-label={`Delete workspace ${workspace.name}`}
+                              onClick={() => void removeWorkspace(workspace)}
                             >
                               <Trash2 size={14} />
                             </button>
                           </div>
-                        );
-                      })}
-                      {connectionTunnels.length === 0 && <div className="tunnel-empty">No ports configured.</div>}
+                        </div>
+                        <CoreWorkspaceList
+                          owner={workspace}
+                          disabled={busy}
+                          onOpen={(rootId) => openRoot(workspace, rootId)}
+                        />
+                      </article>
+                    );
+                  })}
+                  {workspaces.length === 0 && (
+                    <div className="workspace-empty">
+                      <div className="workspace-empty-icon" aria-hidden="true">
+                        <FolderGit2 size={22} />
+                      </div>
+                      <strong>No workspaces yet</strong>
+                      <p>
+                        {connection.kind === "local"
+                          ? "Add a project folder on this Mac to start a Core for it."
+                          : `Add a project folder on ${connection.host}, or let Gateway find existing ones.`}
+                      </p>
                     </div>
-                  </section>
+                  )}
+                </div>
+              </section>
+              <section className={`workspace-dock ${dockOpen ? "open" : "collapsed"}`} aria-label="Workspace activity">
+                <header className="dock-bar">
+                  <div className="dock-tabs">
+                    <button
+                      type="button"
+                      className={`dock-tab${dockOpen && activeDockTab === "log" ? " active" : ""}`}
+                      aria-expanded={dockOpen && activeDockTab === "log"}
+                      aria-controls="workspace-dock-body"
+                      onClick={() => toggleDock("log")}
+                    >
+                      <SquareTerminal size={14} aria-hidden="true" />
+                      Provisioning log
+                      {logWorkspace && <span className="dock-tab-detail">{logWorkspace.name}</span>}
+                      <span className={`status-dot ${logRuntime?.status ?? "idle"}`} aria-hidden="true" />
+                    </button>
+                    {connection.kind !== "local" && (
+                      <button
+                        type="button"
+                        className={`dock-tab${dockOpen && activeDockTab === "tunnels" ? " active" : ""}`}
+                        aria-expanded={dockOpen && activeDockTab === "tunnels"}
+                        aria-controls="workspace-dock-body"
+                        onClick={() => toggleDock("tunnels")}
+                      >
+                        <Cable size={14} aria-hidden="true" />
+                        Port tunnels
+                        {connectionTunnels.length > 0 && (
+                          <span className={`count-badge${runningTunnels ? " running" : ""}`}>
+                            {runningTunnels
+                              ? `${runningTunnels}/${connectionTunnels.length}`
+                              : connectionTunnels.length}
+                          </span>
+                        )}
+                      </button>
+                    )}
+                  </div>
+                  {dockOpen && activeDockTab === "log" && (
+                    <span className={`log-state ${logRuntime?.status ?? "idle"}`}>
+                      {logRuntime ? statusName(logRuntime.status) : "Ready"}
+                    </span>
+                  )}
+                  {dockOpen && activeDockTab === "tunnels" && (
+                    <form className="tunnel-form" onSubmit={(event) => void addPortTunnel(event)}>
+                      <input
+                        aria-label="Tunnel port"
+                        required
+                        type="number"
+                        min="1"
+                        max="65535"
+                        value={newTunnelPort}
+                        onChange={(event) => setNewTunnelPort(event.target.value)}
+                        placeholder="Port"
+                      />
+                      <button className="primary">
+                        <Plus size={14} /> Add port
+                      </button>
+                    </form>
+                  )}
+                  <button
+                    type="button"
+                    className="icon-button dock-collapse"
+                    aria-label={dockOpen ? "Collapse activity panel" : "Expand activity panel"}
+                    title={dockOpen ? "Collapse" : "Expand"}
+                    onClick={() => setDockOpen(!dockOpen)}
+                  >
+                    {dockOpen ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+                  </button>
+                </header>
+                {dockOpen && (
+                  <div className="dock-body" id="workspace-dock-body">
+                    {activeDockTab === "log" ? (
+                      <ProvisioningLog workspace={logWorkspace} runtime={logRuntime} />
+                    ) : (
+                      <div className="tunnel-list">
+                        {connectionTunnels.map((item) => {
+                          const current = tunnelRuntimes[item.id] ?? { status: "idle", message: "Stopped" };
+                          const busy = current.status === "working";
+                          const running = current.status === "running";
+                          return (
+                            <div className="tunnel-row" key={item.id}>
+                              <div className={`status-dot ${current.status}`} aria-hidden="true" />
+                              <div className="tunnel-address">
+                                <strong title={`localhost:${item.port}`}>localhost:{item.port}</strong>
+                                <small>
+                                  → {connection.host}:{item.port}
+                                </small>
+                              </div>
+                              <div className="tunnel-status" role="status" aria-live="polite">
+                                <strong>{tunnelStatusName(current.status)}</strong>
+                                {tunnelDetail(current) && <small>{tunnelDetail(current)}</small>}
+                              </div>
+                              {running ? (
+                                <button
+                                  className="stop"
+                                  disabled={busy}
+                                  onClick={() => void tunnelAction(item, "stopPortTunnel")}
+                                >
+                                  <CircleStop size={14} /> Stop
+                                </button>
+                              ) : (
+                                <button disabled={busy} onClick={() => void tunnelAction(item, "startPortTunnel")}>
+                                  <Play size={14} /> Run
+                                </button>
+                              )}
+                              <button
+                                className="icon-button danger"
+                                title="Delete tunnel"
+                                aria-label={`Delete tunnel on port ${item.port}`}
+                                disabled={busy}
+                                onClick={() => void removePortTunnel(item)}
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          );
+                        })}
+                        {connectionTunnels.length === 0 && (
+                          <div className="tunnel-empty">
+                            No ports yet. Add one to reach a service on {connection.host} at localhost.
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
-              </div>
+              </section>
             </div>
           </section>
         )}
       </main>
+      <aside
+        className={`gateway-sidebar gateway-cloud-sidebar ${cloudPanelOpen ? "" : "collapsed"}`}
+        aria-label="Cloud servers panel"
+      >
+        <button
+          className="cloud-panel-toggle"
+          title={cloudPanelOpen ? "Collapse cloud panel" : "Expand cloud panel"}
+          aria-label={cloudPanelOpen ? "Collapse cloud panel" : "Expand cloud panel"}
+          aria-expanded={cloudPanelOpen}
+          onClick={() => setCloudPanelChoice(!cloudPanelOpen)}
+        >
+          {cloudPanelOpen ? <ChevronsRight size={14} /> : <ChevronsLeft size={14} />}
+          {!cloudPanelOpen && (
+            <>
+              <Cloud size={18} />
+              <span className={`cloud-rail-dot ${cloud ? "online" : ""}`} aria-hidden="true" />
+              <span className="cloud-rail-label">Cloud</span>
+            </>
+          )}
+        </button>
+        {cloudPanelOpen && (
+          <div className="cloud-panel-body">
+            <div className="cloud-sidebar-heading">
+              <div>
+                <span className="page-eyebrow">HATOPAD CLOUD</span>
+                <h2>Cloud servers</h2>
+                <p>Your servers, available anywhere.</p>
+              </div>
+              <Cloud size={22} />
+            </div>
+            <div className="cloud-account">
+              <Cloud size={16} aria-hidden="true" />
+              <span title={cloud ? `${cloud.user.email} · ${cloud.origin}` : cloudUrl || "Cloud"}>
+                {cloud?.user.name ?? "Cloud"}
+              </span>
+              <div>
+                {cloud ? (
+                  <>
+                    <button
+                      className="icon-button"
+                      title="Cloud settings"
+                      aria-label="Cloud settings"
+                      disabled={cloudBusy || Boolean(addingToCloud)}
+                      onClick={() => setCloudDialog(true)}
+                    >
+                      <Settings size={14} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      title="Refresh cloud"
+                      aria-label="Refresh cloud"
+                      disabled={cloudBusy}
+                      onClick={() => void refreshCloud()}
+                    >
+                      <RefreshCw size={14} />
+                    </button>
+                    <button
+                      className="icon-button"
+                      title="Disconnect cloud"
+                      aria-label="Disconnect"
+                      disabled={cloudBusy || Boolean(addingToCloud)}
+                      onClick={() => void disconnectCloud()}
+                    >
+                      <LogOut size={14} />
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    className="icon-button"
+                    title="Connect to cloud"
+                    aria-label="Connect to cloud"
+                    disabled={!bridgeReady}
+                    onClick={() => setCloudDialog(true)}
+                  >
+                    <PlugZap size={15} />
+                  </button>
+                )}
+              </div>
+            </div>
+            {cloud && (
+              <div className="connection-list cloud-connections" aria-label="Cloud servers">
+                {pinnedFirst(cloud.cores, (item) => cloudPinKey(cloud.origin, item.id), state.pins?.connections).map(
+                  (item) => (
+                    <div className="connection-row" role="group" aria-label={item.name} key={item.id}>
+                      <button
+                        className={`connection-select ${selected === `cloud:${item.id}` ? "selected" : ""}`}
+                        aria-pressed={selected === `cloud:${item.id}`}
+                        onClick={() => {
+                          clearError();
+                          setSelected(`cloud:${item.id}`);
+                        }}
+                      >
+                        <Server size={16} />
+                        <span>
+                          <strong>{item.name}</strong>
+                          <small>Cloud · {item.status}</small>
+                        </span>
+                      </button>
+                      <PinButton
+                        pinned={Boolean(state.pins?.connections.includes(cloudPinKey(cloud.origin, item.id)))}
+                        kind="server"
+                        name={item.name}
+                        onToggle={(pinned) => setPinned("connection", cloudPinKey(cloud.origin, item.id), pinned)}
+                        onFailure={showError}
+                      />
+                    </div>
+                  ),
+                )}
+                {!cloud.cores.length && <small>No cloud servers configured.</small>}
+              </div>
+            )}
+
+            {!cloud && (
+              <div className="cloud-sidebar-empty">
+                <Cloud size={30} />
+                <strong>Your cloud starts here</strong>
+                <p>Connect to cloud above to access your remote servers and workspaces.</p>
+              </div>
+            )}
+          </div>
+        )}
+      </aside>
       {bridgeReady && cloudDialog && (
         <CloudDialog onClose={closeCloudDialog}>
           <form className="dialog" onSubmit={(event) => void connectCloud(event)}>
@@ -939,13 +1129,26 @@ export function App() {
       )}
       {bridgeReady && workspaceDialog && connection && (
         <WorkspaceDialog
-          value={workspaceDialog}
+          value={
+            workspaceDialog.migrationSource && workspaceDialog.migrationSource !== workspaceDialog.directory
+              ? { ...workspaceDialog, migrationDestination: undefined }
+              : workspaceDialog
+          }
           connectionId={connection.id}
           local={connection.kind === "local"}
           discoverOnOpen={discoverWorkspaceOnOpen}
           configuredDirectories={workspaces.map((item) => item.directory)}
           onClose={() => setWorkspaceDialog(undefined)}
           onFailure={showError}
+          onMigrated={setState}
+          onMigrate={async (destination) => {
+            const next = await window.gateway.migrateWorkspace(workspaceDialog.id!, destination);
+            setState(next);
+            const migrated = next.workspaces.find((item) => item.id === workspaceDialog.id)!;
+            setWorkspaceDialog(migrated);
+            clearError();
+            return migrated;
+          }}
           onSave={async (value) => {
             setState(await window.gateway.saveWorkspace(value));
             setWorkspaceDialog(undefined);
@@ -971,17 +1174,7 @@ export function App() {
   );
 }
 
-export function ProvisioningLog({
-  workspace,
-  workspaces,
-  runtime,
-  onSelect,
-}: {
-  workspace?: GatewayWorkspace;
-  workspaces: GatewayWorkspace[];
-  runtime?: GatewayRuntime;
-  onSelect(id: string): void;
-}) {
+export function ProvisioningLog({ workspace, runtime }: { workspace?: GatewayWorkspace; runtime?: GatewayRuntime }) {
   const output = useRef<HTMLPreElement>(null);
   const follow = useRef(true);
   const previousWorkspace = useRef<string>();
@@ -994,35 +1187,10 @@ export function ProvisioningLog({
     if (follow.current && output.current) output.current.scrollTop = output.current.scrollHeight;
   }, [text, workspace?.id]);
   return (
-    <section className="provisioning-panel" aria-labelledby="provisioning-log-heading">
-      <header className="section-heading">
-        <div>
-          <SquareTerminal size={16} aria-hidden="true" />
-          <h2 id="provisioning-log-heading">Provisioning log</h2>
-        </div>
-        <span className={`log-state ${runtime?.status ?? "idle"}`}>
-          {runtime ? statusName(runtime.status) : "Ready"}
-        </span>
-      </header>
-      <div className="provisioning-toolbar">
-        <label htmlFor="provisioning-workspace">Workspace</label>
-        <select
-          id="provisioning-workspace"
-          value={workspace?.id ?? ""}
-          disabled={!workspaces.length}
-          onChange={(event) => onSelect(event.target.value)}
-        >
-          {!workspaces.length && <option value="">No workspaces</option>}
-          {workspaces.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.name}
-            </option>
-          ))}
-        </select>
-      </div>
+    <div className="provisioning-body">
       <pre
         ref={output}
-        className="provisioning-output"
+        className={`provisioning-output${text ? "" : " empty"}`}
         role="region"
         aria-label={workspace ? `Provisioning output for ${workspace.name}` : "Provisioning output"}
         tabIndex={0}
@@ -1034,11 +1202,13 @@ export function ProvisioningLog({
         {text ||
           (workspace ? "Start this workspace to see provisioning output here." : "Add a workspace to get started.")}
       </pre>
-      <footer className="provisioning-footer">
-        <span title={runtime?.message}>{runtime?.message ?? "Output appears here when a workspace starts."}</span>
-        {runtime?.stage && <span>{runtime.stage}</span>}
-      </footer>
-    </section>
+      {(runtime?.message || runtime?.stage) && (
+        <footer className="provisioning-footer">
+          <span title={runtime?.message}>{runtime?.message}</span>
+          {runtime?.stage && <span className="stage-chip">{runtime.stage}</span>}
+        </footer>
+      )}
+    </div>
   );
 }
 
@@ -1085,6 +1255,8 @@ export function DiagnosticsCopyButton({
 
 function CloudServerView({
   core,
+  rootPins,
+  onPinRoot,
   list,
   update,
   cloudBusy,
@@ -1094,6 +1266,8 @@ function CloudServerView({
   ports,
 }: {
   core: GatewayCloudCore;
+  rootPins: string[];
+  onPinRoot(root: GatewayCloudRoot, pinned: boolean): Promise<void>;
   ports?: ReactNode;
   list?: CloudCoreList;
   update?: CloudCoreUpdate;
@@ -1172,13 +1346,21 @@ function CloudServerView({
           <span className="page-eyebrow">CLOUD SERVER</span>
           <h1>{core.name}</h1>
           <p>
-            {core.status} · {core.access}
-            <span className={`update-chip ${chip.tone}`} role="status" aria-live="polite" title={chip.title}>
-              {chip.text}
-            </span>
+            {core.access === "owner" ? "Owner access" : "Operator access"}
+            {chip.tone === "error" && (
+              <span className="header-alert" role="alert">
+                {chip.title}
+              </span>
+            )}
           </p>
         </div>
         <div className="connection-actions">
+          <span className={`connection-health ${core.status === "online" ? "online" : "offline"}`}>
+            {core.status === "online" ? "Online" : core.status === "offline" ? "Offline" : core.status}
+          </span>
+          <span className={`update-chip ${chip.tone}`} role="status" aria-live="polite" title={chip.title}>
+            {chip.text}
+          </span>
           <button
             title={chip.title}
             aria-label="Update cloud Core"
@@ -1201,57 +1383,78 @@ function CloudServerView({
           </button>
         </div>
       </header>
-      {chip.tone === "error" ? <p role="alert">{chip.title}</p> : null}
-      {core.access === "owner" ? <AutostartControl core={core} onFailure={onFailure} /> : null}
-      <section className="workspace-collection cloud-core-collection">
-        <header className="section-heading">
-          <div>
-            <h2>Cores</h2>
-            <span>
-              {updating ? "Installing compatible Core…" : updateDone ? "Core updated" : `${roots.length} available`}
-            </span>
-          </div>
-        </header>
-        <div className="workspace-list" role="region" aria-label="Cloud Cores" tabIndex={0}>
-          {core.status === "online" && loading && !roots.length ? (
-            <div className="workspace-empty" role="status">
-              Loading Cores…
+      <div className="gateway-content">
+        <section className="workspace-collection cloud-core-collection">
+          <header className="workspace-toolbar">
+            <div className="workspace-toolbar-title">
+              <h2>Workspaces</h2>
+              <span className="count-badge">{roots.length}</span>
+              {(updating || updateDone) && (
+                <span className="running-summary">{updating ? "Installing compatible Core…" : "Core updated"}</span>
+              )}
             </div>
-          ) : failure ? (
-            <div className="workspace-empty" role="alert">
-              {failure}
-            </div>
-          ) : core.status !== "online" ? (
-            <div className="workspace-empty">
-              Server is {core.status}. Reconnect the server and refresh to see its Cores.
-            </div>
-          ) : roots.length === 0 ? (
-            <div className="workspace-empty">No Cores available on this server.</div>
-          ) : (
-            roots.map((root) => (
-              <article key={root.id}>
-                <div className="workspace-info">
-                  <HardDrive size={17} />
-                  <div>
-                    <h2>{root.alias}</h2>
-                    <code>{root.path}</code>
+          </header>
+          <div className="workspace-list cloud-root-list" role="region" aria-label="Cloud Cores" tabIndex={0}>
+            {core.status === "online" && loading && !roots.length ? (
+              <div className="workspace-empty" role="status">
+                <LoaderCircle size={18} className="cloud-spinning" aria-hidden="true" />
+                Loading workspaces…
+              </div>
+            ) : failure ? (
+              <div className="workspace-empty" role="alert">
+                {failure}
+              </div>
+            ) : core.status !== "online" ? (
+              <div className="workspace-empty">
+                <div className="workspace-empty-icon" aria-hidden="true">
+                  <CloudOff size={22} />
+                </div>
+                <strong>Server is {core.status}</strong>
+                <p>Reconnect the server and refresh to see its workspaces.</p>
+              </div>
+            ) : roots.length === 0 ? (
+              <div className="workspace-empty">No workspaces available on this server.</div>
+            ) : (
+              pinnedFirst(roots, (root) => root.id, rootPins).map((root) => (
+                <article key={root.id} className="cloud-root">
+                  <div className="workspace-glyph" aria-hidden="true">
+                    <FolderOpen size={16} />
+                  </div>
+                  <div className="cloud-root-identity">
+                    <div className="workspace-title-row">
+                      <h3>{root.alias}</h3>
+                      <PinButton
+                        pinned={rootPins.includes(root.id)}
+                        kind="workspace"
+                        name={root.alias}
+                        onToggle={(pinned) => onPinRoot(root, pinned)}
+                        onFailure={onFailure}
+                      />
+                    </div>
+                    <code title={root.path}>{root.path}</code>
                   </div>
                   <button
-                    className="icon-button cloud-core-connect"
+                    className="open-button"
                     title={`Connect to ${root.alias}`}
                     aria-label={`Connect to ${root.alias}`}
                     disabled={Boolean(connecting) || updating}
                     onClick={() => void connect(root)}
                   >
-                    <PlugZap size={16} className={connecting === root.id ? "cloud-spinning" : undefined} />
+                    {connecting === root.id ? (
+                      <LoaderCircle size={14} className="cloud-spinning" />
+                    ) : (
+                      <ArrowUpRight size={14} />
+                    )}
+                    Open
                   </button>
-                </div>
-              </article>
-            ))
-          )}
-        </div>
-      </section>
-      {ports}
+                </article>
+              ))
+            )}
+          </div>
+          {core.access === "owner" ? <AutostartControl core={core} onFailure={onFailure} /> : null}
+        </section>
+        {ports}
+      </div>
     </section>
   );
 }
@@ -1276,6 +1479,9 @@ export function CloudPortTunnels({
   const [local, setLocal] = useState("");
   const [remote, setRemote] = useState("");
   const [saving, setSaving] = useState(false);
+  // Decided once on mount so the panel never resizes on its own.
+  const [open, setOpen] = useState(() => tunnels.length > 0);
+  const running = tunnels.filter((item) => runtimes[item.id]?.status === "running").length;
   const save = async (event: FormEvent) => {
     event.preventDefault();
     setSaving(true);
@@ -1290,77 +1496,111 @@ export function CloudPortTunnels({
     }
   };
   return (
-    <section className="tunnel-section cloud-port-tunnels" aria-label="Cloud port tunnels">
-      <header>
-        <div>
-          <Cable size={16} />
-          <div>
-            <h2>Cloud port tunnels</h2>
-            <p>Local localhost → this Core’s localhost. TCP traffic flows both ways through cloud.</p>
+    <section
+      className={`workspace-dock cloud-port-tunnels ${open ? "open" : "collapsed"}`}
+      aria-label="Cloud port tunnels"
+    >
+      <header className="dock-bar">
+        <div className="dock-tabs">
+          <button
+            type="button"
+            className={`dock-tab${open ? " active" : ""}`}
+            aria-expanded={open}
+            aria-controls="cloud-tunnel-body"
+            title="Local localhost → this Core’s localhost. TCP traffic flows both ways through cloud."
+            onClick={() => setOpen(!open)}
+          >
+            <Cable size={14} aria-hidden="true" />
+            Cloud port tunnels
+            {tunnels.length > 0 && (
+              <span className={`count-badge${running ? " running" : ""}`}>
+                {running ? `${running}/${tunnels.length}` : tunnels.length}
+              </span>
+            )}
+          </button>
+        </div>
+        {open && (
+          <form className="tunnel-form" onSubmit={(event) => void save(event)}>
+            <input
+              aria-label="Local tunnel port"
+              required
+              type="number"
+              min="1"
+              max="65535"
+              value={local}
+              onChange={(event) => setLocal(event.target.value)}
+              placeholder="Local"
+            />
+            <span aria-hidden="true">→</span>
+            <input
+              aria-label="Core tunnel port"
+              type="number"
+              min="1"
+              max="65535"
+              value={remote}
+              onChange={(event) => setRemote(event.target.value)}
+              placeholder="Core (same)"
+            />
+            <button className="primary" disabled={saving || core.status !== "online"}>
+              <Plus size={14} /> Add port
+            </button>
+          </form>
+        )}
+        <button
+          type="button"
+          className="icon-button dock-collapse"
+          aria-label={open ? "Collapse cloud port tunnels" : "Expand cloud port tunnels"}
+          title={open ? "Collapse" : "Expand"}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+        </button>
+      </header>
+      {open && (
+        <div className="dock-body" id="cloud-tunnel-body">
+          <div className="tunnel-list">
+            {tunnels.map((item) => {
+              const runtime = runtimes[item.id] ?? { status: "idle", message: "Stopped" };
+              const active = runtime.status === "working" || runtime.status === "running";
+              return (
+                <div className="tunnel-row" key={item.id}>
+                  <div className={`status-dot ${runtime.status}`} aria-hidden="true" />
+                  <div className="tunnel-address">
+                    <strong>localhost:{item.port}</strong>
+                    <small>→ Core localhost:{item.remotePort ?? item.port}</small>
+                  </div>
+                  <div className="tunnel-status" role="status">
+                    <strong>{tunnelStatusName(runtime.status)}</strong>
+                    {tunnelDetail(runtime) && <small>{tunnelDetail(runtime)}</small>}
+                  </div>
+                  {active ? (
+                    <button className="stop" onClick={() => void onAction(item, "stopPortTunnel")}>
+                      <CircleStop size={14} /> Stop
+                    </button>
+                  ) : (
+                    <button disabled={core.status !== "online"} onClick={() => void onAction(item, "startPortTunnel")}>
+                      <Play size={14} /> Run
+                    </button>
+                  )}
+                  <button
+                    className="icon-button danger"
+                    title="Delete tunnel"
+                    aria-label={`Delete cloud tunnel on port ${item.port}`}
+                    onClick={() => void onRemove(item)}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
+              );
+            })}
+            {!tunnels.length && (
+              <div className="tunnel-empty">
+                No cloud ports yet. Forward a local port to this Core, for example local 3000 → Core 3000.
+              </div>
+            )}
           </div>
         </div>
-        <form onSubmit={(event) => void save(event)}>
-          <input
-            aria-label="Local tunnel port"
-            required
-            type="number"
-            min="1"
-            max="65535"
-            value={local}
-            onChange={(event) => setLocal(event.target.value)}
-            placeholder="Local port"
-          />
-          <input
-            aria-label="Core tunnel port"
-            type="number"
-            min="1"
-            max="65535"
-            value={remote}
-            onChange={(event) => setRemote(event.target.value)}
-            placeholder="Core port (same)"
-          />
-          <button className="primary" disabled={saving || core.status !== "online"}>
-            <Plus size={14} /> Add port
-          </button>
-        </form>
-      </header>
-      <div className="tunnel-list">
-        {tunnels.map((item) => {
-          const runtime = runtimes[item.id] ?? { status: "idle", message: "Stopped" };
-          return (
-            <div className="tunnel-row" key={item.id}>
-              <div className={`status-dot ${runtime.status}`} aria-hidden="true" />
-              <div className="tunnel-address">
-                <strong>localhost:{item.port}</strong>
-                <small>→ Core localhost:{item.remotePort ?? item.port}</small>
-              </div>
-              <div className="tunnel-status" role="status">
-                <strong>{tunnelStatusName(runtime.status)}</strong>
-                <small>{runtime.message}</small>
-              </div>
-              <button
-                disabled={runtime.status === "working" || runtime.status === "running" || core.status !== "online"}
-                onClick={() => void onAction(item, "startPortTunnel")}
-              >
-                <Play size={14} /> Run
-              </button>
-              <button
-                className="stop"
-                disabled={runtime.status === "idle" || runtime.status === "error"}
-                onClick={() => void onAction(item, "stopPortTunnel")}
-              >
-                <CircleStop size={14} /> Stop
-              </button>
-              <button aria-label={`Delete cloud tunnel on port ${item.port}`} onClick={() => void onRemove(item)}>
-                <Trash2 size={14} />
-              </button>
-            </div>
-          );
-        })}
-        {!tunnels.length && (
-          <div className="tunnel-empty">No cloud ports configured. For example, local 3000 → Core 3000.</div>
-        )}
-      </div>
+      )}
     </section>
   );
 }
@@ -1434,7 +1674,7 @@ function CloudDialog({ children, onClose }: { children: ReactNode; onClose(): vo
   return <div className="dialog-layer">{children}</div>;
 }
 
-function useDialogKeyboard(onClose: () => void, accessibleName: string) {
+export function useDialogKeyboard(onClose: () => void, accessibleName: string) {
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : undefined;
     const dialog = document.querySelector<HTMLFormElement>(".dialog-layer:last-of-type .dialog");
@@ -1443,8 +1683,9 @@ function useDialogKeyboard(onClose: () => void, accessibleName: string) {
     dialog?.setAttribute("aria-label", accessibleName);
     dialog?.querySelector<HTMLElement>("header button")?.setAttribute("aria-label", `Close ${accessibleName}`);
     (
-      dialog?.querySelector<HTMLElement>("input:not([disabled]), select:not([disabled])") ??
-      dialog?.querySelector<HTMLElement>("button:not([disabled])")
+      dialog?.querySelector<HTMLElement>(
+        'input:not([disabled]):not([aria-hidden]), [role="combobox"]:not([disabled])',
+      ) ?? dialog?.querySelector<HTMLElement>("button:not([disabled])")
     )?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1455,7 +1696,7 @@ function useDialogKeyboard(onClose: () => void, accessibleName: string) {
       if (event.key !== "Tab") return;
       const focusable = [
         ...(dialog?.querySelectorAll<HTMLElement>(
-          "button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+          "button:not([disabled]), input:not([disabled]):not([aria-hidden]), [role=combobox]:not([disabled]), [tabindex]:not([tabindex='-1'])",
         ) ?? []),
       ];
       if (!focusable.length) return;
@@ -1645,14 +1886,14 @@ export function ConnectionDialog({
         {!form.id && (
           <label>
             Connection type
-            <select
+            <Select
               aria-label="Connection type"
               value={form.kind ?? "ssh"}
-              onChange={(event) => setForm({ ...form, kind: event.target.value as "ssh" | "local" })}
+              onValueChange={(selectedValue) => setForm({ ...form, kind: selectedValue as "ssh" | "local" })}
             >
               <option value="ssh">SSH host</option>
               {allowLocal && <option value="local">This Mac</option>}
-            </select>
+            </Select>
           </label>
         )}
         <label>
@@ -1702,16 +1943,16 @@ export function ConnectionDialog({
             </label>
             <label>
               Authentication
-              <select
+              <Select
                 value={form.authenticationMethod ?? "password"}
-                onChange={(e) =>
-                  setForm({ ...form, authenticationMethod: e.target.value as "password" | "privateKey" | "agent" })
+                onValueChange={(selectedValue) =>
+                  setForm({ ...form, authenticationMethod: selectedValue as "password" | "privateKey" | "agent" })
                 }
               >
                 <option value="password">Password</option>
                 <option value="privateKey">Private key</option>
                 <option value="agent">SSH agent</option>
-              </select>
+              </Select>
             </label>
             {keyAuthentication ? (
               <>
@@ -1790,6 +2031,8 @@ export function WorkspaceDialog({
   onClose,
   onSave,
   onFailure,
+  onMigrate,
+  onMigrated,
 }: {
   value: Partial<GatewayWorkspace>;
   connectionId: string;
@@ -1801,13 +2044,21 @@ export function WorkspaceDialog({
     value: Partial<GatewayWorkspace> & { connectionId: string; name: string; directory: string; remotePort: number },
   ): Promise<void>;
   onFailure(reason: unknown): void;
+  onMigrate?(destination: string): Promise<GatewayWorkspace>;
+  onMigrated?(state: GatewayState): void;
 }) {
   const [form, setForm] = useState(value);
+  const [migrating, setMigrating] = useState(false);
   const [saving, setSaving] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [directories, setDirectories] = useState<string[]>([]);
+  const closeLocked = useRef(false);
+  closeLocked.current = saving || migrating;
+  const close = useCallback(() => {
+    if (!closeLocked.current) onClose();
+  }, [onClose]);
   useDialogKeyboard(
-    onClose,
+    close,
     form.id ? `Edit ${local ? "local" : "remote"} workspace` : `New ${local ? "local" : "remote"} workspace`,
   );
   const discover = useCallback(async () => {
@@ -1862,92 +2113,116 @@ export function WorkspaceDialog({
           <strong>
             {form.id ? `Edit ${local ? "local" : "remote"} workspace` : `New ${local ? "local" : "remote"} workspace`}
           </strong>
-          <button type="button" onClick={onClose} disabled={saving || discovering}>
+          <button type="button" onClick={onClose} disabled={saving || discovering || migrating}>
             <X size={15} />
           </button>
         </header>
-        {directories.length > 0 && (
+        <fieldset className="workspace-fields" disabled={saving || migrating}>
+          {directories.length > 0 && (
+            <label>
+              Discovered workspaces
+              <Select
+                aria-label="Discovered workspaces"
+                value={directories.includes(form.directory ?? "") ? form.directory : ""}
+                onValueChange={(selectedValue) => chooseDirectory(selectedValue)}
+              >
+                <option value="">Select a remote folder…</option>
+                {directories.map((directory) => (
+                  <option key={directory} value={directory}>
+                    {directory}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
           <label>
-            Discovered workspaces
-            <select
-              aria-label="Discovered workspaces"
-              value={directories.includes(form.directory ?? "") ? form.directory : ""}
-              onChange={(event) => chooseDirectory(event.target.value)}
-            >
-              <option value="">Select a remote folder…</option>
-              {directories.map((directory) => (
-                <option key={directory} value={directory}>
-                  {directory}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
-        <label>
-          Name
-          <input
-            required
-            value={form.name ?? ""}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-            placeholder="Backend API"
-          />
-        </label>
-        <label>
-          {local ? "Local project directory" : "Remote directory"}
-          <div className={local ? "file-picker" : undefined}>
+            Name
             <input
-              aria-label={local ? "Local project directory" : "Remote directory"}
               required
-              value={form.directory ?? ""}
-              onChange={(e) => setForm({ ...form, directory: e.target.value })}
-              placeholder={local ? "/Users/me/Projects/api" : "/home/user/projects/api"}
+              value={form.name ?? ""}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+              placeholder="Backend API"
             />
-            {local && (
-              <button type="button" aria-label="Choose local project directory" onClick={() => void browse()}>
-                Choose…
-              </button>
-            )}
-          </div>
-        </label>
-        {local && (
-          <p className="dialog-help">
-            Enter an absolute path or choose an existing project. Missing folders, including parent folders, are created
-            when you save. Empty workspace folders are initialized as Git repositories.
-          </p>
-        )}
-        {!local && (
-          <>
-            <button
-              className="discover-workspaces"
-              type="button"
-              onClick={() => void discover()}
-              disabled={saving || discovering}
-            >
-              {discovering ? "Discovering…" : directories.length ? "Discover again" : "Discover folders"}
-            </button>
+          </label>
+          <label>
+            {local ? "Local project directory" : "Remote directory"}
+            <div className={local ? "file-picker" : undefined}>
+              <input
+                aria-label={local ? "Local project directory" : "Remote directory"}
+                required
+                value={form.directory ?? ""}
+                onChange={(e) => setForm({ ...form, directory: e.target.value })}
+                placeholder={local ? "/Users/me/Projects/api" : "/home/user/projects/api"}
+              />
+              {local && (
+                <button type="button" aria-label="Choose local project directory" onClick={() => void browse()}>
+                  Choose…
+                </button>
+              )}
+            </div>
+          </label>
+          {local && (
             <p className="dialog-help">
-              Lists folders in common project locations under the remote SSH user’s home. Already configured workspaces
-              are omitted. Enter any absolute path to create a new workspace. Missing folders, including parent folders,
-              are created when you save. Empty workspace folders are initialized as Git repositories.
+              Enter an absolute path or choose an existing project. Missing folders, including parent folders, are
+              created when you save. Empty workspace folders are initialized as Git repositories.
             </p>
-          </>
-        )}
-        <label>
-          Core port
-          <input
-            required
-            type="number"
-            min="1024"
-            max="65535"
-            value={form.remotePort ?? 7331}
-            onChange={(e) => setForm({ ...form, remotePort: Number(e.target.value) })}
+          )}
+          {!local && (
+            <>
+              <button
+                className="discover-workspaces"
+                type="button"
+                onClick={() => void discover()}
+                disabled={saving || discovering || migrating}
+              >
+                {discovering ? "Discovering…" : directories.length ? "Discover again" : "Discover folders"}
+              </button>
+              <p className="dialog-help">
+                Lists folders in common project locations under the remote SSH user’s home. Already configured
+                workspaces are omitted. Enter any absolute path to create a new workspace. Missing folders, including
+                parent folders, are created when you save. Empty workspace folders are initialized as Git repositories.
+              </p>
+            </>
+          )}
+          <label>
+            Core port
+            <input
+              required
+              type="number"
+              min="1024"
+              max="65535"
+              value={form.remotePort ?? 7331}
+              onChange={(e) => setForm({ ...form, remotePort: Number(e.target.value) })}
+            />
+          </label>
+          {form.id && onMigrate && (
+            <WorkspaceMigration
+              workspace={value as GatewayWorkspace}
+              local={local}
+              onBusy={setMigrating}
+              disabled={
+                form.name !== value.name || form.directory !== value.directory || form.remotePort !== value.remotePort
+              }
+              onMigrate={async (destination) => {
+                const updated = await onMigrate(destination);
+                setForm(updated);
+              }}
+            />
+          )}
+        </fieldset>
+        {form.id && onMigrated && (
+          <OtherWorkspaces
+            owner={value as GatewayWorkspace}
+            local={local}
+            disabled={saving || migrating}
+            onMigrated={onMigrated}
           />
-        </label>
+        )}
         <footer>
-          <button type="button" onClick={onClose} disabled={saving || discovering}>
+          <button type="button" onClick={onClose} disabled={saving || discovering || migrating}>
             Cancel
           </button>
-          <button className="primary" disabled={saving || discovering}>
+          <button className="primary" disabled={saving || discovering || migrating}>
             {saving ? "Saving..." : "Save workspace"}
           </button>
         </footer>
@@ -1960,6 +2235,11 @@ function statusName(status: GatewayRuntime["status"]): string {
   return { idle: "Stopped", working: "In progress", server: "Server ready", client: "Client running", error: "Failed" }[
     status
   ];
+}
+/** The runtime message, unless it only repeats the status name ("Stopped · Stopped"). */
+function tunnelDetail(runtime: GatewayTunnelRuntime): string {
+  const message = runtime.message.trim();
+  return message.toLowerCase() === tunnelStatusName(runtime.status).toLowerCase() ? "" : message;
 }
 function tunnelStatusName(status: GatewayTunnelRuntime["status"]): string {
   return { idle: "Stopped", working: "Connecting", running: "Running", error: "Failed" }[status];

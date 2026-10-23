@@ -134,4 +134,9 @@ export type AiContinuationTimer = {
   workflowRunId?: string;
   workflowBlockId?: string;
   workflowFlow?: boolean;
+  /** Failed delivery attempts so far; a definitely-unsent prompt is retried with backoff, moving `dueAt`. */
+  deliveryAttempts?: number;
+  deliveryError?: string;
+  /** Delivery stopped (retries exhausted or outcome uncertain); the timer is not armed until run manually. */
+  deliveryFailed?: boolean;
 };

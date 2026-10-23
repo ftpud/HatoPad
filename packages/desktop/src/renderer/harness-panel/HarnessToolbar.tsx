@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import {
   CopyPlus,
   SquareStack,
@@ -53,11 +54,11 @@ export function HarnessToolbar({ context }: { context: HarnessViewContext }) {
         value={draft.name}
         onChange={(event) => setDraft({ ...draft, name: event.target.value })}
       />
-      <select
+      <Select
         aria-label="Add block type"
         value=""
-        onChange={(event) => {
-          if (event.target.value) addBlock(event.target.value as HarnessBlock["type"]);
+        onValueChange={(selectedValue) => {
+          if (selectedValue) addBlock(selectedValue as HarnessBlock["type"]);
         }}
       >
         <option value="">+ Add block</option>
@@ -66,7 +67,7 @@ export function HarnessToolbar({ context }: { context: HarnessViewContext }) {
             {blockTypeLabels[type]}
           </option>
         ))}
-      </select>
+      </Select>
       <button
         title="Save workflow"
         disabled={!dirty || saving || validationIssues.length > 0}

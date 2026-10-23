@@ -474,3 +474,103 @@ it("rejects invalid new timer timestamps without corrupting an existing timer fi
     await rm(state, { recursive: true, force: true });
   }
 });
+
+describe("AI continuation timer delivery failures", () => {
+  const session = (messages: { role: string; text: string }[] = [], status = "done") => ({
+    status,
+    model: "gpt-5",
+    reasoning: "low",
+    configuration: { model: "gpt-5", reasoning: "low" },
+    messages,
+  });
+
+  it("re-arms a definitely-unsent continuation with backoff and delivers it on retry", async () => {
+    vi.useFakeTimers();
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timer-retry-"));
+    const store = new AiTimerStore("/workspace", state);
+    const provider = {
+      get: vi.fn(async () => session()),
+      send: vi.fn().mockRejectedValueOnce(new Error("socket hang up")).mockResolvedValue(session([], "in_progress")),
+      steer: vi.fn(),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const service = new AiTimerService(store, { get: vi.fn(() => provider) } as never, "/workspace", vi.fn());
+    try {
+      await service.schedule("/workspace/task", "codex", "Continue", 1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(async () =>
+        expect(await store.list()).toEqual([
+          expect.objectContaining({ deliveryAttempts: 1, deliveryError: "socket hang up" }),
+        ]),
+      );
+      const [retrying] = await store.list();
+      expect(retrying!.deliveryFailed).toBeUndefined();
+      expect(Date.parse(retrying!.dueAt)).toBeGreaterThan(Date.now());
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.waitFor(async () => expect(await store.list()).toEqual([]));
+      expect(provider.send).toHaveBeenCalledTimes(2);
+    } finally {
+      await service.suspend();
+      warn.mockRestore();
+      vi.useRealTimers();
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  it("marks an uncertain send as failed without retrying or arming it on restart", async () => {
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timer-uncertain-"));
+    const store = new AiTimerStore("/workspace", state);
+    let current = session();
+    const provider = {
+      get: vi.fn(async () => current),
+      send: vi.fn(async () => {
+        current = session([], "in_progress");
+        throw new Error("connection lost after send");
+      }),
+      steer: vi.fn(),
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const acp = { get: vi.fn(() => provider) } as never;
+    const service = new AiTimerService(store, acp, "/workspace", vi.fn());
+    try {
+      const timer = await service.schedule("/workspace/task", "codex", "Continue", 3_600);
+      await service.fireById(timer.id);
+      expect(await store.list()).toEqual([
+        expect.objectContaining({ id: timer.id, deliveryFailed: true, deliveryAttempts: 1 }),
+      ]);
+      await service.suspend();
+      const restarted = new AiTimerService(store, acp, "/workspace", vi.fn());
+      await restarted.start();
+      expect((restarted as unknown as { handles: Map<string, unknown> }).handles.size).toBe(0);
+      await restarted.suspend();
+      expect(provider.send).toHaveBeenCalledTimes(1);
+    } finally {
+      await service.suspend();
+      warn.mockRestore();
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a failed send whose prompt reached the session as delivered", async () => {
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-timer-arrived-"));
+    const store = new AiTimerStore("/workspace", state);
+    let current = session();
+    const provider = {
+      get: vi.fn(async () => current),
+      send: vi.fn(async () => {
+        current = session([{ role: "user", text: "Continue" }]);
+        throw new Error("response stream closed");
+      }),
+      steer: vi.fn(),
+    };
+    const service = new AiTimerService(store, { get: vi.fn(() => provider) } as never, "/workspace", vi.fn());
+    try {
+      const timer = await service.schedule("/workspace/task", "codex", "Continue", 3_600);
+      await service.fireById(timer.id);
+      expect(await store.list()).toEqual([]);
+    } finally {
+      await service.suspend();
+      await rm(state, { recursive: true, force: true });
+    }
+  });
+});

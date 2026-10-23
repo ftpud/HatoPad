@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { McpChatControls } from "./McpChatControls";
 import type { McpLibraryServer, McpSelection } from "@hatopad/protocol";
 import { AiAuthentication } from "./AiAuthentication";
@@ -388,13 +389,13 @@ export function AiPanel({
       <div className={`ai-toolbar${autopilot ? " with-autopilot" : ""}${skillsAvailable ? " with-skills" : ""}`}>
         <div className="ai-provider-picker">
           <span>Provider</span>
-          <select
+          <Select
             aria-label="AI provider"
             value={provider}
             disabled={busy}
-            onChange={(event) => {
+            onValueChange={(selectedValue) => {
               setSettingsOpen(false);
-              onProviderChange(event.target.value as AiProvider);
+              onProviderChange(selectedValue as AiProvider);
             }}
           >
             {providers.map((item) => (
@@ -402,7 +403,7 @@ export function AiPanel({
                 {item.name}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
         <ModelPicker
           models={models}
@@ -562,7 +563,7 @@ export function AiPanel({
                   "Higher effort can improve difficult tasks, but usually takes longer."
                 }
               >
-                <select
+                <Select
                   aria-label="Reasoning effort"
                   disabled={busy}
                   value={
@@ -570,14 +571,14 @@ export function AiPanel({
                       ? reasoning
                       : (selectedModel?.defaultReasoning ?? reasoningLevels[0])
                   }
-                  onChange={(event) => changeReasoning(event.target.value)}
+                  onValueChange={(selectedValue) => changeReasoning(selectedValue)}
                 >
                   {reasoningLevels.map((level) => (
                     <option key={level} value={level} title={selectedModel?.reasoningDescriptions?.[level]}>
                       {level}
                     </option>
                   ))}
-                </select>
+                </Select>
               </SettingRow>
             </div>
           )}
@@ -606,17 +607,17 @@ export function AiPanel({
                 {options.map((option) => (
                   <SettingRow key={option.id} name={option.name} description={option.description}>
                     {option.type === "select" ? (
-                      <select
+                      <Select
                         disabled={busy}
                         value={selectValue(option, configuration[option.id])}
-                        onChange={(event) => updateConfiguration({ [option.id]: event.target.value })}
+                        onValueChange={(selectedValue) => updateConfiguration({ [option.id]: selectedValue })}
                       >
                         {option.choices?.map((choice) => (
                           <option key={choice.value} value={choice.value} title={choice.description}>
                             {choice.name}
                           </option>
                         ))}
-                      </select>
+                      </Select>
                     ) : option.type === "boolean" ? (
                       <label className="ai-switch">
                         <input

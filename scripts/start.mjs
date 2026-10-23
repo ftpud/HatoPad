@@ -49,8 +49,8 @@ async function runNpm(args) {
 try {
   const [major, minor] = process.versions.node.split(".").map(Number);
   if (major < 22 || (major === 22 && minor < 12)) {
-    console.log(`[startup] Node ${process.versions.node} is too old; selecting Node 24 through npm.`);
-    await runNpm(["exec", "--yes", "--package=node@24", "--", "node", script, ...process.argv.slice(2)]);
+    console.log(`[startup] Node ${process.versions.node} is too old; selecting Node 24.22.1 through npm.`);
+    await runNpm(["exec", "--yes", "--package=node@24.22.1", "--", "node", script, ...process.argv.slice(2)]);
   } else {
     // Compile source on every launch, so deleted or stale dist trees cannot
     // silently run an older version. Gateway also launches Core and Desktop.

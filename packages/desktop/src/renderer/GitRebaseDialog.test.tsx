@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import type { GitCommit, GitRebasePreview } from "@hatopad/protocol";
@@ -30,11 +31,11 @@ describe("GitRebaseDialog", () => {
     const confirm = vi.fn();
     render(<GitRebaseDialog preview={preview} busy={false} onClose={vi.fn()} onConfirm={confirm} />);
     fireEvent.click(screen.getByRole("button", { name: "Move two up" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Action for two" }), { target: { value: "reword" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Action for two" }), "reword");
     fireEvent.change(screen.getByRole("textbox", { name: "New message for two" }), {
       target: { value: "renamed two" },
     });
-    fireEvent.change(screen.getByRole("combobox", { name: "Action for one" }), { target: { value: "fixup" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Action for one" }), "fixup");
     fireEvent.click(screen.getByRole("button", { name: "Start rebase" }));
     expect(confirm).toHaveBeenCalledWith([
       expect.objectContaining({

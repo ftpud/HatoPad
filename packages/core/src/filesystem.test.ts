@@ -78,6 +78,49 @@ describe("WorkspaceFileSystem", () => {
     expect(saved.revision.version).not.toBe(opened.revision.version);
   });
 
+  it("accepts exactly one of two concurrent saves holding the same revision", async () => {
+    await fs.open(root);
+    const other = new WorkspaceFileSystem({}, `${root}-state`);
+    await other.open(root);
+    for (let trial = 0; trial < 20; trial++) {
+      const opened = await fs.read("src/index.ts");
+      const results = await Promise.allSettled([
+        fs.write("src/index.ts", `first ${trial}\n`, opened.revision),
+        other.write("src/index.ts", `second ${trial}\n`, opened.revision),
+      ]);
+      const accepted = results.flatMap((result, index) => (result.status === "fulfilled" ? [index] : []));
+      expect(accepted).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")).toMatchObject({
+        reason: { code: "FILE_CHANGED" },
+      });
+      expect(await readFile(path.join(root, "src/index.ts"), "utf8")).toBe(
+        `${accepted[0] === 0 ? "first" : "second"} ${trial}\n`,
+      );
+    }
+  });
+
+  it("keeps the previous contents when a save and every rewrite of the file fail", async () => {
+    await fs.open(root);
+    const target = path.join(root, "src", "index.ts");
+    await writeFile(target, "ORIGINAL_KEEP\n");
+    const opened = await fs.read("src/index.ts");
+    const realWrite = fileOperations.writeFile;
+    const write = vi.spyOn(fileOperations, "writeFile").mockImplementation(async (file, ...rest) => {
+      if (file !== target) return realWrite(file, ...rest);
+      await realWrite(target, "partial");
+      throw Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" });
+    });
+    await expect(fs.write("src/index.ts", "replacement\n", opened.revision)).rejects.toMatchObject({
+      code: "WRITE_FAILED",
+    });
+    write.mockRestore();
+    expect(await readFile(target, "utf8")).toBe("ORIGINAL_KEEP\n");
+    expect((await readdir(path.join(root, "src"))).filter((name) => name.includes("hatopad-save"))).toEqual([]);
+    const saved = await fs.write("src/index.ts", "after recovery\n", (await fs.read("src/index.ts")).revision);
+    expect(saved.bytesWritten).toBeGreaterThan(0);
+    expect(await readFile(target, "utf8")).toBe("after recovery\n");
+  });
+
   it("creates files and directories and renames them within the workspace", async () => {
     await fs.open(root);
     await fs.createDirectory("src/components");
@@ -173,6 +216,60 @@ describe("WorkspaceFileSystem", () => {
     expect(names).toContain("Readme.md");
     expect(names).not.toContain("README.md");
     await expect(access(path.join(root, "Readme.md"))).resolves.toBeUndefined();
+  });
+
+  it("treats a differently cased existing file as a collision on case-sensitive filesystems", async () => {
+    await fs.open(root);
+    await writeFile(path.join(root, "name.txt"), "source\n");
+    await writeFile(path.join(root, "NAME.txt"), "other\n");
+    if ((await readFile(path.join(root, "name.txt"), "utf8")) !== "source\n") return; // case-insensitive host
+    const request = [{ source: "name.txt", destination: "NAME.txt" }];
+    const preview = await fs.transferPreflight("move", request);
+    expect(preview.items[0]).toMatchObject({ collision: true, overwrite: false, caseOnlyRename: false });
+    await expect(fs.transferApply("move", request, [], [], [], true)).rejects.toMatchObject({ code: "WRITE_FAILED" });
+    expect(await readFile(path.join(root, "NAME.txt"), "utf8")).toBe("other\n");
+    expect(await readFile(path.join(root, "name.txt"), "utf8")).toBe("source\n");
+  });
+
+  it("does not overwrite a destination created after the transfer preflight", async () => {
+    await fs.open(root);
+    await writeFile(path.join(root, "a.txt"), "source\n");
+    const request = [{ source: "a.txt", destination: "b.txt" }];
+    const preflight = fs.transferPreflight.bind(fs);
+    vi.spyOn(fs, "transferPreflight").mockImplementation(async (...args) => {
+      const preview = await preflight(...args);
+      await writeFile(path.join(root, "b.txt"), "late\n");
+      return preview;
+    });
+    const result = await fs.transferApply("move", request, [], [], [], true);
+    expect(result.completed).toEqual([]);
+    expect(await readFile(path.join(root, "b.txt"), "utf8")).toBe("late\n");
+    expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("source\n");
+  });
+
+  it("keeps internal and outside relative symlinks resolving after a directory move", async () => {
+    await fs.open(root);
+    await mkdir(path.join(root, "source", "nested"), { recursive: true });
+    await mkdir(path.join(root, "deeper"));
+    await writeFile(path.join(root, "source", "target.txt"), "inside\n");
+    await writeFile(path.join(root, "outside.txt"), "outside\n");
+    await symlink("target.txt", path.join(root, "source", "link.txt"));
+    await symlink("../target.txt", path.join(root, "source", "nested", "up.txt"));
+    await symlink("../outside.txt", path.join(root, "source", "out.txt"));
+    const result = await fs.transferApply(
+      "move",
+      [{ source: "source", destination: "deeper/moved" }],
+      [],
+      [],
+      [],
+      true,
+    );
+    expect(result.failures).toEqual([]);
+    const moved = path.join(root, "deeper", "moved");
+    expect(await fileOperations.readlink(path.join(moved, "link.txt"))).toBe("target.txt");
+    expect(await readFile(path.join(moved, "link.txt"), "utf8")).toBe("inside\n");
+    expect(await readFile(path.join(moved, "nested", "up.txt"), "utf8")).toBe("inside\n");
+    expect(await readFile(path.join(moved, "out.txt"), "utf8")).toBe("outside\n");
   });
 
   it("previews, trashes, and restores a directory without exposing trash in the tree", async () => {

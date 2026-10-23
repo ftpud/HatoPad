@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import type { GitRebaseAction, GitRebasePreview, GitRebaseTodoItem } from "@hatopad/protocol";
 import { ArrowDown, ArrowUp, LoaderCircle, X } from "lucide-react";
 import { useState } from "react";
@@ -82,12 +83,12 @@ export function GitRebaseDialog({
                     <ArrowDown size={13} />
                   </button>
                 </span>
-                <select
+                <Select
                   aria-label={`Action for ${item.commit.subject}`}
                   disabled={busy}
                   value={item.action}
-                  onChange={(event) => {
-                    const action = event.target.value as GitRebaseAction;
+                  onValueChange={(selectedValue) => {
+                    const action = selectedValue as GitRebaseAction;
                     update(index, {
                       action,
                       ...(action === "reword" && item.message === undefined ? { message: item.commit.subject } : {}),
@@ -97,7 +98,7 @@ export function GitRebaseDialog({
                   {actions.map((action) => (
                     <option key={action}>{action}</option>
                   ))}
-                </select>
+                </Select>
                 <code>{item.commit.shortHash}</code>
                 <span className="git-rebase-subject">
                   {item.commit.subject}

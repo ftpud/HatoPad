@@ -21,7 +21,7 @@ describe("horizontal editor layout containment", () => {
   });
 
   it("reserves click targets for workspace actions beside the flexible root selector", () => {
-    const selector = declarations(".workspace-name select");
+    const selector = declarations(".workspace-name .workspace-picker-trigger");
     expect(selector).toContain("width: 0");
     expect(selector).toContain("min-width: 0");
 

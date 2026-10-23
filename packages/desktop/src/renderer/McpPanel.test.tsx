@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { McpPanel } from "./McpPanel";
@@ -18,7 +19,7 @@ it("offers generic OAuth registration settings and starts browser sign-in after 
   fireEvent.click(screen.getByTitle("Add MCP server"));
   fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Example MCP" } });
   fireEvent.change(screen.getByLabelText("Server URL"), { target: { value: "https://example.test/mcp" } });
-  fireEvent.change(screen.getByLabelText("Authentication for Connection"), { target: { value: "oauth" } });
+  chooseSelect(screen.getByLabelText("Authentication for Connection"), "oauth");
   expect(screen.queryByLabelText("Bearer token")).toBeNull();
   fireEvent.change(screen.getByLabelText("OAuth client ID"), { target: { value: "registered-client" } });
   fireEvent.change(screen.getByLabelText("OAuth client secret"), { target: { value: "private-secret" } });
@@ -111,7 +112,7 @@ it("toggles the internal MCP and uses the default connection when enabling an ex
       onOpen={vi.fn()}
     />,
   );
-  fireEvent.change(screen.getByLabelText("GitHub connection"), { target: { value: "user" } });
+  chooseSelect(screen.getByLabelText("GitHub connection"), "user");
   await waitFor(() => expect(onChange).toHaveBeenCalledWith([{ serverId: "github", connectionId: "user" }], true));
   fireEvent.click(screen.getByLabelText("Enable HatoPad editor MCP"));
   await waitFor(() => expect(onChange).toHaveBeenCalledWith([{ serverId: "github" }], false));

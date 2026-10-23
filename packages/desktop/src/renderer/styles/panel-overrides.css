@@ -191,7 +191,7 @@
 @media (forced-colors: active) {
   button,
   input,
-  select,
+  .select-trigger,
   textarea,
   [role="treeitem"],
   [role="option"] {
@@ -199,7 +199,7 @@
   }
   button:focus-visible,
   input:focus-visible,
-  select:focus-visible,
+  .select-trigger:focus-visible,
   textarea:focus-visible,
   [tabindex]:focus-visible {
     outline: 2px solid Highlight;
@@ -246,7 +246,7 @@
   display: flex;
   overflow: hidden;
 }
-.commit-patch-toolbar select {
+.commit-patch-toolbar .select-trigger {
   max-width: min(480px, 40vw);
   padding: 6px;
   background: inherit;
@@ -599,11 +599,11 @@
   align-items: center;
   gap: 6px;
 }
-.java-config-profile-actions select {
+.java-config-profile-actions .select-trigger {
   min-width: 0;
   flex: 1;
 }
-.java-config-profile-actions button {
+.java-config-profile-actions button:not(.select-trigger) {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -750,7 +750,7 @@
 .harness-edge.selected {
   stroke: var(--warning-border);
 }
-.harness-toolbar select {
+.harness-toolbar .select-trigger {
   padding: 4px 7px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-control);
@@ -932,7 +932,7 @@
   padding: 7px 8px;
   border-bottom: 1px solid var(--border-subtle);
 }
-.harness-zoom button {
+.harness-zoom button:not(.select-trigger) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -946,7 +946,7 @@
   min-width: 28px;
   cursor: pointer;
 }
-.harness-zoom button:disabled {
+.harness-zoom button:not(.select-trigger):disabled {
   opacity: 0.4;
   cursor: default;
 }
@@ -1057,6 +1057,9 @@
 }
 .timer-entry .timer-prompt {
   color: var(--text-primary);
+}
+.timer-entry .timer-delivery-error {
+  color: var(--danger);
 }
 .timer-prompt {
   white-space: pre-wrap;
@@ -1177,7 +1180,7 @@
   font-size: 0.7692rem;
 }
 .schedule-form input,
-.schedule-form select,
+.schedule-form .select-trigger,
 .schedule-form textarea {
   width: 100%;
   min-width: 0;

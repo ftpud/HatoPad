@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -10,7 +10,8 @@ async function createMavenWorkspace(
   onEvent: ConstructorParameters<typeof JavaProjectService>[2] = () => undefined,
   onBuildSucceeded?: () => Promise<void>,
 ) {
-  const root = await mkdtemp(path.join(tmpdir(), "hatopad-java-"));
+  // Match Core's canonical workspace path, including macOS's /var -> /private/var alias.
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), "hatopad-java-")));
   const stateDirectory = await mkdtemp(path.join(tmpdir(), "hatopad-java-state-"));
   await mkdir(path.join(root, "src", "main", "java", "com", "example"), { recursive: true });
   await mkdir(path.join(root, "src", "generated", "org", "demo"), { recursive: true });

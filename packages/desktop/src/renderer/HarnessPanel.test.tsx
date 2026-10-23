@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HarnessBlock, HarnessDefinition, HarnessRun } from "@hatopad/protocol";
@@ -66,10 +67,10 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "mcp" } });
-    fireEvent.change(screen.getByLabelText("Workflow MCP server"), { target: { value: "github" } });
+    chooseSelect(screen.getByLabelText("Add block type"), "mcp");
+    chooseSelect(screen.getByLabelText("Workflow MCP server"), "github");
     expect(screen.getByLabelText("Workflow MCP connection")).toHaveProperty("value", "");
-    fireEvent.change(screen.getByLabelText("Workflow MCP connection"), { target: { value: "bot" } });
+    chooseSelect(screen.getByLabelText("Workflow MCP connection"), "bot");
     fireEvent.click(screen.getByTitle("Save workflow"));
     await waitFor(() => expect(onSave).toHaveBeenCalledOnce());
     expect(onSave.mock.calls[0]![0].blocks[0]).toMatchObject({
@@ -111,13 +112,13 @@ describe("HarnessPanel", () => {
           onError={vi.fn()}
         />,
       );
-      fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: type } });
+      chooseSelect(screen.getByLabelText("Add block type"), type);
       expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", true);
       expect(screen.getByText("Select a model to choose reasoning effort.")).toBeTruthy();
       fireEvent.click(screen.getByRole("button", { name: "AI model" }));
       fireEvent.click(await screen.findByRole("option", { name: /Reasoning model/ }));
       expect(screen.getByLabelText("Workflow reasoning effort")).toHaveProperty("disabled", false);
-      fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
+      chooseSelect(screen.getByLabelText("Workflow reasoning effort"), "high");
       fireEvent.click(screen.getByTitle("Save workflow"));
       await waitFor(() =>
         expect(onSave.mock.calls.at(-1)?.[0].blocks[0]).toMatchObject({
@@ -126,7 +127,7 @@ describe("HarnessPanel", () => {
           reasoning: "high",
         }),
       );
-      fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "" } });
+      chooseSelect(screen.getByLabelText("Workflow reasoning effort"), "");
       fireEvent.click(screen.getByTitle("Save workflow"));
       await waitFor(() => expect(onSave.mock.calls.at(-1)?.[0].blocks[0].reasoning).toBeUndefined());
       fireEvent.click(screen.getByRole("button", { name: "AI model" }));
@@ -161,7 +162,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "meeting" } });
+    chooseSelect(screen.getByLabelText("Add block type"), "meeting");
     expect(screen.queryByLabelText("AI model")).toBeNull();
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
     expect(screen.getByText(/Connect AI Agents and Chatboxes to this Meeting/)).toBeTruthy();
@@ -253,7 +254,7 @@ describe("HarnessPanel", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Chatbox settings" }));
-    fireEvent.change(screen.getByLabelText("Chatbox provider override"), { target: { value: "new" } });
+    chooseSelect(screen.getByLabelText("Chatbox provider override"), "new");
     await waitFor(() => expect(onLoadModels).toHaveBeenLastCalledWith("new"));
     fireEvent.click(screen.getByRole("button", { name: "Chatbox model override" }));
     fireEvent.click(await screen.findByRole("option", { name: /New model/ }));
@@ -324,8 +325,9 @@ describe("HarnessPanel", () => {
       />,
     );
     fireEvent.click(await screen.findByText("Skill"));
-    expect(screen.getByRole("option", { name: "Blocked (global)" })).toHaveProperty("disabled", true);
-    fireEvent.change(screen.getByLabelText("Existing skill"), { target: { value: "workspace/review" } });
+    fireEvent.click(screen.getByLabelText("Existing skill"));
+    expect(screen.getByRole("option", { name: "Blocked (global)" }).getAttribute("aria-disabled")).toBe("true");
+    chooseSelect(screen.getByRole("combobox", { name: "Existing skill" }), "workspace/review");
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
     expect(screen.getAllByText("Review code changes").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -343,7 +345,7 @@ describe("HarnessPanel", () => {
     );
     fireEvent.click(screen.getByTitle("Refresh workflow skills"));
     expect(onRefreshSkills).toHaveBeenCalledTimes(2);
-    fireEvent.change(screen.getByLabelText("Existing skill"), { target: { value: "" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Existing skill" }), "");
     expect(screen.getByLabelText("Block prompt")).toBeTruthy();
     expect(screen.getByLabelText("Skill description")).toBeTruthy();
   });
@@ -384,14 +386,14 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "task_controls" } });
-    fireEvent.change(screen.getByLabelText("Provider"), { target: { value: "worker" } });
+    chooseSelect(await screen.findByLabelText("Add block type"), "task_controls");
+    chooseSelect(screen.getByLabelText("Provider"), "worker");
     expect(screen.queryByLabelText("Agent preset")).toBeNull();
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
     await waitFor(() => expect(onLoadModels).toHaveBeenCalledWith("worker"));
     fireEvent.click(screen.getByRole("button", { name: "AI model" }));
     fireEvent.click(await screen.findByRole("option", { name: /Worker Model/ }));
-    fireEvent.change(screen.getByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
+    chooseSelect(screen.getByLabelText("Workflow reasoning effort"), "high");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     await waitFor(() =>
       expect(onSave).toHaveBeenCalledWith(
@@ -464,7 +466,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "skill" } });
+    chooseSelect(await screen.findByLabelText("Add block type"), "skill");
     expect(screen.getByLabelText("Block type")).toHaveProperty("value", "skill");
     fireEvent.change(screen.getByLabelText("Skill description"), { target: { value: "Use when reviewing code" } });
     fireEvent.change(screen.getByLabelText("Block prompt"), { target: { value: "Inspect the diff and verify tests" } });
@@ -608,7 +610,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "chatbox" } });
+    chooseSelect(screen.getByLabelText("Add block type"), "chatbox");
     expect(screen.getByLabelText("AI model")).toBeTruthy();
     expect(screen.getByLabelText("Block prompt")).toHaveProperty("value", "");
     expect(screen.getByLabelText("Block Autopilot")).toHaveProperty("checked", true);
@@ -643,7 +645,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "terminal_control" } });
+    chooseSelect(screen.getByLabelText("Add block type"), "terminal_control");
     expect(screen.queryByLabelText("AI model")).toBeNull();
     expect(screen.queryByLabelText("Block prompt")).toBeNull();
     expect(screen.getByText(/Supply JSON input/)).toBeTruthy();
@@ -677,7 +679,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(screen.getByLabelText("Add block type"), { target: { value: "run_app" } });
+    chooseSelect(screen.getByLabelText("Add block type"), "run_app");
     fireEvent.change(screen.getByLabelText("Run App name"), { target: { value: "dev-server" } });
     fireEvent.change(screen.getByLabelText("Run App script"), { target: { value: "npm run dev" } });
     expect(screen.queryByLabelText("AI model")).toBeNull();
@@ -820,9 +822,7 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByRole("combobox", { name: "Selected workflow run" }), {
-      target: { value: "completed" },
-    });
+    chooseSelect(await screen.findByRole("combobox", { name: "Selected workflow run" }), "completed");
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "Stop run second" }));
     await waitFor(() => expect(onCancelRun).toHaveBeenCalledWith("second"));
@@ -1112,9 +1112,7 @@ describe("HarnessPanel", () => {
     const minimap = screen.getByRole("button", { name: "Workflow minimap" });
     expect(canvas.contains(minimap)).toBe(false);
     expect(canvas.parentElement!.contains(minimap)).toBe(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Workflow minimap corner" }), {
-      target: { value: "top-left" },
-    });
+    chooseSelect(screen.getByRole("combobox", { name: "Workflow minimap corner" }), "top-left");
     const dock = minimap.closest(".harness-minimap-dock")!;
     expect(dock.classList.contains("top-left")).toBe(true);
     canvas.scrollLeft = 600;
@@ -1355,7 +1353,7 @@ describe("HarnessPanel", () => {
       />,
     );
     fireEvent.click(screen.getByText("Create workflow", { selector: "button" }));
-    fireEvent.change(screen.getByLabelText("Workflow template"), { target: { value: template } });
+    chooseSelect(screen.getByLabelText("Workflow template"), template);
     fireEvent.click(screen.getByRole("button", { name: "Create" }));
     await waitFor(() => expect(onCreate).toHaveBeenCalledWith(name, template));
   });
@@ -1540,8 +1538,8 @@ describe("HarnessPanel", () => {
     expect(screen.queryByLabelText("Workflow canvas")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Edit block Source" }));
     expect((screen.getByLabelText("Block prompt") as HTMLTextAreaElement).value).toBe("");
-    fireEvent.change(screen.getByLabelText("List connection source"), { target: { value: "source" } });
-    fireEvent.change(screen.getByLabelText("List connection target"), { target: { value: "target" } });
+    chooseSelect(screen.getByLabelText("List connection source"), "source");
+    chooseSelect(screen.getByLabelText("List connection target"), "target");
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));
     expect(screen.getByRole("button", { name: "Edit connection Source then Target" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -1580,7 +1578,7 @@ describe("HarnessPanel", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Connect from Review" }));
-    fireEvent.change(screen.getByLabelText("New connection type"), { target: { value: "use" } });
+    chooseSelect(screen.getByLabelText("New connection type"), "use");
     fireEvent.click(screen.getByRole("button", { name: "Connect into Build" }));
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
@@ -1661,7 +1659,7 @@ describe("HarnessPanel", () => {
     );
 
     fireEvent.click(await screen.findByRole("button", { name: "Select connection: Plan then Build" }));
-    fireEvent.change(screen.getByRole("combobox", { name: "Connection type" }), { target: { value: "path" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Connection type" }), "path");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].edges[0].type).toBe("path"));
@@ -1738,8 +1736,8 @@ describe("HarnessPanel", () => {
         onError={vi.fn()}
       />,
     );
-    fireEvent.change(await screen.findByLabelText("Add block type"), { target: { value: "timer" } });
-    expect((screen.getByLabelText("Block type") as HTMLSelectElement).value).toBe("timer");
+    chooseSelect(await screen.findByLabelText("Add block type"), "timer");
+    expect((screen.getByLabelText("Block type") as HTMLButtonElement).value).toBe("timer");
     expect(screen.queryByLabelText("Block role")).toBeNull();
     fireEvent.change(screen.getByLabelText("Timer seconds"), { target: { value: "5" } });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
@@ -1962,7 +1960,7 @@ describe("HarnessPanel", () => {
     fireEvent.click(await screen.findByText("Plan"));
     fireEvent.click(await screen.findByRole("button", { name: "AI model" }));
     fireEvent.click(screen.getByRole("option", { name: /GPT Test/ }));
-    fireEvent.change(await screen.findByLabelText("Workflow reasoning effort"), { target: { value: "high" } });
+    chooseSelect(await screen.findByLabelText("Workflow reasoning effort"), "high");
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     await waitFor(() => expect(onSave.mock.calls.at(0)?.[0].blocks[0].model).toBe("gpt-test"));
@@ -2512,7 +2510,7 @@ describe("HarnessPanel", () => {
     );
 
     fireEvent.change(await screen.findByLabelText("Workflow name"), { target: { value: "Changed" } });
-    fireEvent.change(screen.getByRole("combobox", { name: "Selected workflow" }), { target: { value: "harness-2" } });
+    chooseSelect(screen.getByRole("combobox", { name: "Selected workflow" }), "harness-2");
     expect((screen.getByLabelText("Workflow name") as HTMLInputElement).value).toBe("Changed");
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     expect(screen.getByRole("button", { name: "Edit" }).className).toContain("active");
@@ -2834,8 +2832,9 @@ describe("HarnessPanel", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "View" }));
     const selector = await screen.findByRole("combobox", { name: "Selected workflow run" });
-    expect((selector.querySelector("option") as HTMLOptionElement).value).toBe("active");
-    fireEvent.change(selector, { target: { value: "old" } });
+    fireEvent.click(selector);
+    expect(screen.getAllByRole("option")[0]!.getAttribute("data-value")).toBe("active");
+    chooseSelect(selector, "old");
     fireEvent.click(await screen.findByText("Plan"));
     expect((await screen.findByLabelText("Plan run details")).textContent).toContain("old answer");
   });
@@ -2886,9 +2885,7 @@ describe("HarnessPanel", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: "View" }));
-    fireEvent.change(await screen.findByRole("combobox", { name: "Compare workflow run" }), {
-      target: { value: "old" },
-    });
+    chooseSelect(await screen.findByRole("combobox", { name: "Compare workflow run" }), "old");
     const comparison = await screen.findByLabelText("Workflow run comparison");
     expect(comparison.textContent).toContain("current (succeeded, 125 tokens) compared with old (failed, 100 tokens)");
     expect(comparison.textContent).toContain("current: succeeded · 125 tokens");
@@ -2944,9 +2941,7 @@ describe("HarnessPanel", () => {
     expect(
       ((await screen.findByRole("button", { name: "Delete selected workflow run" })) as HTMLButtonElement).disabled,
     ).toBe(true);
-    fireEvent.change(screen.getByRole("combobox", { name: "Selected workflow run" }), {
-      target: { value: "completed" },
-    });
+    chooseSelect(screen.getByRole("combobox", { name: "Selected workflow run" }), "completed");
     fireEvent.click(screen.getByRole("button", { name: "Delete selected workflow run" }));
     await waitFor(() => expect(onDeleteRun).toHaveBeenCalledWith("completed"));
     expect(confirm).toHaveBeenCalled();

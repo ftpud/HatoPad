@@ -181,3 +181,36 @@ it("run_and_wait holds the call until the command finishes and reports its exit 
     await rm(workspace, { recursive: true, force: true });
   }
 }, 30_000);
+
+it("run_and_wait in a reused terminal returns only the new command after many CRLF lines", async () => {
+  const workspace = await realpath(await mkdtemp(path.join(os.tmpdir(), "terminal-wait-reuse-")));
+  const host = new TerminalSessionHost(() => {});
+  const run = async (request: Record<string, unknown>) =>
+    JSON.parse(
+      (
+        await executeTerminalControlAsync(
+          JSON.stringify({ action: "run_and_wait", ...request }),
+          workspace,
+          host,
+          () => {},
+        )
+      ).messages[0]!.text,
+    );
+  try {
+    const first = await run({
+      name: "Reused",
+      command: "i=0; while [ $i -lt 5000 ]; do echo OLD_AUDIT_LINE; i=$((i+1)); done",
+      timeout_ms: 20_000,
+    });
+    expect(first).toMatchObject({ status: "completed", exitCode: 0 });
+    const second = await run({ terminal_id: first.terminalId, command: "printf NEW_AUDIT_RESULT", timeout_ms: 20_000 });
+    expect(second).toMatchObject({ status: "completed", exitCode: 0, truncated: false });
+    expect(second.output).toContain("NEW_AUDIT_RESULT");
+    expect(second.output).not.toContain("OLD_AUDIT_LINE");
+    const empty = await run({ terminal_id: first.terminalId, command: "true", timeout_ms: 20_000 });
+    expect(empty).toMatchObject({ status: "completed", exitCode: 0, output: "" });
+  } finally {
+    host.closeAll();
+    await rm(workspace, { recursive: true, force: true });
+  }
+}, 30_000);

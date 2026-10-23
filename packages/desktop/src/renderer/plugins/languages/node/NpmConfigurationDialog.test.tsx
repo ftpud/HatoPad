@@ -1,3 +1,4 @@
+import { chooseSelect } from "../../../select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { CoreClient } from "../../../client";
@@ -56,7 +57,7 @@ it("saves named script configurations, arguments, env and executable with revisi
     target: { value: "NODE_ENV=development\nNODE_OPTIONS=--max-old-space-size=4096\nMESSAGE=hello=world" },
   });
   fireEvent.click(screen.getByRole("tab", { name: "Tools" }));
-  fireEvent.change(screen.getByLabelText("Package manager"), { target: { value: "pnpm" } });
+  chooseSelect(screen.getByLabelText("Package manager"), "pnpm");
   fireEvent.change(screen.getByLabelText("Package manager executable (optional)"), { target: { value: "/opt/pnpm" } });
   fireEvent.click(screen.getByRole("button", { name: "Save configuration" }));
   await waitFor(() => expect(onSaved).toHaveBeenCalledOnce());

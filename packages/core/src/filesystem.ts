@@ -4,16 +4,19 @@ import os from "node:os";
 import { constants } from "node:fs";
 import {
   access,
+  copyFile,
   cp,
   lstat,
   mkdir,
   readFile,
   readdir,
+  readlink,
   opendir,
   realpath,
   rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -67,6 +70,20 @@ class TreeBudget {
     if (++this.nodes > this.limits.maxNodes) throw treeTooLarge(`maxNodes (${this.limits.maxNodes})`);
     this.bytes += Buffer.byteLength(relative, "utf8");
     if (this.bytes > this.limits.maxPathBytes) throw treeTooLarge(`maxPathBytes (${this.limits.maxPathBytes})`);
+  }
+}
+
+const pathLocks = new Map<string, Promise<unknown>>();
+
+async function withPathLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = pathLocks.get(key) ?? Promise.resolve();
+  const next = previous.then(operation, operation);
+  const settled = next.catch(() => undefined);
+  pathLocks.set(key, settled);
+  try {
+    return await next;
+  } finally {
+    if (pathLocks.get(key) === settled) pathLocks.delete(key);
   }
 }
 
@@ -201,6 +218,21 @@ export class WorkspaceFileSystem {
       }
     }
     const target = await this.resolveExisting(relativePath);
+    // The revision comparison and publication are one critical section per canonical path, shared by every
+    // filesystem service in this Core, so two saves holding the same revision cannot both be accepted.
+    return withPathLock(target, () =>
+      this.writeExisting(target, relativePath, content, bytes, expectedRevision, force),
+    );
+  }
+
+  private async writeExisting(
+    target: string,
+    relativePath: string,
+    content: string,
+    bytes: number,
+    expectedRevision: FileRevision | undefined,
+    force: boolean,
+  ): Promise<{ bytesWritten: number; revision: FileRevision }> {
     try {
       const info = await stat(target);
       if (!info.isFile()) throw new CoreError("WRITE_FAILED", "Path is not a file");
@@ -214,7 +246,25 @@ export class WorkspaceFileSystem {
         throw new CoreError("FILE_CHANGED", `File changed outside the editor: ${relativePath}`);
       }
       await access(target, constants.W_OK);
-      await writeFile(target, content, "utf8");
+      // The original is copied aside before the in-place write (which keeps the file's identity). If the write
+      // fails partway (for example disk full), renaming the copy back needs no free space, so the previous
+      // complete contents survive even when rewriting them would fail too.
+      const backup = path.join(path.dirname(target), `.${path.basename(target)}.hatopad-save-${randomUUID()}`);
+      await copyFile(target, backup, constants.COPYFILE_EXCL);
+      try {
+        await writeFile(target, content, "utf8");
+      } catch (error) {
+        try {
+          await rename(backup, target);
+        } catch {
+          throw new CoreError(
+            "WRITE_FAILED",
+            `Could not write file: ${relativePath}; its previous contents are preserved in ${path.basename(backup)}`,
+          );
+        }
+        throw error;
+      }
+      await rm(backup, { force: true });
       const updated = await stat(target);
       return { bytesWritten: bytes, revision: this.revision(updated, Buffer.from(content, "utf8")) };
     } catch (error) {
@@ -222,6 +272,40 @@ export class WorkspaceFileSystem {
       if ((error as NodeJS.ErrnoException).code === "ENOENT")
         throw new CoreError("FILE_NOT_FOUND", `File not found: ${relativePath}`);
       throw new CoreError("WRITE_FAILED", `Could not write file: ${relativePath}`);
+    }
+  }
+
+  /**
+   * Symlinks are copied verbatim, so links that stay inside the copied tree keep resolving within it. Relative
+   * links that pointed outside the tree are rewritten to reach the same target from the new location; absolute
+   * links are left unchanged.
+   */
+  private async retargetSymlinks(source: string, copy: string, destination: string, relative = ""): Promise<void> {
+    const copied = path.join(copy, relative);
+    const info = await lstat(copied);
+    if (info.isDirectory()) {
+      for (const name of await readdir(copied))
+        await this.retargetSymlinks(source, copy, destination, path.join(relative, name));
+      return;
+    }
+    if (!info.isSymbolicLink()) return;
+    const text = await readlink(copied);
+    if (path.isAbsolute(text)) return;
+    const resolved = path.resolve(path.dirname(path.join(source, relative)), text);
+    if (resolved === source || resolved.startsWith(`${source}${path.sep}`)) return;
+    const retargeted = path.relative(path.dirname(path.join(destination, relative)), resolved) || ".";
+    if (retargeted === text) return;
+    await rm(copied);
+    await symlink(retargeted, copied);
+  }
+
+  private async exists(target: string): Promise<boolean> {
+    try {
+      await lstat(target);
+      return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw error;
     }
   }
 
@@ -325,18 +409,20 @@ export class WorkspaceFileSystem {
       const destination = this.validateRelative(request.destination);
       const parentName = path.posix.dirname(request.destination);
       const parent = parentName === "." ? this.getWorkspace() : await this.resolveExisting(parentName);
-      let collision = false;
+      let existing: Awaited<ReturnType<typeof lstat>> | undefined;
       try {
-        await lstat(destination);
-        collision = true;
+        existing = await lstat(destination);
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       }
+      // Only a destination that is the source itself (a case-insensitive alias) is a case-only rename; on a
+      // case-sensitive filesystem a differently cased name is a separate entry and a real collision.
       const caseOnlyRename =
         kind === "move" &&
         request.source.toLocaleLowerCase() === request.destination.toLocaleLowerCase() &&
-        request.source !== request.destination;
-      if (caseOnlyRename) collision = false;
+        request.source !== request.destination &&
+        (!existing || (existing.dev === info.dev && existing.ino === info.ino));
+      const collision = Boolean(existing) && !caseOnlyRename;
       const affected = (candidate: string) =>
         candidate === request.source || (info.isDirectory() && candidate.startsWith(`${request.source}/`));
       items.push({
@@ -408,6 +494,9 @@ export class WorkspaceFileSystem {
         if (item.caseOnlyRename) {
           await rename(source, temporary);
           try {
+            // With the source moved aside, any entry still at the destination is a different file.
+            if (await this.exists(destination))
+              throw new CoreError("WRITE_FAILED", `A file or directory already exists at: ${item.destination}`);
             await rename(temporary, destination);
           } catch (error) {
             await rename(temporary, source).catch(() => undefined);
@@ -416,8 +505,16 @@ export class WorkspaceFileSystem {
           completed.push({ source: item.source, destination: item.destination });
           continue;
         }
-        await cp(source, temporary, { recursive: item.type === "directory", errorOnExist: true, force: false });
+        await cp(source, temporary, {
+          recursive: item.type === "directory",
+          errorOnExist: true,
+          force: false,
+          verbatimSymlinks: true,
+        });
+        await this.retargetSymlinks(source, temporary, destination);
         if (item.collision) await rename(destination, backup);
+        else if (await this.exists(destination))
+          throw new CoreError("WRITE_FAILED", `A file or directory appeared at: ${item.destination}`);
         try {
           await rename(temporary, destination);
         } catch (error) {

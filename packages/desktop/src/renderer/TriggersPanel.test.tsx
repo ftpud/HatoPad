@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceTrigger } from "@hatopad/protocol";
@@ -66,7 +67,7 @@ describe("Triggers tool window", () => {
     const { onCreate } = setup();
     fireEvent.click(screen.getByRole("button", { name: "New trigger" }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Pipe" } });
-    fireEvent.change(screen.getByLabelText("Watch"), { target: { value: "fifo" } });
+    chooseSelect(screen.getByLabelText("Watch"), "fifo");
     fireEvent.change(screen.getByLabelText("Pipe path"), { target: { value: "/tmp/events" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Handle it" } });
     await waitFor(() =>
@@ -110,13 +111,13 @@ describe("Triggers tool window", () => {
     fireEvent.change(screen.getByLabelText("File or folder path"), { target: { value: "/tmp/f" } });
     fireEvent.change(screen.getByLabelText("Prompt"), { target: { value: "Go" } });
     expect(screen.queryByRole("button", { name: "codex model" })).toBeNull();
-    fireEvent.change(screen.getByLabelText("Session"), { target: { value: "new" } });
+    chooseSelect(screen.getByLabelText("Session"), "new");
     await waitFor(() =>
       expect((screen.getByRole("button", { name: "codex model" }) as HTMLButtonElement).disabled).toBe(false),
     );
     fireEvent.click(screen.getByRole("button", { name: "codex model" }));
     fireEvent.click(screen.getByText("Model One"));
-    fireEvent.change(screen.getByLabelText("Reasoning effort"), { target: { value: "high" } });
+    chooseSelect(screen.getByLabelText("Reasoning effort"), "high");
     await waitFor(() =>
       expect((screen.getByRole("button", { name: "Create trigger" }) as HTMLButtonElement).disabled).toBe(false),
     );
@@ -133,7 +134,7 @@ describe("Triggers tool window", () => {
   it("hides provider, agent and model choices for workflow triggers", () => {
     setup();
     fireEvent.click(screen.getByRole("button", { name: "New trigger" }));
-    fireEvent.change(screen.getByLabelText("Action"), { target: { value: "workflow" } });
+    chooseSelect(screen.getByLabelText("Action"), "workflow");
     expect(screen.queryByLabelText("AI provider")).toBeNull();
     expect(screen.queryByLabelText("Session")).toBeNull();
     expect(screen.queryByLabelText("Agent preset")).toBeNull();

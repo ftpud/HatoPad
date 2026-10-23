@@ -122,7 +122,7 @@
   align-items: center;
   gap: 7px;
 }
-.workflow-chat-settings select {
+.workflow-chat-settings .select-trigger {
   width: 100%;
   min-width: 0;
 }
@@ -348,7 +348,7 @@
 button,
 a,
 input,
-select,
+.select-trigger,
 textarea {
   -webkit-tap-highlight-color: transparent;
 }
@@ -447,12 +447,12 @@ button:disabled {
   font-size: 0.923rem;
   font-weight: 600;
 }
-.panel-header button,
-.titlebar-actions > button {
+.panel-header button:not(.select-trigger),
+.titlebar-actions > button:not(.select-trigger) {
   border-radius: 6px;
 }
-.panel-header button:hover,
-.titlebar-actions > button:hover {
+.panel-header button:not(.select-trigger):hover,
+.titlebar-actions > button:not(.select-trigger):hover {
   background: var(--surface-hover);
   color: var(--text-heading);
 }
@@ -675,7 +675,7 @@ button:disabled {
   .titlebar-actions {
     gap: 6px;
   }
-  .top-java-run select {
+  .top-java-run .select-trigger {
     max-width: 120px;
   }
 }
@@ -701,7 +701,7 @@ button:disabled {
 .titlebar-actions > * {
   flex-shrink: 0;
 }
-.titlebar-actions .top-java-run select {
+.titlebar-actions .top-java-run .select-trigger {
   background: var(--surface-base);
   color: var(--text-primary);
   border-color: var(--border-strong);
@@ -744,7 +744,7 @@ button:disabled {
   min-width: 0;
   overflow: auto;
 }
-.task-filters select {
+.task-filters .select-trigger {
   color: var(--text-primary);
   background: var(--surface-base);
 }
@@ -788,7 +788,7 @@ button:disabled {
 .task-filters .quick-filter {
   flex-basis: 120px;
 }
-.task-filters select {
+.task-filters .select-trigger {
   flex: 1 1 80px;
 }
 

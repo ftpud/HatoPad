@@ -12,13 +12,13 @@ Each task has its own workspace with files, terminals, AI conversations, and not
 
 This is an actively developed experiment. Expect rough edges and breaking changes; it currently runs from source.
 
-<img width="1498" height="952" alt="Screenshot 2026-10-20 at 16 30 04" src="https://github.com/user-attachments/assets/83ddd6b8-b853-493c-9989-967fa7dc6c99" />
+<img width="1326" height="846" alt="image" src="https://github.com/user-attachments/assets/8ae4960c-25e3-47bb-bf83-32b389fea929" />
 
 ## First run
 
 Use **HatoPad Gateway** to launch the editor. It handles remote installation, builds, updates, and the SSH connection for you.
 
-You need Node.js 22.12+, npm, and Git on your local machine. For a remote workspace, you also need a Unix-like server with SSH access, Node.js 22.12+, npm, Git, and an existing project directory. See the [full requirements](docs/TECHNICAL_GUIDE.md#quick-start-hatopad-gateway-recommended) if installation fails or your machine needs additional system tools.
+Use Node.js 24.22.1 (`nvm install && nvm use`), npm, and Git on your local machine. For a remote workspace, you also need a Unix-like server with SSH access, Node.js 22.12+, npm, Git, and an existing project directory. See the [full requirements](docs/TECHNICAL_GUIDE.md#quick-start-hatopad-gateway-recommended) if installation fails or your machine needs additional system tools.
 
 On your local machine:
 

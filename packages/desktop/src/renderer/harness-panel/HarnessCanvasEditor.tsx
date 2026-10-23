@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import {
   ArrowLeftRight,
   ArrowUpDown,
@@ -213,12 +214,12 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
               <MapIcon size={15} aria-hidden="true" />
             </button>
             {minimapVisible && (
-              <select
+              <Select
                 className="harness-minimap-corner"
                 aria-label="Workflow minimap corner"
                 value={minimapCorner}
-                onChange={(event) => {
-                  setMinimapCorner(event.target.value as MinimapCorner);
+                onValueChange={(selectedValue) => {
+                  setMinimapCorner(selectedValue as MinimapCorner);
                   setMinimapPosition(undefined);
                 }}
               >
@@ -226,7 +227,7 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
                 <option value="bottom-left">Map: bottom left</option>
                 <option value="top-right">Map: top right</option>
                 <option value="top-left">Map: top left</option>
-              </select>
+              </Select>
             )}
           </div>
           <div ref={canvasFrameRef} className="harness-canvas-frame">
@@ -610,11 +611,11 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
               <div>
                 <label>
                   From
-                  <select
+                  <Select
                     aria-label="List connection source"
                     value={connectFrom ?? ""}
-                    onChange={(event) => {
-                      setConnectFrom(event.target.value || undefined);
+                    onValueChange={(selectedValue) => {
+                      setConnectFrom(selectedValue || undefined);
                       setConnectionType("follow");
                     }}
                   >
@@ -624,14 +625,14 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
                         {block.label}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </label>
                 <label>
                   To
-                  <select
+                  <Select
                     aria-label="List connection target"
                     value={listConnectionTarget}
-                    onChange={(event) => setListConnectionTarget(event.target.value)}
+                    onValueChange={(selectedValue) => setListConnectionTarget(selectedValue)}
                   >
                     <option value="">Choose a block</option>
                     {draft.blocks
@@ -641,14 +642,14 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
                           {block.label}
                         </option>
                       ))}
-                  </select>
+                  </Select>
                 </label>
                 <label>
                   Type
-                  <select
+                  <Select
                     aria-label="List connection type"
                     value={connectionType}
-                    onChange={(event) => setConnectionType(event.target.value as typeof connectionType)}
+                    onValueChange={(selectedValue) => setConnectionType(selectedValue as typeof connectionType)}
                   >
                     <option value="follow">Follow</option>
                     {["ai", "chatbox"].includes(blockById.get(connectFrom ?? "")?.type ?? "") && (
@@ -657,7 +658,7 @@ export function HarnessCanvasEditor({ context }: { context: HarnessViewContext }
                         <option value="path">Path</option>
                       </>
                     )}
-                  </select>
+                  </Select>
                 </label>
                 <button
                   disabled={!connectFrom || !listConnectionTarget}

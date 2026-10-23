@@ -1,3 +1,5 @@
+import { Select } from "../Select";
+import { WorkspacePicker } from "../WorkspacePicker";
 import { runningTaskFlowCount } from "../workflow-context";
 import { McpPanel } from "../McpPanel";
 import { TaskCheckpointHistory } from "../TaskCheckpointHistory";
@@ -260,18 +262,12 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                         onContentSearchChange={setProjectContentFilter}
                       />
                       <div className="workspace-name">
-                        <select
-                          aria-label="Workspace root"
+                        <WorkspacePicker
+                          roots={workspaceRoots}
                           value={selectedRootId}
                           disabled={taskSwitching}
-                          onChange={(event) => void selectWorkspaceRoot(event.target.value)}
-                        >
-                          {workspaceRoots.map((root) => (
-                            <option key={root.id} value={root.id}>
-                              {root.alias}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(rootId) => void selectWorkspaceRoot(rootId)}
+                        />
                         <button title="Add remote workspace root" onClick={() => setWorkspaceRootDialogOpen(true)}>
                           <Plus size={13} />
                         </button>
@@ -724,16 +720,18 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                         label="Filter tasks"
                         onChange={setTaskFilter}
                       />
-                      <select
+                      <Select
                         aria-label="Task lifecycle filter"
                         value={taskLifecycleFilter}
-                        onChange={(event) => setTaskLifecycleFilter(event.target.value as typeof taskLifecycleFilter)}
+                        onValueChange={(selectedValue) =>
+                          setTaskLifecycleFilter(selectedValue as typeof taskLifecycleFilter)
+                        }
                       >
                         <option value="active">Active</option>
                         <option value="finished">Finished</option>
                         <option value="archived">Archived</option>
                         <option value="all">All</option>
-                      </select>
+                      </Select>
                     </div>
                     <div className="tasks-list">
                       {showRootTask && (

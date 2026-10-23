@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 
 const exec = promisify(execFile);
@@ -191,4 +192,93 @@ it("never follows replaced parent symlinks or removes a directory when applying 
   await writeFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "keep");
   expect(await store.restore(id)).toMatchObject({ applied: [], conflicts: [{ path: "parent/file.txt" }] });
   expect(await readFile(path.join(workspace, "parent", "file.txt", "keep.txt"), "utf8")).toBe("keep");
+});
+
+it("keeps the live file when a checkpoint blob is missing or damaged during revert", async () => {
+  const { workspace, store } = await fixture();
+  const state = path.join(path.dirname(workspace), "state");
+  const id = await store.begin("codex", "Edit tracked");
+  await writeFile(path.join(workspace, "tracked.txt"), "after\n");
+  await store.complete(id, "completed");
+  const blobs = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+    "blobs",
+  );
+  const beforeHash = createHash("sha256").update("before\n").digest("hex");
+  await rm(path.join(blobs, beforeHash));
+  expect(await store.revert(id)).toMatchObject({ applied: [], conflicts: [{ path: "tracked.txt" }] });
+  expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("after\n");
+  await writeFile(path.join(blobs, beforeHash), "tampered\n");
+  expect(await store.revert(id)).toMatchObject({ applied: [], conflicts: [{ path: "tracked.txt" }] });
+  expect(await readFile(path.join(workspace, "tracked.txt"), "utf8")).toBe("after\n");
+  expect((await readdir(workspace)).filter((name) => name.includes(".hatopad-"))).toEqual([]);
+});
+
+it("keeps checkpoint history owner-only regardless of the source mode and umask", async () => {
+  const { workspace, store } = await fixture();
+  const state = path.join(path.dirname(workspace), "state");
+  await writeFile(path.join(workspace, "private.txt"), "secret\n", { mode: 0o600 });
+  const previous = process.umask(0o022);
+  try {
+    const id = await store.begin("codex", "Capture private file");
+    await store.complete(id, "completed");
+  } finally {
+    process.umask(previous);
+  }
+  const history = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+  );
+  const mode = async (target: string) => (await stat(target)).mode & 0o777;
+  expect(await mode(history)).toBe(0o700);
+  for (const name of ["blobs", "checkpoints"]) {
+    expect(await mode(path.join(history, name))).toBe(0o700);
+    for (const entry of await readdir(path.join(history, name)))
+      expect(await mode(path.join(history, name, entry))).toBe(0o600);
+  }
+});
+
+it("repairs permissive checkpoint state left by earlier versions", async () => {
+  const { workspace } = await fixture();
+  const state = path.join(path.dirname(workspace), "legacy-state");
+  const first = new TaskCheckpointStore(workspace, state);
+  await first.complete(await first.begin("codex", "Legacy"), "completed");
+  const history = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+  );
+  await chmod(history, 0o755);
+  await chmod(path.join(history, "blobs"), 0o755);
+  for (const entry of await readdir(path.join(history, "blobs")))
+    await chmod(path.join(history, "blobs", entry), 0o644);
+  const second = new TaskCheckpointStore(workspace, state);
+  await second.begin("codex", "Next");
+  expect((await stat(history)).mode & 0o777).toBe(0o700);
+  expect((await stat(path.join(history, "blobs"))).mode & 0o777).toBe(0o700);
+  for (const entry of await readdir(path.join(history, "blobs")))
+    expect((await stat(path.join(history, "blobs", entry))).mode & 0o777).toBe(0o600);
+});
+
+it("quarantines a damaged manifest and keeps the remaining history recoverable", async () => {
+  const { workspace } = await fixture();
+  const state = path.join(path.dirname(workspace), "damaged-state");
+  const first = new TaskCheckpointStore(workspace, state);
+  const damaged = await first.begin("codex", "Damaged");
+  await first.complete(damaged, "completed");
+  const intact = await first.begin("codex", "Intact");
+  const history = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+  );
+  await writeFile(path.join(history, "checkpoints", `${damaged}.json`), '{"id":');
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const second = new TaskCheckpointStore(workspace, state);
+  await expect(second.recover()).resolves.toBeUndefined();
+  expect((await second.history()).map((item) => [item.id, item.status])).toEqual([[intact, "interrupted"]]);
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining(damaged));
+  const names = await readdir(path.join(history, "checkpoints"));
+  expect(names.some((name) => name.startsWith(`${damaged}.json.corrupt-`))).toBe(true);
+  expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  warn.mockRestore();
 });

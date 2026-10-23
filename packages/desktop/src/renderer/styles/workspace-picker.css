@@ -1,0 +1,35 @@
+/* Title remains visually identical to the workspace identity label. */
+.titlebar-actions > .workspace-picker-title {
+  display: flex;
+  width: auto;
+  height: auto;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-family: inherit;
+  line-height: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+.titlebar-actions > .workspace-picker-title:hover,
+.titlebar-actions > .workspace-picker-title:active {
+  background: transparent;
+  color: var(--text-heading);
+}
+.workspace-name .workspace-picker-trigger:hover {
+  background: var(--surface-hover);
+}
+.workspace-picker-trigger > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.workspace-picker-trigger > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}

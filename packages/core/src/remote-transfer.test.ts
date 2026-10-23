@@ -1,5 +1,5 @@
 import { EventEmitter, once } from "node:events";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -261,3 +261,26 @@ it("accepts an immediate binary burst over a real WebSocket before upload setup 
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }, 10_000);
+
+it("never discloses a different file after the approved parent is replaced by a symlink", async () => {
+  const workspace = await root();
+  const outside = await root();
+  await mkdir(path.join(workspace, "directory"));
+  await writeFile(path.join(workspace, "directory", "file.txt"), "public");
+  await writeFile(path.join(outside, "file.txt"), "SECRET");
+  const transfers = service();
+  const ticket = await transfers.begin(workspace, { direction: "download", path: "directory/file.txt" });
+  await rename(path.join(workspace, "directory"), path.join(workspace, "moved"));
+  await symlink(outside, path.join(workspace, "directory"));
+  const sent: Buffer[] = [];
+  const socket = new FakeSocket();
+  socket.send = ((data: Buffer, _options: unknown, callback?: (error?: Error) => void) => {
+    sent.push(data);
+    callback?.();
+  }) as FakeSocket["send"];
+  const closed = once(socket, "close");
+  await transfers.attach(socket as unknown as WebSocket, `/project-transfer?token=${ticket.token}`);
+  const [code] = await closed;
+  expect(code).toBe(1008);
+  expect(Buffer.concat(sent).toString()).not.toContain("SECRET");
+});

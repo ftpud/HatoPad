@@ -570,8 +570,15 @@ export async function createServer(
     return store;
   };
   await Promise.all(
+    // One workspace's damaged history must not keep Core from starting for every other workspace.
     [rootWorkspace, ...savedTasks.tasks.map((task) => tasks.taskPath(task.id))].map((target) =>
-      checkpointStore(target).recover(),
+      checkpointStore(target)
+        .recover()
+        .catch((error: unknown) =>
+          console.error(
+            `[core] Could not recover task history for ${target}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        ),
     ),
   );
   const taskGitChanged = (changedWorkspace: string) => {
@@ -945,7 +952,8 @@ export async function createServer(
       return harnessRunner(owner.rootId).runTimerOperation(
         timer.workflowRunId,
         timer.workflowBlockId,
-        `timer-fire:${timer.workflowOperationKey ?? timer.id}`,
+        // Each delivery retry is a distinct operation, so a journaled failed attempt is not replayed as final.
+        `timer-fire:${timer.workflowOperationKey ?? timer.id}${timer.deliveryAttempts ? `:retry-${timer.deliveryAttempts}` : ""}`,
         { timerId: timer.id, dueAt: timer.dueAt },
         effect,
         reconcile,

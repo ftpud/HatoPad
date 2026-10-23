@@ -1,3 +1,4 @@
+import { chooseSelect } from "./select-test-helpers";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
 import { DialogHost, gitRefNameError, requestConfirm, requestFields, requestText } from "./dialogs";
@@ -47,7 +48,7 @@ it("collects validated text, supports cancel, choices and confirmation", async (
       ],
     });
   });
-  fireEvent.change(await screen.findByRole("combobox", { name: "Root" }), { target: { value: "b" } });
+  chooseSelect(await screen.findByRole("combobox", { name: "Root" }), "b");
   fireEvent.click(screen.getByRole("button", { name: "OK" }));
   await expect(fields).resolves.toEqual({ root: "b", dir: "" });
 

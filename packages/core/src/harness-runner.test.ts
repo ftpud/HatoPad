@@ -1293,6 +1293,51 @@ describe("HarnessRunner", () => {
     expect(cancelled.blocks[0]?.output).toBeUndefined();
   });
 
+  it("keeps a failing parallel run cancellable until its sibling settles", async () => {
+    const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-harness-fail-sibling-"));
+    const store = new HarnessStore("/workspace", state);
+    const definition = await store.create("Failing sibling");
+    await store.update({
+      ...definition,
+      blocks: [
+        { id: "broken", type: "prompt", label: "Broken", prompt: "fail", provider: "codex", position: { x: 0, y: 0 } },
+        { id: "held", type: "prompt", label: "Held", prompt: "hold", provider: "claude", position: { x: 0, y: 100 } },
+      ],
+      edges: [],
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let heldStarted = false;
+    const sideEffects: string[] = [];
+    const runner = new HarnessRunner(store, () => undefined);
+    const run = await runner.start(definition.id, "work", async (block) => {
+      if (block.id === "broken") {
+        await vi.waitFor(() => expect(heldStarted).toBe(true), { timeout: 4_000 });
+        throw new Error("permanent failure");
+      }
+      heldStarted = true;
+      await gate;
+      sideEffects.push("held");
+      return session("held");
+    });
+    await vi.waitFor(
+      async () => expect((await store.runs())[0]?.blocks.find((b) => b.blockId === "broken")?.status).toBe("failed"),
+      {
+        timeout: 4_000,
+      },
+    );
+    expect((await store.runs())[0]?.status).toBe("running");
+
+    const interrupt = vi.fn(async () => release());
+    const cancelled = await runner.cancel(run.id, interrupt);
+    expect(cancelled.status).toBe("cancelled");
+    expect(interrupt).toHaveBeenCalledWith("claude", expect.objectContaining({ runId: run.id, blockId: "held" }));
+    await vi.waitFor(() => expect(runner.isActive(run.id)).toBe(false), { timeout: 4_000 });
+    await vi.waitFor(async () => expect((await store.runs())[0]?.status).toBe("cancelled"), { timeout: 4_000 });
+  });
+
   it("does not fire a reconciled timer operation after cancellation is durable", async () => {
     const state = await mkdtemp(path.join(os.tmpdir(), "workflow-cancel-timer-reconcile-"));
     const store = new HarnessStore("/workspace", state);

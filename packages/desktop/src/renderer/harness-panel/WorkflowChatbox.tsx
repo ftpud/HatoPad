@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import { useWorkflowTranscript } from "../workflow-transcript";
 import { AiAuthentication } from "../AiAuthentication";
 import { WorkflowError } from "../WorkflowError";
@@ -178,12 +179,12 @@ export function WorkflowChatbox({
         <div className="workflow-chat-settings" role="group" aria-label="Chatbox settings">
           <label>
             Provider override
-            <select
+            <Select
               aria-label="Chatbox provider override"
               disabled={busy}
               value={providerOverride}
-              onChange={(event) => {
-                setProviderOverride(event.target.value);
+              onValueChange={(selectedValue) => {
+                setProviderOverride(selectedValue);
                 setModelOverride("");
                 setOptionOverrides({});
               }}
@@ -194,7 +195,7 @@ export function WorkflowChatbox({
                   {provider.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label>
             Model override

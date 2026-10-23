@@ -3,7 +3,7 @@ import type { McpSelection } from "@hatopad/protocol";
 import { usePanelActions } from "./use-panel-actions";
 import { useProjectFileActions } from "./use-project-file-actions";
 import { useTerminalActions } from "./use-terminal-actions";
-import { useEditorIntegration } from "./use-editor-integration";
+import { createDiffWriteGate, useEditorIntegration } from "./use-editor-integration";
 import { useProjectTreeActions } from "./use-project-tree-actions";
 import { useBranchActions } from "./use-branch-actions";
 import { useLanguageProjectActions } from "./use-language-project-actions";
@@ -629,6 +629,7 @@ export function useAppOrchestration() {
   const gitDecorationsRef = useRef<string[]>([]);
   const activeGitHunksRef = useRef<GitDiffHunk[]>([]);
   const diffRollbackTimer = useRef<ReturnType<typeof setTimeout>>();
+  const diffWriteGate = useRef(createDiffWriteGate());
   const refreshJavaSemanticRef = useRef<(() => void) | undefined>();
   const javaLanguageDisposables = useRef<{ dispose(): void }[]>([]);
   const cursorPositionsRef = useRef<CursorPositionStore>();
@@ -1714,6 +1715,7 @@ export function useAppOrchestration() {
                         ...item,
                         originalContent: result.originalContent,
                         content: result.modifiedContent,
+                        savedContent: result.modifiedContent,
                         error: undefined,
                       }
                     : item,
@@ -2255,6 +2257,7 @@ export function useAppOrchestration() {
     removeAiSession,
     interruptAi,
   } = useAiActions({
+    diffWriteGate,
     selectedTaskIdRef,
     clientRef,
     wsSave,
@@ -2728,6 +2731,7 @@ export function useAppOrchestration() {
     addWorkspaceRoot,
     removeWorkspaceRoot,
   } = useProjectTreeActions({
+    diffWriteGate,
     setTreeContextMenu,
     setSearchScope,
     clientRef,
@@ -3085,6 +3089,8 @@ export function useAppOrchestration() {
     setStatusMessage,
     monacoDiffEditorRef,
     diffRollbackTimer,
+    diffWriteGate,
+    selectedTaskIdRef,
     layoutRef,
     selfWriteUntil,
     updateGroup,

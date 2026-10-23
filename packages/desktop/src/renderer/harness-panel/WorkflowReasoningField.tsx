@@ -1,3 +1,4 @@
+import { Select } from "../Select";
 import type { AiModel } from "@hatopad/protocol";
 
 export function WorkflowReasoningField({
@@ -15,11 +16,11 @@ export function WorkflowReasoningField({
   return (
     <label>
       Reasoning effort
-      <select
+      <Select
         aria-label="Workflow reasoning effort"
         disabled={!available}
         value={value ?? ""}
-        onChange={(event) => onChange(event.target.value || undefined)}
+        onValueChange={(selectedValue) => onChange(selectedValue || undefined)}
       >
         <option value="">Model default{model?.defaultReasoning ? ` (${model.defaultReasoning})` : ""}</option>
         {value && !model?.reasoningLevels.includes(value) && (
@@ -32,7 +33,7 @@ export function WorkflowReasoningField({
             {level}
           </option>
         ))}
-      </select>
+      </Select>
       {!available && (
         <small>
           {!modelSelected

@@ -28,9 +28,18 @@ type GatewayConnection = {
   privateKeyPath?: string;
   hostKeyFingerprint?: string;
 };
-type GatewayWorkspace = { id: string; connectionId: string; name: string; directory: string; remotePort: number };
+type GatewayWorkspace = {
+  id: string;
+  connectionId: string;
+  name: string;
+  directory: string;
+  remotePort: number;
+  migrationDestination?: string;
+  migrationSource?: string;
+};
 type GatewayPortTunnel = { id: string; connectionId: string; port: number; remotePort?: number; cloudOrigin?: string };
 type GatewayState = {
+  pins?: { connections: string[]; workspaces: string[] };
   connections: GatewayConnection[];
   workspaces: GatewayWorkspace[];
   portTunnels: GatewayPortTunnel[];
@@ -112,9 +121,24 @@ interface Window {
         passphrase?: string;
       },
     ): Promise<GatewayState>;
+    setPinned(kind: "connection" | "workspace", id: string, pinned: boolean): Promise<GatewayState>;
     deleteConnection(id: string): Promise<GatewayState>;
     discoverWorkspaceDirectories(connectionId: string): Promise<string[]>;
     pickWorkspaceDirectory(): Promise<string | undefined>;
+    openWorkspaceRoot(id: string, rootId?: string): Promise<void>;
+    listWorkspaceRoots(id: string): Promise<GatewayCloudRoot[]>;
+    previewWorkspaceMigration(
+      id: string,
+      destination: string,
+      sourceDirectory?: string,
+    ): Promise<{
+      source: string;
+      destination: string;
+      stateEntries: number;
+      taskWorkspaces: number;
+      completed?: boolean;
+    }>;
+    migrateWorkspace(id: string, destination: string, sourceDirectory?: string): Promise<GatewayState>;
     saveWorkspace(
       value: Partial<GatewayWorkspace> & { connectionId: string; name: string; directory: string; remotePort: number },
     ): Promise<GatewayState>;

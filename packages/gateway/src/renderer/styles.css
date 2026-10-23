@@ -26,7 +26,7 @@ body,
 }
 button,
 input,
-select {
+.select-trigger {
   font: inherit;
   color: inherit;
 }
@@ -61,7 +61,7 @@ button svg {
 }
 button:focus-visible,
 input:focus-visible,
-select:focus-visible,
+.select-trigger:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -94,10 +94,25 @@ h2 {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-columns: 224px minmax(0, 1fr);
+  grid-template-columns: 224px minmax(0, 1fr) 240px;
   gap: 24px;
   padding: 16px 24px 16px 16px;
   background: var(--shell-background);
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+}
+/* One oversized pigeon behind the whole Gateway, as in Desktop. Opaque panels cover it. */
+.gateway-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: var(--text-heading);
+  opacity: 0.09;
+  -webkit-mask: url("../../assets/branding.png") center / 105vmax 105vmax no-repeat;
+  mask: url("../../assets/branding.png") center / 105vmax 105vmax no-repeat;
 }
 .gateway-sidebar {
   min-width: 0;
@@ -117,11 +132,6 @@ h2 {
 .gateway-brand > svg {
   flex-shrink: 0;
   color: var(--accent);
-}
-.gateway-brand > img {
-  width: 42px;
-  height: 42px;
-  flex-shrink: 0;
 }
 .gateway-brand > div {
   min-width: 0;
@@ -164,7 +174,7 @@ h2 {
   overscroll-behavior: contain;
   padding: 0 8px 12px;
 }
-.connection-list > button {
+.connection-row > .connection-select {
   width: 100%;
   min-height: 62px;
   height: auto;
@@ -178,15 +188,15 @@ h2 {
   border-radius: 10px;
   background: transparent;
 }
-.connection-list > button.selected {
+.connection-row > .connection-select.selected {
   border-color: var(--border-subtle);
   background: var(--selection);
   color: var(--accent);
 }
-.connection-list > button > svg {
+.connection-row > .connection-select > svg {
   flex-shrink: 0;
 }
-.connection-list > button > span {
+.connection-row > .connection-select > span {
   min-width: 0;
   display: grid;
   gap: 4px;
@@ -297,20 +307,12 @@ h2 {
   color: var(--danger);
   background: var(--danger-soft);
 }
-.workspace-header-actions {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.workspace-header-actions > button:not(.secondary),
 button.primary,
 .empty > button {
   background: var(--accent);
   border-color: transparent;
   color: var(--on-accent);
 }
-.workspace-header-actions > button:not(.secondary):hover,
 button.primary:hover,
 .empty > button:hover {
   background: var(--accent-hover);
@@ -323,8 +325,7 @@ button.primary:hover,
   grid-template-columns: minmax(340px, 1.2fr) minmax(300px, 1fr);
   gap: 18px;
 }
-.workspace-collection,
-.provisioning-panel {
+.workspace-collection {
   min-width: 0;
   min-height: 0;
   display: flex;
@@ -453,25 +454,6 @@ button.primary:hover,
 .status-dot.connection-offline {
   background: var(--danger);
 }
-.workspace-buttons {
-  min-height: 46px;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-  padding: 8px;
-  border-top: 1px solid var(--border-subtle);
-  background: var(--surface-base);
-}
-.workspace-buttons > button {
-  min-height: 28px;
-  padding: 0 8px;
-  font-size: 10px;
-}
-.workspace-buttons .icon-button {
-  width: 28px;
-  padding: 0;
-}
 .workspace-title-row {
   min-width: 0;
   display: flex;
@@ -481,23 +463,6 @@ button.primary:hover,
 .workspace-title-row h2 {
   min-width: 0;
   flex: 1;
-}
-.workspace-management {
-  display: flex;
-  flex-shrink: 0;
-  gap: 3px;
-}
-.workspace-management .icon-button {
-  width: 24px;
-  min-height: 24px;
-  margin-top: -3px;
-  padding: 0;
-  border-color: transparent;
-  background: transparent;
-}
-.workspace-buttons .workspace-log-button.selected {
-  color: var(--accent);
-  background: var(--selection);
 }
 button.stop {
   color: var(--danger);
@@ -512,39 +477,6 @@ button.stop:hover:not(:disabled) {
   text-align: center;
   color: var(--text-muted);
   line-height: 1.7;
-}
-.gateway-inspector {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-.provisioning-panel {
-  flex: 1;
-}
-.provisioning-toolbar {
-  min-width: 0;
-  flex-shrink: 0;
-  padding: 10px 14px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  border-bottom: 1px solid var(--border-subtle);
-}
-.provisioning-toolbar label {
-  color: var(--text-muted);
-  font-size: 10px;
-}
-.provisioning-toolbar select {
-  min-width: 0;
-  width: 100%;
-  height: 29px;
-  padding: 0 7px;
-  border: 1px solid var(--border-subtle);
-  border-radius: 6px;
-  color: var(--text-secondary);
-  background: var(--input);
 }
 .provisioning-output {
   min-width: 0;
@@ -786,7 +718,7 @@ button.stop:hover:not(:disabled) {
   font-size: 11px;
 }
 .dialog input,
-.dialog select {
+.dialog .select-trigger {
   width: 100%;
   min-width: 0;
   height: 35px;
@@ -845,7 +777,7 @@ button.stop:hover:not(:disabled) {
 }
 @media (max-width: 1180px) {
   .gateway-shell {
-    grid-template-columns: 200px minmax(0, 1fr);
+    grid-template-columns: 188px minmax(0, 1fr) 208px;
     gap: 18px;
     padding: 14px;
   }
@@ -855,19 +787,6 @@ button.stop:hover:not(:disabled) {
   }
   .gateway-brand strong {
     font-size: 14px;
-  }
-  .gateway-content {
-    grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(140px, 1.2fr) minmax(160px, 1fr);
-    gap: 14px;
-  }
-  .gateway-inspector {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(220px, 0.8fr);
-    gap: 14px;
-  }
-  .gateway-inspector:not(:has(.tunnel-section)) {
-    grid-template-columns: minmax(0, 1fr);
   }
   .tunnel-section {
     max-height: none;
@@ -881,26 +800,15 @@ button.stop:hover:not(:disabled) {
 }
 @media (max-width: 900px) {
   .gateway-shell {
-    grid-template-columns: 176px minmax(0, 1fr);
+    grid-template-columns: 164px minmax(0, 1fr) 180px;
     gap: 14px;
     padding: 12px;
-  }
-  .gateway-brand > img {
-    width: 30px;
-    height: 30px;
-  }
-  .gateway-content {
-    grid-template-rows: minmax(132px, 1fr) minmax(200px, 1fr);
   }
   .gateway-brand strong {
     font-size: 13px;
   }
   .gateway-brand span {
     font-size: 9px;
-  }
-  .gateway-inspector {
-    grid-template-columns: minmax(0, 1fr) minmax(190px, 0.7fr);
-    gap: 10px;
   }
   .section-heading {
     padding-inline: 12px;
@@ -930,13 +838,14 @@ button.stop:hover:not(:disabled) {
   .status-dot {
     border: 1px solid ButtonText;
   }
-  .connection-list > button.selected {
+  .connection-row > .connection-select.selected {
     outline: 2px solid Highlight;
     outline-offset: -2px;
   }
 }
 
-/* Frameless page: native controls float in the padding, with no title-bar row. */
+/* Frameless page: native controls float in the padding,
+with no title-bar row. */
 .gateway-window-drag {
   position: fixed;
   top: 0;
@@ -953,7 +862,7 @@ button.stop:hover:not(:disabled) {
 }
 button,
 input,
-select,
+.select-trigger,
 a,
 [tabindex],
 .connection-actions {
@@ -1001,29 +910,13 @@ a,
   background: transparent;
 }
 .cloud-connections {
-  flex: 0 1 auto;
+  flex: 1;
   min-height: 60px;
 }
 .cloud-list-label {
   display: block;
   padding: 8px;
   font-size: 12px;
-}
-.cloud-core-collection {
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.cloud-core-collection .workspace-info {
-  grid-template-columns: 17px minmax(0, 1fr) auto;
-  align-items: center;
-  padding: 12px;
-}
-.cloud-core-connect {
-  margin-left: auto;
-  width: 30px;
-  min-height: 30px;
-  padding: 0;
 }
 .cloud-spinning {
   animation: cloud-spin 1s linear infinite;
@@ -1039,60 +932,1231 @@ a,
   }
 }
 
-/* Status is intrinsic height; the Core collection owns the remaining viewport. */
-.workspace-view.cloud-server-view {
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 12px;
+.workspace-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
-.workspace-view.cloud-server-view:has(> .autostart-control) {
-  grid-template-rows: auto auto minmax(0, 1fr);
-}
-.update-chip {
-  display: inline-block;
-  margin-left: 10px;
-  padding: 1px 8px;
-  max-width: 280px;
+.workspace-migration {
+  margin-top: 22px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-panel);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  vertical-align: bottom;
-  border: 1px solid var(--border, currentColor);
-  border-radius: 999px;
+}
+.migration-heading {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 15px;
+}
+.migration-icon {
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 9%, transparent);
+  border-radius: 10px;
+}
+.migration-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.migration-heading strong,
+.migration-success strong {
+  color: var(--text-heading);
+  font-size: 12px;
+}
+.migration-heading p,
+.migration-success p {
+  margin: 4px 0 0;
+  color: var(--text-muted);
   font-size: 11px;
-  line-height: 18px;
+  line-height: 1.6;
 }
-.update-chip.available {
-  color: var(--accent, #4ea1ff);
+.migration-heading button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
-.update-chip.error {
-  color: var(--danger, #e5534b);
+.migration-content {
+  padding: 0 15px 15px;
+}
+.migration-location {
+  margin: 0 0 15px;
+  padding: 11px 12px;
+  border-radius: 8px;
+  background: var(--input);
+}
+.migration-location > span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.migration-location code,
+.migration-route code {
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+.migration-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+  margin: -5px 0 14px;
+}
+.migration-review {
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  padding: 12px;
+  margin: 12px 0;
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface-panel));
+}
+.migration-route {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.migration-route svg {
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.migration-preserved {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  font-size: 11px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin-top: 5px;
+}
+.migration-preserved svg {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.migration-review p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.65;
+  margin: 10px 0 0;
+}
+.migration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 7px;
+  margin-top: 14px;
+}
+.migration-actions > span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 100%;
+  min-height: 16px;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.migration-error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--danger) 7%, transparent);
+  color: var(--danger);
+  font-size: 11px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.migration-success {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  margin: 0 15px 15px;
+  padding: 12px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--success) 8%, transparent);
+}
+.migration-success > svg {
+  color: var(--success);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.migration-spinner {
+  animation: migration-spin 1s linear infinite;
+}
+@keyframes migration-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .migration-spinner {
+    animation: none;
+  }
+}
+.migration-save-hint {
+  padding: 0 15px 12px;
+  margin: 0;
 }
 
-.autostart-control {
-  align-self: start;
+/* Saved hosts and Cloud servers frame the active workspace in separate columns. */
+.gateway-cloud-sidebar {
+  overflow: hidden;
+}
+.cloud-sidebar-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 24px 16px 18px;
+}
+.cloud-sidebar-heading .page-eyebrow {
+  font-size: 9px;
+  letter-spacing: 0.09em;
+}
+.cloud-sidebar-heading h2 {
+  margin: 7px 0 0;
+  color: var(--text-heading);
+  font-size: 16px;
+  letter-spacing: -0.025em;
+}
+.cloud-sidebar-heading p {
+  margin: 6px 0 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.6;
+}
+.cloud-sidebar-heading > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--accent);
+}
+.cloud-sidebar-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin: 12px;
+  padding: 28px 12px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: 12px;
+}
+.cloud-sidebar-empty > svg {
+  color: var(--text-muted);
+  opacity: 0.65;
+  margin-bottom: 14px;
+}
+.cloud-sidebar-empty strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.cloud-sidebar-empty p {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.7;
+  margin: 8px 0 0;
+}
+.connection-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 3px 0;
+  border-radius: 10px;
+}
+.connection-row > .connection-select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  margin: 0;
+  padding-right: 32px;
+}
+.connection-row > .pin-button {
+  position: absolute;
+  right: 5px;
+}
+.pin-button {
+  width: 25px;
+  min-width: 25px;
+  min-height: 25px;
+  padding: 0;
+  color: var(--text-muted);
+  border-color: transparent;
+  background: transparent;
+  opacity: 0;
+}
+.pin-button.is-pinned {
+  opacity: 1;
+  color: var(--accent);
+}
+/* Unpinned pins stay invisible until their row is hovered or focused. */
+.connection-row:hover .pin-button,
+.connection-row:focus-within .pin-button,
+.workspace-card:hover .pin-button,
+.cloud-root:hover .pin-button,
+.cloud-root:focus-within .pin-button,
+.pin-button:focus-visible {
+  opacity: 1;
+}
+.workspace-title-row > .pin-button {
+  flex-shrink: 0;
+}
+@media (max-width: 900px) {
+  .cloud-sidebar-heading {
+    padding: 22px 12px 16px;
+  }
+  .cloud-sidebar-heading > svg {
+    display: none;
+  }
+  .cloud-sidebar-heading h2 {
+    font-size: 14px;
+  }
+  .connection-row > .connection-select {
+    padding-left: 8px;
+    gap: 6px;
+  }
+  .cloud-account {
+    margin-inline: 6px;
+    padding-inline: 2px;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .cloud-account > span {
+    min-width: 72px;
+  }
+}
+.other-workspaces {
+  border-top: 1px solid var(--border-subtle);
+  padding: 10px 14px 12px;
+  background: color-mix(in srgb, var(--input) 45%, transparent);
+}
+.other-workspaces > header,
+.other-workspaces > header > span {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.other-workspaces > header {
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.other-workspaces > header small {
+  border-radius: 5px;
+  padding: 1px 5px;
+  background: var(--input);
+}
+.other-workspaces > header button {
+  width: 23px;
+  min-height: 23px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+}
+.other-workspace-row {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
-  margin: 0;
-  padding: 8px 12px;
-  border: 1px solid var(--border, #3a3f47);
-  border-radius: 8px;
-  font-size: 12px;
+  padding: 9px 0 9px 21px;
 }
-.autostart-control label {
+.other-workspace-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+.other-workspace-row strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+}
+.other-workspace-row code {
+  color: var(--text-muted);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+.other-workspace-row > button {
+  flex-shrink: 0;
+  min-height: 27px;
+  padding: 0 8px;
+  font-size: 10px;
+}
+.other-workspaces-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 6px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.7;
+}
+.other-workspaces-note svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* Collapsible Cloud panel: a slim rail when closed,
+full panel when open. */
+.gateway-shell {
+  transition: grid-template-columns 0.22s ease;
+}
+.gateway-shell.cloud-collapsed {
+  grid-template-columns: 224px minmax(0, 1fr) 48px;
+}
+@media (max-width: 1100px) {
+  .gateway-shell.cloud-collapsed {
+    grid-template-columns: 188px minmax(0, 1fr) 48px;
+  }
+}
+.gateway-cloud-sidebar {
+  position: relative;
+}
+.cloud-panel-body {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  animation: cloud-panel-in 0.22s ease;
+}
+@keyframes cloud-panel-in {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
+  }
+}
+.cloud-panel-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    color 0.15s ease,
+    background 0.15s ease;
+}
+.cloud-panel-toggle:hover {
+  color: var(--text-heading);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.gateway-cloud-sidebar:not(.collapsed) .cloud-panel-toggle {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+}
+.gateway-cloud-sidebar:not(.collapsed) .cloud-sidebar-heading > svg {
+  display: none;
+}
+.gateway-cloud-sidebar.collapsed {
+  overflow: hidden;
+}
+.gateway-cloud-sidebar.collapsed .cloud-panel-toggle {
+  flex: 1;
+  flex-direction: column;
+  padding: 18px 0;
+  border-radius: 16px;
+}
+.gateway-cloud-sidebar.collapsed .cloud-panel-toggle > svg:nth-of-type(2) {
+  color: var(--accent);
+  margin-top: 6px;
+}
+.cloud-rail-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  opacity: 0.5;
+}
+.cloud-rail-dot.online {
+  background: var(--success, #3fb950);
+  opacity: 1;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--success, #3fb950) 22%, transparent);
+}
+.cloud-rail-label {
+  margin-top: 10px;
+  writing-mode: vertical-rl;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+@media (prefers-reduced-motion: reduce) {
+  .gateway-shell,
+  .cloud-panel-body {
+    transition: none;
+    animation: none;
+  }
+}
+
+.other-workspaces {
+  margin-top: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+}
+
+/* Workspaces: one card list with contextual actions, plus an activity dock for logs and tunnels. */
+.gateway-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.workspace-collection {
+  flex: 1 1 0;
+  box-shadow: var(--shadow-panel);
+  container-type: inline-size;
+}
+.workspace-toolbar {
+  min-height: 56px;
+  flex: 0 0 56px;
+  padding: 0 12px 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.workspace-toolbar-title,
+.workspace-toolbar-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-toolbar-title h2 {
+  font-size: 14px;
+}
+.count-badge {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.count-badge.running {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.running-summary {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  color: var(--success);
+  font-size: 11px;
 }
-.autostart-control span {
-  color: var(--muted, #8b949e);
+.running-summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+button.ghost {
+  border-color: transparent;
+  background: transparent;
+}
+/* Cards share the list's columns through subgrid so status and actions line up across rows. */
+.workspace-list {
+  padding: 10px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) minmax(120px, 210px) auto;
+  align-content: start;
+  gap: 8px 14px;
+}
+.workspace-list > .workspace-card {
+  margin: 0;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  overflow: visible;
+  transition:
+    border-color 0.14s,
+    box-shadow 0.14s;
+}
+.workspace-list > .workspace-card:hover,
+.workspace-list > .workspace-card:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-control);
+}
+.workspace-card-body {
   min-width: 0;
-  overflow-wrap: anywhere;
+  grid-column: 1 / -1;
+  padding: 12px 12px 12px 14px;
+  display: grid;
+  grid-template-columns: subgrid;
+  grid-template-areas: "glyph identity state actions";
+  align-items: center;
+  row-gap: 10px;
+}
+.workspace-glyph {
+  grid-area: glyph;
+  width: 40px;
+  height: 40px;
+  position: relative;
+  display: grid;
+  place-items: center;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.workspace-glyph.server,
+.workspace-glyph.client {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.workspace-glyph.working {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.workspace-glyph.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.workspace-glyph > .status-dot {
+  width: 9px;
+  height: 9px;
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  box-shadow: 0 0 0 2px var(--surface-panel);
+}
+.status-dot.working {
+  animation: status-pulse 1.4s ease-in-out infinite;
+}
+@keyframes status-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+.workspace-identity {
+  grid-area: identity;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.workspace-card .workspace-title-row {
+  align-items: center;
+  gap: 4px;
+}
+.workspace-card .workspace-title-row h2 {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.workspace-card .workspace-title-row > .pin-button {
+  margin: 0;
+}
+.workspace-meta {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-meta code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font:
+    11px/1.5 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+.port-chip {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font:
+    10px/16px ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+.workspace-state {
+  grid-area: state;
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+.workspace-state strong {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+}
+.workspace-state.idle strong {
+  color: var(--text-muted);
+}
+.workspace-state.server strong,
+.workspace-state.client strong {
+  color: var(--success);
+}
+.workspace-state.working strong {
+  color: var(--warning);
+}
+.workspace-state.error strong {
+  color: var(--danger);
+}
+.workspace-state small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: 10.5px;
+}
+.workspace-actions {
+  grid-area: actions;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.workspace-actions > button {
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.workspace-actions > button.primary {
+  padding-inline: 12px;
+  font-weight: 550;
+}
+.workspace-actions-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border-subtle);
+}
+.workspace-actions .icon-button,
+.dock-bar .icon-button,
+.tunnel-row .icon-button {
+  width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+}
+.workspace-actions .icon-button.selected {
+  background: var(--selection);
+  color: var(--accent);
+}
+.workspace-actions .icon-button.danger:hover:not(:disabled),
+.tunnel-row .icon-button.danger:hover:not(:disabled) {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.workspace-meta > span:not(.port-chip) {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.core-workspaces {
+  min-width: 0;
+  grid-column: 2 / -1;
+  margin: 0;
+  padding: 0 12px 12px 0;
+  display: grid;
+  gap: 4px;
+  list-style: none;
+}
+.core-workspaces > li {
+  min-width: 0;
+  min-height: 40px;
+  padding: 0 6px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--surface-sunken);
+  transition: border-color 0.14s;
+}
+.core-workspaces > li:hover {
+  border-color: var(--border-subtle);
+}
+.core-workspaces > li > svg {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+.core-workspaces > li > div {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.core-workspaces strong {
+  flex-shrink: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-heading);
+  font-size: 12px;
+  font-weight: 550;
+}
+.core-workspaces code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font:
+    11px/1.5 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+.workspace-list > .workspace-empty {
+  grid-column: 1 / -1;
+  margin: auto;
+  padding: 40px 24px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.workspace-empty-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.workspace-list > .workspace-empty strong {
+  color: var(--text-heading);
+  font-size: 14px;
+}
+.workspace-list > .workspace-empty p {
+  max-width: 320px;
+  line-height: 1.6;
+}
+@container (max-width: 860px) {
+  .workspace-list {
+    display: flex;
+    flex-direction: column;
+  }
+  .workspace-list > .workspace-card {
+    display: block;
+  }
+  .core-workspaces {
+    padding-left: 68px;
+  }
+  .workspace-card-body {
+    column-gap: 14px;
+    grid-template-columns: 40px minmax(0, 1fr) minmax(0, 200px);
+    grid-template-areas:
+      "glyph identity state"
+      ". actions actions";
+  }
+  .workspace-actions {
+    justify-content: flex-start;
+  }
+}
+@container (max-width: 560px) {
+  .workspace-card-body {
+    grid-template-columns: 40px minmax(0, 1fr);
+    grid-template-areas:
+      "glyph identity"
+      ". state"
+      ". actions";
+  }
+  .workspace-actions {
+    flex-wrap: wrap;
+  }
 }
 
-.cloud-port-tunnels {
-  flex: none;
-  max-height: none;
-  margin-top: 16px;
+.workspace-dock {
+  min-width: 0;
+  min-height: 0;
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-subtle);
+  border-radius: 14px;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-panel);
+  overflow: hidden;
+}
+.workspace-dock.open {
+  flex-basis: clamp(180px, 32%, 340px);
+}
+.dock-bar {
+  min-height: 44px;
+  flex: 0 0 44px;
+  padding: 0 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.workspace-dock.open > .dock-bar {
+  border-bottom: 1px solid var(--border-subtle);
+}
+.dock-tabs {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dock-tab {
+  min-width: 0;
+  min-height: 32px;
+  padding: 0 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-weight: 550;
+}
+.dock-tab:hover:not(:disabled) {
+  border-color: transparent;
+}
+.dock-tab.active {
+  background: var(--surface-sunken);
+  color: var(--text-heading);
+}
+.dock-tab.active > svg {
+  color: var(--accent);
+}
+.dock-tab-detail {
+  min-width: 0;
+  max-width: 180px;
+  padding-left: 8px;
+  border-left: 1px solid var(--border-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.dock-body {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  animation: cloud-panel-in 0.18s ease;
+}
+.dock-body > .provisioning-body {
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.dock-body .provisioning-output {
+  flex: 1;
+  height: auto;
+  padding: 12px 16px;
+}
+.provisioning-output.empty {
+  display: grid;
+  place-items: center;
+  white-space: normal;
+  color: var(--text-muted);
+  font-family: inherit;
+}
+.provisioning-footer {
+  flex-basis: 30px;
+}
+.stage-chip {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 5px;
+  background: var(--surface-sunken);
+  font-family: ui-monospace, "SFMono-Regular", Consolas, monospace;
+}
+.tunnel-form {
+  display: flex;
+  gap: 6px;
+}
+.tunnel-form input {
+  width: 88px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--input);
+}
+.tunnel-form button {
+  min-height: 30px;
+}
+.dock-body > .tunnel-list {
+  flex: 1;
+  overflow: auto;
+}
+.dock-body .tunnel-row {
+  padding: 8px 10px 8px 16px;
+  grid-template-columns: 7px minmax(0, 1fr) minmax(0, 1.4fr) auto auto;
+  gap: 10px;
+}
+.dock-body .tunnel-row .tunnel-status {
+  grid-column: auto;
+  grid-row: auto;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.dock-body .tunnel-row .tunnel-status small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dock-body .tunnel-address {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.dock-body .tunnel-address strong {
+  flex-shrink: 0;
+  font-size: 11.5px;
+}
+.dock-body .tunnel-row button:not(.icon-button) {
+  min-height: 28px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+.dock-body .tunnel-empty {
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-dot.working {
+    animation: none;
+  }
+}
+
+/* Cloud server: same page rhythm as SSH, with equal workspace rows and a settings footer. */
+.workspace-view.cloud-server-view {
+  grid-template-rows: auto minmax(0, 1fr);
+}
+.header-alert {
+  margin-left: 10px;
+  color: var(--danger);
+}
+.update-chip {
+  max-width: 260px;
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border-radius: 20px;
+  background: var(--surface-sunken);
+  color: var(--text-muted);
+  font-size: 10px;
+}
+.update-chip.available {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.update-chip.current {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.update-chip.busy {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.update-chip.error {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.workspace-list.cloud-root-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.cloud-root {
+  min-width: 0;
+  flex-shrink: 0;
+  padding: 10px 12px 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 12px;
+  background: var(--surface-panel);
+  transition:
+    border-color 0.14s,
+    box-shadow 0.14s;
+}
+.cloud-root:hover,
+.cloud-root:focus-within {
+  border-color: var(--border-strong);
+  box-shadow: var(--shadow-control);
+}
+.cloud-root > .workspace-glyph {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+}
+.cloud-root-identity {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 3px;
+}
+.cloud-root-identity .workspace-title-row {
+  align-items: center;
+  gap: 4px;
+}
+.cloud-root-identity h3 {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-heading);
+  font-size: 13px;
+  font-weight: 600;
+}
+.cloud-root-identity code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font:
+    11px/1.5 ui-monospace,
+    "SFMono-Regular",
+    Consolas,
+    monospace;
+}
+.core-workspaces button,
+.cloud-root > .open-button {
+  flex-shrink: 0;
+  min-height: 28px;
+  padding: 0 12px;
+  border-color: transparent;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: 11.5px;
+  font-weight: 550;
+}
+.core-workspaces button:hover:not(:disabled),
+.cloud-root > .open-button:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.cloud-root-list > .workspace-empty {
+  margin: auto;
+  padding: 40px 24px;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+}
+.cloud-root-list > .workspace-empty strong {
+  color: var(--text-heading);
+  font-size: 14px;
+  text-transform: capitalize;
+}
+.autostart-control {
+  min-height: 44px;
+  flex: 0 0 auto;
+  padding: 0 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.autostart-control label {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-weight: 550;
+  cursor: pointer;
+}
+.autostart-control span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.autostart-control input[role="switch"] {
+  width: 28px;
+  height: 16px;
+  margin: 0;
+  position: relative;
+  flex-shrink: 0;
+  appearance: none;
+  border-radius: 8px;
+  background: var(--border-strong);
+  cursor: pointer;
+  transition: background-color 0.14s;
+}
+.autostart-control input[role="switch"]::after {
+  content: "";
+  width: 12px;
+  height: 12px;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  border-radius: 50%;
+  background: var(--surface-panel);
+  box-shadow: var(--shadow-control);
+  transition: transform 0.14s;
+}
+.autostart-control input[role="switch"]:checked {
+  background: var(--accent);
+}
+.autostart-control input[role="switch"]:checked::after {
+  transform: translateX(12px);
+}
+.autostart-control input[role="switch"]:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.workspace-dock.cloud-port-tunnels.open {
+  flex-basis: auto;
+  max-height: 40%;
+}
+.cloud-port-tunnels .tunnel-form input {
+  width: 108px;
+}
+.cloud-port-tunnels .tunnel-form > span {
+  align-self: center;
+  color: var(--text-muted);
+}
+.cloud-port-tunnels .dock-body > .tunnel-list {
+  overflow: auto;
+}
+.cloud-port-tunnels .tunnel-empty {
+  padding: 18px;
 }

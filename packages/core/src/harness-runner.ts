@@ -96,6 +96,8 @@ export class HarnessRunner {
   private chatAdmissionQueue = Promise.resolve();
   private readonly flowAnswers = new Map<string, (answer: string) => void>();
   private readonly cancelled = new Set<string>();
+  /** Runs draining sibling work after a failure; they stay cancellable but schedule nothing new. */
+  private readonly stopping = new Set<string>();
   private readonly retryAdmissions = new Set<string>();
   private readonly retryEntries = new Map<string, string[]>();
   private suspended = false;
@@ -150,7 +152,7 @@ export class HarnessRunner {
   }
 
   isActive(runId: string): boolean {
-    return !this.suspended && this.activeRuns.has(runId) && !this.cancelled.has(runId);
+    return !this.suspended && this.activeRuns.has(runId) && !this.cancelled.has(runId) && !this.stopping.has(runId);
   }
 
   async registerChild(runId: string, child: Omit<HarnessChildTask, "recoveryAttempts">): Promise<void> {
@@ -1619,6 +1621,9 @@ export class HarnessRunner {
         },
         get cancelled() {
           return runner.cancelled;
+        },
+        get stopping() {
+          return runner.stopping;
         },
         executeBlock: this.executeBlock.bind(this),
         policy: this.policy.bind(this),

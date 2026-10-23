@@ -171,6 +171,24 @@ export class AiTimerStore {
     });
   }
 
+  /** Updates a stored timer in place; returns undefined when it no longer exists. */
+  async update(id: string, patch: Partial<AiContinuationTimer>): Promise<AiContinuationTimer | undefined> {
+    return this.mutate(async () => {
+      const timers = await this.list();
+      const current = timers.find((timer) => timer.id === id);
+      if (!current) return undefined;
+      const updated = { ...current, ...patch };
+      for (const key of Object.keys(updated) as (keyof AiContinuationTimer)[])
+        if (updated[key] === undefined) delete updated[key];
+      if (!isTimer(updated)) throw new CoreError("INVALID_REQUEST", "Timer fields and timestamps must be valid");
+      await this.save(
+        timers.map((timer) => (timer.id === id ? updated : timer)),
+        timers,
+      );
+      return updated;
+    });
+  }
+
   async next(workspace: string, provider?: AiProvider): Promise<AiContinuationTimer | undefined> {
     const resolved = path.resolve(workspace);
     return (await this.list())
@@ -202,6 +220,9 @@ export class AiTimerStore {
   }
 }
 
+const maxDeliveryAttempts = 5;
+const deliveryRetryDelayMs = (attempts: number) => Math.min(30_000 * 2 ** (attempts - 1), 600_000);
+
 export class AiTimerService {
   private suspended = false;
   private readonly pendingDeliveries = new Set<Promise<void>>();
@@ -232,7 +253,7 @@ export class AiTimerService {
   ) {}
 
   async start(): Promise<void> {
-    for (const timer of await this.store.list()) this.arm(timer);
+    for (const timer of await this.store.list()) if (!timer.deliveryFailed) this.arm(timer);
   }
 
   async schedule(
@@ -382,6 +403,8 @@ export class AiTimerService {
     const cancelled = () =>
       (this.cancellationEpochs.get(timer.workspace) ?? 0) !== epoch ||
       (this.timerCancellationEpochs.get(timer.id) ?? 0) !== timerEpoch;
+    let sending = false;
+    let current: AiContinuationTimer | undefined;
     try {
       const handle = this.handles.get(timer.id);
       if (immediately && handle) clearTimeout(handle);
@@ -390,11 +413,12 @@ export class AiTimerService {
         this.arm(timer);
         return { delivered: false };
       }
-      const current = (await this.store.list()).find((item) => item.id === timer.id);
+      current = (await this.store.list()).find((item) => item.id === timer.id);
       if (!current) return { delivered: true };
       const manager = this.acp.get(timer.provider);
       const session = await manager.get(timer.workspace);
       if (cancelled()) return { delivered: true };
+      sending = true;
       if (session.status === "in_progress" || session.status === "user_prompt")
         await manager.steer(timer.workspace, timer.prompt);
       else
@@ -419,10 +443,49 @@ export class AiTimerService {
         return { delivered: true };
       }
       return { delivered: true };
+    } catch (error) {
+      if (cancelled() || !current) return { delivered: true };
+      const outcome = sending ? await this.sendOutcome(timer) : "not_started";
+      if (outcome === "delivered") return { delivered: true };
+      await this.recordDeliveryFailure(current, error, outcome === "not_started");
+      return { delivered: false };
     } finally {
       this.delivering.delete(timer.id);
       this.onChanged(timer.workspace);
     }
+  }
+
+  /** After a failed send, the session shows whether the prompt arrived; anything else is uncertain. */
+  private async sendOutcome(timer: AiContinuationTimer): Promise<"delivered" | "not_started" | "unknown"> {
+    const session = await this.acp
+      .get(timer.provider)
+      .get(timer.workspace)
+      .catch(() => undefined);
+    if (!session) return "unknown";
+    if (session.messages.some((message) => message.role === "user" && message.text === timer.prompt))
+      return "delivered";
+    return session.status === "in_progress" || session.status === "user_prompt" ? "unknown" : "not_started";
+  }
+
+  /**
+   * A prompt known not to have been sent is retried with bounded backoff. Exhausted retries and uncertain
+   * outcomes (which could duplicate a prompt) stay visible as failed and unarmed until the user runs them.
+   */
+  private async recordDeliveryFailure(timer: AiContinuationTimer, error: unknown, retry: boolean): Promise<void> {
+    const attempts = (timer.deliveryAttempts ?? 0) + 1;
+    const message = error instanceof Error ? error.message : String(error);
+    const retrying = retry && attempts < maxDeliveryAttempts;
+    const updated = await this.store.update(timer.id, {
+      deliveryAttempts: attempts,
+      deliveryError: message,
+      ...(retrying
+        ? { dueAt: new Date(Date.now() + deliveryRetryDelayMs(attempts)).toISOString(), deliveryFailed: undefined }
+        : { deliveryFailed: true }),
+    });
+    console.warn(
+      `[core] AI continuation timer ${timer.id} delivery failed (attempt ${attempts}${retrying ? ", retrying" : ""}): ${message}`,
+    );
+    if (updated && retrying) this.arm(updated);
   }
 
   private async reconcileDelivery(timer: AiContinuationTimer): Promise<{ delivered: boolean } | null | undefined> {
@@ -456,6 +519,10 @@ function isTimer(value: unknown): value is AiContinuationTimer {
     (timer.workflowRunId === undefined || typeof timer.workflowRunId === "string") &&
     (timer.workflowBlockId === undefined || typeof timer.workflowBlockId === "string") &&
     (timer.workflowOperationKey === undefined || typeof timer.workflowOperationKey === "string") &&
-    (timer.workflowFlow === undefined || typeof timer.workflowFlow === "boolean")
+    (timer.workflowFlow === undefined || typeof timer.workflowFlow === "boolean") &&
+    (timer.deliveryAttempts === undefined ||
+      (Number.isInteger(timer.deliveryAttempts) && (timer.deliveryAttempts as number) >= 0)) &&
+    (timer.deliveryError === undefined || typeof timer.deliveryError === "string") &&
+    (timer.deliveryFailed === undefined || typeof timer.deliveryFailed === "boolean")
   );
 }

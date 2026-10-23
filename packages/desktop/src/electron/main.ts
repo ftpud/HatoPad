@@ -21,6 +21,12 @@ import { isTrustedIpcFrame, isTrustedRendererUrl } from "./navigation-policy.js"
 import { connectionToken } from "./connection-token.js";
 import { legacyUserDataPath } from "./legacy-user-data.js";
 import { applyLegacyEnvironmentWithWarning } from "@hatopad/protocol";
+import {
+  buildInstanceAddress,
+  claimBuildInstance,
+  desktopBuildFingerprint,
+  type BuildInstanceLaunch,
+} from "./build-instance.js";
 
 applyLegacyEnvironmentWithWarning(process.env);
 
@@ -32,22 +38,36 @@ if (bundleSmokeTest)
 const directory = path.dirname(fileURLToPath(import.meta.url));
 const appIcon = path.join(directory, "../assets/app-icon.png");
 const rendererFilePath = path.resolve(directory, "../dist-renderer/index.html");
-let hasDirtyTabs = false;
-let allowClose = false;
-let managedConnection: ManagedDesktopConnection | undefined;
-app.on("will-quit", () => managedConnection?.stop());
+const dirtyWindows = new Set<number>();
+const confirmedCloseWindows = new Set<number>();
 
 function launchOption(name: string): string | undefined {
   const index = process.argv.indexOf(`--${name}`);
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
-const launchConfig = {
-  host: launchOption("host"),
-  port: launchOption("port"),
-  rootId: launchOption("root-id"),
-  cloudOrigin: launchOption("cloud-origin"),
-};
+/** One launch (usually one Gateway "Open"): its Core target, optional owned tunnel, and the windows using it. */
+type LaunchConfig = { host?: string; port?: string; rootId?: string; cloudOrigin?: string };
+type DesktopSession = { config: LaunchConfig; managed?: ManagedDesktopConnection; windows: Set<BrowserWindow> };
+const sessions = new Set<DesktopSession>();
+const windowSessions = new Map<number, DesktopSession>();
+app.on("will-quit", () => {
+  for (const session of sessions) session.managed?.stop();
+});
+
+const startupLaunch: BuildInstanceLaunch = Object.fromEntries(
+  Object.entries({
+    connectionFile: launchOption("connection-file"),
+    host: launchOption("host"),
+    port: launchOption("port"),
+    rootId: launchOption("root-id"),
+    cloudOrigin: launchOption("cloud-origin"),
+  }).filter((entry) => entry[1] !== undefined),
+);
+function plainConfig(launch: BuildInstanceLaunch): LaunchConfig {
+  const { connectionFile: _connectionFile, ...config } = launch;
+  return config;
+}
 
 if (!bundleSmokeTest) app.setPath("userData", legacyUserDataPath(app.getPath("appData"), "Vibe Editor", "HatoPad"));
 process.title = "HatoPad";
@@ -55,6 +75,26 @@ app.name = "HatoPad";
 app.setName("HatoPad");
 app.setAppUserModelId("com.hatopad.desktop");
 app.commandLine.appendSwitch("class", "HatoPad");
+
+// Launches of the same Desktop build share one process, so the Dock stacks their windows; other builds stay apart.
+let pendingLaunches: BuildInstanceLaunch[] | undefined = [];
+let releaseBuildInstance: () => void = () => undefined;
+if (!bundleSmokeTest) {
+  const fingerprint = desktopBuildFingerprint(path.resolve(directory, ".."), [
+    app.getPath("userData"),
+    process.env.VITE_DEV_SERVER_URL ?? "",
+  ]);
+  const claim = await claimBuildInstance(
+    buildInstanceAddress(fingerprint, app.getPath("userData")),
+    startupLaunch,
+    (launch) => (pendingLaunches ? pendingLaunches.push(launch) : void openLaunch(launch)),
+  );
+  if (claim.role === "forwarded") {
+    app.exit(0);
+    await new Promise(() => undefined);
+  } else releaseBuildInstance = claim.close;
+}
+app.on("will-quit", () => releaseBuildInstance());
 
 const settings = new SettingsStore(path.join(app.getPath("userData"), "settings.json"));
 function assertTrustedIpcSender(event: IpcMainInvokeEvent | IpcMainEvent): void {
@@ -95,11 +135,13 @@ function isTrustedIpcEvent(event: IpcMainInvokeEvent | IpcMainEvent): boolean {
   );
 }
 registerProjectTransferIpc(assertTrustedIpcSender);
-handleIpc("desktop:connection-token", (_event, host: unknown, port: unknown) =>
-  managedConnection && host === managedConnection.host && String(port) === managedConnection.port
-    ? managedConnection.token
-    : connectionToken(host, port, launchConfig),
-);
+handleIpc("desktop:connection-token", (event, host: unknown, port: unknown) => {
+  const owner = windowSessions.get(event.sender.id);
+  const managed = [owner, ...sessions].find(
+    (session) => session?.managed && host === session.managed.host && String(port) === session.managed.port,
+  )?.managed;
+  return managed ? managed.token : connectionToken(host, port, owner?.config ?? plainConfig(startupLaunch));
+});
 onIpc("desktop:settings-load", (event) => {
   event.returnValue = settings.all();
 });
@@ -124,8 +166,9 @@ onIpc("desktop:window-theme", (event, theme: unknown) => {
     });
 });
 
-onIpc("editor:dirty-state", (_event, dirty: boolean) => {
-  hasDirtyTabs = dirty;
+onIpc("editor:dirty-state", (event, dirty: boolean) => {
+  if (dirty) dirtyWindows.add(event.sender.id);
+  else dirtyWindows.delete(event.sender.id);
 });
 handleIpc("desktop:clipboard-read", () => clipboard.readText());
 handleIpc("desktop:restore-input-focus", (event) =>
@@ -162,7 +205,7 @@ handleIpc("desktop:open-external", async (_event, value: unknown) => {
   if (url.protocol !== "http:" && url.protocol !== "https:") return;
   await shell.openExternal(url.toString());
 });
-onIpc("editor:open-window", (_event, options: unknown) => {
+onIpc("editor:open-window", (event, options: unknown) => {
   if (!options || typeof options !== "object") return;
   const value = options as Record<string, unknown>;
   if (
@@ -175,7 +218,7 @@ onIpc("editor:open-window", (_event, options: unknown) => {
     (value.taskId !== undefined && (typeof value.taskId !== "string" || value.taskId.length > 200))
   )
     return;
-  createWindow({
+  createWindow(windowSessions.get(event.sender.id) ?? fallbackSession(), {
     detached: "1",
     host: value.host,
     port: value.port,
@@ -187,7 +230,49 @@ onIpc("editor:open-window", (_event, options: unknown) => {
   });
 });
 
-function createWindow(extraQuery: Record<string, string> = {}): void {
+async function startSession(launch: BuildInstanceLaunch): Promise<DesktopSession> {
+  let config = plainConfig(launch);
+  let managed: ManagedDesktopConnection | undefined;
+  if (launch.connectionFile) {
+    managed = await startManagedConnection(launch.connectionFile);
+    config = { host: managed.host, port: managed.port, rootId: managed.rootId, cloudOrigin: managed.cloudOrigin };
+  }
+  const session: DesktopSession = { config, ...(managed ? { managed } : {}), windows: new Set() };
+  sessions.add(session);
+  return session;
+}
+function disposeSession(session: DesktopSession): void {
+  session.managed?.stop();
+  sessions.delete(session);
+}
+/** A window-less session kept only for macOS Dock reopen, or a plain one from the launch arguments. */
+function fallbackSession(): DesktopSession {
+  const latest = [...sessions].at(-1);
+  if (latest) return latest;
+  const session: DesktopSession = { config: plainConfig(startupLaunch), windows: new Set() };
+  sessions.add(session);
+  return session;
+}
+let launchesInFlight = 0;
+async function openLaunch(launch: BuildInstanceLaunch): Promise<void> {
+  launchesInFlight++;
+  try {
+    const session = await startSession(launch);
+    for (const idle of [...sessions]) if (idle !== session && !idle.windows.size) disposeSession(idle);
+    createWindow(session);
+  } catch (error) {
+    dialog.showErrorBox(
+      "Could not connect Desktop",
+      error instanceof Error ? error.message : "Desktop connection failed.",
+    );
+    // Quit only when nothing is open and no other launch is still connecting.
+    if (launchesInFlight === 1 && !BrowserWindow.getAllWindows().length) app.quit();
+  } finally {
+    launchesInFlight--;
+  }
+}
+
+function createWindow(session: DesktopSession, extraQuery: Record<string, string> = {}): void {
   const window = new BrowserWindow({
     title: extraQuery.detached === "1" ? (extraQuery.path?.split("/").pop() ?? "HatoPad") : "HatoPad",
     icon: appIcon,
@@ -209,6 +294,17 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
       webSecurity: true,
     },
   });
+  const contentsId = window.webContents.id;
+  session.windows.add(window);
+  windowSessions.set(contentsId, session);
+  window.on("closed", () => {
+    session.windows.delete(window);
+    windowSessions.delete(contentsId);
+    dirtyWindows.delete(contentsId);
+    confirmedCloseWindows.delete(contentsId);
+    // Stop a closed project's tunnel, but keep the last one so the macOS Dock can reopen it.
+    if (!session.windows.size && [...sessions].some((other) => other.windows.size)) disposeSession(session);
+  });
   const publishFullscreen = () => window.webContents.send("desktop:fullscreen-changed", window.isFullScreen());
   window.on("enter-full-screen", publishFullscreen);
   window.on("leave-full-screen", publishFullscreen);
@@ -224,7 +320,7 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
     console.error(`[desktop] failed to load ${url}: ${code} ${description}`);
   });
   window.on("close", (event) => {
-    if (!hasDirtyTabs || allowClose) return;
+    if (!dirtyWindows.has(contentsId) || confirmedCloseWindows.has(contentsId)) return;
     event.preventDefault();
     const choice = dialog.showMessageBoxSync(window, {
       type: "warning",
@@ -236,14 +332,14 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
       detail: "Closing now will discard those changes.",
     });
     if (choice === 1) {
-      allowClose = true;
+      confirmedCloseWindows.add(contentsId);
       window.close();
     } else restoreWindowInputFocus(window);
   });
   const devUrl = process.env.VITE_DEV_SERVER_URL;
   const query = {
     ...Object.fromEntries(
-      Object.entries(launchConfig).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+      Object.entries(session.config).filter((entry): entry is [string, string] => typeof entry[1] === "string"),
     ),
     ...extraQuery,
   };
@@ -273,33 +369,20 @@ function createWindow(extraQuery: Record<string, string> = {}): void {
   void load.catch((error: unknown) => console.error("[desktop] page load failed", error));
 }
 
-app
-  .whenReady()
-  .then(async () => {
-    powerMonitor.on("resume", () => managedConnection?.reconnect?.());
-    const handoff = launchOption("connection-file");
-    if (handoff) {
-      managedConnection = await startManagedConnection(handoff);
-      launchConfig.host = managedConnection.host;
-      launchConfig.port = managedConnection.port;
-      launchConfig.rootId = managedConnection.rootId;
-      launchConfig.cloudOrigin = managedConnection.cloudOrigin;
-    }
-    app.setName("HatoPad");
-    process.title = "HatoPad";
-    if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
-    createWindow();
-  })
-  .catch((error: unknown) => {
-    dialog.showErrorBox(
-      "Could not connect Desktop",
-      error instanceof Error ? error.message : "Desktop connection failed.",
-    );
-    app.quit();
+void app.whenReady().then(() => {
+  powerMonitor.on("resume", () => {
+    for (const session of sessions) session.managed?.reconnect?.();
   });
+  app.setName("HatoPad");
+  process.title = "HatoPad";
+  if (process.platform === "darwin") app.dock?.setIcon(nativeImage.createFromPath(appIcon));
+  const queued = pendingLaunches ?? [];
+  pendingLaunches = undefined;
+  for (const launch of [startupLaunch, ...queued]) void openLaunch(launch);
+});
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  if (BrowserWindow.getAllWindows().length === 0) createWindow(fallbackSession());
 });

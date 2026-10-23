@@ -1,3 +1,4 @@
+import { Select } from "./Select";
 import { Bug, Play, Settings, Square } from "lucide-react";
 import { runConfigurationKey, type RunProject, type RunProjectProcess } from "./run-projects";
 import "./run-configuration-toolbar.css";
@@ -56,14 +57,14 @@ export function RunConfigurationToolbar({
       >
         <Square size={13} />
       </button>
-      <select
+      <Select
         aria-label="Run configuration"
         disabled={busy}
         value={selected ? runConfigurationKey(project.language, selected.id) : ""}
-        onChange={(event) => {
+        onValueChange={(selectedValue) => {
           for (const item of projects) {
             const configuration = item.configurations.find(
-              (configuration) => runConfigurationKey(item.language, configuration.id) === event.target.value,
+              (configuration) => runConfigurationKey(item.language, configuration.id) === selectedValue,
             );
             if (configuration) {
               onSelect(item.language, configuration.id);
@@ -88,7 +89,7 @@ export function RunConfigurationToolbar({
             ))}
           </optgroup>
         ))}
-      </select>
+      </Select>
       <button
         aria-label="Edit run configurations"
         title="Edit run configurations"

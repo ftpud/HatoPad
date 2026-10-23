@@ -236,9 +236,11 @@ export function TimersPanel({
                   : (task?.name ?? "Workspace session");
               const provider = providers.find((item) => item.id === timer.provider)?.name ?? timer.provider;
               const seconds = Math.max(0, Math.ceil((new Date(timer.dueAt).getTime() - now) / 1000));
-              const remaining = seconds
-                ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${seconds % 60}s`
-                : "Due now";
+              const remaining = timer.deliveryFailed
+                ? "Delivery failed"
+                : seconds
+                  ? `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m ${seconds % 60}s`
+                  : "Due now";
               return (
                 <article className="timer-entry" key={timer.id} aria-label={`${owner} timer`}>
                   <div className="timer-title">
@@ -253,6 +255,14 @@ export function TimersPanel({
                   </div>
                   <time dateTime={timer.dueAt}>{new Date(timer.dueAt).toLocaleString()}</time>
                   <p className="timer-prompt">{timer.prompt}</p>
+                  {timer.deliveryError && (
+                    <p className="timer-delivery-error" role="status">
+                      {timer.deliveryFailed
+                        ? "Not delivered; use Run now to retry: "
+                        : `Delivery attempt ${timer.deliveryAttempts ?? 1} failed; retrying automatically: `}
+                      {timer.deliveryError}
+                    </p>
+                  )}
                   <details>
                     <summary>Session details</summary>
                     <div>{timer.workspace}</div>
