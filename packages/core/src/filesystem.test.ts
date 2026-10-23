@@ -78,6 +78,27 @@ describe("WorkspaceFileSystem", () => {
     expect(saved.revision.version).not.toBe(opened.revision.version);
   });
 
+  it("accepts exactly one of two concurrent saves holding the same revision", async () => {
+    await fs.open(root);
+    const other = new WorkspaceFileSystem({}, `${root}-state`);
+    await other.open(root);
+    for (let trial = 0; trial < 20; trial++) {
+      const opened = await fs.read("src/index.ts");
+      const results = await Promise.allSettled([
+        fs.write("src/index.ts", `first ${trial}\n`, opened.revision),
+        other.write("src/index.ts", `second ${trial}\n`, opened.revision),
+      ]);
+      const accepted = results.flatMap((result, index) => (result.status === "fulfilled" ? [index] : []));
+      expect(accepted).toHaveLength(1);
+      expect(results.find((result) => result.status === "rejected")).toMatchObject({
+        reason: { code: "FILE_CHANGED" },
+      });
+      expect(await readFile(path.join(root, "src/index.ts"), "utf8")).toBe(
+        `${accepted[0] === 0 ? "first" : "second"} ${trial}\n`,
+      );
+    }
+  });
+
   it("creates files and directories and renames them within the workspace", async () => {
     await fs.open(root);
     await fs.createDirectory("src/components");

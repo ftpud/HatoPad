@@ -70,6 +70,20 @@ class TreeBudget {
   }
 }
 
+const pathLocks = new Map<string, Promise<unknown>>();
+
+async function withPathLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = pathLocks.get(key) ?? Promise.resolve();
+  const next = previous.then(operation, operation);
+  const settled = next.catch(() => undefined);
+  pathLocks.set(key, settled);
+  try {
+    return await next;
+  } finally {
+    if (pathLocks.get(key) === settled) pathLocks.delete(key);
+  }
+}
+
 export class WorkspaceFileSystem {
   private workspace?: string;
   private readonly treeLimits: WorkspaceTreeLimits;
@@ -201,6 +215,21 @@ export class WorkspaceFileSystem {
       }
     }
     const target = await this.resolveExisting(relativePath);
+    // The revision comparison and publication are one critical section per canonical path, shared by every
+    // filesystem service in this Core, so two saves holding the same revision cannot both be accepted.
+    return withPathLock(target, () =>
+      this.writeExisting(target, relativePath, content, bytes, expectedRevision, force),
+    );
+  }
+
+  private async writeExisting(
+    target: string,
+    relativePath: string,
+    content: string,
+    bytes: number,
+    expectedRevision: FileRevision | undefined,
+    force: boolean,
+  ): Promise<{ bytesWritten: number; revision: FileRevision }> {
     try {
       const info = await stat(target);
       if (!info.isFile()) throw new CoreError("WRITE_FAILED", "Path is not a file");
@@ -214,7 +243,13 @@ export class WorkspaceFileSystem {
         throw new CoreError("FILE_CHANGED", `File changed outside the editor: ${relativePath}`);
       }
       await access(target, constants.W_OK);
-      await writeFile(target, content, "utf8");
+      try {
+        await writeFile(target, content, "utf8");
+      } catch (error) {
+        // A partial write (for example disk full) must not leave a truncated file behind.
+        await writeFile(target, current).catch(() => undefined);
+        throw error;
+      }
       const updated = await stat(target);
       return { bytesWritten: bytes, revision: this.revision(updated, Buffer.from(content, "utf8")) };
     } catch (error) {
