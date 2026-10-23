@@ -18,9 +18,11 @@ import { CursorPositionStore } from "./cursor-state";
 import { projectTreeActions, type ProjectTreeAction } from "./project-tree-actions";
 import { pinnedFilePaths } from "./pinned-tabs";
 import { type EditorLocation } from "./navigation-history";
+import { type DiffWriteGate, holdDiffWrites } from "./use-editor-integration";
 import { type StatusKind } from "./app-shared";
 
 export interface UseProjectTreeActionsDeps {
+  diffWriteGate: React.MutableRefObject<DiffWriteGate>;
   setTreeContextMenu: React.Dispatch<React.SetStateAction<{ x: number; y: number; nodes: FileTreeNode[] } | undefined>>;
   setSearchScope: React.Dispatch<React.SetStateAction<string | undefined>>;
   clientRef: React.MutableRefObject<CoreClient | undefined>;
@@ -90,6 +92,7 @@ export interface UseProjectTreeActionsDeps {
 
 export function useProjectTreeActions(deps: UseProjectTreeActionsDeps) {
   const {
+    diffWriteGate,
     setTreeContextMenu,
     setSearchScope,
     clientRef,
@@ -320,6 +323,17 @@ export function useProjectTreeActions(deps: UseProjectTreeActionsDeps) {
   };
 
   const selectWorkspaceRoot = async (rootId: string) => {
+    if (!clientRef.current || rootId === selectedRootId) return;
+    // Pending diff saves must reach the current root before the client is rebound to another one.
+    const releaseDiffWrites = await holdDiffWrites(diffWriteGate.current);
+    try {
+      await selectWorkspaceRootNow(rootId);
+    } finally {
+      releaseDiffWrites();
+    }
+  };
+
+  const selectWorkspaceRootNow = async (rootId: string) => {
     const client = clientRef.current;
     if (!client || rootId === selectedRootId) return;
     const previous = selectedRootId;

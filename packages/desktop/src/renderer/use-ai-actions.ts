@@ -42,8 +42,10 @@ import { type InvalidationRefreshes } from "./invalidation-refreshes";
 import { type LayoutModel, type EditorTab } from "./model";
 import { type CursorPositionStore } from "./cursor-state";
 import { type ConnectionStatus } from "./ConnectionScreen";
+import { type DiffWriteGate, holdDiffWrites } from "./use-editor-integration";
 
 export interface AiActionsDeps {
+  diffWriteGate: React.MutableRefObject<DiffWriteGate>;
   selectedTaskIdRef: React.MutableRefObject<string | undefined>;
   clientRef: React.MutableRefObject<CoreClient | undefined>;
   wsSave: (key: string, value: string) => void;
@@ -162,6 +164,7 @@ export interface AiActionsDeps {
 /** Moved from App; statement bodies are unchanged. */
 export function useAiActions(deps: AiActionsDeps) {
   const {
+    diffWriteGate,
     selectedTaskIdRef,
     clientRef,
     wsSave,
@@ -320,6 +323,8 @@ export function useAiActions(deps: AiActionsDeps) {
       const sequence = ++taskSwitchSequence.current;
       const isCurrent = () => taskSwitchSequence.current === sequence && clientRef.current === client;
       taskSwitchActive.current = true;
+      // Pending diff saves must reach the current task before Core routing moves to the next one.
+      const releaseDiffWrites = await holdDiffWrites(diffWriteGate.current);
       gitStatusRequested.current += 1;
       setGitEntries([]);
       setGitUpstream(undefined);
@@ -428,6 +433,7 @@ export function useAiActions(deps: AiActionsDeps) {
         setWorkspaceOptionsReady(true);
         setStatusMessage(error instanceof Error ? error.message : "Could not switch task");
       } finally {
+        releaseDiffWrites();
         if (isCurrent()) {
           taskSwitchActive.current = false;
           setTaskSwitching(false);

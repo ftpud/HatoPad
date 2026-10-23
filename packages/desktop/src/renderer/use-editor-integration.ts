@@ -15,6 +15,26 @@ import { type EditorStatusBarHandle } from "./EditorStatusBar";
 import { EditorViewStateStore } from "./editor-view-state";
 import { NavigationHistory } from "./navigation-history";
 
+/**
+ * Diff edits are saved after a short delay through the client's current Core routing. Task and root switches
+ * settle pending diff saves before routing changes and block new ones until the switch has finished.
+ */
+export type DiffWriteGate = { pending: Set<() => Promise<void>>; switching: number };
+
+export const createDiffWriteGate = (): DiffWriteGate => ({ pending: new Set(), switching: 0 });
+
+/** Flushes pending diff saves, then keeps diff writes closed until the returned release is called. */
+export async function holdDiffWrites(gate: DiffWriteGate): Promise<() => void> {
+  await Promise.all([...gate.pending].map((settle) => settle()));
+  gate.switching += 1;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    gate.switching -= 1;
+  };
+}
+
 export interface UseEditorIntegrationDeps {
   navigationHistory: React.MutableRefObject<NavigationHistory>;
   selectedRootIdRef: React.MutableRefObject<string>;
@@ -56,6 +76,8 @@ export interface UseEditorIntegrationDeps {
   setStatusMessage: (message: string) => void;
   monacoDiffEditorRef: React.MutableRefObject<editor.IStandaloneDiffEditor | undefined>;
   diffRollbackTimer: React.MutableRefObject<NodeJS.Timeout | undefined>;
+  diffWriteGate: React.MutableRefObject<DiffWriteGate>;
+  selectedTaskIdRef: React.MutableRefObject<string | undefined>;
   layoutRef: React.MutableRefObject<LayoutModel>;
   selfWriteUntil: React.MutableRefObject<Map<string, number>>;
   updateGroup: (update: (tabs: EditorTab[], active?: string) => { tabs: EditorTab[]; activeTabId?: string }) => void;
@@ -97,6 +119,8 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
     setStatusMessage,
     monacoDiffEditorRef,
     diffRollbackTimer,
+    diffWriteGate,
+    selectedTaskIdRef,
     layoutRef,
     selfWriteUntil,
     updateGroup,
@@ -537,12 +561,28 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
     // cannot redirect it to another file, and the write is revision-checked against the content the diff showed.
     const originTabId = activeTab?.type === "diff" ? activeTab.id : undefined;
     const originRoot = selectedRootIdRef.current;
+    const originTask = selectedTaskIdRef.current;
+    const gate = diffWriteGate.current;
     let pending: string | undefined;
+    let running: Promise<void> | undefined;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const cancelTimer = () => {
       if (timer) clearTimeout(timer);
       if (diffRollbackTimer.current === timer) diffRollbackTimer.current = undefined;
       timer = undefined;
+    };
+    const settle = (): Promise<void> => (pending !== undefined ? flushNow() : (running ?? Promise.resolve()));
+    const flushNow = (): Promise<void> => {
+      gate.pending.add(settle);
+      const previous = running ?? Promise.resolve();
+      const next = previous.then(flush);
+      running = next;
+      void next.finally(() => {
+        if (running !== next) return;
+        running = undefined;
+        if (pending === undefined) gate.pending.delete(settle);
+      });
+      return next;
     };
     const flush = async () => {
       cancelTimer();
@@ -553,7 +593,12 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
       const client = clientRef.current;
       // Task and checkpoint diffs show a non-workspace side; only working-tree diffs are writable.
       if (!tab || tab.type !== "diff" || tab.diffRef || tab.path.startsWith("task-checkpoint:") || !client) return;
-      if ((tab.rootId ?? originRoot) !== originRoot || selectedRootIdRef.current !== originRoot) {
+      if (
+        gate.switching > 0 ||
+        (tab.rootId ?? originRoot) !== originRoot ||
+        selectedRootIdRef.current !== originRoot ||
+        selectedTaskIdRef.current !== originTask
+      ) {
         setStatusMessage(`Discarded diff edit for ${tab.path}: the workspace changed before it was saved`);
         return;
       }
@@ -568,10 +613,14 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
             setStatusMessage(`${tab.path} changed outside the diff; reopen the diff before editing it`);
             return;
           }
+          if (gate.switching > 0 || selectedTaskIdRef.current !== originTask) {
+            setStatusMessage(`Discarded diff edit for ${tab.path}: the workspace changed before it was saved`);
+            return;
+          }
           selfWriteUntil.current.set(tab.path, Date.now() + 1500);
           await client.request("filesystem.writeFile", { path: tab.path, content, expectedRevision: current.revision });
         }
-        if (selectedRootIdRef.current !== originRoot) return;
+        if (selectedRootIdRef.current !== originRoot || selectedTaskIdRef.current !== originTask) return;
         updateGroup((tabs, active) => ({
           tabs: tabs.map((item) =>
             item.id === tab.id ? { ...item, content, savedContent: content, dirty: false } : item,
@@ -587,12 +636,13 @@ export function useEditorIntegration(deps: UseEditorIntegrationDeps) {
     modified.onDidChangeModelContent(() => {
       if (!originTabId) return;
       pending = modified.getValue();
+      gate.pending.add(settle);
       cancelTimer();
-      timer = diffRollbackTimer.current = setTimeout(() => void flush(), 200);
+      timer = diffRollbackTimer.current = setTimeout(() => void flushNow(), 200);
     });
     // Closing or switching away from the diff saves the pending edit for its own tab immediately.
     modified.onDidDispose(() => {
-      if (pending !== undefined) void flush();
+      if (pending !== undefined) void flushNow();
     });
   };
   return { navigateHistory, runHttpRequest, mountEditor, mountWorkingDiff };
