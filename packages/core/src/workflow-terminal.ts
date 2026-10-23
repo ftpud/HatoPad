@@ -52,13 +52,16 @@ export async function executeTerminalControlAsync(
   const terminalId = terminal.terminalId;
   const marker = `__HATOPAD_DONE_${crypto.randomUUID().replaceAll("-", "")}_`;
   const done = new RegExp(`${marker}(-?\\d+)__`);
-  const before = terminal.output.length;
-  // The marker is only assembled by printf, so the shell's echo of this line never matches.
+  // Output is bounded by start and done markers in the normalized text, so earlier commands in a reused
+  // terminal never leak into this result regardless of CRLF normalization or replay-buffer rotation.
+  const started = `${marker}S__`;
+  let startSeen = false;
+  // The markers are only assembled by printf, so the shell's echo of this line never matches.
   try {
     host.input(
       workspace,
       terminalId,
-      `{\n${args.command.replace(/[\r\n]+$/, "")}\n}; printf '\\n${marker}%s__\\n' "$?"\n`,
+      `printf '${marker}%s__\\n' S; {\n${args.command.replace(/[\r\n]+$/, "")}\n}; printf '\\n${marker}%s__\\n' "$?"\n`,
     );
   } catch (error) {
     if (args.terminal_id === undefined) host.close(workspace, terminalId);
@@ -71,8 +74,13 @@ export async function executeTerminalControlAsync(
     if (!snapshot) throw new Error("Terminal was closed while the command was running");
     const text = snapshot.output.replace(/\r\n/g, "\n");
     const match = done.exec(text);
+    const startAt = text.indexOf(started);
+    if (startAt >= 0) startSeen = true;
+    // A start marker seen earlier but now missing rotated out of the replay buffer with older output.
+    const begin = startAt >= 0 ? startAt + started.length + (text[startAt + started.length] === "\n" ? 1 : 0) : 0;
     const finished = (status: string, extra: Record<string, unknown>, end: number) => {
-      const output = text.slice(text.length >= before ? before : 0, end).replace(/\n+$/, "");
+      const output =
+        startAt < 0 && !startSeen && !match ? "" : text.slice(begin, Math.max(begin, end)).replace(/\n+$/, "");
       return result({ terminalId, status, ...extra, output: output.slice(-30_000), truncated: output.length > 30_000 });
     };
     if (match) return finished("completed", { exitCode: Number(match[1]) }, match.index);
