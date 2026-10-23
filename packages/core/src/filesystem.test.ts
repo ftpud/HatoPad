@@ -225,6 +225,31 @@ describe("WorkspaceFileSystem", () => {
     expect(await readFile(path.join(root, "a.txt"), "utf8")).toBe("source\n");
   });
 
+  it("keeps internal and outside relative symlinks resolving after a directory move", async () => {
+    await fs.open(root);
+    await mkdir(path.join(root, "source", "nested"), { recursive: true });
+    await mkdir(path.join(root, "deeper"));
+    await writeFile(path.join(root, "source", "target.txt"), "inside\n");
+    await writeFile(path.join(root, "outside.txt"), "outside\n");
+    await symlink("target.txt", path.join(root, "source", "link.txt"));
+    await symlink("../target.txt", path.join(root, "source", "nested", "up.txt"));
+    await symlink("../outside.txt", path.join(root, "source", "out.txt"));
+    const result = await fs.transferApply(
+      "move",
+      [{ source: "source", destination: "deeper/moved" }],
+      [],
+      [],
+      [],
+      true,
+    );
+    expect(result.failures).toEqual([]);
+    const moved = path.join(root, "deeper", "moved");
+    expect(await fileOperations.readlink(path.join(moved, "link.txt"))).toBe("target.txt");
+    expect(await readFile(path.join(moved, "link.txt"), "utf8")).toBe("inside\n");
+    expect(await readFile(path.join(moved, "nested", "up.txt"), "utf8")).toBe("inside\n");
+    expect(await readFile(path.join(moved, "out.txt"), "utf8")).toBe("outside\n");
+  });
+
   it("previews, trashes, and restores a directory without exposing trash in the tree", async () => {
     await fs.open(root);
     const preview = await fs.previewDelete("src");

@@ -9,11 +9,13 @@ import {
   mkdir,
   readFile,
   readdir,
+  readlink,
   opendir,
   realpath,
   rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -260,6 +262,30 @@ export class WorkspaceFileSystem {
     }
   }
 
+  /**
+   * Symlinks are copied verbatim, so links that stay inside the copied tree keep resolving within it. Relative
+   * links that pointed outside the tree are rewritten to reach the same target from the new location; absolute
+   * links are left unchanged.
+   */
+  private async retargetSymlinks(source: string, copy: string, destination: string, relative = ""): Promise<void> {
+    const copied = path.join(copy, relative);
+    const info = await lstat(copied);
+    if (info.isDirectory()) {
+      for (const name of await readdir(copied))
+        await this.retargetSymlinks(source, copy, destination, path.join(relative, name));
+      return;
+    }
+    if (!info.isSymbolicLink()) return;
+    const text = await readlink(copied);
+    if (path.isAbsolute(text)) return;
+    const resolved = path.resolve(path.dirname(path.join(source, relative)), text);
+    if (resolved === source || resolved.startsWith(`${source}${path.sep}`)) return;
+    const retargeted = path.relative(path.dirname(path.join(destination, relative)), resolved) || ".";
+    if (retargeted === text) return;
+    await rm(copied);
+    await symlink(retargeted, copied);
+  }
+
   private async exists(target: string): Promise<boolean> {
     try {
       await lstat(target);
@@ -466,7 +492,13 @@ export class WorkspaceFileSystem {
           completed.push({ source: item.source, destination: item.destination });
           continue;
         }
-        await cp(source, temporary, { recursive: item.type === "directory", errorOnExist: true, force: false });
+        await cp(source, temporary, {
+          recursive: item.type === "directory",
+          errorOnExist: true,
+          force: false,
+          verbatimSymlinks: true,
+        });
+        await this.retargetSymlinks(source, temporary, destination);
         if (item.collision) await rename(destination, backup);
         else if (await this.exists(destination))
           throw new CoreError("WRITE_FAILED", `A file or directory appeared at: ${item.destination}`);
