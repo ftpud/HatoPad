@@ -952,7 +952,8 @@ export async function createServer(
       return harnessRunner(owner.rootId).runTimerOperation(
         timer.workflowRunId,
         timer.workflowBlockId,
-        `timer-fire:${timer.workflowOperationKey ?? timer.id}`,
+        // Each delivery retry is a distinct operation, so a journaled failed attempt is not replayed as final.
+        `timer-fire:${timer.workflowOperationKey ?? timer.id}${timer.deliveryAttempts ? `:retry-${timer.deliveryAttempts}` : ""}`,
         { timerId: timer.id, dueAt: timer.dueAt },
         effect,
         reconcile,
