@@ -189,7 +189,7 @@ wait channel before cleanup. The default request deadline is thirty seconds, mat
 `--request-timeout-ms 10000` for the stricter latency probe. The report records
 the selected deadline, and a timeout fails that run even when previous cycles
 preserved their acknowledged writes. CI
-runs twelve cycles on each configured Linux/macOS and Node 22/24 combination.
+runs twelve cycles on Linux and macOS with Node.js 24.22.1.
 
 ## Timer and schedule state recovery
 
