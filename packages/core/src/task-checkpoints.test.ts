@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { TaskCheckpointStore } from "./task-checkpoints.js";
 
 const exec = promisify(execFile);
@@ -258,4 +258,27 @@ it("repairs permissive checkpoint state left by earlier versions", async () => {
   expect((await stat(path.join(history, "blobs"))).mode & 0o777).toBe(0o700);
   for (const entry of await readdir(path.join(history, "blobs")))
     expect((await stat(path.join(history, "blobs", entry))).mode & 0o777).toBe(0o600);
+});
+
+it("quarantines a damaged manifest and keeps the remaining history recoverable", async () => {
+  const { workspace } = await fixture();
+  const state = path.join(path.dirname(workspace), "damaged-state");
+  const first = new TaskCheckpointStore(workspace, state);
+  const damaged = await first.begin("codex", "Damaged");
+  await first.complete(damaged, "completed");
+  const intact = await first.begin("codex", "Intact");
+  const history = path.join(
+    state,
+    (await readdir(state)).find((name) => name.endsWith("-task-history"))!,
+  );
+  await writeFile(path.join(history, "checkpoints", `${damaged}.json`), '{"id":');
+  const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  const second = new TaskCheckpointStore(workspace, state);
+  await expect(second.recover()).resolves.toBeUndefined();
+  expect((await second.history()).map((item) => [item.id, item.status])).toEqual([[intact, "interrupted"]]);
+  expect(warn).toHaveBeenCalledWith(expect.stringContaining(damaged));
+  const names = await readdir(path.join(history, "checkpoints"));
+  expect(names.some((name) => name.startsWith(`${damaged}.json.corrupt-`))).toBe(true);
+  expect(names.filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  warn.mockRestore();
 });

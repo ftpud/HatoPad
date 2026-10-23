@@ -570,8 +570,15 @@ export async function createServer(
     return store;
   };
   await Promise.all(
+    // One workspace's damaged history must not keep Core from starting for every other workspace.
     [rootWorkspace, ...savedTasks.tasks.map((task) => tasks.taskPath(task.id))].map((target) =>
-      checkpointStore(target).recover(),
+      checkpointStore(target)
+        .recover()
+        .catch((error: unknown) =>
+          console.error(
+            `[core] Could not recover task history for ${target}: ${error instanceof Error ? error.message : String(error)}`,
+          ),
+        ),
     ),
   );
   const taskGitChanged = (changedWorkspace: string) => {

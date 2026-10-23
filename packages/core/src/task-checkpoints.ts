@@ -534,16 +534,44 @@ export class TaskCheckpointStore {
   }
   private async write(value: StoredCheckpoint): Promise<void> {
     await this.directory("checkpoints");
-    await writeFile(this.file(value.id), JSON.stringify(value), { encoding: "utf8", mode: 0o600 });
+    // Publish by rename so an interrupted write never damages the last complete manifest.
+    const destination = this.file(value.id);
+    const staged = `${destination}.${crypto.randomUUID()}.tmp`;
+    try {
+      await writeFile(staged, JSON.stringify(value), { encoding: "utf8", mode: 0o600, flag: "wx" });
+      await rename(staged, destination);
+    } catch (error) {
+      await rm(staged, { force: true }).catch(() => undefined);
+      throw error;
+    }
   }
   private async all(): Promise<StoredCheckpoint[]> {
     try {
-      const files = (await readdir(path.join(this.root, "checkpoints"))).filter((file) => file.endsWith(".json"));
-      return (await Promise.all(files.map((file) => this.read(file.slice(0, -5))))).sort((a, b) =>
-        b.startedAt.localeCompare(a.startedAt),
+      const files = (await readdir(path.join(this.root, "checkpoints"))).filter((file) =>
+        /^[0-9a-f-]{36}\.json$/i.test(file),
       );
+      const loaded = await Promise.all(files.map((file) => this.readOrQuarantine(file.slice(0, -5))));
+      return loaded
+        .filter((item): item is StoredCheckpoint => item !== undefined)
+        .sort((a, b) => b.startedAt.localeCompare(a.startedAt));
     } catch (error) {
       return (error as NodeJS.ErrnoException).code === "ENOENT" ? [] : Promise.reject(error);
+    }
+  }
+  /** A damaged record is moved aside with a diagnostic so the rest of the history stays available. */
+  private async readOrQuarantine(id: string): Promise<StoredCheckpoint | undefined> {
+    try {
+      const item = await this.read(id);
+      if (!item || typeof item !== "object" || typeof item.startedAt !== "string" || !item.before)
+        throw new SyntaxError("Checkpoint manifest is incomplete");
+      return item;
+    } catch (error) {
+      if (error instanceof CoreError) return undefined;
+      if (!(error instanceof SyntaxError)) throw error;
+      const quarantined = `${this.file(id)}.corrupt-${Date.now()}`;
+      await rename(this.file(id), quarantined).catch(() => undefined);
+      console.warn(`[core] Quarantined damaged task checkpoint ${id} at ${quarantined}: ${error.message}`);
+      return undefined;
     }
   }
   private async prune(): Promise<void> {
