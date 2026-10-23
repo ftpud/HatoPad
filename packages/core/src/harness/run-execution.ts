@@ -27,6 +27,7 @@ type ExecuteHost = {
   update: HarnessRunner["update"];
   suspended: HarnessRunner["suspended"];
   cancelled: HarnessRunner["cancelled"];
+  stopping: HarnessRunner["stopping"];
   executeBlock: HarnessRunner["executeBlock"];
   policy: HarnessRunner["policy"];
   meetingUpdates: HarnessRunner["meetingUpdates"];
@@ -148,7 +149,11 @@ export async function harnessExecute(
           async (error) => {
             const failure = workflowFailure(error);
             const reason = classifyWorkflowFailure(error);
-            if (host.cancelled.has(run.id) || (!blocks.some((item) => item.watchdog) && reason !== "schema_validation"))
+            if (
+              host.cancelled.has(run.id) ||
+              host.stopping.has(run.id) ||
+              (!blocks.some((item) => item.watchdog) && reason !== "schema_validation")
+            )
               return { blockId, error };
             let message = failure.message;
             state.error = message;
@@ -209,7 +214,16 @@ export async function harnessExecute(
       if (tick) clearTimeout(tick);
       if (completed) {
         running.delete(completed.blockId);
-        if (completed.error) throw completed.error;
+        if (completed.error) {
+          const state = run.blocks.find((item) => item.blockId === completed.blockId);
+          if (state && isActiveStatus(state.status) && !host.cancelled.has(run.id)) {
+            state.status = "failed";
+            state.error = workflowFailure(completed.error).message;
+            state.failureReason = classifyWorkflowFailure(completed.error);
+            state.completedAt = new Date().toISOString();
+          }
+          throw completed.error;
+        }
       }
     }
     if (host.cancelled.has(run.id)) throw new Cancelled();
@@ -230,6 +244,23 @@ export async function harnessExecute(
     });
     await host.update(run);
   } catch (error) {
+    if (!(error instanceof Cancelled) && !host.cancelled.has(run.id) && (running.size || background.size)) {
+      // A failed branch stops its siblings, and the run stays active (and cancellable, so Cancel can still
+      // interrupt providers) until they settle; a terminal failure is never published over live work.
+      host.stopping.add(run.id);
+      const siblings = new Set(running.keys());
+      await host.update(run);
+      await Promise.allSettled([...running.values(), ...background]);
+      if (host.cancelled.has(run.id)) return;
+      const completedAt = new Date().toISOString();
+      for (const block of run.blocks)
+        if (siblings.has(block.blockId) && isActiveStatus(block.status)) {
+          block.status = "cancelled";
+          block.completedAt = completedAt;
+          block.error = undefined;
+          host.log(block, "lifecycle", "Stopped because another workflow block failed");
+        }
+    }
     const cancelled = error instanceof Cancelled || host.cancelled.has(run.id);
     run.status = cancelled ? "cancelled" : error instanceof BlockedCorrection ? "blocked" : "failed";
     run.error = cancelled ? undefined : error instanceof Error ? error.message : String(error);
@@ -267,6 +298,7 @@ export async function harnessExecute(
     host.retryEntries.delete(run.id);
     host.flowInvocations.delete(run.id);
     host.cancelled.delete(run.id);
+    host.stopping.delete(run.id);
     host.activeRuns.delete(run.id);
     host.activeProviders.delete(run.id);
     host.executions.delete(run.id);
