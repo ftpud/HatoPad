@@ -78,7 +78,7 @@ jobs:
           name: core-${{ matrix.target }}
           path: artifacts/cores/*
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
   apps:
     name: Apps (${{ matrix.os }})
     needs: cores
@@ -152,4 +152,4 @@ jobs:
           name: hatopad-early-access-${{ matrix.os }}
           path: artifacts/downloads/*
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 3
