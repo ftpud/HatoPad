@@ -538,29 +538,6 @@ export function useAppOrchestration() {
   const debugEditorRef = useRef<ReturnType<typeof attachDebugEditor>>();
   const javaDebugStateRef = useRef(javaDebugState);
   javaDebugStateRef.current = javaDebugState;
-  useEffect(
-    () =>
-      window.desktop?.onProjectTransferProgress((progress) =>
-        setProjectTransfer((current) => {
-          if (!current || current.operationId !== progress.operationId) return current;
-          if (progress.error) {
-            showStatus(progress.error, "error");
-            return undefined;
-          }
-          if (progress.done) {
-            setStatusMessage(`${current.label} complete`);
-            void refreshTree();
-            return undefined;
-          }
-          showStatus(
-            `${current.label}: ${Math.floor((progress.bytes / Math.max(1, progress.total)) * 100)}%`,
-            "progress",
-          );
-          return { ...current, bytes: progress.bytes };
-        }),
-      ),
-    [],
-  );
   const clientRef = useRef<CoreClient>();
   const { mcpServers, setMcpServers, refreshMcps, mcpActions, mcpLibraryAvailable, mcpUnavailableReason } =
     useMcpLibrary(clientRef);

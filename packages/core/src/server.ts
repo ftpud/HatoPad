@@ -1,3 +1,4 @@
+import { JsonTransferSocket } from "./remote-transfer-json.js";
 import { closeMcpConnections } from "./mcp-client.js";
 import { McpLibrary, executeWorkflowMcp } from "./mcp-library.js";
 import { handleRequest } from "./routes/dispatch.js";
@@ -1829,7 +1830,12 @@ export async function createServer(
     };
     const client = request.socket.remoteAddress ?? "unknown";
     console.log(`[core] connected: ${client}`);
-    socket.on("message", async (data) => {
+    let transferSocket: JsonTransferSocket | undefined;
+    socket.on("message", async (data, binary) => {
+      if (transferSocket) {
+        transferSocket.receive(data, binary);
+        return;
+      }
       if (draining) {
         socket.close(1001, "Core is shutting down");
         return;
@@ -1861,6 +1867,19 @@ export async function createServer(
           if (maintenanceOnly) {
             protocolAccepted = true;
             sendWebSocketData(socket, JSON.stringify({ id, ok: true, result: { ...result, maintenance: true } }));
+            return;
+          }
+          if (compatible && parsed.payload.remoteTransferToken !== undefined) {
+            if (typeof parsed.payload.remoteTransferToken !== "string" || !parsed.payload.remoteTransferToken)
+              throw new CoreError("INVALID_REQUEST", "Transfer ticket is required");
+            transferSocket = new JsonTransferSocket(socket);
+            protocolAccepted = true;
+            sendWebSocketData(socket, JSON.stringify({ id, ok: true, result } satisfies Response));
+            await remoteTransfers.attach(
+              transferSocket,
+              `/project-transfer?token=${encodeURIComponent(parsed.payload.remoteTransferToken)}`,
+            );
+            if (socket.readyState === WebSocket.OPEN) transferSocket.ready();
             return;
           }
           sendWebSocketData(socket, JSON.stringify({ id, ok: true, result } satisfies Response));

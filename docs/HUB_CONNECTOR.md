@@ -135,3 +135,20 @@ that connection reports the root workspace; reselect with `tasks.switch`.
 - When a pending permission or question was clipped or had options/fields/choices omitted, it carries
   `truncated: true` (capability `pending.truncatedFlag`). Clients must not offer approval or `accept` from
   an incomplete request; reject, decline and cancel remain safe, and the full request is in Desktop.
+
+## Desktop file transfers
+
+Cloud Desktop uploads and downloads use a separate relay channel. Its authenticated
+`protocol.handshake` includes `remoteTransferToken`, a short-lived, one-use ticket
+created by `filesystem.remoteTransferBegin`. Core advertises
+`filesystem.remoteTransfer.json`, claims that ticket, and switches the channel to
+`projectTransfer.ready`, `projectTransfer.data` (canonical base64, at most 64 KiB
+of decoded bytes), and `projectTransfer.close` frames. An empty data frame ends an
+upload. The close frame preserves the transfer result before the relay channel
+closes. Core uses the same size checks, atomic commits and partial-file cleanup as
+direct binary transfers. Data is paced below the default relay frame-rate limit.
+
+Both Desktop and Core must include this implementation. HatoHub must authorize
+transfer handshakes and client transfer frames under the existing **Files** policy;
+unclassified frames are rejected by older Hubs. No relay wire-version change is
+needed. Direct/SSH transfers continue to use the binary `/project-transfer` socket.

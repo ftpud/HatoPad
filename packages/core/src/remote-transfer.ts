@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import { constants, createWriteStream } from "node:fs";
 import { chmod, link, lstat, mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { WebSocket } from "ws";
+import type { TransferSocket } from "./remote-transfer-json.js";
 import { remoteTransferDefaultLimit, type RemoteTransferDirection, type RemoteTransferTicket } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 
@@ -19,7 +19,7 @@ type Entry = {
   /** Device and inode of the approved download; the opened descriptor must be this same file. */
   identity?: { dev: number; ino: number };
   expiresAt: number;
-  socket?: WebSocket;
+  socket?: TransferSocket;
   partial?: string;
   cancelled: boolean;
   stop?: () => Promise<void>;
@@ -123,13 +123,13 @@ export class RemoteTransferService {
   accepts(url: string | undefined): boolean {
     return Boolean(url?.startsWith("/project-transfer?"));
   }
-  attach(socket: WebSocket, requestUrl: string | undefined): Promise<void> {
+  attach(socket: TransferSocket, requestUrl: string | undefined): Promise<void> {
     const pending = this.attachNow(socket, requestUrl);
     this.attaching.add(pending);
     void pending.finally(() => this.attaching.delete(pending)).catch(() => undefined);
     return pending;
   }
-  private async attachNow(socket: WebSocket, requestUrl: string | undefined): Promise<void> {
+  private async attachNow(socket: TransferSocket, requestUrl: string | undefined): Promise<void> {
     const token = new URL(requestUrl ?? "", "ws://core").searchParams.get("token") ?? "";
     const entry = this.entries.get(token);
     if (this.closed || !entry || entry.expiresAt < Date.now() || entry.socket) {
@@ -173,7 +173,7 @@ export class RemoteTransferService {
       }),
     );
   }
-  private async download(entry: Entry, socket: WebSocket): Promise<void> {
+  private async download(entry: Entry, socket: TransferSocket): Promise<void> {
     let handle;
     try {
       handle = await open(entry.target, constants.O_RDONLY | constants.O_NOFOLLOW);
@@ -221,7 +221,7 @@ export class RemoteTransferService {
     });
     socket.once("close", () => this.entries.delete(entry.token));
   }
-  private async upload(entry: Entry, socket: WebSocket): Promise<void> {
+  private async upload(entry: Entry, socket: TransferSocket): Promise<void> {
     await mkdir(path.dirname(entry.target), { recursive: true });
     await rejectSymlinkPath(entry.workspace, entry.target, true);
     if (entry.cancelled || this.closed || socket.readyState !== socket.OPEN) return;

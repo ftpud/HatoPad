@@ -1,3 +1,4 @@
+import { useProjectTransferProgress } from "./use-project-transfer-progress";
 import type { FileColor } from "@hatopad/protocol";
 import type { FileTreeNode, JavaProjectOptions } from "@hatopad/protocol";
 import { CoreClient } from "./client";
@@ -62,6 +63,14 @@ export function useProjectFileActions(deps: UseProjectFileActionsDeps) {
     lastDeleted,
   } = deps;
 
+  const trackTransfer = useProjectTransferProgress({
+    projectTransfer,
+    setProjectTransfer,
+    showStatus,
+    refreshTree,
+    refreshGit,
+  });
+
   const uploadToWorkspace = async (node: FileTreeNode) => {
     if (!window.desktop || !clientRef.current) return showStatus("Uploads require the Electron desktop app", "error");
     try {
@@ -77,22 +86,32 @@ export function useProjectFileActions(deps: UseProjectFileActionsDeps) {
         overwrite,
         mode: 0o644,
       });
-      const started = await window.desktop.startProjectTransfer({
-        localId: local.id,
-        token: ticket.token,
-        host,
-        port: Number(port),
-        direction: "upload",
-        size: ticket.size,
-      });
-      setProjectTransfer({
-        operationId: started.operationId,
+      const operationId = crypto.randomUUID();
+      trackTransfer({
+        operationId,
         token: ticket.token,
         label: `Uploading ${ticket.name}`,
         bytes: 0,
         total: ticket.size,
       });
       showStatus(`Uploading ${ticket.name}: 0%`, "progress");
+      try {
+        await window.desktop.startProjectTransfer({
+          operationId,
+          localId: local.id,
+          token: ticket.token,
+          host,
+          port: Number(port),
+          direction: "upload",
+          size: ticket.size,
+        });
+      } catch (error) {
+        trackTransfer(undefined);
+        await clientRef.current
+          .request("filesystem.remoteTransferCancel", { token: ticket.token })
+          .catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "Could not upload file", "error");
     }
@@ -111,22 +130,32 @@ export function useProjectFileActions(deps: UseProjectFileActionsDeps) {
         await clientRef.current.request("filesystem.remoteTransferCancel", { token: ticket.token });
         return;
       }
-      const started = await window.desktop.startProjectTransfer({
-        localId: local.id,
-        token: ticket.token,
-        host,
-        port: Number(port),
-        direction: "download",
-        size: ticket.size,
-      });
-      setProjectTransfer({
-        operationId: started.operationId,
+      const operationId = crypto.randomUUID();
+      trackTransfer({
+        operationId,
         token: ticket.token,
         label: `Downloading ${ticket.name}`,
         bytes: 0,
         total: ticket.size,
       });
       showStatus(`Downloading ${ticket.name}: 0%`, "progress");
+      try {
+        await window.desktop.startProjectTransfer({
+          operationId,
+          localId: local.id,
+          token: ticket.token,
+          host,
+          port: Number(port),
+          direction: "download",
+          size: ticket.size,
+        });
+      } catch (error) {
+        trackTransfer(undefined);
+        await clientRef.current
+          .request("filesystem.remoteTransferCancel", { token: ticket.token })
+          .catch(() => undefined);
+        throw error;
+      }
     } catch (error) {
       showStatus(error instanceof Error ? error.message : "Could not download file", "error");
     }
@@ -139,8 +168,8 @@ export function useProjectFileActions(deps: UseProjectFileActionsDeps) {
       window.desktop.cancelProjectTransfer(current.operationId),
       clientRef.current.request("filesystem.remoteTransferCancel", { token: current.token }),
     ]);
-    setProjectTransfer(undefined);
-    setStatusMessage("Transfer cancelled");
+    trackTransfer(undefined);
+    showStatus("Transfer cancelled", "success");
   };
 
   const saveProjectPathDialog = async (name: string) => {

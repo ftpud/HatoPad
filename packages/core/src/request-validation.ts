@@ -37,6 +37,7 @@ export function validateRequestPayload(type: RequestType, payload: unknown): voi
       if (!isPositiveSafeInteger(minimum) || !isPositiveSafeInteger(maximum) || minimum > maximum) {
         invalid("Handshake compatibility must contain an ordered positive integer range");
       }
+      optionalString(record, "remoteTransferToken", "Transfer ticket must be a string");
       optionalString(record, "token", "Handshake token must be a string");
       optionalString(record, "clientVersion", "Client version must be a string");
       return;

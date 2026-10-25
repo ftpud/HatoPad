@@ -63,7 +63,7 @@ export function registerProjectTransferIpc(assertTrustedSender: (event: IpcMainI
     const choice = choices.take(input.localId);
     if (!choice || choice.direction !== input.direction)
       throw new Error("The local file choice expired; choose the file again");
-    const operationId = randomUUID();
+    const operationId = input.operationId ?? randomUUID();
     void runTransfer(choice.path, input, operationId, (bytes) =>
       event.sender.send("project-transfer:progress", { operationId, bytes, total: input.size }),
     )
@@ -94,6 +94,7 @@ export function registerProjectTransferIpc(assertTrustedSender: (event: IpcMainI
 }
 
 export function validateStart(value: unknown): {
+  operationId?: string;
   localId: string;
   token: string;
   host: string;
@@ -104,6 +105,8 @@ export function validateStart(value: unknown): {
   if (!value || typeof value !== "object") throw new Error("Invalid transfer request");
   const item = value as Record<string, unknown>;
   if (
+    (item.operationId !== undefined &&
+      (typeof item.operationId !== "string" || !/^[a-f0-9-]{36}$/.test(item.operationId))) ||
     typeof item.localId !== "string" ||
     typeof item.token !== "string" ||
     typeof item.host !== "string" ||
@@ -116,7 +119,7 @@ export function validateStart(value: unknown): {
   return item as ReturnType<typeof validateStart>;
 }
 
-async function runTransfer(
+export async function runTransfer(
   localPath: string,
   input: ReturnType<typeof validateStart>,
   operationId: string,
@@ -164,7 +167,14 @@ function upload(
       stream.destroy();
       code === 1000 && sent === expected ? resolve() : reject(new Error(safeTransferError(code, reason.toString())));
     });
-    socket.once("error", reject);
+    stream.once("error", (error) => {
+      socket.close(1011, "Could not read local file");
+      reject(error);
+    });
+    socket.once("error", (error) => {
+      stream.destroy();
+      reject(error);
+    });
   });
 }
 function download(
@@ -191,6 +201,7 @@ function download(
       if (!file.write(chunk)) socket.pause();
       progress(received);
     });
+    file.on("error", cleanup);
     file.on("drain", () => socket.resume());
     socket.once("close", (code, reason) => {
       if (failed) return;

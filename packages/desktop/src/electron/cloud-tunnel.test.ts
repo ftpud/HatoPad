@@ -137,3 +137,35 @@ test("bridge carries project replies larger than the previous 8 MiB bridge limit
     await hub.close();
   }
 });
+
+test("transfer relay failures close the paused binary socket instead of hanging", async () => {
+  const hub = await fixture();
+  await hub.close();
+  const bridge = await createCloudBridge(hub.target);
+  try {
+    const local = new WebSocket(`ws://127.0.0.1:${bridge.port}/project-transfer?token=unused`);
+    local.on("error", () => undefined);
+    const closed = once(local, "close");
+    const [code] = await closed;
+    assert.equal(code, 1011);
+  } finally {
+    bridge.close();
+  }
+});
+
+test("transfer relay rejects older Cores without silently accepting an ignored transfer request", async () => {
+  const hub = await fixture();
+  const bridge = await createCloudBridge(hub.target);
+  try {
+    const local = new WebSocket(`ws://127.0.0.1:${bridge.port}/project-transfer?token=unused`);
+    local.on("error", () => undefined);
+    const closed = once(local, "close");
+    const [code] = await closed;
+    assert.equal(code, 1011);
+    assert.equal(hub.requests[0]?.payload.remoteTransferToken, "unused");
+    assert.equal(hub.upgrades[0]?.cookie, "hub-session=PRIVATE-SESSION");
+  } finally {
+    bridge.close();
+    await hub.close();
+  }
+});
