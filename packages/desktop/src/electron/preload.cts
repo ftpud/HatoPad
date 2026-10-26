@@ -57,6 +57,7 @@ contextBridge.exposeInMainWorld("desktop", {
     return ipcRenderer.invoke("project-transfer:choose-download", name);
   },
   startProjectTransfer(options: {
+    operationId: string;
     localId: string;
     token: string;
     host: string;

@@ -9,6 +9,8 @@ export type ProtocolSessionOperations = {
       compatibility: ProtocolCompatibility;
       clientVersion?: string;
       token?: string;
+      /** Claims a one-use transfer ticket and switches this socket to JSON transfer frames. */
+      remoteTransferToken?: string;
       sessionMessageLimit?: number;
     };
     result: {

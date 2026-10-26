@@ -101,3 +101,10 @@ export type SearchReplaceApplyResult = {
   applied: { path: string; revision: FileRevision }[];
   failures: { path: string; code: string; message: string }[];
 };
+
+/** Bounded binary transport inside an ordinary cloud relay channel. Empty data ends an upload. */
+export type RemoteTransferFrame =
+  | { type: "projectTransfer.ready" }
+  | { type: "projectTransfer.data"; data: string }
+  | { type: "projectTransfer.close"; code: number; reason: string };
+export const remoteTransferChunkBytes = 64 * 1024;

@@ -23,6 +23,7 @@ interface Window {
     chooseUpload(): Promise<{ id: string; name: string; size: number } | undefined>;
     chooseDownload(name: string): Promise<{ id: string; name: string } | undefined>;
     startProjectTransfer(options: {
+      operationId: string;
       localId: string;
       token: string;
       host: string;

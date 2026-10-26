@@ -35,7 +35,8 @@ available as build artifacts. It promotes the existing files
 without rebuilding. The built-in GitHub token supplies the required permissions;
 no additional secret is needed. Existing tags and releases are refused.
 
-Promote before the application artifacts expire (30 days after the build).
+Promote before the application artifacts expire (3 days after the build).
+Intermediate Core artifacts are retained for 1 day to limit Actions storage use.
 Expired or deleted artifacts require another **Bundle Create** run. Release
 assets remain available independently of workflow artifact retention. If an
 upload fails after draft creation, inspect and remove the incomplete draft and

@@ -54,6 +54,7 @@ export const coreCapabilities = [
   "client.presence",
   "mcp.library",
   "mcp.oauth",
+  "filesystem.remoteTransfer.json",
 ] as const;
 
 export type CoreCapability = (typeof coreCapabilities)[number];
