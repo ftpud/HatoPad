@@ -65,7 +65,12 @@ export function WorkspaceBottomToolbar({ context }: { context: AppViewContext })
           className={`bottom-tool-button run-config-entry ${index === 0 ? "first" : ""} ${["starting", "running", "stopping"].includes(config.status) ? "active-run" : ""}`}
           aria-label={`${config.name}, ${config.scope}, ${config.status}`}
           title={`${config.scope} Run Config: ${config.name} (${config.status})`}
-          onClick={() => void runConfigAction(config, config.terminalId ? "openTerminal" : "run")}
+          onClick={() =>
+            void runConfigAction(
+              config,
+              config.terminalId && ["starting", "running", "stopping"].includes(config.status) ? "openTerminal" : "run",
+            )
+          }
           onContextMenu={(event) => {
             event.preventDefault();
             setRunConfigMenu({

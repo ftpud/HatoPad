@@ -97,6 +97,36 @@ describe("RunConfigService", () => {
     service.onTerminalClosed(workspace, "terminal-1");
     expect(await service.read(workspace, "local", "watch")).toMatchObject({ status: "failed", exitCode: 130 });
   });
+  it("answers a restart of an active run with the replacement run's terminal", async () => {
+    const { service, workspace, terminal } = await fixture();
+    vi.mocked(terminal.create).mockReturnValueOnce({
+      terminalId: "terminal-1",
+      status: "running",
+      output: "",
+    } as never);
+    vi.mocked(terminal.create).mockReturnValueOnce({
+      terminalId: "terminal-2",
+      status: "running",
+      output: "",
+    } as never);
+    await service.create(workspace, "local", "serve", "sleep 10");
+    await service.run(workspace, "local", "serve");
+    const restarted = service.restart(workspace, "local", "serve");
+    await vi.waitFor(() => expect(terminal.terminate).toHaveBeenCalledWith(workspace, "terminal-1"));
+    service.onTerminalEvent({ type: "exit", workspace, terminalId: "terminal-1", exitCode: 129 });
+    expect(await restarted).toMatchObject({ status: "running", terminalId: "terminal-2" });
+  });
+  it("answers a restart with the closed run when its terminal is closed before it exits", async () => {
+    const { service, workspace } = await fixture();
+    await service.create(workspace, "local", "serve", "sleep 10");
+    await service.run(workspace, "local", "serve");
+    const restarted = service.restart(workspace, "local", "serve");
+    await vi.waitFor(async () =>
+      expect(await service.read(workspace, "local", "serve")).toMatchObject({ status: "stopping" }),
+    );
+    service.onTerminalClosed(workspace, "terminal-1");
+    expect(await restarted).toMatchObject({ status: "failed", exitCode: 130, terminalId: "terminal-1" });
+  });
   it("renames and deletes idle configurations", async () => {
     const { service, workspace } = await fixture();
     await service.create(workspace, "local", "old", "echo hi\n");
