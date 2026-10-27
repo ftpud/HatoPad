@@ -5,6 +5,53 @@ import { AiPanel, ContextUsageIndicator, contextUsage, resolveAiLink } from "./A
 
 afterEach(cleanup);
 
+it("loads a deferred screenshot once and keeps it visible through streamed refreshes", async () => {
+  const image = { type: "image" as const, mimeType: "image/png", data: "YWJj" };
+  const load = vi.fn(async () => image);
+  const chat = (id: string, text: string): AiSession => ({
+    id,
+    model: "auto",
+    reasoning: "low",
+    status: "in_progress",
+    messages: [
+      { id: "tool", role: "activity", text, timestamp: "now", content: [{ ...image, data: "", deferred: "image-id" }] },
+    ],
+  });
+  const panel = (session: AiSession) => (
+    <AiPanel
+      provider="example"
+      providers={[]}
+      session={session}
+      sessions={[]}
+      models={[]}
+      attachments={[]}
+      permissionOwner={{ provider: "example" }}
+      onProviderChange={vi.fn()}
+      onConfigurationChange={vi.fn()}
+      onAttachmentsChange={vi.fn()}
+      onSend={vi.fn()}
+      onSteer={vi.fn()}
+      onInterrupt={vi.fn()}
+      onNewSession={vi.fn()}
+      onSwitchSession={vi.fn()}
+      onRemoveSession={vi.fn()}
+      onResolvePermission={vi.fn()}
+      onLoadImage={load}
+    />
+  );
+  const view = render(panel(chat("one", "Screenshot")));
+  expect(screen.queryByRole("img")).toBeNull();
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Show image" })));
+  expect(load).toHaveBeenCalledWith("one", "tool", 0, "image-id");
+  expect(screen.getByRole("img").getAttribute("src")).toBe("data:image/png;base64,YWJj");
+  view.rerender(panel(chat("one", "Screenshot complete")));
+  expect(screen.getByRole("img")).toBeTruthy();
+  expect(load).toHaveBeenCalledTimes(1);
+  view.rerender(panel(chat("two", "Other screenshot")));
+  expect(screen.queryByRole("img")).toBeNull();
+  expect(screen.getByRole("button", { name: "Show image" })).toBeTruthy();
+});
+
 const session = (id: string, prompt: string): AiSession => ({
   id,
   model: "test",

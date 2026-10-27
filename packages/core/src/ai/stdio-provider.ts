@@ -14,6 +14,7 @@ import { AcpV2Connection, type AcpV2AgentTurns } from "./acp-v2.js";
 import type { AiAuthentication, AiAuthInput, AiProviderInstallation } from "@hatopad/acp";
 import type { AuthMethod } from "@agentclientprotocol/sdk";
 import { captureContextInstructions, refreshContext } from "./context.js";
+import { SessionJson } from "./session-json.js";
 import { retryProcessSpawn } from "../process-spawn.js";
 import { managedProcesses } from "../managed-processes.js";
 import crypto from "node:crypto";
@@ -498,6 +499,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly freshSessions = new Map<string, AcpSendRequest>();
   private readonly saveQueues = new Map<string, Promise<void>>();
+  private readonly sessionJson = new SessionJson();
   private readonly deferredSaves = new Map<string, { session: AiSession; timer: NodeJS.Timeout }>();
   private readonly storedSessions = new Map<string, { mtimeMs: number; size: number; session: StoredSession }>();
   private modelCache?: { at: number; models: AiModel[] };
@@ -2519,6 +2521,10 @@ export abstract class StdioAcpProvider extends AcpProvider {
     this.deferredSaves.set(workspace, { session, timer });
   }
   private async flushDeferredSave(workspace: string): Promise<void> {
+    // Keep one pending streamed snapshot while a large transcript is being written,
+    // rather than queueing another copy every 500 ms behind a slow disk.
+    let writing: Promise<void> | undefined;
+    while ((writing = this.saveQueues.get(workspace))) await writing;
     const pending = this.deferredSaves.get(workspace);
     if (pending) await this.save(workspace, pending.session);
   }
@@ -2530,7 +2536,11 @@ export abstract class StdioAcpProvider extends AcpProvider {
     }
     this.storedSessions.delete(workspace);
     refreshContext(session);
-    const serialized = `${JSON.stringify({ ...session, messages: session.messages.slice(-1000), ...(session.status === "in_progress" ? { _ownerPid: process.pid } : {}) })}\n`;
+    const serialized = this.sessionJson.serialize({
+      ...session,
+      messages: session.messages.slice(-1000),
+      ...(session.status === "in_progress" ? { _ownerPid: process.pid } : {}),
+    });
     const previous = this.saveQueues.get(workspace) ?? Promise.resolve();
     const next = previous
       .catch(() => undefined)

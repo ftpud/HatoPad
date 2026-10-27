@@ -113,6 +113,7 @@ import { WorkspaceRootRegistry } from "./workspace-roots.js";
 import { buildOverview, pageOverview, type OverviewSource, type WorkflowSource } from "./overview.js";
 
 import { boundSessionsInResult, validSessionMessageLimit } from "./ai/session-bounds.js";
+import { deferSessionImages } from "./ai/session-images.js";
 import type { OverviewRootCounts, ScheduledAction, AiProvider, HarnessBlock } from "@hatopad/protocol";
 
 type SwitchedWatch = {
@@ -1655,6 +1656,7 @@ export async function createServer(
     let maintenanceOnly = false;
     let updateCompatibility = { minimum: serverProtocolVersion, maximum: serverProtocolVersion };
     let sessionMessageLimit: number | undefined;
+    let sessionImagesDeferred = false;
     // The durable registry selection is only the default for a new connection. Each connection pins its own
     // task per root on first use so another client's switch can never change what this one reports or runs.
     const taskPins = new Map<string, string | null>();
@@ -1860,6 +1862,8 @@ export async function createServer(
             throw error;
           }
           const limitRequested = validSessionMessageLimit(parsed.payload.sessionMessageLimit);
+          if (parsed.payload.deferSessionImages !== undefined && typeof parsed.payload.deferSessionImages !== "boolean")
+            throw new CoreError("INVALID_REQUEST", "deferSessionImages must be a boolean");
           const result = protocolHandshake(parsed.payload.compatibility);
           const compatible = result.compatible;
           maintenanceOnly = parsed.type === "protocol.maintenance";
@@ -1887,6 +1891,7 @@ export async function createServer(
           else {
             protocolAccepted = true;
             sessionMessageLimit = limitRequested;
+            sessionImagesDeferred = parsed.payload.deferSessionImages === true;
             servicesPromise = initializeServices();
             void servicesPromise.catch(() => undefined);
           }
@@ -2316,13 +2321,15 @@ export async function createServer(
           if (terminalId) terminalSubscription.terminalIds.add(terminalId);
         }
         if (parsed.type === "workspace.open") activeSessions.add(socket);
+        result = boundSessionsInResult(result, sessionMessageLimit);
+        if (sessionImagesDeferred) result = deferSessionImages(result);
         sendWebSocketData(
           socket,
           JSON.stringify({
             id,
             ok: true,
             rootId: parsed.rootId,
-            result: boundSessionsInResult(result, sessionMessageLimit),
+            result,
           }),
         );
       } catch (error) {

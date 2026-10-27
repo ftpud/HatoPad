@@ -22,6 +22,7 @@ const requestTypeRegistry: Record<RequestType, true> = {
   "overview.events": true,
   "overview.work": true,
   "ai.messages": true,
+  "ai.image": true,
   "workspace.addRoot": true,
   "workspace.selectRoot": true,
   "workspace.removeRoot": true,

@@ -45,8 +45,19 @@ export type AiOperations = {
       provider?: AiProvider;
       summary?: boolean;
       tail?: number;
+      /** Opaque cursor from a previous ai.get; returns indexed changes, or a full snapshot if expired. */
+      after?: string;
     };
-    result: { session: AiSession };
+    result: {
+      session: AiSession;
+      cursor?: string;
+      updates?: { index: number; message: AiMessage }[];
+      messageCount?: number;
+    };
+  };
+  "ai.image": {
+    payload: { provider?: AiProvider; sessionId: string; messageId: string; contentIndex: number; imageId: string };
+    result: { image: Extract<AiContentBlock, { type: "image" }> };
   };
   "ai.auth.get": {
     payload: { provider?: AiProvider; discover?: boolean };

@@ -27,6 +27,7 @@ export type ConnectionOptions = {
   getToken?: () => string | undefined | Promise<string | undefined>;
   /** Bound messages in every AiSession response (0..100); only honored by Cores advertising `session.responseLimit`. */
   sessionMessageLimit?: number;
+  deferSessionImages?: boolean;
   /** Skip the full file tree when restoring the saved root; only honored by Cores advertising `workspace.selectRoot.includeTree`. */
   leanWorkspace?: boolean;
   /** Restricted updater connection: never initializes workspace services, even on an incompatible Core. */
@@ -167,6 +168,7 @@ export class CoreClient {
             clientVersion: "0.1.0",
             ...(token ? { token } : {}),
             ...(options.sessionMessageLimit !== undefined ? { sessionMessageLimit: options.sessionMessageLimit } : {}),
+            ...(options.deferSessionImages !== undefined ? { deferSessionImages: options.deferSessionImages } : {}),
           }).finally(() => {
             if (this.negotiationSocket === socket) this.negotiationSocket = undefined;
           });

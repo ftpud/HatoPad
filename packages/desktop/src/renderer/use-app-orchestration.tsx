@@ -104,12 +104,13 @@ import { useHarnessActions } from "./use-harness-actions";
 import { useGitActions } from "./use-git-actions";
 import { useEditorTabActions } from "./use-editor-tab-actions";
 import { useAiActions } from "./use-ai-actions";
-import { AI_STREAM_TAIL, mergeAiSessionTail } from "./ai-session-tail";
+import { mergeAiSessionDelta } from "./ai-session-delta";
 import { useTaskActions } from "./use-task-actions";
 import { useFileOpeners } from "./use-file-openers";
 import { useNoteAndAgentFiles } from "./use-note-and-agent-files";
 
 const AI_STREAM_STATUS_MS = 1_000;
+const AI_STREAM_REFRESH_MS = 100;
 
 export function useAppOrchestration() {
   const workspaceKeyRef = useRef("");
@@ -936,10 +937,35 @@ export function useAppOrchestration() {
     }),
     [],
   );
-  const applyAiSession = useCallback((session: AiSession, token: AiSnapshotToken): boolean => {
+  const aiSessionRef = useRef(aiSession);
+  aiSessionRef.current = aiSession;
+  const loadAiImage = useCallback(
+    async (sessionId: string, messageId: string, contentIndex: number, imageId: string) => {
+      const client = clientRef.current;
+      if (!client) throw new Error("Backend is disconnected");
+      const workspace = activeWorkspaceRef.current;
+      const provider = aiProviderRef.current;
+      const result = await client.request("ai.image", { provider, sessionId, messageId, contentIndex, imageId });
+      if (
+        clientRef.current !== client ||
+        activeWorkspaceRef.current !== workspace ||
+        aiProviderRef.current !== provider ||
+        aiSessionRef.current.id !== sessionId
+      )
+        throw new Error("The conversation has changed");
+      return result.image;
+    },
+    [],
+  );
+  const aiCursorRef = useRef<{ cursor: string; client: CoreClient | undefined; workspace: string; provider: string }>();
+  const applyAiSession = useCallback((session: AiSession, token: AiSnapshotToken, cursor?: string): boolean => {
     if (token.workspace !== activeWorkspaceRef.current || token.provider !== aiProviderRef.current) return false;
     if (token.sequence <= aiSessionApplied.current) return false;
     aiSessionApplied.current = token.sequence;
+    aiSessionRef.current = session;
+    aiCursorRef.current = cursor
+      ? { cursor, client: clientRef.current, workspace: token.workspace, provider: token.provider }
+      : undefined;
     setAiSession(session);
     return true;
   }, []);
@@ -952,14 +978,12 @@ export function useAppOrchestration() {
         refreshAiStatuses(client, canApply),
       ]);
       if (!canApply()) return;
-      applyAiSession(session.session, token);
+      applyAiSession(session.session, token, session.cursor);
     },
     [aiToken, applyAiSession, refreshAiStatuses],
   );
-  const aiSessionRef = useRef(aiSession);
-  aiSessionRef.current = aiSession;
   // `ai.changed` fires for every chunk an agent streams, so a streamed refresh fetches only the
-  // newest messages, and task statuses (which reread every task's session and Git state) are
+  // changed messages, and task statuses (which reread every task's session and Git state) are
   // refreshed at most every AI_STREAM_STATUS_MS with a trailing refresh for the final state.
   const aiStatusThrottle = useRef<{ last: number; timer?: ReturnType<typeof setTimeout> }>({ last: 0 });
   const scheduleAiStatuses = useCallback(() => {
@@ -981,15 +1005,28 @@ export function useAppOrchestration() {
       scheduleAiStatuses();
       const token = aiToken();
       const shown = aiSessionRef.current;
-      const tail = await client.request("ai.get", { provider: aiProviderRef.current, tail: AI_STREAM_TAIL });
-      const merged = mergeAiSessionTail(shown, tail.session);
+      const root = client.getRoot();
+      const known = aiCursorRef.current;
+      const after =
+        known?.client === client && known.workspace === token.workspace && known.provider === token.provider
+          ? known.cursor
+          : undefined;
+      const result = await client.request("ai.get", { provider: token.provider, ...(after ? { after } : {}) });
+      if (
+        clientRef.current !== client ||
+        client.getRoot() !== root ||
+        token.workspace !== activeWorkspaceRef.current ||
+        token.provider !== aiProviderRef.current
+      )
+        return;
+      const merged = mergeAiSessionDelta(shown, result);
       if (merged) {
-        applyAiSession(merged, token);
+        applyAiSession(merged, token, result.cursor);
         return;
       }
-      const fullToken = aiToken();
-      const full = await client.request("ai.get", { provider: aiProviderRef.current });
-      applyAiSession(full.session, fullToken);
+      const full = await client.request("ai.get", { provider: token.provider });
+      if (clientRef.current !== client || client.getRoot() !== root) return;
+      applyAiSession(full.session, token, full.cursor);
     },
     [aiToken, applyAiSession, scheduleAiStatuses],
   );
@@ -1001,6 +1038,8 @@ export function useAppOrchestration() {
   refreshAiStatusesRef.current = refreshAiStatuses;
   const streamedAiRefresh = useRef<CoalescedAsyncAction>();
   streamedAiRefresh.current ??= new CoalescedAsyncAction(async () => {
+    // Fast local connections otherwise turn every token into a request and a full React render.
+    await new Promise((resolve) => setTimeout(resolve, AI_STREAM_REFRESH_MS));
     await refreshStreamedAiRef.current(clientRef.current);
   });
   const backgroundAiRefresh = useRef<CoalescedAsyncAction>();
@@ -1989,6 +2028,8 @@ export function useAppOrchestration() {
         }
         setAiModels(modelResult.models);
         setAiSession(session);
+        aiSessionRef.current = session;
+        aiCursorRef.current = undefined;
         setAiSessions([session]);
         setAiUsage(undefined);
         setTree(result.tree);
@@ -3309,6 +3350,7 @@ export function useAppOrchestration() {
     selectedAgentKey,
     selectAgent,
     chatSession,
+    loadAiImage,
     aiSessions,
     aiModels,
     aiModelsLoading,
