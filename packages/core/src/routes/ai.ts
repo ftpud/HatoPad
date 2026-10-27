@@ -4,7 +4,13 @@ import { GitService } from "../git.js";
 import { summarizeAiSessions } from "../ai/summary.js";
 import { withAppTools } from "../app-tools.js";
 import { pageMessages } from "../ai/message-page.js";
-import { boundPermission, boundQuestion, limitSessionMessages, pageSessions } from "../ai/session-bounds.js";
+import {
+  boundPermission,
+  boundQuestion,
+  limitSessionMessages,
+  pageSessions,
+  sessionListLimits,
+} from "../ai/session-bounds.js";
 import { permissionTargetWorkspace, assertSessionChangeAllowed } from "../request-support.js";
 import type { RequestContext } from "./context.js";
 
@@ -38,8 +44,27 @@ export async function handleAiRequest(context: RequestContext, request: Request)
     case "ai.get": {
       if (request.payload.summary !== undefined && typeof request.payload.summary !== "boolean")
         throw new CoreError("INVALID_REQUEST", "summary must be a boolean");
+      const tail = request.payload.tail;
+      if (
+        tail !== undefined &&
+        (typeof tail !== "number" ||
+          !Number.isSafeInteger(tail) ||
+          tail < 1 ||
+          tail > sessionListLimits.maxResponseMessages)
+      )
+        throw new CoreError(
+          "INVALID_REQUEST",
+          `tail must be an integer from 1 to ${sessionListLimits.maxResponseMessages}`,
+        );
       const session = await acp.get(request.payload.provider).get(workspacePath);
-      return { session: request.payload.summary === true ? limitSessionMessages(session, 0) : session };
+      return {
+        session:
+          request.payload.summary === true
+            ? limitSessionMessages(session, 0)
+            : tail !== undefined
+              ? limitSessionMessages(session, tail)
+              : session,
+      };
     }
     case "ai.messages": {
       const session = await acp.get(request.payload.provider).get(workspacePath);

@@ -41,9 +41,10 @@ export type AiOperations = {
     result: { installation: AiProviderInstallation };
   };
   "ai.get": {
-    /** `summary: true` returns session metadata with `messages: []` (see `ai.messages` for transcripts). */ payload: {
+    /** `summary: true` returns session metadata with `messages: []` (see `ai.messages` for transcripts). `tail` (1..100) keeps only the newest messages and sets `omittedMessages`, for refreshing a transcript the client already holds. */ payload: {
       provider?: AiProvider;
       summary?: boolean;
+      tail?: number;
     };
     result: { session: AiSession };
   };

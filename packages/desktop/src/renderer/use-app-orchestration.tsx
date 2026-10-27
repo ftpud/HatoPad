@@ -104,9 +104,12 @@ import { useHarnessActions } from "./use-harness-actions";
 import { useGitActions } from "./use-git-actions";
 import { useEditorTabActions } from "./use-editor-tab-actions";
 import { useAiActions } from "./use-ai-actions";
+import { AI_STREAM_TAIL, mergeAiSessionTail } from "./ai-session-tail";
 import { useTaskActions } from "./use-task-actions";
 import { useFileOpeners } from "./use-file-openers";
 import { useNoteAndAgentFiles } from "./use-note-and-agent-files";
+
+const AI_STREAM_STATUS_MS = 1_000;
 
 export function useAppOrchestration() {
   const workspaceKeyRef = useRef("");
@@ -953,13 +956,52 @@ export function useAppOrchestration() {
     },
     [aiToken, applyAiSession, refreshAiStatuses],
   );
+  const aiSessionRef = useRef(aiSession);
+  aiSessionRef.current = aiSession;
+  // `ai.changed` fires for every chunk an agent streams, so a streamed refresh fetches only the
+  // newest messages, and task statuses (which reread every task's session and Git state) are
+  // refreshed at most every AI_STREAM_STATUS_MS with a trailing refresh for the final state.
+  const aiStatusThrottle = useRef<{ last: number; timer?: ReturnType<typeof setTimeout> }>({ last: 0 });
+  const scheduleAiStatuses = useCallback(() => {
+    const throttle = aiStatusThrottle.current;
+    if (throttle.timer) return;
+    const run = () => {
+      throttle.timer = undefined;
+      throttle.last = Date.now();
+      backgroundAiRefresh.current!.trigger();
+    };
+    const wait = throttle.last + AI_STREAM_STATUS_MS - Date.now();
+    if (wait <= 0) run();
+    else throttle.timer = setTimeout(run, wait);
+  }, []);
+  useEffect(() => () => clearTimeout(aiStatusThrottle.current.timer), []);
+  const refreshStreamedAi = useCallback(
+    async (client = clientRef.current) => {
+      if (!client) return;
+      scheduleAiStatuses();
+      const token = aiToken();
+      const shown = aiSessionRef.current;
+      const tail = await client.request("ai.get", { provider: aiProviderRef.current, tail: AI_STREAM_TAIL });
+      const merged = mergeAiSessionTail(shown, tail.session);
+      if (merged) {
+        applyAiSession(merged, token);
+        return;
+      }
+      const fullToken = aiToken();
+      const full = await client.request("ai.get", { provider: aiProviderRef.current });
+      applyAiSession(full.session, fullToken);
+    },
+    [aiToken, applyAiSession, scheduleAiStatuses],
+  );
   const refreshAiRef = useRef(refreshAi);
+  const refreshStreamedAiRef = useRef(refreshStreamedAi);
   const refreshAiStatusesRef = useRef(refreshAiStatuses);
   refreshAiRef.current = refreshAi;
+  refreshStreamedAiRef.current = refreshStreamedAi;
   refreshAiStatusesRef.current = refreshAiStatuses;
   const streamedAiRefresh = useRef<CoalescedAsyncAction>();
   streamedAiRefresh.current ??= new CoalescedAsyncAction(async () => {
-    await refreshAiRef.current(clientRef.current);
+    await refreshStreamedAiRef.current(clientRef.current);
   });
   const backgroundAiRefresh = useRef<CoalescedAsyncAction>();
   backgroundAiRefresh.current ??= new CoalescedAsyncAction(async () => {

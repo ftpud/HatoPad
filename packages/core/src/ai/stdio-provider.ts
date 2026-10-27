@@ -397,6 +397,8 @@ export abstract class StdioAcpProvider extends AcpProvider {
   };
   protected abstract fallbackModels(): Promise<AiModel[]>;
   protected readonly oauthRefreshRetryDelays: readonly number[] = [5000, 15000, 40000];
+  /** Streamed updates persist at most this often; each save serializes the whole transcript on the event loop. */
+  protected readonly streamSaveDelayMs: number = 500;
   protected supportsUnlistedModel(_model: string): boolean {
     return false;
   }
@@ -487,6 +489,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
         await this.save(workspace, runtime.session);
       }),
     );
+    await Promise.all([...this.deferredSaves.keys()].map((workspace) => this.flushDeferredSave(workspace)));
     await Promise.all([...this.queues.values(), ...this.saveQueues.values()]);
     if (inspectionError) throw new Error("Could not verify provider descendant cleanup", { cause: inspectionError });
   }
@@ -495,6 +498,8 @@ export abstract class StdioAcpProvider extends AcpProvider {
   private readonly queues = new Map<string, Promise<void>>();
   private readonly freshSessions = new Map<string, AcpSendRequest>();
   private readonly saveQueues = new Map<string, Promise<void>>();
+  private readonly deferredSaves = new Map<string, { session: AiSession; timer: NodeJS.Timeout }>();
+  private readonly storedSessions = new Map<string, { mtimeMs: number; size: number; session: StoredSession }>();
   private modelCache?: { at: number; models: AiModel[] };
   private modelDiscovery?: Promise<AiModel[]>;
   private lastWorkspace = process.cwd();
@@ -556,11 +561,36 @@ export abstract class StdioAcpProvider extends AcpProvider {
     return this.get(workspace);
   }
 
+  /**
+   * Status polling reads every task's session while an agent streams; reparsing multi-megabyte
+   * transcripts each time blocks the event loop, so parsed files are reused until they change.
+   */
+  private async readStored(workspace: string): Promise<StoredSession> {
+    const file = this.file(workspace);
+    const info = await stat(file);
+    const cached = this.storedSessions.get(workspace);
+    if (cached && cached.mtimeMs === info.mtimeMs && cached.size === info.size) {
+      this.storedSessions.delete(workspace);
+      this.storedSessions.set(workspace, cached);
+      return cached.session;
+    }
+    const session = JSON.parse(await readFile(file, "utf8")) as StoredSession;
+    this.storedSessions.delete(workspace);
+    this.storedSessions.set(workspace, { mtimeMs: info.mtimeMs, size: info.size, session });
+    for (const key of this.storedSessions.keys()) {
+      if (this.storedSessions.size <= STORED_SESSION_CACHE_LIMIT) break;
+      this.storedSessions.delete(key);
+    }
+    return session;
+  }
+
   async get(workspace: string): Promise<AiSession> {
     const live = this.runtimes.get(workspace);
     if (live) return { ...live.session, messages: live.session.messages.slice(-1000) };
+    // A runtime that just closed may still have streamed output waiting to be written.
+    await this.flushDeferredSave(workspace);
     try {
-      const saved = JSON.parse(await readFile(this.file(workspace), "utf8")) as AiSession & { _ownerPid?: number };
+      const saved = await this.readStored(workspace);
       const now = new Date().toISOString();
       const { _ownerPid, pendingQuestion: _question, ...session } = saved;
       return {
@@ -2142,7 +2172,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
         if (next.completion) tool.completion = next.completion;
         if (next.terminalId) tool.terminalId = next.terminalId;
         runtime.tools.set(update.toolCallId, tool);
-        const existing = session.messages.find((message) => message.id === update.toolCallId);
+        const existing = findLastMessage(session, (message) => message.id === update.toolCallId);
         if (existing) {
           existing.contextKind = tool.kind === "read" ? "files" : "tools";
           existing.text = renderTool(tool);
@@ -2210,7 +2240,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
       default:
         break;
     }
-    await this.save(workspace, session);
+    this.deferSave(workspace, session);
     this.onChanged(workspace);
   }
 
@@ -2395,7 +2425,7 @@ export abstract class StdioAcpProvider extends AcpProvider {
     heading?: string,
   ): string {
     const existing = anchor
-      ? session.messages.find((message) => message.id === anchor && message.role === role)
+      ? findLastMessage(session, (message) => message.id === anchor && message.role === role)
       : undefined;
     if (existing) {
       existing.text += text;
@@ -2473,9 +2503,34 @@ export abstract class StdioAcpProvider extends AcpProvider {
       `${crypto.createHash("sha256").update(workspace).digest("hex")}-${this.descriptor.id}.json`,
     );
   }
+  /** Coalesce streamed updates into one trailing save; any direct save supersedes it. */
+  private deferSave(workspace: string, session: AiSession): void {
+    const pending = this.deferredSaves.get(workspace);
+    if (pending?.session === session) return;
+    if (pending) clearTimeout(pending.timer);
+    const timer = setTimeout(() => {
+      void this.flushDeferredSave(workspace).catch((error: unknown) =>
+        console.error(
+          `[core] ${this.descriptor.name} session save failed: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }, this.streamSaveDelayMs);
+    timer.unref();
+    this.deferredSaves.set(workspace, { session, timer });
+  }
+  private async flushDeferredSave(workspace: string): Promise<void> {
+    const pending = this.deferredSaves.get(workspace);
+    if (pending) await this.save(workspace, pending.session);
+  }
   private async save(workspace: string, session: AiSession): Promise<void> {
+    const pending = this.deferredSaves.get(workspace);
+    if (pending) {
+      clearTimeout(pending.timer);
+      this.deferredSaves.delete(workspace);
+    }
+    this.storedSessions.delete(workspace);
     refreshContext(session);
-    const serialized = `${JSON.stringify({ ...session, messages: session.messages.slice(-1000), ...(session.status === "in_progress" ? { _ownerPid: process.pid } : {}) }, null, 2)}\n`;
+    const serialized = `${JSON.stringify({ ...session, messages: session.messages.slice(-1000), ...(session.status === "in_progress" ? { _ownerPid: process.pid } : {}) })}\n`;
     const previous = this.saveQueues.get(workspace) ?? Promise.resolve();
     const next = previous
       .catch(() => undefined)
@@ -2538,6 +2593,18 @@ export abstract class StdioAcpProvider extends AcpProvider {
       this.onChanged(workspace);
     }
   }
+}
+
+type StoredSession = AiSession & { _ownerPid?: number };
+const STORED_SESSION_CACHE_LIMIT = 32;
+
+/** Streamed chunks target recent messages, so scan from the end of long transcripts. */
+function findLastMessage(session: AiSession, match: (message: AiMessage) => boolean): AiMessage | undefined {
+  for (let index = session.messages.length - 1; index >= 0; index--) {
+    const message = session.messages[index]!;
+    if (match(message)) return message;
+  }
+  return undefined;
 }
 
 function processExists(pid?: number): boolean {
