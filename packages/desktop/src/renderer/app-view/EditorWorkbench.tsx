@@ -339,8 +339,7 @@ export function EditorWorkbench({ context }: { context: AppViewContext }) {
                       );
                   }}
                   onChange={
-                    activeTab.type === "workflowDocument" ||
-                    (activeTab.type === "skill" && !!activeTab.skillPath && activeTab.skillPath !== "SKILL.md")
+                    activeTab.type === "workflowDocument"
                       ? undefined
                       : (content) =>
                           updateGroup((tabs, active) => ({
@@ -382,9 +381,7 @@ export function EditorWorkbench({ context }: { context: AppViewContext }) {
                 theme={monacoTheme(theme, highlightTheme)}
                 onMount={mountEditor}
                 options={{
-                  readOnly:
-                    activeTab.type === "workflowDocument" ||
-                    (activeTab.type === "skill" && !!activeTab.skillPath && activeTab.skillPath !== "SKILL.md"),
+                  readOnly: activeTab.type === "workflowDocument",
                   automaticLayout: true,
                   contextmenu: false,
                   minimap: { enabled: false },

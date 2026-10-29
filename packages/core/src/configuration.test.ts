@@ -69,6 +69,23 @@ describe("logical configuration documents", () => {
       undefined,
       service,
     );
+    await mcp.call("configuration_write", {
+      resource: "skills/local/testing/SKILL.md",
+      content: "Instructions",
+      expected_revision: null,
+    });
+    const nested = "skills/local/testing/references/deep/page.md";
+    expect(await mcp.call("configuration_read", { resource: nested })).toMatchObject({ exists: false, revision: null });
+    const page = (await mcp.call("configuration_write", {
+      resource: nested,
+      content: "First",
+      expected_revision: null,
+    })) as { revision: string };
+    await mcp.call("configuration_write", { resource: nested, content: "Updated", expected_revision: page.revision });
+    expect(await mcp.call("configuration_read", { resource: nested })).toMatchObject({
+      exists: true,
+      content: "Updated",
+    });
     const resource = "agents/global/reviewer.md";
     expect(await mcp.call("configuration_read", { resource })).toMatchObject({ exists: false, revision: null });
     const first = (await mcp.call("configuration_write", {
@@ -189,13 +206,25 @@ describe("logical configuration documents", () => {
     expect(results.filter((result) => result.status === "rejected")).toHaveLength(1);
   });
 
+  it("creates and updates nested skill resources with revision checks", async () => {
+    const { service } = await fixture();
+    await service.write("skills/local/testing/SKILL.md", "Instructions", null);
+    const resource = "skills/local/testing/references/deep/checks.md";
+    expect((await service.read(resource)).exists).toBe(false);
+    const created = await service.write(resource, "First", null);
+    expect((await service.read(resource)).content).toBe("First");
+    await service.write(resource, "Second", created.revision);
+    await expect(service.write(resource, "Stale", created.revision)).rejects.toThrow("changed since it was read");
+    expect((await service.read(resource)).content).toBe("Second");
+  });
+
   it("rejects arbitrary paths, registry access, malformed JSON and illegal scope writes", async () => {
     const { service } = await fixture();
     for (const resource of [
       "/etc/passwd",
       "agents/global/../secret.md",
       "tasks/../tasks.json",
-      "skills/global/name/other.md",
+      "skills/global/name/../other.md",
       "useful/workspace/notes.md",
       "workflows/index.json/extra",
     ])
@@ -223,9 +252,13 @@ describe("global configuration defaults", () => {
     await mkdir(legacyDirectory, { recursive: true });
     const previous = preRename(
       CONFIGURATION_SKILL.replace(
-        "task metadata, run configurations and global or local useful files",
-        "task metadata and global or local useful files",
+        "\nAfter creating SKILL.md, use skills/{scope}/{name}/{relative/path} to read, create\nand update supporting text files, including files in nested directories.",
+        "",
       )
+        .replace(
+          "task metadata, run configurations and global or local useful files",
+          "task metadata and global or local useful files",
+        )
         .replace(/Run configurations are editable through[\s\S]*?(?=After a write, read back)/, "")
         .split("\n\n## Detailed reference")[0]! + "\n",
     );
@@ -313,9 +346,13 @@ describe("global configuration defaults", () => {
     const { state, stores, workspace } = await fixture();
     const previous =
       CONFIGURATION_SKILL.replace(
-        "task metadata, run configurations and global or local useful files",
-        "task metadata and global or local useful files",
+        "\nAfter creating SKILL.md, use skills/{scope}/{name}/{relative/path} to read, create\nand update supporting text files, including files in nested directories.",
+        "",
       )
+        .replace(
+          "task metadata, run configurations and global or local useful files",
+          "task metadata and global or local useful files",
+        )
         .replace(/Run configurations are editable through[\s\S]*?(?=After a write, read back)/, "")
         .split("\n\n## Detailed reference")[0]! + "\n";
     const legacy = preRename(

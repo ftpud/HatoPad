@@ -17,7 +17,12 @@ export async function handleSkillsRequest(context: RequestContext, request: Requ
         ),
       };
     case "skills.write":
-      await new SkillsStore(undefined, rootWorkspace).write(request.payload.id, workspacePath, request.payload.content);
+      await new SkillsStore(undefined, rootWorkspace).writeResource(
+        request.payload.id,
+        workspacePath,
+        request.payload.path ?? "SKILL.md",
+        request.payload.content,
+      );
       return {};
     case "skills.delete":
       await new SkillsStore(undefined, rootWorkspace).delete(request.payload.id, workspacePath);

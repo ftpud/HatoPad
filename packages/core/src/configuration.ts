@@ -32,7 +32,7 @@ type Resource =
   | { kind: "languages"; id: string }
   | { kind: "runs"; scope: "local" | "global"; name: string }
   | { kind: "agents"; scope: AgentFileScope; name: string }
-  | { kind: "skills"; scope: SkillScope; name: string }
+  | { kind: "skills"; scope: SkillScope; name: string; path: string }
   | { kind: "useful"; scope: "global" | "local"; name: string }
   | { kind: "policy" }
   | { kind: "workflows"; id: string }
@@ -89,12 +89,12 @@ function parseResource(resource: string): Resource {
     return { kind, scope: scope as AgentFileScope, name: name! };
   if (
     kind === "skills" &&
-    parts.length === 4 &&
+    parts.length >= 4 &&
     ["global", "local", "workspace"].includes(scope!) &&
     /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,79}$/.test(name!) &&
-    parts[3] === "SKILL.md"
+    parts.slice(3).every((part) => part.length <= 180)
   )
-    return { kind, scope: scope as SkillScope, name: name! };
+    return { kind, scope: scope as SkillScope, name: name!, path: parts.slice(3).join("/") };
   if (kind === "useful" && parts.length === 3 && ["global", "local"].includes(scope!) && name!.length <= 180)
     return { kind, scope: scope as "global" | "local", name: name! };
   if (
@@ -186,7 +186,7 @@ export class ConfigurationService {
         agents:
           "agents/{global|local|workspace}/{file.md}: Markdown with name, description and optional mcpServers frontmatter. Global/local are Core state; workspace is the invoking checkout's .agents directory.",
         skills:
-          "skills/{global|local|workspace}/{name}/SKILL.md: Markdown instructions. Global is shared across projects on Core; local is Core state shared by all tasks of the root project; workspace is the invoking checkout's .agents/skills directory.",
+          "skills/{global|local|workspace}/{name}/SKILL.md: Markdown instructions; supporting text files use paths relative to the skill directory and require an existing skill. Global is shared across projects on Core; local is Core state shared by all tasks of the root project; workspace is the invoking checkout's .agents/skills directory.",
         useful:
           "useful/{global|local}/{filename}: arbitrary text. Local belongs to the root project, global is shared across projects on Core.",
         policy:
@@ -226,10 +226,14 @@ export class ConfigurationService {
       const skill = (await this.stores.skills.list(this.workspace)).skills.find(
         (file) => file.id === `${target.scope}/${target.name}`,
       );
-      exists = !!skill;
       if (skill) {
-        content = await this.stores.skills.read(skill.id, this.workspace);
         baseDirectory = path.dirname(skill.path);
+        try {
+          content = await this.stores.skills.readResource(skill.id, this.workspace, target.path);
+          exists = true;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
       }
     } else if (target.kind === "useful") {
       exists = (await this.stores.useful.list()).some(
@@ -320,7 +324,12 @@ export class ConfigurationService {
           }
           await this.stores.agents.write(target.scope, target.name, content, this.workspace);
         } else if (target.kind === "skills")
-          await this.stores.skills.write(`${target.scope}/${target.name}`, this.workspace, content);
+          await this.stores.skills.writeResource(
+            `${target.scope}/${target.name}`,
+            this.workspace,
+            target.path,
+            content,
+          );
         else if (target.kind === "useful") {
           if (!previous.exists) await this.stores.useful.create(target.scope, target.name);
           await this.stores.useful.write(target.scope, target.name, content);
