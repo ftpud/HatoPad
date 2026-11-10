@@ -1,3 +1,5 @@
+import { TerminalStateStore } from "./terminal-state.js";
+import { stateHome as terminalStateHome } from "./state-home.js";
 import { JsonTransferSocket } from "./remote-transfer-json.js";
 import { closeMcpConnections } from "./mcp-client.js";
 import { McpLibrary, executeWorkflowMcp } from "./mcp-library.js";
@@ -489,7 +491,7 @@ export async function createServer(
             };
       sendWebSocketData(owner.socket, JSON.stringify(message));
     }
-  });
+  }, undefined, new TerminalStateStore(path.join(process.env.HATOPAD_STATE_DIR ?? terminalStateHome(), "terminals.json")));
   const workflowApps = new WorkflowAppService(terminalHost);
   runConfigs = new RunConfigService(
     terminalHost,

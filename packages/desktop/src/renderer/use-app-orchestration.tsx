@@ -1222,6 +1222,21 @@ export function useAppOrchestration() {
         if (!current()) throw new Error("Obsolete workspace restoration");
       };
       ensureCurrent();
+      if (recovery) {
+        // This window may have disconnected before its latest tabs were saved, or
+        // another window may have saved a different terminal selection.
+        const group = layoutRef.current.terminalGroup;
+        const tabs = group.tabs.filter((tab) => !tab.rootId || tab.rootId === rootId);
+        const activeTabIndex = tabs.findIndex((tab) => tab.id === group.activeTabId);
+        options = {
+          ...options,
+          terminal: {
+            tabs: tabs.map((tab) => ({ terminalId: tab.terminalId, displayName: tab.title })),
+            ...(activeTabIndex >= 0 ? { activeTabIndex } : {}),
+            panelOpen: layoutRef.current.panels.some((panel) => panel.type === "terminal"),
+          },
+        };
+      }
       try {
         const java = await client.request("java.getOptions", {});
         ensureCurrent();
