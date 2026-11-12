@@ -12,6 +12,7 @@ import {
   writeJson,
   run,
   stageWorkspace,
+  copyProjectLicense,
   sha256,
   prepareElectronRuntime,
   copyBundledApplication,
@@ -79,7 +80,7 @@ for (const kind of ["desktop", "gateway"]) {
     recursive: true,
     dereference: true,
   });
-  await cp(path.join(root, "LICENSE.md"), path.join(appDirectory, "LICENSE.md"));
+  await copyProjectLicense(appDirectory);
   await cp(path.join(staging, "THIRD-PARTY-NOTICES.md"), path.join(appDirectory, "THIRD-PARTY-NOTICES.md"));
   const resources = path.join(staging, "bundle");
   await mkdir(resources, { recursive: true });

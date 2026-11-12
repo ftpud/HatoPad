@@ -9,7 +9,27 @@ import {
   prepareElectronRuntime,
   copyBundledApplication,
   writeThirdPartyNotices,
+  copyProjectLicense,
 } from "./common.mjs";
+
+test("bundle license copying accepts either repository filename and rejects missing licenses", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-license-"));
+  const source = path.join(directory, "source");
+  const destination = path.join(directory, "bundle");
+  try {
+    await mkdir(source);
+    await mkdir(destination);
+    await assert.rejects(copyProjectLicense(destination, source), /Missing project license/);
+    for (const name of ["LICENSE", "LICENSE.md"]) {
+      await writeFile(path.join(source, name), `Project license from ${name}`);
+      await copyProjectLicense(destination, source);
+      assert.equal(await readFile(path.join(destination, "LICENSE.md"), "utf8"), `Project license from ${name}`);
+      await rm(path.join(source, name));
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("runtime pruning retains transitive and optional dependencies, excluding renderers and AI runtimes", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "hatopad-runtime-closure-"));

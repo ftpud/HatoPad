@@ -24,12 +24,25 @@ export function run(command, args, cwd = root, env = process.env) {
   });
 }
 
+export async function copyProjectLicense(destination, source = root) {
+  for (const name of ["LICENSE", "LICENSE.md"]) {
+    try {
+      await cp(path.join(source, name), path.join(destination, "LICENSE.md"));
+      return;
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+    }
+  }
+  throw new Error(`Missing project license in ${source}: expected LICENSE or LICENSE.md`);
+}
+
 // Install the lockfile's production closure in isolation; never ship the checkout,
 // development dependencies, credentials, or host node_modules.
 export async function stageWorkspace(destination, workspace) {
   await mkdir(destination, { recursive: true });
-  for (const file of ["package.json", "package-lock.json", "LICENSE.md"])
+  for (const file of ["package.json", "package-lock.json"])
     await cp(path.join(root, file), path.join(destination, file));
+  await copyProjectLicense(destination);
   for (const name of [
     "acp",
     "protocol",
