@@ -5,6 +5,7 @@ export const sessionListLimits = { defaultSessions: 30, maxSessions: 100, maxRes
 
 /** Keep only the newest `limit` messages; record how many were left out. Never mutates the input. */
 export function limitSessionMessages(session: AiSession, limit: number): AiSession {
+  if (!Array.isArray(session.messages)) return session;
   const bounded = boundPending(session);
   if (bounded.messages.length <= limit) return bounded;
   return {

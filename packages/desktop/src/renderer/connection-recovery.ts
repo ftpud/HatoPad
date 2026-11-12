@@ -130,9 +130,16 @@ export async function reconnectWorkspace(
   return { roots, workspace };
 }
 
+export class TerminalSessionUnavailableError extends Error {
+  constructor(terminalId: string | undefined) {
+    super(`Terminal session unavailable after reconnect: ${terminalId ?? "missing terminal ID"}`);
+    this.name = "TerminalSessionUnavailableError";
+  }
+}
+
 export async function restoreTerminal(client: CoreClient, terminalId: string | undefined, recovery: boolean) {
   const attached = terminalId ? await client.request("terminal.attach", { terminalId }) : undefined;
   if (attached?.state === "available") return { session: attached.session, reattached: true };
-  if (recovery) throw new Error("Terminal session unavailable after reconnect");
+  if (recovery) throw new TerminalSessionUnavailableError(terminalId);
   return { session: await client.request("terminal.create", { cols: 80, rows: 24 }), reattached: false };
 }

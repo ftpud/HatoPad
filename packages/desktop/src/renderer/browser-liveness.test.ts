@@ -3,7 +3,7 @@ import { once } from "node:events";
 import { WebSocketServer } from "ws";
 import { expect, it, vi } from "vitest";
 import { CoreClient } from "./client";
-import { ConnectionRecovery, reconnectWorkspace, restoreTerminal } from "./connection-recovery";
+import { ConnectionRecovery, reconnectWorkspace, restoreTerminal, TerminalSessionUnavailableError } from "./connection-recovery";
 
 it.runIf(typeof globalThis.WebSocket === "function")(
   "recovers a silent WHATWG WebSocket once and rebuilds subscriptions without replaying mutations",
@@ -116,9 +116,38 @@ it.runIf(typeof globalThis.WebSocket === "function")(
 it("does not create a missing terminal during recovery", async () => {
   const request = vi.fn().mockResolvedValue({ state: "stale" });
   const client = { request } as unknown as CoreClient;
-  await expect(restoreTerminal(client, "gone", true)).rejects.toThrow("unavailable");
+  await expect(restoreTerminal(client, "gone", true)).rejects.toBeInstanceOf(TerminalSessionUnavailableError);
   expect(request).toHaveBeenCalledOnce();
   expect(request).toHaveBeenCalledWith("terminal.attach", { terminalId: "gone" });
   await expect(restoreTerminal(client, undefined, true)).rejects.toThrow("unavailable");
   expect(request).toHaveBeenCalledTimes(1);
+});
+
+it("retries a failed terminal attachment using the original session ID", async () => {
+  vi.useFakeTimers();
+  const failure = new Error("Request terminal.attach timed out");
+  const session = { terminalId: "existing", status: "running", output: "preserved history" };
+  const request = vi.fn().mockRejectedValueOnce(failure).mockResolvedValueOnce({ state: "available", session });
+  const client = { request } as unknown as CoreClient;
+  const restored = vi.fn();
+  const failed = vi.fn();
+  const recovery = new ConnectionRecovery(async () => {
+    restored(await restoreTerminal(client, "existing", true));
+  }, failed, 10, 20, () => 1);
+  try {
+    recovery.start();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(failed).toHaveBeenCalledWith(failure);
+    expect(failure).not.toBeInstanceOf(TerminalSessionUnavailableError);
+    expect(restored).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(20);
+    expect(restored).toHaveBeenCalledWith({ session, reattached: true });
+    expect(request.mock.calls).toEqual([
+      ["terminal.attach", { terminalId: "existing" }],
+      ["terminal.attach", { terminalId: "existing" }],
+    ]);
+  } finally {
+    recovery.stop();
+    vi.useRealTimers();
+  }
 });

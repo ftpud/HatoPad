@@ -1,6 +1,6 @@
 import { WorkspaceRootRegistry } from "./workspace-roots.js";
 import { afterEach, describe, expect, it } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, access, symlink, readlink } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, realpath, rm, access, symlink, readlink } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { createHash } from "node:crypto";
@@ -17,7 +17,8 @@ afterEach(async () => {
   await Promise.all(fixtures.splice(0).map((file) => rm(file, { recursive: true, force: true })));
 });
 async function fixture() {
-  const base = await mkdtemp(path.join(os.tmpdir(), "hatopad-migration-"));
+  // Migration requires canonical source paths; macOS tmpdir contains a symlink.
+  const base = await realpath(await mkdtemp(path.join(os.tmpdir(), "hatopad-migration-")));
   fixtures.push(base);
   const source = path.join(base, "old project"),
     destination = path.join(base, "new project's home"),
