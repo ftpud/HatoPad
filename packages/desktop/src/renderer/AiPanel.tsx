@@ -129,6 +129,7 @@ export function AiPanel({
   onRemoveSession,
   onResolvePermission,
   onAnswerQuestion,
+  onLoadImage,
   onOpenFile = () => undefined,
   onOpenExternal = () => undefined,
 }: {
@@ -171,6 +172,12 @@ export function AiPanel({
   ): Promise<void>;
   onOpenFile?(path: string, line?: number, column?: number): void;
   onOpenExternal?(url: string): void;
+  onLoadImage?(
+    sessionId: string,
+    messageId: string,
+    contentIndex: number,
+    imageId: string,
+  ): Promise<Extract<AiContentBlock, { type: "image" }>>;
 }) {
   const [prompt, setPrompt] = useState(draft);
   const promptRevision = useRef(0);
@@ -687,13 +694,18 @@ export function AiPanel({
         {session.messages.map((message, index) =>
           message.role === "activity" ? (
             <ActivityMessage
-              key={`${message.id}:${index}`}
+              key={`${session.id}:${message.id}:${index}`}
               text={message.text}
               content={message.content}
+              loadImage={
+                onLoadImage && session.id
+                  ? (contentIndex, imageId) => onLoadImage(session.id!, message.id, contentIndex, imageId)
+                  : undefined
+              }
               onFollowLink={(href) => followAiLink(href, workspacePath, onOpenFile, onOpenExternal)}
             />
           ) : (
-            <article key={`${message.id}:${index}`} className={`ai-message ${message.role}`}>
+            <article key={`${session.id}:${message.id}:${index}`} className={`ai-message ${message.role}`}>
               <header>
                 {message.role === "user"
                   ? message.senderModel
@@ -713,6 +725,11 @@ export function AiPanel({
                 )}
                 <RichContent
                   content={message.content}
+                  loadImage={
+                    onLoadImage && session.id
+                      ? (contentIndex, imageId) => onLoadImage(session.id!, message.id, contentIndex, imageId)
+                      : undefined
+                  }
                   onFollowLink={(href) => followAiLink(href, workspacePath, onOpenFile, onOpenExternal)}
                 />
               </div>
@@ -932,10 +949,12 @@ function ActivityMessage({
   text,
   content,
   onFollowLink,
+  loadImage,
 }: {
   text: string;
   content?: AiContentBlock[];
   onFollowLink(href: string): void;
+  loadImage?: ImageLoader;
 }) {
   const [firstLine, ...output] = text.split("\n");
   const summary = firstLine?.trim() || "Execution details";
@@ -971,21 +990,68 @@ function ActivityMessage({
         </summary>
         <pre>{output.length > 0 ? output.join("\n") : text}</pre>
       </details>
-      <RichContent content={content} onFollowLink={onFollowLink} />
+      <RichContent content={content} onFollowLink={onFollowLink} loadImage={loadImage} />
     </>
   );
 }
 
-function RichContent({ content, onFollowLink }: { content?: AiContentBlock[]; onFollowLink(href: string): void }) {
+type ImageBlock = Extract<AiContentBlock, { type: "image" }>;
+type ImageLoader = (index: number, imageId: string) => Promise<ImageBlock>;
+
+function SessionImage({ block, load }: { block: ImageBlock; load?: () => Promise<ImageBlock> }) {
+  const [image, setImage] = useState<ImageBlock>();
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const shown = image ?? block;
+  if (!shown.deferred || shown.data)
+    return (
+      <img
+        className="ai-content-image"
+        src={`data:${shown.mimeType};base64,${shown.data}`}
+        alt={shown.name ?? "ACP image output"}
+      />
+    );
+  return (
+    <div className="ai-content-resource">
+      <button
+        disabled={loading || !load}
+        onClick={async () => {
+          if (!load) return;
+          setLoading(true);
+          setError("");
+          try {
+            setImage(await load());
+          } catch (error) {
+            setError(error instanceof Error ? error.message : "Could not load image");
+          } finally {
+            setLoading(false);
+          }
+        }}
+      >
+        {loading ? "Loading image…" : `Show ${block.name ?? "image"}`}
+      </button>
+      {error && <span role="alert">{error}</span>}
+    </div>
+  );
+}
+
+function RichContent({
+  content,
+  onFollowLink,
+  loadImage,
+}: {
+  content?: AiContentBlock[];
+  onFollowLink(href: string): void;
+  loadImage?: ImageLoader;
+}) {
   return (
     <>
       {content?.map((block, index) =>
         block.type === "image" ? (
-          <img
-            className="ai-content-image"
-            key={index}
-            src={`data:${block.mimeType};base64,${block.data}`}
-            alt={block.name ?? "ACP image output"}
+          <SessionImage
+            key={block.deferred ?? index}
+            block={block}
+            load={loadImage && block.deferred ? () => loadImage(index, block.deferred!) : undefined}
           />
         ) : block.type === "resource" || block.type === "resource_link" ? (
           <a

@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { TerminalStateStore } from "./terminal-state.js";
 import { describe, expect, it, vi } from "vitest";
 import { TerminalSessionHost, type TerminalPtyFactory } from "./process-manager.js";
 
@@ -118,4 +122,69 @@ describe("TerminalSessionHost", () => {
     expect(host.attach("/workspace/task-a", terminal.terminalId)).toMatchObject({ status: "exited", exitCode: 23 });
     expect(factory).toHaveBeenCalledTimes(1);
   });
+});
+
+it("restores scrollback and IDs across Core shutdown without relaunching commands", () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "hatopad-terminal-"));
+  try {
+    const file = path.join(directory, "terminals.json");
+    const pty = new FakePty();
+    const host = new TerminalSessionHost(
+      () => {},
+      () => pty,
+      new TerminalStateStore(file),
+    );
+    const terminal = host.create("/workspace/task-a", 80, 24, undefined, "Build");
+    pty.emitData("work in progress\r\n");
+    host.closeAll();
+    const factory = vi.fn(() => new FakePty());
+    const restored = new TerminalSessionHost(() => {}, factory, new TerminalStateStore(file));
+    expect(restored.attach("/workspace/task-a", terminal.terminalId)).toMatchObject({
+      terminalId: terminal.terminalId,
+      displayName: "Build",
+      status: "exited",
+      output: expect.stringContaining("work in progress"),
+    });
+    expect(restored.attach("/workspace/task-a", terminal.terminalId)?.output).toContain("Core restarted");
+    expect(restored.attach("/workspace/task-b", terminal.terminalId)).toBeUndefined();
+    expect(factory).not.toHaveBeenCalled();
+    restored.close("/workspace/task-a", terminal.terminalId);
+    expect(new TerminalSessionHost(() => {}, factory, new TerminalStateStore(file)).list("/workspace/task-a")).toEqual(
+      [],
+    );
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("checkpoints output before shutdown and retains natural exit codes", async () => {
+  const directory = mkdtempSync(path.join(os.tmpdir(), "hatopad-terminal-"));
+  try {
+    const file = path.join(directory, "terminals.json");
+    const pty = new FakePty();
+    const host = new TerminalSessionHost(
+      () => {},
+      () => pty,
+      new TerminalStateStore(file),
+    );
+    const terminal = host.create("/workspace/task-a", 80, 24);
+    pty.emitData("finished");
+    pty.emitExit(23);
+    await vi.waitFor(() =>
+      expect(JSON.parse(readFileSync(file, "utf8"))[0]).toMatchObject({ output: "finished", exitCode: 23 }),
+    );
+    const restored = new TerminalSessionHost(
+      () => {},
+      () => new FakePty(),
+      new TerminalStateStore(file),
+    );
+    expect(restored.attach("/workspace/task-a", terminal.terminalId)).toMatchObject({
+      output: "finished",
+      status: "exited",
+      exitCode: 23,
+    });
+    host.closeAll();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

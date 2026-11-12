@@ -76,9 +76,8 @@ Choose the package test command for the changed code and report failures.
 ~~~
 
 Skill IDs are strings such as local/testing, not filesystem paths. New skills are
-not automatically enabled. Change policy only when requested. Supporting files for
-this built-in skill are shipped by Core; configuration_read/write expose SKILL.md,
-not arbitrary nested reference files.
+not automatically enabled. Change policy only when requested. Supporting text files can be read and edited with configuration_read/write using
+paths such as skills/local/testing/references/checks.md. Create the skill first.
 
 Policy document example:
 ~~~json

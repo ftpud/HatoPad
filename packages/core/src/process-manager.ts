@@ -1,3 +1,4 @@
+import { TerminalStateStore } from "./terminal-state.js";
 import crypto from "node:crypto";
 import path from "node:path";
 import type { IPty } from "node-pty";
@@ -44,7 +45,32 @@ export class TerminalSessionHost {
   constructor(
     private readonly onEvent: (event: TerminalEvent) => void,
     private readonly createPty: TerminalPtyFactory = defaultPtyFactory,
-  ) {}
+    private readonly state?: TerminalStateStore,
+  ) {
+    for (const saved of state?.load() ?? []) {
+      this.sessions.set(saved.terminalId, {
+        id: saved.terminalId,
+        workspace: path.resolve(saved.workspace),
+        output: (
+          saved.output +
+          (saved.status === "running" ? "\r\n[Core restarted; the previous process is no longer running]\r\n" : "")
+        ).slice(-MAX_REPLAY_LENGTH),
+        displayName: saved.displayName,
+        exitCode: saved.exitCode,
+      });
+    }
+  }
+
+  private save(immediate = false): void {
+    if (!this.state) return;
+    const snapshot = () =>
+      [...this.sessions.values()].map((session) => ({
+        ...this.snapshot(session),
+        workspace: session.workspace,
+      }));
+    if (immediate) this.state.flush(snapshot());
+    else this.state.schedule(snapshot);
+  }
 
   create(
     workspace: string,
@@ -70,15 +96,18 @@ export class TerminalSessionHost {
         onExit: launch?.onExit,
       };
       this.sessions.set(terminalId, session);
+      this.save(true);
       pty.onData((data) => {
         if (this.sessions.get(terminalId) !== session) return;
         session.output = (session.output + data).slice(-MAX_REPLAY_LENGTH);
+        this.save();
         this.onEvent({ type: "output", workspace: scopedWorkspace, terminalId, data });
       });
       pty.onExit(({ exitCode }) => {
         if (this.sessions.get(terminalId) !== session) return;
         session.pty = undefined;
         session.exitCode = exitCode;
+        this.save();
         session.onExit?.(exitCode);
         session.onExit = undefined;
         this.onEvent({ type: "exit", workspace: scopedWorkspace, terminalId, exitCode });
@@ -111,16 +140,19 @@ export class TerminalSessionHost {
       ...controls,
     };
     this.sessions.set(id, session);
+    this.save(true);
     if (exitCode === undefined)
       session.dispose = subscribe(
         (data) => {
           if (this.sessions.get(id) !== session) return;
           session.output = (session.output + data).slice(-MAX_REPLAY_LENGTH);
+          this.save();
           this.onEvent({ type: "output", workspace: session.workspace, terminalId: id, data });
         },
         (code) => {
           if (this.sessions.get(id) !== session) return;
           session.exitCode = code;
+          this.save();
           session.dispose?.();
           this.onEvent({ type: "exit", workspace: session.workspace, terminalId: id, exitCode: code });
         },
@@ -163,6 +195,7 @@ export class TerminalSessionHost {
   close(workspace: string, terminalId: string): void {
     const session = this.get(workspace, terminalId);
     this.sessions.delete(terminalId);
+    this.save(true);
     session.dispose?.();
     session.onExit?.(130);
     session.onExit = undefined;
@@ -184,6 +217,7 @@ export class TerminalSessionHost {
       session.onExit = undefined;
       session.pty?.kill();
     }
+    this.save(true);
   }
 
   hasWorkspace(workspace: string): boolean {
@@ -192,7 +226,10 @@ export class TerminalSessionHost {
   }
 
   closeAll(): void {
-    for (const session of this.sessions.values()) {
+    this.save(true);
+    const sessions = [...this.sessions.values()];
+    this.sessions.clear();
+    for (const session of sessions) {
       session.dispose?.();
       session.onExit?.(130);
       session.onExit = undefined;

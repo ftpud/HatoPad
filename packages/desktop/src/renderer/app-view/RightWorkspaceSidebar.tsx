@@ -106,6 +106,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
     removeAiSession,
     resolveAiPermission,
     answerAiQuestion,
+    loadAiImage,
     openAiFile,
     refreshGit,
     gitEntries,
@@ -846,6 +847,7 @@ export function RightWorkspaceSidebar({ context }: { context: AppViewContext }) 
                       onRemoveSession={(session) => void removeAiSession(session)}
                       onResolvePermission={resolveAiPermission}
                       onAnswerQuestion={answerAiQuestion}
+                      onLoadImage={loadAiImage}
                       onOpenFile={(path, line, column) => void openAiFile(path, line, column)}
                       onOpenExternal={(url) => void window.desktop?.openExternal(url)}
                     />

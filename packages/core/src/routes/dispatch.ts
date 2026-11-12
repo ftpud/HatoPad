@@ -180,6 +180,7 @@ export async function handleRequest(
     case "ai.installations.setCredentials":
     case "ai.get":
     case "ai.messages":
+    case "ai.image":
     case "ai.auth.get":
     case "ai.auth.start":
     case "ai.auth.input":

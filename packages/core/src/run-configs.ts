@@ -7,7 +7,15 @@ import type { RunConfig, RunConfigScope } from "@hatopad/protocol";
 import { CoreError } from "./errors.js";
 import { TerminalSessionHost, type TerminalEvent } from "./process-manager.js";
 
-type Runtime = { status: RunConfig["status"]; terminalId?: string; exitCode?: number; restart?: boolean };
+type Runtime = {
+  status: RunConfig["status"];
+  terminalId?: string;
+  exitCode?: number;
+  restart?: boolean;
+  /** Restart callers waiting to learn the replacement run's terminal. */
+  restarted?: ((config: Promise<RunConfig>) => void)[];
+};
+const RESTART_WAIT_MS = 10_000;
 const key = (workspace: string, scope: RunConfigScope, name: string) => `${path.resolve(workspace)}\0${scope}\0${name}`;
 
 /** File-backed shell run configurations. Discovery only reads text; execution is always explicit. */
@@ -177,8 +185,18 @@ export class RunConfigService {
     if (["starting", "running", "stopping"].includes(config.status)) {
       const state = this.runtime.get(key(workspace, scope, config.name))!;
       state.restart = true;
+      // Answer with the replacement run so the client can show its terminal, not the stopped one.
+      // A process that ignores the hang-up keeps the request from waiting forever.
+      let timer: NodeJS.Timeout | undefined;
+      const restarted = new Promise<RunConfig>((resolve) => {
+        (state.restarted ??= []).push(resolve);
+        timer = setTimeout(() => {
+          state.restarted = state.restarted?.filter((item) => item !== resolve);
+          resolve(this.read(workspace, scope, name));
+        }, RESTART_WAIT_MS);
+      });
       await this.stop(workspace, scope, name);
-      return this.read(workspace, scope, name);
+      return restarted.finally(() => clearTimeout(timer));
     }
     return this.run(workspace, scope, name);
   }
@@ -192,7 +210,9 @@ export class RunConfigService {
       this.changed(workspace);
       if (state.restart) {
         state.restart = false;
-        void this.run(workspace, scope, name).catch(() => undefined);
+        const next = this.run(workspace, scope, name);
+        next.catch(() => undefined);
+        for (const resolve of state.restarted?.splice(0) ?? []) resolve(next);
       }
     }
   }
@@ -205,6 +225,8 @@ export class RunConfigService {
       state.status = "failed";
       state.exitCode = 130;
       state.restart = false;
+      const [, scope, name] = id.split("\0") as [string, RunConfigScope, string];
+      for (const resolve of state.restarted?.splice(0) ?? []) resolve(this.read(owner!, scope, name));
       this.changed(owner!);
     }
   }

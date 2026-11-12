@@ -2,7 +2,7 @@ import { ContextMenu } from "./ContextMenu";
 import { workspacePalette } from "./workspace-palette";
 import { menuPosition } from "./menu-position";
 import { FitAddon } from "@xterm/addon-fit";
-import { WebLinksAddon } from "@xterm/addon-web-links";
+import { terminalLinks } from "./terminal-links";
 import { Terminal } from "@xterm/xterm";
 import { ClipboardPaste, Copy, Pencil, Plus, SquareTerminal, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
@@ -384,11 +384,14 @@ function TerminalView({
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
-    terminal.loadAddon(
-      new WebLinksAddon((event, url) => {
-        if (event.ctrlKey || event.metaKey) void window.desktop?.openExternal(url);
-      }),
-    );
+    terminal.registerLinkProvider({
+      provideLinks: (row, callback) =>
+        callback(
+          terminalLinks(terminal, row, (event, url) => {
+            if (event.ctrlKey || event.metaKey) void window.desktop?.openExternal(url);
+          }),
+        ),
+    });
     terminal.open(container);
     terminal.attachCustomKeyEventHandler((event) => {
       if (event.type !== "keydown" || (!event.ctrlKey && !event.metaKey)) return true;

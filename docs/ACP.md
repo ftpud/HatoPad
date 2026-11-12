@@ -63,6 +63,18 @@ provider through `AcpProvider`; Desktop reads the provider's capabilities and
 settings to build the AI controls. Adding a provider should not require special
 cases in the UI or shared protocol.
 
+Desktop refreshes transcripts with the opaque cursor returned by `ai.get`
+(`ai.get.delta` capability). The next read sends `after` and receives only changed
+message positions plus current session metadata. Positions account for streamed
+replies, updates to older tool calls, and reused tool ids; timestamps alone cannot.
+An expired cursor, changed conversation, or trimmed history returns a full snapshot.
+Desktop advances its cursor only after applying the response to the same workspace
+and provider. Connections opting into `deferSessionImages` receive image identities
+instead of base64 in all session responses (`session.deferredImages` capability).
+The chat's **Show image** control fetches the image once through `ai.image`, checked
+against its workspace, conversation, message and content identity. Full image data
+stays in Core's durable transcript.
+
 ## Provider contract
 
 An ACP plugin supplies:

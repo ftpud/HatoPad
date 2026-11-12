@@ -59,6 +59,54 @@ it("persists chat MCP selections and changes the actual tool servers on the next
   await rm(state, { recursive: true, force: true });
 });
 
+it("coalesces streamed session saves and still persists the whole turn", async () => {
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-stream-save-"));
+  const workspace = path.join(state, "workspace");
+  await mkdir(workspace);
+  class SlowSaveProvider extends FakeProvider {
+    protected override readonly streamSaveDelayMs = 60_000;
+  }
+  const provider = new SlowSaveProvider(() => {}, state);
+  const save = vi.spyOn(provider as any, "save");
+  const deferSave = vi.spyOn(provider as any, "deferSave");
+  await provider.send(workspace, { prompt: "Stream", configuration: {} });
+  await settle(provider, workspace);
+  expect(deferSave.mock.calls.length).toBeGreaterThanOrEqual(8);
+  // One save per streamed chunk would rewrite the transcript at least once per update.
+  expect(save.mock.calls.length).toBeLessThan(deferSave.mock.calls.length);
+  const file = path.join(state, `${crypto.createHash("sha256").update(workspace).digest("hex")}-fake.json`);
+  const saved = await readFile(file, "utf8");
+  expect(saved).not.toContain('\n  "');
+  const texts = (JSON.parse(saved) as AiSession).messages.map((message) => message.text);
+  expect(texts).toEqual(expect.arrayContaining(["Hello, world", "Done!"]));
+  expect(texts.some((text) => text.includes("thinking hard"))).toBe(true);
+  await provider.shutdown();
+  await rm(state, { recursive: true, force: true });
+});
+
+it("reuses a parsed stored session until its file changes", async () => {
+  const state = await mkdtemp(path.join(os.tmpdir(), "hatopad-ai-stored-cache-"));
+  const workspace = path.join(state, "workspace");
+  const file = path.join(state, `${crypto.createHash("sha256").update(workspace).digest("hex")}-fake.json`);
+  const stored = (text: string): AiSession => ({
+    id: "stored",
+    status: "idle",
+    model: "auto",
+    reasoning: "medium",
+    messages: [{ id: "m", role: "assistant", text, timestamp: "now" }],
+  });
+  await writeFile(file, JSON.stringify(stored("first")));
+  const provider = new FakeProvider(() => {}, state);
+  const parse = vi.spyOn(JSON, "parse");
+  expect((await provider.get(workspace)).messages[0]!.text).toBe("first");
+  expect((await provider.get(workspace)).messages[0]!.text).toBe("first");
+  expect(parse).toHaveBeenCalledTimes(1);
+  await writeFile(file, JSON.stringify(stored("second, longer")));
+  expect((await provider.get(workspace)).messages[0]!.text).toBe("second, longer");
+  parse.mockRestore();
+  await rm(state, { recursive: true, force: true });
+});
+
 class FakeProvider extends StdioAcpProvider {
   constructor(
     onChanged: (workspace: string) => void,

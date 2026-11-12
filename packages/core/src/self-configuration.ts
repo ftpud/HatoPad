@@ -47,6 +47,8 @@ conflicts with another user's edits instead of repeatedly overwriting their work
 Use skills/local/{name}/SKILL.md for skills shared by all tasks in this project,
 skills/workspace/{name}/SKILL.md for checkout files and skills/global/{name}/SKILL.md
 for host-wide skills. All three scopes can be created and edited through the tools.
+After creating SKILL.md, use skills/{scope}/{name}/{relative/path} to read, create
+and update supporting text files, including files in nested directories.
 
 Agent and skill documents are Markdown with name/description frontmatter. Include
 mcpServers: [hatopad] in agents that need app tools. Skill policy is JSON with
@@ -84,10 +86,9 @@ Before designing or changing a workflow, read [Blocks and connections](reference
 For complete configuration document formats and write examples, read
 [Configuration formats](references/configuration.md). For every app and workflow
 command, including argument schemas and limits, read [Commands](references/commands.md).
-These files are installed beside this SKILL.md on Core. Resolve relative links against
-this skill's baseDirectory returned by configuration_read or skill_load, and read
-them with the provider's
-file-reading tool. They are supporting files, not configuration_read resource IDs.
+These files are installed beside this SKILL.md on Core. Read them with
+configuration_read using skills/global/hatopad-self-configuration/ followed by
+the relative path, or use a file-reading tool with the returned baseDirectory.
 The live MCP tool catalogue is authoritative for commands available in this session.
 
 Choose script for short, non-interactive commands, tests, builds and data transforms.
@@ -105,6 +106,7 @@ loop. Triggers cannot be deleted through configuration; the Triggers panel does 
 
 // Exact fingerprints of previously shipped skills; never replace user-edited instructions.
 const PREVIOUS_CONFIGURATION_SKILL_HASHES = new Set([
+  "b83737e61efdefeca8c8114330d901dfa7e88657cdc71b6b31966d2a8639b9c4",
   // Shipped before the HatoPad rebrand (text and file names said "Vibe").
   "d40367d45835b080b23bca0825aff3d7633f7b5273210823680bdd0d3e5db2cf",
   "c75c693c7248e855cd6b2d26589c66593c43257f04b10e0a5baa46aee39a18af",
@@ -125,6 +127,7 @@ const PREVIOUS_REFERENCE_HASHES: Record<string, Set<string>> = {
     "7fc4de08342eba0236ba5f912129a5cc3febd30060e8f3b9ba2666f652e03d26",
   ]),
   "configuration.md": new Set([
+    "302ced36701ada596b9ac1152a5b938224c400857171599e766ca67509a6ca3c",
     "926ce68a7662b262f717bb9359cd6da26d90cdc0b4243184464bb6f4efad22c2",
     "268e8d9d5f5fbe4e2784f0d6381388d7840081c31c1e3e048134daac99dd1a2b",
     "3684c16fc3ee025fb0806a486ab4b813b9e70846b8c95daed9b822f623c3e7b1",

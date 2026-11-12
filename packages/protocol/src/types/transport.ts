@@ -11,6 +11,8 @@ export type ProtocolCompatibility = { minimum: number; maximum: number };
 export const coreCapabilities = [
   "overview.summary",
   "ai.messages",
+  "ai.get.delta",
+  "session.deferredImages",
   "filesystem.readFile.maxBytes",
   "git.diff.maxBytes",
   "overview.workflowAttention",

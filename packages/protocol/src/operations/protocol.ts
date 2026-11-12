@@ -12,6 +12,8 @@ export type ProtocolSessionOperations = {
       /** Claims a one-use transfer ticket and switches this socket to JSON transfer frames. */
       remoteTransferToken?: string;
       sessionMessageLimit?: number;
+      /** Send image identities in session snapshots; fetch image data separately with ai.image. */
+      deferSessionImages?: boolean;
     };
     result: {
       maintenance?: boolean;

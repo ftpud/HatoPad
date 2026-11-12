@@ -263,6 +263,31 @@ export class SkillsStore {
     if (catalog.policyStorage === "workspace") await this.writePolicy(workspace, catalog.policy);
   }
 
+  async writeResource(id: string, workspace: string, resource: string, content: string): Promise<void> {
+    if (
+      typeof resource !== "string" ||
+      resource.length > 1000 ||
+      resource.includes("\\") ||
+      resource.includes("\0") ||
+      resource.split("/").some((part) => !part || part === "." || part === "..")
+    )
+      throw new CoreError("INVALID_REQUEST", "Skill resource must be a relative path within its skill directory");
+    if (resource === "SKILL.md") return this.write(id, workspace, content);
+    if (typeof content !== "string" || Buffer.byteLength(content) > MAX_BYTES)
+      throw new CoreError("FILE_TOO_LARGE", "Skill resource exceeds 256 KB");
+    const skill = await this.checked(this.target(id, workspace), workspace, id.split("/", 1)[0] as SkillScope);
+    const directory = path.dirname(skill);
+    // A supporting file belongs to an existing skill, and cannot escape its bundle via symlinks.
+    await stat(skill);
+    const boundary = await realpath(directory);
+    const target = path.join(directory, resource);
+    const effective = await canonicalFuturePath(target);
+    if (!effective.startsWith(`${boundary}${path.sep}`))
+      throw new CoreError("INVALID_REQUEST", "Skill resource escapes its skill directory");
+    await mkdir(path.dirname(target), { recursive: true });
+    await this.replace(target, content);
+  }
+
   async write(id: string, workspace: string, content: string): Promise<void> {
     if (typeof content !== "string" || Buffer.byteLength(content) > MAX_BYTES)
       throw new CoreError("FILE_TOO_LARGE", "Skill exceeds 256 KB");

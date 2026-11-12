@@ -4,9 +4,19 @@ import { GitService } from "../git.js";
 import { summarizeAiSessions } from "../ai/summary.js";
 import { withAppTools } from "../app-tools.js";
 import { pageMessages } from "../ai/message-page.js";
-import { boundPermission, boundQuestion, limitSessionMessages, pageSessions } from "../ai/session-bounds.js";
+import { SessionDeltas } from "../ai/session-delta.js";
+import { sessionImageId } from "../ai/session-images.js";
+import {
+  boundPermission,
+  boundQuestion,
+  limitSessionMessages,
+  pageSessions,
+  sessionListLimits,
+} from "../ai/session-bounds.js";
 import { permissionTargetWorkspace, assertSessionChangeAllowed } from "../request-support.js";
 import type { RequestContext } from "./context.js";
+
+const deltas = new WeakMap<object, SessionDeltas>();
 
 export async function handleAiRequest(context: RequestContext, request: Request): Promise<unknown> {
   const { tasks, acp, aiTimers, rootWorkspace, bridgeWorkspace, workspacePath } = context;
@@ -38,8 +48,58 @@ export async function handleAiRequest(context: RequestContext, request: Request)
     case "ai.get": {
       if (request.payload.summary !== undefined && typeof request.payload.summary !== "boolean")
         throw new CoreError("INVALID_REQUEST", "summary must be a boolean");
+      const tail = request.payload.tail;
+      if (
+        tail !== undefined &&
+        (typeof tail !== "number" ||
+          !Number.isSafeInteger(tail) ||
+          tail < 1 ||
+          tail > sessionListLimits.maxResponseMessages)
+      )
+        throw new CoreError(
+          "INVALID_REQUEST",
+          `tail must be an integer from 1 to ${sessionListLimits.maxResponseMessages}`,
+        );
+      const provider = acp.get(request.payload.provider);
+      const session = await provider.get(workspacePath);
+      if (
+        request.payload.after !== undefined &&
+        (typeof request.payload.after !== "string" || request.payload.after.length > 128)
+      )
+        throw new CoreError("INVALID_REQUEST", "after must be a session cursor");
+      if (request.payload.summary !== true && tail === undefined) {
+        let store = deltas.get(provider);
+        if (!store) deltas.set(provider, (store = new SessionDeltas()));
+        return store.get(workspacePath, session, request.payload.after);
+      }
+      return {
+        session:
+          request.payload.summary === true
+            ? limitSessionMessages(session, 0)
+            : tail !== undefined
+              ? limitSessionMessages(session, tail)
+              : session,
+      };
+    }
+    case "ai.image": {
+      const { sessionId, messageId, contentIndex, imageId } = request.payload;
+      if (
+        typeof sessionId !== "string" ||
+        typeof messageId !== "string" ||
+        typeof imageId !== "string" ||
+        !Number.isSafeInteger(contentIndex) ||
+        contentIndex < 0
+      )
+        throw new CoreError("INVALID_REQUEST", "Invalid image identity");
       const session = await acp.get(request.payload.provider).get(workspacePath);
-      return { session: request.payload.summary === true ? limitSessionMessages(session, 0) : session };
+      if (session.id !== sessionId) throw new CoreError("INVALID_REQUEST", "The conversation has changed");
+      for (let index = session.messages.length - 1; index >= 0; index--) {
+        const message = session.messages[index]!;
+        if (message.id !== messageId) continue;
+        const image = message.content?.[contentIndex];
+        if (image?.type === "image" && sessionImageId(image) === imageId) return { image };
+      }
+      throw new CoreError("INVALID_REQUEST", "The image has changed; refresh the conversation");
     }
     case "ai.messages": {
       const session = await acp.get(request.payload.provider).get(workspacePath);

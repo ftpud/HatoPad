@@ -41,11 +41,23 @@ export type AiOperations = {
     result: { installation: AiProviderInstallation };
   };
   "ai.get": {
-    /** `summary: true` returns session metadata with `messages: []` (see `ai.messages` for transcripts). */ payload: {
+    /** `summary: true` returns session metadata with `messages: []` (see `ai.messages` for transcripts). `tail` (1..100) keeps only the newest messages and sets `omittedMessages`, for refreshing a transcript the client already holds. */ payload: {
       provider?: AiProvider;
       summary?: boolean;
+      tail?: number;
+      /** Opaque cursor from a previous ai.get; returns indexed changes, or a full snapshot if expired. */
+      after?: string;
     };
-    result: { session: AiSession };
+    result: {
+      session: AiSession;
+      cursor?: string;
+      updates?: { index: number; message: AiMessage }[];
+      messageCount?: number;
+    };
+  };
+  "ai.image": {
+    payload: { provider?: AiProvider; sessionId: string; messageId: string; contentIndex: number; imageId: string };
+    result: { image: Extract<AiContentBlock, { type: "image" }> };
   };
   "ai.auth.get": {
     payload: { provider?: AiProvider; discover?: boolean };

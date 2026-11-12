@@ -466,7 +466,7 @@ export const appToolDefinitions = [
           type: "string",
           minLength: 1,
           description:
-            "Logical resource from configuration_list, or a new agents/skills/useful/runs resource in the documented format.",
+            "Logical resource from configuration_list, or a new agents/skills/useful/runs resource. Skill supporting files use skills/{scope}/{name}/{relative/path}.",
         },
       },
       required: ["resource"],
@@ -480,7 +480,12 @@ export const appToolDefinitions = [
       type: "object",
       additionalProperties: false,
       properties: {
-        resource: { type: "string", minLength: 1 },
+        resource: {
+          type: "string",
+          minLength: 1,
+          description:
+            "Logical resource; skill supporting files use skills/{scope}/{name}/{relative/path} after creating SKILL.md.",
+        },
         content: {
           type: "string",
           maxLength: 2097152,

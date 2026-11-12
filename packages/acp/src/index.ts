@@ -7,7 +7,13 @@ export type AiProvider = string;
 export type AiConfiguration = Record<string, string | number | boolean>;
 export type AiContentBlock =
   | { type: "text"; text: string }
-  | { type: "image"; data: string; mimeType: string; name?: string }
+  | {
+      type: "image";
+      data: string;
+      mimeType: string;
+      name?: string;
+      /** Fetch with ai.image when data is deferred. */ deferred?: string;
+    }
   | { type: "resource"; uri: string; mimeType?: string; text: string; name?: string }
   | { type: "resource_link"; uri: string; name: string; mimeType?: string; size?: number };
 export type AiContextCategory = "instructions" | "conversation" | "files" | "tools" | "reasoning";

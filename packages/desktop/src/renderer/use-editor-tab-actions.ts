@@ -148,7 +148,6 @@ export function useEditorTabActions(deps: EditorTabActionsDeps) {
 
   const saveFileTab = useCallback(
     async (current: EditorTab) => {
-      if (current.type === "skill" && current.skillPath && current.skillPath !== "SKILL.md") return !current.dirty;
       if (
         (current.type !== "file" &&
           current.type !== "useful" &&
@@ -180,7 +179,7 @@ export function useEditorTabActions(deps: EditorTabActionsDeps) {
         } else if (current.type === "agent")
           await clientRef.current.request("agents.write", { scope: current.agentScope!, name: current.path, content });
         else if (current.type === "skill")
-          await clientRef.current.request("skills.write", { id: current.skillId!, content });
+          await clientRef.current.request("skills.write", { id: current.skillId!, path: current.skillPath, content });
         else {
           const saved = await clientRef.current.request("filesystem.writeFile", {
             path: current.path,
