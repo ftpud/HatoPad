@@ -30,7 +30,9 @@ export function deferSessionImages(result: unknown): unknown {
         }
       : {}),
   });
-  const session = (item: AiSession): AiSession => ({ ...item, messages: item.messages.map(message) });
+  // Other domains (notably terminal.attach) also return a `session` field.
+  const session = (item: AiSession): AiSession =>
+    Array.isArray(item.messages) ? { ...item, messages: item.messages.map(message) } : item;
   return {
     ...record,
     ...(record.session ? { session: session(record.session) } : {}),

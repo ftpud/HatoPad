@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { access, mkdtemp, mkdir, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdtemp, mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import * as fileOperations from "node:fs/promises";
@@ -20,7 +20,9 @@ describe("WorkspaceFileSystem", () => {
   let fs: WorkspaceFileSystem;
 
   beforeEach(async () => {
-    root = await mkdtemp(path.join(tmpdir(), "hatopad-"));
+    // macOS exposes its temporary directory through /var -> /private/var.
+    // Match the canonical paths used by WorkspaceFileSystem, including mocks.
+    root = await realpath(await mkdtemp(path.join(tmpdir(), "hatopad-")));
     await mkdir(path.join(root, "src"));
     await writeFile(path.join(root, "src", "index.ts"), "export const value = 1;\n");
     fs = new WorkspaceFileSystem({}, `${root}-state`);

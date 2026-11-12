@@ -43,6 +43,7 @@ import {
   recoveryFailureFeedback,
   reconnectWorkspace,
   restoreTerminal,
+  TerminalSessionUnavailableError,
   type RecoverySelection,
 } from "./connection-recovery";
 import { recoverEditorGroups, workspaceRestorationGuard } from "./workspace-recovery";
@@ -1370,12 +1371,15 @@ export function useAppOrchestration() {
                 recovery: terminalRecovery,
               },
             };
-          } catch {
+          } catch (error) {
             ensureCurrent();
+            // Transport failures must reach ConnectionRecovery so it retries the
+            // original IDs instead of committing permanently unavailable tabs.
+            if (!(error instanceof TerminalSessionUnavailableError)) throw error;
             const terminalId = saved.terminalId ?? crypto.randomUUID();
             terminalBuffers.current.set(
               terminalId,
-              "\r\n[terminal recovery failed; no replacement shell was started]\r\n",
+              `\r\n[${error.message}; no replacement shell was started]\r\n`,
             );
             return {
               index,

@@ -74,7 +74,13 @@ for (const failure of ["buffer pressure", "asynchronous send error"] as const) {
           if (!response.ok) throw new Error(response.error.message);
           return response.result as ProtocolOperations[T]["result"];
         };
-        await request("protocol.handshake", { compatibility: protocolCompatibility });
+        // Desktop enables image deferral; terminal snapshots must not be treated
+        // as chat sessions by either response transformer during reattachment.
+        await request("protocol.handshake", {
+          compatibility: protocolCompatibility,
+          deferSessionImages: true,
+          sessionMessageLimit: 10,
+        });
         rootId = (await request("workspace.roots", {})).selectedRootId;
         await request("workspace.open", {});
         return {
